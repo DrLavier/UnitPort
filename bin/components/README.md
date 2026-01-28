@@ -124,7 +124,7 @@ code = editor.get_code()
 
 ### ModulePalette (`module_cards.py`)
 
-Module panel displaying draggable module cards.
+Node library panel with collapsible groups (ComfyUI-style), supporting drag and double-click.
 
 ```python
 from bin.components.module_cards import ModulePalette
@@ -132,20 +132,18 @@ from bin.components.module_cards import ModulePalette
 palette = ModulePalette()
 ```
 
-**Module categories**:
-- Action modules (Stand, Sit, Walk, etc.)
-- Logic modules (If, While, etc.)
-- Sensor modules (IMU, Camera, etc.)
-
-**ModuleCard**:
-- Draggable to canvas
-- Display module name and icon
-- Category color coding
+**Node library groups**:
+- System Nodes
+  - Action Nodes
+  - Base Nodes
+  - Logic Nodes
+  - Sensor Nodes
+- Custom Nodes
 
 ## Interaction Flow
 
 ```
-User drags module card
+User drags node from library
        ↓
 GraphView.dropEvent() receives drop
        ↓

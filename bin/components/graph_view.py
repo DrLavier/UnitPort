@@ -162,6 +162,7 @@ class GraphView(QGraphicsView):
             title = payload.get("title", "未知模块")
             grad = tuple(payload.get("grad", ["#45a049", "#4CAF50"]))
             features = payload.get("features", [])
+            preset = payload.get("preset")
             
             # 获取场景位置
             scene_pos = self.mapToScene(event.position().toPoint())
@@ -169,8 +170,10 @@ class GraphView(QGraphicsView):
             # 创建节点
             scene = self.scene()
             if isinstance(scene, GraphScene):
-                scene.create_node(title, scene_pos, features, grad)
-                log_info(f"创建节点: {title} at ({scene_pos.x():.0f}, {scene_pos.y():.0f})")
+                node_item = scene.create_node(title, scene_pos, features, grad)
+                if preset and hasattr(node_item, "_combo") and node_item._combo:
+                    node_item._combo.setCurrentText(preset)
+            log_info(f"创建节点: {title} at ({scene_pos.x():.0f}, {scene_pos.y():.0f})")
             
             event.acceptProposedAction()
             

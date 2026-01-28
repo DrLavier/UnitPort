@@ -578,7 +578,7 @@ class GraphScene(QGraphicsScene):
         if "Logic Control" in name or "逻辑控制" in name:
             w, h = 220, 170
         elif "Condition" in name or "条件判断" in name:
-            w, h = 210, 140
+            w, h = 300, 140
         else:
             w, h = 180, 110
 
@@ -749,6 +749,7 @@ class GraphScene(QGraphicsScene):
             for_step_input.setMaximumWidth(52)
 
             widget_container = QWidget()
+            widget_container.setStyleSheet("background: transparent;")
             vbox = QVBoxLayout(widget_container)
             vbox.setContentsMargins(0, 0, 0, 0)
             vbox.setSpacing(6)
@@ -928,7 +929,7 @@ class GraphScene(QGraphicsScene):
                     font-size: 11px;
                 }
             """)
-            input_box.setMaximumWidth(80)
+            input_box.setMaximumWidth(100)
 
             output_box = QLineEdit()
             output_box.setPlaceholderText("outputs")
@@ -942,9 +943,10 @@ class GraphScene(QGraphicsScene):
                     font-size: 11px;
                 }
             """)
-            output_box.setMaximumWidth(80)
+            output_box.setMaximumWidth(100)
 
             widget_container = QWidget()
+            widget_container.setStyleSheet("background: transparent;")
             hbox = QHBoxLayout(widget_container)
             hbox.setContentsMargins(0, 0, 0, 0)
             hbox.setSpacing(4)

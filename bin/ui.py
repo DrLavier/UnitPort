@@ -87,6 +87,7 @@ class MainWindow(QMainWindow):
 
         # Module palette
         self.module_palette = ModulePalette()
+        self.module_palette.node_requested.connect(self._on_node_requested)
 
         # Graph editor
         self.graph_scene = GraphScene()
@@ -334,6 +335,24 @@ class MainWindow(QMainWindow):
 
         # Start thread
         self.simulation_thread.start()
+
+    def _on_node_requested(self, payload: dict):
+        """Create node from node library double-click"""
+        if not payload:
+            return
+        title = payload.get("title", "Unknown")
+        grad = tuple(payload.get("grad", ["#45a049", "#4CAF50"]))
+        features = payload.get("features", [])
+        preset = payload.get("preset")
+
+        if not hasattr(self, "graph_view") or not hasattr(self, "graph_scene"):
+            return
+
+        center = self.graph_view.viewport().rect().center()
+        scene_pos = self.graph_view.mapToScene(center)
+        node_item = self.graph_scene.create_node(title, scene_pos, features, grad)
+        if preset and hasattr(node_item, "_combo") and node_item._combo:
+            node_item._combo.setCurrentText(preset)
 
     def closeEvent(self, event):
         """Window close event"""
