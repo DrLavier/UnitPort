@@ -28,7 +28,7 @@ UnitPort/
 │   ├── core/             # Framework (→ bin/core/README.md)
 │   └── components/       # UI components (→ bin/components/README.md)
 ├── nodes/                 # Node registry (→ nodes/README.md)
-├── sys_nodes/            # Built-in system nodes
+├── nodes/sys_nodes/      # Built-in system nodes
 ├── custom_nodes/         # Community/user custom nodes
 └── models/               # Robot integration (→ models/README.md)
 ```
@@ -78,7 +78,7 @@ Translation files are in `localisation/` directory. See [localisation/README.md]
 
 Nodes are organized into two categories:
 
-- **sys_nodes/**: Built-in system nodes (do not modify)
+- **nodes/sys_nodes/**: Built-in system nodes (do not modify)
 - **custom_nodes/**: Community and user-defined nodes
 
 See [custom_nodes/README.md](custom_nodes/README.md) for creating custom nodes.

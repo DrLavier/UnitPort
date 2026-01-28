@@ -34,9 +34,9 @@ UnitPort/
 │       └── README.md                # Module documentation
 │
 ├── nodes/                           # Node Registry ★
-│   └── __init__.py                  # Unified registry (sys_nodes + custom_nodes)
+│   └── __init__.py                  # Unified registry (nodes/sys_nodes + custom_nodes)
 │
-├── sys_nodes/                       # System Nodes (Built-in) ★
+├── nodes/sys_nodes/                 # System Nodes (Built-in) ★
 │   ├── __init__.py
 │   ├── base_node.py                 # Node base class
 │   ├── action_nodes.py              # Action nodes
@@ -70,10 +70,10 @@ Core infrastructure: config, logging, theme, localisation, execution engine.
 
 User interface: main window, graph editor, code editor, module palette.
 
-### Node System (`nodes/`, `sys_nodes/`, `custom_nodes/`)
+### Node System (`nodes/`, `nodes/sys_nodes/`, `custom_nodes/`)
 
-- `nodes/`: Unified registry loading from both sys_nodes and custom_nodes
-- `sys_nodes/`: Built-in system nodes (action, logic, sensor)
+- `nodes/`: Unified registry loading from both nodes/sys_nodes and custom_nodes
+- `nodes/sys_nodes/`: Built-in system nodes (action, logic, sensor)
 - `custom_nodes/`: Community/user-defined custom nodes
 
 ### Robot Integration (`models/`)
@@ -111,7 +111,7 @@ main.py
    │   └── Depends on: core, nodes, models
    │
    ├── nodes/            → Node registry
-   │   ├── sys_nodes/    → Built-in nodes
+   │   ├── nodes/sys_nodes/    → Built-in nodes
    │   └── custom_nodes/ → Custom nodes
    │
    └── models/           → Robot models

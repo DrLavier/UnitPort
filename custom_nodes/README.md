@@ -13,7 +13,7 @@ This directory is for community and user-defined custom nodes.
 
 ```python
 # my_nodes.py
-from sys_nodes.base_node import BaseNode
+from nodes.sys_nodes.base_node import BaseNode
 
 class DelayNode(BaseNode):
     """Custom delay node"""

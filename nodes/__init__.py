@@ -2,16 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 Node Module - Unified Node Registry
-Loads nodes from sys_nodes (built-in) and custom_nodes (community)
+Loads nodes from nodes/sys_nodes (built-in) and custom_nodes (community)
 """
 
 from typing import Dict, Type, List, Optional
 
 # Import base node
-from sys_nodes.base_node import BaseNode
+from .sys_nodes.base_node import BaseNode
 
 # Import system nodes
-from sys_nodes import (
+from .sys_nodes import (
     ActionExecutionNode,
     StopNode,
     IfNode,

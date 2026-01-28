@@ -1,15 +1,15 @@
 # Node System
 
-Unified node registry that loads nodes from both `sys_nodes/` (built-in) and `custom_nodes/` (community).
+Unified node registry that loads nodes from both `nodes/sys_nodes/` (built-in) and `custom_nodes/` (community).
 
 ## Directory Structure
 
 ```
 nodes/                    # Unified registry
-├── __init__.py          # Registry loading sys_nodes + custom_nodes
+├── __init__.py          # Registry loading nodes/sys_nodes + custom_nodes
 └── README.md            # This file
 
-sys_nodes/               # Built-in system nodes (DO NOT MODIFY)
+nodes/sys_nodes/         # Built-in system nodes (DO NOT MODIFY)
 ├── __init__.py
 ├── base_node.py         # Node base class
 ├── action_nodes.py      # Action nodes
@@ -23,7 +23,7 @@ custom_nodes/            # Community/user custom nodes
 
 ## Node Types
 
-### System Nodes (sys_nodes/)
+### System Nodes (nodes/sys_nodes/)
 
 Built-in nodes that ship with the application:
 
@@ -119,7 +119,7 @@ class MyNode(BaseNode):
 
 ## Development Guidelines
 
-1. **System nodes**: Do not modify files in `sys_nodes/` - they are maintained by the core team
+1. **System nodes**: Do not modify files in `nodes/sys_nodes/` - they are maintained by the core team
 2. **Custom nodes**: Add your nodes to `custom_nodes/` directory
 3. **Unique types**: Node type identifiers must be unique across all nodes
 4. **Error handling**: Handle errors gracefully in `execute()`

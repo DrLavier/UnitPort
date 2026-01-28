@@ -10,7 +10,7 @@ HOW TO ADD CUSTOM NODES:
 1. Create a new Python file in this directory (e.g., my_nodes.py)
 
 2. Import the BaseNode class:
-   from sys_nodes.base_node import BaseNode
+   from nodes.sys_nodes.base_node import BaseNode
 
 3. Define your custom node class:
 
@@ -53,7 +53,7 @@ GUIDELINES:
 from typing import Dict, Type
 
 # Import base node for custom node development
-from sys_nodes.base_node import BaseNode
+from nodes.sys_nodes.base_node import BaseNode
 
 # Registry for custom nodes
 # Format: {'node_type': NodeClass}

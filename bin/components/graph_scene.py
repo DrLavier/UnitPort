@@ -14,7 +14,7 @@ from PySide6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QLinearGradient
 from PySide6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsRectItem, QGraphicsEllipseItem,
     QGraphicsPathItem, QGraphicsProxyWidget, QComboBox, QLineEdit, QWidget,
-    QHBoxLayout, QPushButton, QMessageBox
+    QHBoxLayout, QVBoxLayout, QPushButton, QMessageBox, QLabel
 )
 
 from bin.core.logger import log_info, log_error, log_debug, log_warning, log_success
@@ -383,6 +383,7 @@ class GraphScene(QGraphicsScene):
                 if connection in conns:
                     conns.remove(connection)
                     connection.in_port.setData(2, conns)
+                self._clear_input_for_port(connection.in_port)
 
     def _start_reconnection(self, connection, end_type, pos):
         """Start reconnection"""
@@ -449,6 +450,11 @@ class GraphScene(QGraphicsScene):
 
         # Update path
         self._reconnect_connection.update_path()
+        if self._reconnect_connection.in_port and self._reconnect_connection.out_port:
+            self._apply_connection_to_input(
+                self._reconnect_connection.in_port,
+                self._reconnect_connection.out_port
+            )
 
         # Clean up temporary state
         self._cancel_reconnection()
@@ -549,6 +555,7 @@ class GraphScene(QGraphicsScene):
         self._attach_connection_safe(in_port, conn)
 
         log_debug(f"Connection created: {out_port.data(3)} -> {in_port.data(3)}")
+        self._apply_connection_to_input(in_port, out_port)
 
     def _update_all_connections(self):
         """Update all connection paths"""
@@ -568,8 +575,10 @@ class GraphScene(QGraphicsScene):
             grad: Gradient colors (color1, color2)
         """
         # Adjust width based on node type
-        if "Logic Control" in name or "Condition" in name:
-            w, h = 200, 120
+        if "Logic Control" in name or "逻辑控制" in name:
+            w, h = 220, 170
+        elif "Condition" in name or "条件判断" in name:
+            w, h = 210, 140
         else:
             w, h = 180, 110
 
@@ -614,7 +623,8 @@ class GraphScene(QGraphicsScene):
         port_r = 6
 
         def _mk_port(x, y, io, slot):
-            p = QGraphicsEllipseItem(x - port_r, y - port_r, port_r * 2, port_r * 2, rect)
+            p = QGraphicsEllipseItem(-port_r, -port_r, port_r * 2, port_r * 2, rect)
+            p.setPos(x, y)
             p.setBrush(QBrush(QColor("#1f2937")))
             p.setPen(QPen(QColor("#60a5fa"), 2))
             p.setData(0, "port")
@@ -629,8 +639,8 @@ class GraphScene(QGraphicsScene):
         # Create different UI and ports based on node type
         combo = None
 
-        if "Logic Control" in name:
-            features = features or ["If", "While Loop", "Until Loop"]
+        if "Logic Control" in name or "逻辑控制" in name:
+            features = features or ["If", "While Loop"]
             combo = QComboBox()
             combo.addItems(features)
             combo.setMinimumWidth(int(w * 0.8))
@@ -651,17 +661,245 @@ class GraphScene(QGraphicsScene):
                 }
             """)
 
+            condition_input = QLineEdit()
+            condition_input.setPlaceholderText("condition / connect")
+            condition_input.setStyleSheet("""
+                QLineEdit {
+                    background: #0f1115;
+                    color: #e5e7eb;
+                    border: 1px solid #4b5563;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    font-size: 11px;
+                }
+            """)
+
+            add_elif_btn = QPushButton("+elif")
+            add_elif_btn.setFixedWidth(48)
+            add_elif_btn.setStyleSheet("""
+                QPushButton {
+                    background: #111827;
+                    color: #e5e7eb;
+                    border: 1px solid #4b5563;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    font-size: 10px;
+                }
+                QPushButton:hover {
+                    background: #1f2937;
+                }
+            """)
+
+            loop_type_combo = QComboBox()
+            loop_type_combo.addItems(["While", "For"])
+            loop_type_combo.setStyleSheet("""
+                QComboBox {
+                    background: #0f1115;
+                    color: #e5e7eb;
+                    border: 1px solid #4b5563;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    font-size: 11px;
+                }
+            """)
+
+            loop_label = QLabel("Loop:")
+            loop_label.setStyleSheet("QLabel { color: #cbd5e1; font-size: 11px; }")
+
+            for_start_input = QLineEdit()
+            for_start_input.setPlaceholderText("start")
+            for_start_input.setStyleSheet("""
+                QLineEdit {
+                    background: #0f1115;
+                    color: #e5e7eb;
+                    border: 1px solid #4b5563;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    font-size: 11px;
+                }
+            """)
+            for_start_input.setMaximumWidth(52)
+
+            for_end_input = QLineEdit()
+            for_end_input.setPlaceholderText("end")
+            for_end_input.setStyleSheet("""
+                QLineEdit {
+                    background: #0f1115;
+                    color: #e5e7eb;
+                    border: 1px solid #4b5563;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    font-size: 11px;
+                }
+            """)
+            for_end_input.setMaximumWidth(52)
+
+            for_step_input = QLineEdit()
+            for_step_input.setPlaceholderText("step")
+            for_step_input.setStyleSheet("""
+                QLineEdit {
+                    background: #0f1115;
+                    color: #e5e7eb;
+                    border: 1px solid #4b5563;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    font-size: 11px;
+                }
+            """)
+            for_step_input.setMaximumWidth(52)
+
+            widget_container = QWidget()
+            vbox = QVBoxLayout(widget_container)
+            vbox.setContentsMargins(0, 0, 0, 0)
+            vbox.setSpacing(6)
+            vbox.addWidget(combo)
+
+            cond_row = QHBoxLayout()
+            cond_row.setContentsMargins(0, 0, 0, 0)
+            cond_row.setSpacing(4)
+            cond_row.addWidget(condition_input)
+            cond_row.addWidget(add_elif_btn)
+            vbox.addLayout(cond_row)
+
+            loop_row = QHBoxLayout()
+            loop_row.setContentsMargins(0, 0, 0, 0)
+            loop_row.setSpacing(4)
+            loop_row.addWidget(loop_label)
+            loop_row.addWidget(loop_type_combo)
+            loop_row.addStretch(1)
+            vbox.addLayout(loop_row)
+
+            for_row = QHBoxLayout()
+            for_row.setContentsMargins(0, 0, 0, 0)
+            for_row.setSpacing(4)
+            for_row.addWidget(for_start_input)
+            for_row.addWidget(for_end_input)
+            for_row.addWidget(for_step_input)
+            for_row.addStretch(1)
+            vbox.addLayout(for_row)
+
             # Ports
-            _mk_port(0, h / 2, "in", "condition")
-            _mk_port(w, h * 0.35, "out", "out_true")
-            _mk_port(w, h * 0.65, "out", "out_false")
+            condition_port = _mk_port(0, h * 0.50, "in", "condition")
+            for_start_port = _mk_port(0, h * 0.62, "in", "for_start")
+            for_end_port = _mk_port(0, h * 0.72, "in", "for_end")
+            for_step_port = _mk_port(0, h * 0.82, "in", "for_step")
+
+            out_true = _mk_port(w, h * 0.28, "out", "out_true")
+            out_false = _mk_port(w, h * 0.88, "out", "out_false")
+            loop_body = _mk_port(w, h * 0.28, "out", "loop_body")
+            loop_end = _mk_port(w, h * 0.88, "out", "loop_end")
+
+            rect._elif_input_ports = []
+            rect._elif_output_ports = []
+            rect._elif_inputs = []
+
+            def _layout_elif_ports():
+                total = len(rect._elif_output_ports)
+                if total == 0:
+                    return
+                start, end = 0.45, 0.72
+                for i, (pin, pout) in enumerate(zip(rect._elif_input_ports, rect._elif_output_ports)):
+                    y = h * (start + (end - start) * (i + 1) / (total + 1))
+                    pin.setPos(0, y)
+                    pout.setPos(w, y)
+
+            def _add_elif():
+                idx = len(rect._elif_output_ports)
+                inp = _mk_port(0, h * 0.60, "in", f"elif_{idx}")
+                outp = _mk_port(w, h * 0.60, "out", f"out_elif_{idx}")
+                rect._elif_input_ports.append(inp)
+                rect._elif_output_ports.append(outp)
+
+                elif_input = QLineEdit()
+                elif_input.setPlaceholderText(f"elif {idx}")
+                elif_input.setStyleSheet("""
+                    QLineEdit {
+                        background: #0f1115;
+                        color: #e5e7eb;
+                        border: 1px solid #4b5563;
+                        border-radius: 4px;
+                        padding: 2px 4px;
+                        font-size: 11px;
+                    }
+                """)
+                rect._elif_inputs.append(elif_input)
+                elif_input.textChanged.connect(lambda _t: self._update_node_params(rect))
+                vbox.insertWidget(vbox.count() - 2, elif_input)
+                _layout_elif_ports()
+                self.regenerate_code()
+
+            add_elif_btn.clicked.connect(_add_elif)
+
+            def _set_if_mode(enabled: bool):
+                condition_input.setVisible(enabled)
+                add_elif_btn.setVisible(enabled)
+                for inp in rect._elif_inputs:
+                    inp.setVisible(enabled)
+                for p in rect._elif_input_ports + rect._elif_output_ports:
+                    p.setVisible(enabled)
+                out_true.setVisible(enabled)
+                out_false.setVisible(enabled)
+                condition_port.setVisible(enabled)
+
+                loop_body.setVisible(not enabled)
+                loop_end.setVisible(not enabled)
+
+            def _set_for_ports_visible(enabled: bool):
+                for_start_input.setVisible(enabled)
+                for_end_input.setVisible(enabled)
+                for_step_input.setVisible(enabled)
+                for_start_port.setVisible(enabled)
+                for_end_port.setVisible(enabled)
+                for_step_port.setVisible(enabled)
+
+            def _set_loop_mode():
+                _set_if_mode(False)
+                loop_label.setVisible(True)
+                loop_type_combo.setVisible(True)
+                loop_body.setVisible(True)
+                loop_end.setVisible(True)
+                is_for = loop_type_combo.currentText() == "For"
+                condition_port.setVisible(not is_for)
+                condition_input.setVisible(not is_for)
+                _set_for_ports_visible(is_for)
+                self.regenerate_code()
+
+            def _set_if_only():
+                loop_label.setVisible(False)
+                loop_type_combo.setVisible(False)
+                _set_for_ports_visible(False)
+                _set_if_mode(True)
+                self.regenerate_code()
+
+            def _on_mode_change():
+                if combo.currentText().lower().startswith("while"):
+                    _set_loop_mode()
+                else:
+                    _set_if_only()
+
+            combo.currentTextChanged.connect(_on_mode_change)
+            loop_type_combo.currentTextChanged.connect(lambda _t: _set_loop_mode())
 
             proxy = QGraphicsProxyWidget(rect)
-            proxy.setWidget(combo)
+            proxy.setWidget(widget_container)
             proxy.setPos(8, 38)
             proxy.setZValue(2)
 
-        elif "Condition" in name:
+            rect._condition_input = condition_input
+            rect._loop_type_combo = loop_type_combo
+            rect._for_start_input = for_start_input
+            rect._for_end_input = for_end_input
+            rect._for_step_input = for_step_input
+
+            _on_mode_change()
+            condition_input.textChanged.connect(lambda _t: self._update_node_params(rect))
+            loop_type_combo.currentTextChanged.connect(lambda _t: self._update_node_params(rect))
+            for_start_input.textChanged.connect(lambda _t: self._update_node_params(rect))
+            for_end_input.textChanged.connect(lambda _t: self._update_node_params(rect))
+            for_step_input.textChanged.connect(lambda _t: self._update_node_params(rect))
+            combo.currentTextChanged.connect(lambda _t: self._update_node_params(rect))
+
+        elif "Condition" in name or "条件判断" in name:
             features = features or ["Equal", "Not Equal", "Greater Than", "Less Than"]
             combo = QComboBox()
             combo.addItems(features)
@@ -678,9 +916,9 @@ class GraphScene(QGraphicsScene):
                 }
             """)
 
-            value_input = QLineEdit()
-            value_input.setPlaceholderText("Value")
-            value_input.setStyleSheet("""
+            input_box = QLineEdit()
+            input_box.setPlaceholderText("inputs")
+            input_box.setStyleSheet("""
                 QLineEdit {
                     background: #0f1115;
                     color: #e5e7eb;
@@ -690,25 +928,45 @@ class GraphScene(QGraphicsScene):
                     font-size: 11px;
                 }
             """)
-            value_input.setMaximumWidth(60)
+            input_box.setMaximumWidth(80)
+
+            output_box = QLineEdit()
+            output_box.setPlaceholderText("outputs")
+            output_box.setStyleSheet("""
+                QLineEdit {
+                    background: #0f1115;
+                    color: #e5e7eb;
+                    border: 1px solid #4b5563;
+                    border-radius: 4px;
+                    padding: 2px 4px;
+                    font-size: 11px;
+                }
+            """)
+            output_box.setMaximumWidth(80)
 
             widget_container = QWidget()
             hbox = QHBoxLayout(widget_container)
             hbox.setContentsMargins(0, 0, 0, 0)
             hbox.setSpacing(4)
             hbox.addWidget(combo)
-            hbox.addWidget(value_input)
+            hbox.addWidget(input_box)
+            hbox.addWidget(output_box)
 
             proxy = QGraphicsProxyWidget(rect)
             proxy.setWidget(widget_container)
             proxy.setPos(8, 38)
             proxy.setZValue(2)
 
-            _mk_port(0, h / 2, "in", "value_in")
+            _mk_port(0, h * 0.45, "in", "left")
+            _mk_port(0, h * 0.70, "in", "right")
             _mk_port(w, h / 2, "out", "result")
 
-            rect._value_input = value_input
+            rect._input_box = input_box
+            rect._output_box = output_box
             rect._combo = combo
+            input_box.textChanged.connect(lambda _t: self._update_node_params(rect))
+            output_box.textChanged.connect(lambda _t: self._update_node_params(rect))
+            combo.currentTextChanged.connect(lambda _t: self._update_node_params(rect))
 
         else:
             # Other node types
@@ -794,6 +1052,126 @@ class GraphScene(QGraphicsScene):
         except Exception:
             pass
 
+    def _apply_connection_to_input(self, in_port, out_port):
+        """Apply incoming connection to input widgets"""
+        if not in_port or not out_port:
+            return
+        node_item = in_port.parentItem()
+        if not node_item or node_item.data(10) != "node":
+            return
+
+        in_slot = in_port.data(3)
+        label = self._format_connection_label(out_port)
+
+        if in_slot == "condition":
+            inp = getattr(node_item, "_condition_input", None)
+            if inp:
+                inp.setText(label)
+        elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
+            idx = int(in_slot.split("_")[1])
+            elif_inputs = getattr(node_item, "_elif_inputs", [])
+            if idx < len(elif_inputs):
+                elif_inputs[idx].setText(label)
+        elif in_slot in ("for_start", "for_end", "for_step"):
+            field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
+            if field:
+                field.setText(label)
+        elif in_slot in ("left", "right"):
+            input_box = getattr(node_item, "_input_box", None)
+            if input_box:
+                cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
+                cmp_inputs[in_slot] = label
+                node_item._cmp_inputs = cmp_inputs
+                left = cmp_inputs.get("left", "")
+                right = cmp_inputs.get("right", "")
+                parts = []
+                if left:
+                    parts.append(f"left={left}")
+                if right:
+                    parts.append(f"right={right}")
+                input_box.setText(", ".join(parts))
+
+        self._update_node_params(node_item)
+
+    def _clear_input_for_port(self, in_port):
+        """Clear input widgets when a connection is removed"""
+        if not in_port:
+            return
+        node_item = in_port.parentItem()
+        if not node_item or node_item.data(10) != "node":
+            return
+        in_slot = in_port.data(3)
+
+        if in_slot == "condition":
+            inp = getattr(node_item, "_condition_input", None)
+            if inp:
+                inp.setText("")
+        elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
+            idx = int(in_slot.split("_")[1])
+            elif_inputs = getattr(node_item, "_elif_inputs", [])
+            if idx < len(elif_inputs):
+                elif_inputs[idx].setText("")
+        elif in_slot in ("for_start", "for_end", "for_step"):
+            field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
+            if field:
+                field.setText("")
+        elif in_slot in ("left", "right"):
+            input_box = getattr(node_item, "_input_box", None)
+            if input_box:
+                cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
+                cmp_inputs[in_slot] = ""
+                node_item._cmp_inputs = cmp_inputs
+                left = cmp_inputs.get("left", "")
+                right = cmp_inputs.get("right", "")
+                parts = []
+                if left:
+                    parts.append(f"left={left}")
+                if right:
+                    parts.append(f"right={right}")
+                input_box.setText(", ".join(parts))
+
+        self._update_node_params(node_item)
+
+    def _format_connection_label(self, out_port):
+        """Format a readable label for a connected output"""
+        if not out_port:
+            return ""
+        node_item = out_port.parentItem()
+        if node_item and node_item.data(10) == "node":
+            name = node_item.data(11)
+            slot = out_port.data(3)
+            return f"{name}.{slot}"
+        return str(out_port.data(3))
+
+    def _update_node_params(self, node_item):
+        """Collect UI values into node metadata for later execution"""
+        if not node_item or node_item.data(10) != "node":
+            return
+
+        params = node_item.data(20) or {}
+
+        if hasattr(node_item, "_condition_input"):
+            params["condition_expr"] = node_item._condition_input.text()
+        if hasattr(node_item, "_elif_inputs"):
+            params["elif_conditions"] = [w.text() for w in node_item._elif_inputs]
+        if hasattr(node_item, "_loop_type_combo"):
+            params["loop_type"] = node_item._loop_type_combo.currentText().lower()
+        if hasattr(node_item, "_for_start_input"):
+            params["for_start"] = node_item._for_start_input.text()
+        if hasattr(node_item, "_for_end_input"):
+            params["for_end"] = node_item._for_end_input.text()
+        if hasattr(node_item, "_for_step_input"):
+            params["for_step"] = node_item._for_step_input.text()
+        if hasattr(node_item, "_combo"):
+            params["ui_selection"] = node_item._combo.currentText()
+
+        if hasattr(node_item, "_input_box"):
+            params["input_expr"] = node_item._input_box.text()
+        if hasattr(node_item, "_output_box"):
+            params["output_name"] = node_item._output_box.text()
+
+        node_item.setData(20, params)
+
     def regenerate_code(self):
         """Regenerate code"""
         if not self._code_editor:
@@ -823,6 +1201,50 @@ class GraphScene(QGraphicsScene):
             if node['combo']:
                 action = node['combo'].currentText()
                 code_lines.append(f"    # Action: {action}")
+
+            # Logic control details
+            if node['name'] and ("Logic Control" in node['name'] or "逻辑控制" in node['name']):
+                item = None
+                for it in self.items():
+                    if it.data(10) == "node" and it.data(12) == node['id']:
+                        item = it
+                        break
+                if item is not None:
+                    is_if = node['combo'] and node['combo'].currentText().lower().startswith("if")
+                    cond_input = getattr(item, "_condition_input", None)
+                    if cond_input:
+                        code_lines.append(f"    # condition: {cond_input.text()}")
+                    if is_if:
+                        for idx, inp in enumerate(getattr(item, "_elif_inputs", [])):
+                            code_lines.append(f"    # elif_{idx}: {inp.text()}")
+                    else:
+                        loop_type_combo = getattr(item, "_loop_type_combo", None)
+                        loop_type = loop_type_combo.currentText() if loop_type_combo else "While"
+                        code_lines.append(f"    # loop_type: {loop_type}")
+                        if loop_type == "For":
+                            fs = getattr(item, "_for_start_input", None)
+                            fe = getattr(item, "_for_end_input", None)
+                            fp = getattr(item, "_for_step_input", None)
+                            if fs and fe and fp:
+                                code_lines.append(
+                                    f"    # for: start={fs.text()}, end={fe.text()}, step={fp.text()}"
+                                )
+
+            # Condition/comparison details
+            if node['name'] and ("Condition" in node['name'] or "条件判断" in node['name']):
+                item = None
+                for it in self.items():
+                    if it.data(10) == "node" and it.data(12) == node['id']:
+                        item = it
+                        break
+                if item is not None:
+                    inp = getattr(item, "_input_box", None)
+                    outp = getattr(item, "_output_box", None)
+                    if inp:
+                        code_lines.append(f"    # inputs: {inp.text()}")
+                    if outp:
+                        code_lines.append(f"    # outputs: {outp.text()}")
+
             code_lines.append("")
 
         code_lines.append("if __name__ == '__main__':")
