@@ -206,15 +206,16 @@ class ModulePalette(QWidget):
         self.tree.addTopLevelItem(custom_root)
 
         action_group = QTreeWidgetItem([tr("modules.action_nodes", "Action Nodes")])
-        base_group = QTreeWidgetItem([tr("modules.base_nodes", "Base Nodes")])
         logic_group = QTreeWidgetItem([tr("modules.logic_nodes", "Logic Nodes")])
         sensor_group = QTreeWidgetItem([tr("modules.sensor_nodes", "Sensor Nodes")])
+        utility_group = QTreeWidgetItem([tr("modules.utility_nodes", "Utility Nodes")])
 
         system_root.addChild(action_group)
-        system_root.addChild(base_group)
         system_root.addChild(logic_group)
         system_root.addChild(sensor_group)
+        system_root.addChild(utility_group)
 
+        # Action nodes
         self._add_node_item(action_group, "ActionExecutionNode", {
             "title": "Action Execution",
             "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"],
@@ -226,12 +227,7 @@ class ModulePalette(QWidget):
             "preset": "Stop"
         })
 
-        self._add_node_item(base_group, "BaseNode", {
-            "title": "Base Node",
-            "features": ["BaseNode"],
-            "preset": "BaseNode"
-        })
-
+        # Logic nodes
         self._add_node_item(logic_group, "IfNode", {
             "title": "Logic Control",
             "features": ["If", "While Loop"],
@@ -244,14 +240,26 @@ class ModulePalette(QWidget):
         })
         self._add_node_item(logic_group, "ComparisonNode", {
             "title": "Condition",
-            "features": ["Equal", "Not Equal", "Greater Than", "Less Than"],
+            "features": ["Equal", "Not Equal", "Greater Than", "Less Than", "Greater Equal", "Less Equal"],
             "preset": "Equal"
         })
 
+        # Sensor nodes
         self._add_node_item(sensor_group, "SensorInputNode", {
             "title": "Sensor Input",
             "features": ["Read Ultrasonic", "Read Infrared", "Read Camera", "Read IMU", "Read Odometry"],
             "preset": "Read IMU"
+        })
+
+        # Utility nodes
+        self._add_node_item(utility_group, "MathNode", {
+            "title": "Math",
+            "features": ["Add", "Subtract", "Multiply", "Divide", "Power", "Modulo", "Min", "Max", "Abs", "Sum", "Average"],
+            "preset": "Add"
+        })
+        self._add_node_item(utility_group, "TimerNode", {
+            "title": "Timer",
+            "features": []
         })
 
         custom_nodes = get_custom_nodes()

@@ -29,6 +29,8 @@
     "robot_changed": "Robot type changed: {robot}",
     "new_project": "New project",
     "executing_action": "Executing lift leg action...",
+    "executing_workflow": "Executing workflow...",
+    "workflow_completed": "Workflow execution completed",
     "simulation_complete": "Simulation complete",
     "simulation_stopped": "Simulation stopped"
   },
@@ -41,8 +43,10 @@
     "save_not_implemented": "Save project feature not implemented",
     "export_code_length": "Code length: {length} characters\n(Export feature not implemented)",
     "run_select_action": "Run feature requires selecting an action node in the graph editor",
-    "no_robot_model": "Robot model not set",
-    "simulation_running": "Simulation is already running"
+    "no_robot_model": "Robot model not set. Actions were not executed on hardware.",
+    "no_connected_nodes": "No connected nodes in workflow. Please connect nodes to create a workflow.",
+    "simulation_running": "Simulation is already running",
+    "simulation_reset_failed": "Failed to reset simulation. Please check MuJoCo setup."
   },
 
   "log": {
@@ -87,9 +91,9 @@
     "system_nodes": "System Nodes",
     "custom_nodes": "Custom Nodes",
     "action_nodes": "Action Nodes",
-    "base_nodes": "Base Nodes",
     "logic_nodes": "Logic Nodes",
     "sensor_nodes": "Sensor Nodes",
+    "utility_nodes": "Utility Nodes",
     "no_custom_nodes": "(no custom nodes)",
 
     "logic_control": {

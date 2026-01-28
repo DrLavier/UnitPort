@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any
 from shiboken6 import isValid
 
 from PySide6.QtCore import Qt, QRectF, QPointF, QTimer
-from PySide6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QLinearGradient, QGradient, QPainterPath
+from PySide6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QLinearGradient, QGradient, QPainterPath, QDoubleValidator
 from PySide6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsRectItem, QGraphicsEllipseItem,
     QGraphicsPathItem, QGraphicsProxyWidget, QComboBox, QLineEdit, QWidget,
@@ -19,6 +19,9 @@ from PySide6.QtWidgets import (
 
 from bin.core.logger import log_info, log_error, log_debug, log_warning, log_success
 from bin.core.theme_manager import get_color, get_node_color_pair
+
+# Import node system
+from nodes import create_node as create_logic_node, get_node_class, REGISTERED_NODES
 
 
 class ConnectionItem(QGraphicsPathItem):
@@ -214,8 +217,9 @@ class GraphScene(QGraphicsScene):
         self._reconnecting = False
         self._reconnect_connection = None
         self._reconnect_end = None  # "start" or "end"
+        self._reconnect_original_port = None  # Save original port for cancel
 
-        # Action mapping
+        # Action mapping (UI action name -> robot action)
         self._action_mapping = {
             "Lift Right Leg": "lift_right_leg",
             "Stand": "stand",
@@ -223,6 +227,19 @@ class GraphScene(QGraphicsScene):
             "Walk": "walk",
             "Stop": "stop"
         }
+
+        # Node display name -> logic node type mapping
+        self._node_type_mapping = {
+            "Action Execution": "action_execution",
+            "Sensor Input": "sensor_input",
+            "Logic Control": "if",  # Default to if, will be updated based on combo
+            "Condition": "comparison",
+            "Math": "math",
+            "Timer": "timer",
+        }
+
+        # Store logic node instances (node_id -> BaseNode instance)
+        self._logic_nodes: Dict[int, Any] = {}
 
         # References
         self._code_editor = None
@@ -465,6 +482,10 @@ class GraphScene(QGraphicsScene):
                 # Delete all connections related to the node
                 self._delete_node_connections(item)
 
+                # Delete corresponding logic node
+                if node_id in self._logic_nodes:
+                    del self._logic_nodes[node_id]
+
                 # Delete the node itself
                 self.removeItem(item)
                 deleted_nodes.append(f"{node_name} (ID: {node_id})")
@@ -528,13 +549,15 @@ class GraphScene(QGraphicsScene):
         self._reconnect_connection = connection
         self._reconnect_end = end_type
 
-        # Determine start port
+        # Determine start port and save original port for potential cancel
         if end_type == "start":
-            self._temp_start_port = connection.out_port
+            self._reconnect_original_port = connection.out_port
+            self._temp_start_port = connection.in_port  # Keep the other end as anchor
             # Temporarily remove output end
             connection.out_port = None
         else:
-            self._temp_start_port = connection.in_port
+            self._reconnect_original_port = connection.in_port
+            self._temp_start_port = connection.out_port  # Keep the other end as anchor
             # Temporarily remove input end
             connection.in_port = None
 
@@ -557,28 +580,41 @@ class GraphScene(QGraphicsScene):
             self._cancel_reconnection()
             return
 
+        # Check if temp_start_port is valid
+        if not self._temp_start_port or not isValid(self._temp_start_port):
+            self._cancel_reconnection()
+            return
+
         # Check connection direction
         start_io = self._temp_start_port.data(1)
         target_io = target_port.data(1)
 
-        if start_io == target_io:
-            log_warning("Cannot connect ports of the same type")
-            self._cancel_reconnection()
-            return
-
-        # Update connection ports
+        # For reconnection, we need to connect to the opposite type
+        # start_io is the anchor port type, target should be same as original disconnected end
         if self._reconnect_end == "start":
-            # Reconnect start
-            if start_io == "out":
-                self._reconnect_connection.out_port = target_port
-            else:
-                self._reconnect_connection.in_port = target_port
+            # Reconnecting the start (out) end, target should be "out"
+            if target_io != "out":
+                log_warning("Cannot connect ports of the same type")
+                self._cancel_reconnection()
+                return
+            self._reconnect_connection.out_port = target_port
         else:
-            # Reconnect end
-            if start_io == "out":
-                self._reconnect_connection.in_port = target_port
-            else:
-                self._reconnect_connection.out_port = target_port
+            # Reconnecting the end (in) end, target should be "in"
+            if target_io != "in":
+                log_warning("Cannot connect ports of the same type")
+                self._cancel_reconnection()
+                return
+            self._reconnect_connection.in_port = target_port
+
+        # Remove from original port's connection list if different
+        if self._reconnect_original_port and self._reconnect_original_port != target_port:
+            conns = self._reconnect_original_port.data(2) or []
+            if self._reconnect_connection in conns:
+                conns.remove(self._reconnect_connection)
+                self._reconnect_original_port.setData(2, conns)
+            # Clear input widget if it was an input port
+            if self._reconnect_original_port.data(1) == "in":
+                self._clear_input_for_port(self._reconnect_original_port)
 
         # Attach to new port
         self._attach_connection_safe(target_port, self._reconnect_connection)
@@ -591,21 +627,34 @@ class GraphScene(QGraphicsScene):
                 self._reconnect_connection.out_port
             )
 
-        # Clean up temporary state
-        self._cancel_reconnection()
+        # Clean up temporary state (but don't restore original port since we succeeded)
+        conn = self._reconnect_connection
+        self._reconnect_connection = None
+        self._reconnect_original_port = None
+
+        if self._temp_connection:
+            self.removeItem(self._temp_connection)
+            self._temp_connection = None
+
+        self._temp_start_port = None
+        self._reconnecting = False
 
         log_info("Reconnection successful")
         self.regenerate_code()
 
     def _cancel_reconnection(self):
         """Cancel reconnection"""
-        if self._reconnect_connection:
-            # Restore original connection
+        if self._reconnect_connection and self._reconnect_original_port:
+            # Restore original port reference
             if self._reconnect_end == "start":
-                # Restore removed port
-                pass  # Connection has been deleted or kept as is
+                self._reconnect_connection.out_port = self._reconnect_original_port
+            else:
+                self._reconnect_connection.in_port = self._reconnect_original_port
+            # Update the connection path
+            self._reconnect_connection.update_path()
 
-            self._reconnect_connection = None
+        self._reconnect_connection = None
+        self._reconnect_original_port = None
 
         if self._temp_connection:
             self.removeItem(self._temp_connection)
@@ -1350,6 +1399,79 @@ class GraphScene(QGraphicsScene):
             right_input.textChanged.connect(lambda _t: self._update_node_params(rect))
             combo.currentTextChanged.connect(lambda _t: self._update_node_params(rect))
 
+        elif "Timer" in name:
+            def _make_tag(text: str) -> QLabel:
+                lbl = QLabel(text)
+                lbl.setObjectName("nodeTag")
+                lbl.setStyleSheet(self._tag_style)
+                return lbl
+
+            unit_label = _make_tag("s")
+            duration_row = PortInputRow("duration (s)", self._input_style, trailing=unit_label)
+            duration_input = duration_row.line_edit
+            duration_input.setMaximumWidth(int(w - 16))
+            duration_input.setValidator(QDoubleValidator(0.0, 60.0, 3, duration_input))
+
+            widget_container = QWidget()
+            widget_container.setStyleSheet("background: transparent;")
+            vbox = QVBoxLayout(widget_container)
+            vbox.setContentsMargins(0, 0, 0, 0)
+            vbox.setSpacing(4)
+            vbox.addWidget(duration_row)
+
+            proxy = QGraphicsProxyWidget(rect)
+            proxy.setWidget(widget_container)
+            proxy.setPos(8, 38)
+            proxy.setZValue(2)
+
+            data_port_x = 12
+            flow_in_port = _mk_port(0, h / 2, "in", "flow_in", radius=6)
+            flow_out_port = _mk_port(w, h / 2, "out", "flow_out", radius=6)
+            duration_port = _mk_port(data_port_x, h * 0.65, "in", "duration", radius=4)
+
+            def _resize_to_fit(min_height: Optional[int] = None):
+                layout = widget_container.layout()
+                if layout:
+                    layout.activate()
+                widget_container.adjustSize()
+                size_hint = widget_container.sizeHint()
+                try:
+                    proxy.setMinimumSize(size_hint)
+                except Exception:
+                    pass
+                content_h = size_hint.height()
+                target_h = int(proxy.pos().y() + content_h + 10)
+                if min_height is not None:
+                    target_h = max(target_h, min_height)
+                rect_h = rect.rect().height()
+                if target_h != rect_h:
+                    rect.setRect(0, 0, rect.rect().width(), target_h)
+
+            def _sync_ports():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                h_now = rect.rect().height()
+                flow_in_port.setPos(0, h_now / 2)
+                flow_out_port.setPos(w_now, h_now / 2)
+                y = duration_row.center_y(proxy)
+                duration_port.setPos(data_port_x, y)
+
+            def _sync_layout():
+                _resize_to_fit()
+                _sync_ports()
+
+            QTimer.singleShot(0, _sync_layout)
+
+            rect._duration_input = duration_input
+
+            def _on_duration_change():
+                self._update_node_params(rect)
+                self._sync_node_parameters(rect)
+                self.regenerate_code()
+
+            duration_input.textChanged.connect(lambda _t: _on_duration_change())
+
         else:
             # Other node types
             if "Action Execution" in name:
@@ -1381,15 +1503,203 @@ class GraphScene(QGraphicsScene):
         rect.setData(11, name)
         rect.setData(12, node_id)
 
+        # Create corresponding logic node instance
+        logic_node = self._create_logic_node(name, node_id, rect)
+        if logic_node:
+            self._logic_nodes[node_id] = logic_node
+            rect.setData(13, logic_node)  # Store reference in graphics item
+
         # Save combo reference
         if combo:
             rect._combo = combo
-            combo.currentTextChanged.connect(lambda _t: self.regenerate_code())
+            combo.currentTextChanged.connect(lambda _t: self._on_combo_changed(rect))
 
         self.regenerate_code()
         log_info(f"Node created: {name} (ID: {node_id})")
 
         return rect
+
+    def _create_logic_node(self, name: str, node_id: int, rect_item) -> Optional[Any]:
+        """Create corresponding logic node instance for a graphics node"""
+        # Determine node type from display name
+        node_type = None
+        for display_name, ntype in self._node_type_mapping.items():
+            if display_name in name:
+                node_type = ntype
+                break
+
+        if not node_type:
+            log_debug(f"No logic node mapping for: {name}")
+            return None
+
+        # Handle Logic Control special case
+        if "Logic Control" in name:
+            combo = getattr(rect_item, '_combo', None)
+            if combo:
+                selection = combo.currentText().lower()
+                if selection.startswith("while") or selection.startswith("for"):
+                    node_type = "while_loop"
+                else:
+                    node_type = "if"
+
+        try:
+            logic_node = create_logic_node(node_type, str(node_id))
+            log_debug(f"Created logic node: {node_type} (ID: {node_id})")
+            return logic_node
+        except Exception as e:
+            log_error(f"Failed to create logic node: {e}")
+            return None
+
+    def _on_combo_changed(self, rect_item):
+        """Handle combo box selection change"""
+        node_id = rect_item.data(12)
+        name = rect_item.data(11)
+
+        # Update logic node if needed (especially for Logic Control)
+        if "Logic Control" in name:
+            combo = getattr(rect_item, '_combo', None)
+            if combo:
+                selection = combo.currentText().lower()
+                new_type = "while_loop" if (selection.startswith("while") or selection.startswith("for")) else "if"
+
+                # Check if type changed
+                old_node = self._logic_nodes.get(node_id)
+                if old_node and old_node.node_type != new_type:
+                    # Create new logic node with correct type
+                    try:
+                        new_node = create_logic_node(new_type, str(node_id))
+                        self._logic_nodes[node_id] = new_node
+                        rect_item.setData(13, new_node)
+                        log_debug(f"Updated logic node type: {new_type}")
+                    except Exception as e:
+                        log_error(f"Failed to update logic node: {e}")
+
+        # Sync parameters
+        self._sync_node_parameters(rect_item)
+        self.regenerate_code()
+
+    def _sync_node_parameters(self, rect_item):
+        """Sync UI values to logic node parameters"""
+        node_id = rect_item.data(12)
+        logic_node = self._logic_nodes.get(node_id)
+        if not logic_node:
+            return
+
+        name = rect_item.data(11)
+        combo = getattr(rect_item, '_combo', None)
+
+        # Sync based on node type
+        if "Action Execution" in name and combo:
+            action = combo.currentText()
+            # Map UI action to robot action
+            robot_action = self._action_mapping.get(action, action.lower().replace(" ", "_"))
+            logic_node.set_parameter('action', robot_action)
+
+        elif "Sensor Input" in name and combo:
+            sensor_map = {
+                "Read Ultrasonic": "ultrasonic",
+                "Read Infrared": "infrared",
+                "Read Camera": "camera",
+                "Read IMU": "imu",
+                "Read Odometry": "odometry"
+            }
+            sensor_type = sensor_map.get(combo.currentText(), "imu")
+            logic_node.set_parameter('sensor_type', sensor_type)
+
+        elif "Logic Control" in name:
+            cond_input = getattr(rect_item, '_condition_input', None)
+            if cond_input:
+                logic_node.set_parameter('condition_expr', cond_input.text())
+
+            loop_type_combo = getattr(rect_item, '_loop_type_combo', None)
+            if loop_type_combo:
+                logic_node.set_parameter('loop_type', loop_type_combo.currentText().lower())
+
+            # For loop parameters
+            for_start = getattr(rect_item, '_for_start_input', None)
+            for_end = getattr(rect_item, '_for_end_input', None)
+            for_step = getattr(rect_item, '_for_step_input', None)
+            if for_start:
+                try:
+                    logic_node.set_parameter('for_start', int(for_start.text() or 0))
+                except ValueError:
+                    logic_node.set_parameter('for_start', 0)
+            if for_end:
+                try:
+                    logic_node.set_parameter('for_end', int(for_end.text() or 1))
+                except ValueError:
+                    logic_node.set_parameter('for_end', 1)
+            if for_step:
+                try:
+                    logic_node.set_parameter('for_step', int(for_step.text() or 1))
+                except ValueError:
+                    logic_node.set_parameter('for_step', 1)
+
+            # Elif conditions
+            elif_inputs = getattr(rect_item, '_elif_inputs', [])
+            logic_node.set_parameter('elif_conditions', [inp.text() for inp in elif_inputs])
+
+        elif "Condition" in name:
+            left_input = getattr(rect_item, '_left_input', None)
+            right_input = getattr(rect_item, '_right_input', None)
+            node_id = rect_item.data(12)
+            if left_input:
+                logic_node.set_parameter('input_expr', left_input.text())
+            if right_input:
+                # Keep the original text to preserve user input format
+                logic_node.set_parameter('compare_value', right_input.text() or '0')
+            # Set a unique output variable name based on node id
+            logic_node.set_parameter('output_name', f'condition_{node_id}')
+            if combo:
+                op_map = {
+                    "Equal": "==",
+                    "Not Equal": "!=",
+                    "Greater Than": ">",
+                    "Less Than": "<",
+                    "Greater Equal": ">=",
+                    "Less Equal": "<="
+                }
+                logic_node.set_parameter('operator', op_map.get(combo.currentText(), "=="))
+
+        elif "Math" in name and combo:
+            # Map UI selection to operation
+            op_map = {
+                "Add": "add",
+                "Subtract": "subtract",
+                "Multiply": "multiply",
+                "Divide": "divide",
+                "Power": "power",
+                "Modulo": "modulo",
+                "Min": "min",
+                "Max": "max",
+                "Abs": "abs",
+                "Sum": "sum",
+                "Average": "average"
+            }
+            logic_node.set_parameter('operation', op_map.get(combo.currentText(), "add"))
+            # Get input values if available
+            left_input = getattr(rect_item, '_left_input', None)
+            right_input = getattr(rect_item, '_right_input', None)
+            if left_input:
+                try:
+                    logic_node.set_parameter('value_a', float(left_input.text() or 0))
+                except ValueError:
+                    logic_node.set_parameter('value_a', 0)
+            if right_input:
+                try:
+                    logic_node.set_parameter('value_b', float(right_input.text() or 0))
+                except ValueError:
+                    logic_node.set_parameter('value_b', 0)
+
+        elif "Timer" in name:
+            duration_input = getattr(rect_item, "_duration_input", None)
+            duration_text = duration_input.text().strip() if duration_input else ""
+            try:
+                duration_value = float(duration_text) if duration_text else 1.0
+            except ValueError:
+                duration_value = 1.0
+            logic_node.set_parameter('duration', duration_value)
+            logic_node.set_parameter('unit', 'seconds')
 
     def _find_port_near(self, pos, radius=14):
         """Find port near position"""
@@ -1453,6 +1763,10 @@ class GraphScene(QGraphicsScene):
             field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
             if field:
                 field.setText(label)
+        elif in_slot == "duration":
+            duration_input = getattr(node_item, "_duration_input", None)
+            if duration_input:
+                duration_input.setText(label)
         elif in_slot in ("left", "right"):
             left_input = getattr(node_item, "_left_input", None)
             right_input = getattr(node_item, "_right_input", None)
@@ -1504,6 +1818,10 @@ class GraphScene(QGraphicsScene):
             field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
             if field:
                 field.setText("")
+        elif in_slot == "duration":
+            duration_input = getattr(node_item, "_duration_input", None)
+            if duration_input:
+                duration_input.setText("")
         elif in_slot in ("left", "right"):
             left_input = getattr(node_item, "_left_input", None)
             right_input = getattr(node_item, "_right_input", None)
@@ -1577,90 +1895,404 @@ class GraphScene(QGraphicsScene):
             params["input_expr"] = node_item._input_box.text()
         if hasattr(node_item, "_output_box"):
             params["output_name"] = node_item._output_box.text()
+        if hasattr(node_item, "_duration_input"):
+            params["duration"] = node_item._duration_input.text()
 
         node_item.setData(20, params)
 
+    def _build_workflow_order(self) -> List[Any]:
+        """
+        Build workflow execution order based on connections (left to right).
+        Only includes connected nodes, using topological sort.
+
+        Returns:
+            List of node items in execution order
+        """
+        # Collect all connections and connected nodes
+        connections = []
+        connected_node_ids = set()
+        node_map = {}  # id -> node item
+
+        for item in self.items():
+            if isinstance(item, ConnectionItem):
+                if item.out_port and item.in_port and isValid(item.out_port) and isValid(item.in_port):
+                    out_node = item.out_port.parentItem()
+                    in_node = item.in_port.parentItem()
+                    if out_node and in_node and out_node.data(10) == "node" and in_node.data(10) == "node":
+                        out_id = out_node.data(12)
+                        in_id = in_node.data(12)
+                        connections.append((out_id, in_id))
+                        connected_node_ids.add(out_id)
+                        connected_node_ids.add(in_id)
+                        node_map[out_id] = out_node
+                        node_map[in_id] = in_node
+            elif item.data(10) == "node":
+                node_map[item.data(12)] = item
+
+        # If no connections, return empty (no connected workflow)
+        if not connected_node_ids:
+            return []
+
+        # Build adjacency list and in-degree for topological sort
+        graph = {nid: [] for nid in connected_node_ids}
+        in_degree = {nid: 0 for nid in connected_node_ids}
+
+        for out_id, in_id in connections:
+            if out_id in graph and in_id in graph:
+                graph[out_id].append(in_id)
+                in_degree[in_id] += 1
+
+        # Topological sort with position-based tie-breaking (left to right)
+        # When multiple nodes have in_degree=0, prefer the leftmost one
+        result = []
+        candidates = [nid for nid, deg in in_degree.items() if deg == 0]
+
+        while candidates:
+            # Sort candidates by x position (leftmost first)
+            candidates.sort(key=lambda nid: node_map[nid].pos().x() if nid in node_map else 0)
+            current = candidates.pop(0)
+            result.append(node_map[current])
+
+            for neighbor in graph[current]:
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    candidates.append(neighbor)
+
+        # Check for cycles (not all nodes processed)
+        if len(result) != len(connected_node_ids):
+            log_warning("Cycle detected in node connections, using partial order")
+
+        return result
+
+    def _build_connection_graph(self) -> Dict[str, Any]:
+        """Build a graph of all connections for code generation"""
+        graph = {
+            'nodes': {},        # node_id -> node_item
+            'outgoing': {},     # node_id -> {port_name -> [(target_node_id, target_port)]}
+            'incoming': {},     # node_id -> {port_name -> [(source_node_id, source_port)]}
+        }
+
+        # Collect all nodes
+        for item in self.items():
+            if item.data(10) == "node":
+                node_id = item.data(12)
+                graph['nodes'][node_id] = item
+                graph['outgoing'][node_id] = {}
+                graph['incoming'][node_id] = {}
+
+        # Collect all connections
+        for item in self.items():
+            if isinstance(item, ConnectionItem):
+                if item.out_port and item.in_port and isValid(item.out_port) and isValid(item.in_port):
+                    out_node = item.out_port.parentItem()
+                    in_node = item.in_port.parentItem()
+                    if out_node and in_node and out_node.data(10) == "node" and in_node.data(10) == "node":
+                        out_id = out_node.data(12)
+                        in_id = in_node.data(12)
+                        out_port = item.out_port.data(3)
+                        in_port = item.in_port.data(3)
+
+                        # Add to outgoing
+                        if out_port not in graph['outgoing'][out_id]:
+                            graph['outgoing'][out_id][out_port] = []
+                        graph['outgoing'][out_id][out_port].append((in_id, in_port))
+
+                        # Add to incoming
+                        if in_port not in graph['incoming'][in_id]:
+                            graph['incoming'][in_id][in_port] = []
+                        graph['incoming'][in_id][in_port].append((out_id, out_port))
+
+        return graph
+
+    def _find_entry_nodes(self, graph: Dict[str, Any]) -> List[int]:
+        """Find nodes with no flow_in connections (entry points)"""
+        entry_nodes = []
+        for node_id, item in graph['nodes'].items():
+            incoming = graph['incoming'].get(node_id, {})
+            # Check if has flow_in connection
+            has_flow_in = 'flow_in' in incoming and len(incoming['flow_in']) > 0
+            if not has_flow_in:
+                entry_nodes.append(node_id)
+
+        # Sort by x position (left to right)
+        entry_nodes.sort(key=lambda nid: graph['nodes'][nid].pos().x())
+        return entry_nodes
+
+    def _get_condition_from_connection(self, node_id: int, graph: Dict[str, Any]) -> str:
+        """Get condition expression from connected Condition node"""
+        incoming = graph['incoming'].get(node_id, {})
+        condition_sources = incoming.get('condition', [])
+
+        if condition_sources:
+            source_id, source_port = condition_sources[0]
+            source_item = graph['nodes'].get(source_id)
+            if source_item:
+                source_name = source_item.data(11)
+                # If connected to a Condition node, use its output variable
+                if "Condition" in source_name:
+                    logic_node = self._logic_nodes.get(source_id)
+                    if logic_node:
+                        output_name = logic_node.get_parameter('output_name', '') or 'result'
+                        return output_name
+
+        # Fallback to condition input text
+        item = graph['nodes'].get(node_id)
+        if item:
+            cond_input = getattr(item, '_condition_input', None)
+            if cond_input and cond_input.text():
+                return cond_input.text()
+
+        return 'condition'
+
+    def _generate_node_code(self, node_id: int, graph: Dict[str, Any],
+                            indent: int, generated: set) -> List[str]:
+        """Recursively generate code for a node and its downstream nodes"""
+        if node_id in generated:
+            return []
+
+        generated.add(node_id)
+        code_lines = []
+        indent_str = "    " * indent
+
+        item = graph['nodes'].get(node_id)
+        if not item:
+            return []
+
+        node_name = item.data(11)
+        logic_node = self._logic_nodes.get(node_id)
+        outgoing = graph['outgoing'].get(node_id, {})
+
+        # Handle Logic Control nodes (if/while/for)
+        if "Logic Control" in node_name:
+            combo = getattr(item, '_combo', None)
+            selection = combo.currentText().lower() if combo else "if"
+
+            if selection.startswith("if"):
+                # Generate if statement
+                condition_expr = self._get_condition_from_connection(node_id, graph)
+                code_lines.append(f"{indent_str}if {condition_expr}:")
+
+                # Generate true branch
+                true_targets = outgoing.get('out_true', [])
+                if true_targets:
+                    for target_id, _ in true_targets:
+                        code_lines.extend(self._generate_node_code(target_id, graph, indent + 1, generated))
+                else:
+                    code_lines.append(f"{indent_str}    pass")
+
+                # Generate elif branches
+                elif_inputs = getattr(item, '_elif_inputs', [])
+                elif_output_ports = getattr(item, '_elif_output_ports', [])
+                for idx, elif_input in enumerate(elif_inputs):
+                    elif_cond = elif_input.text() or f"elif_condition_{idx}"
+                    code_lines.append(f"{indent_str}elif {elif_cond}:")
+                    elif_port = f'out_elif_{idx}'
+                    elif_targets = outgoing.get(elif_port, [])
+                    if elif_targets:
+                        for target_id, _ in elif_targets:
+                            code_lines.extend(self._generate_node_code(target_id, graph, indent + 1, generated))
+                    else:
+                        code_lines.append(f"{indent_str}    pass")
+
+                # Generate else branch
+                code_lines.append(f"{indent_str}else:")
+                false_targets = outgoing.get('out_false', [])
+                if false_targets:
+                    for target_id, _ in false_targets:
+                        code_lines.extend(self._generate_node_code(target_id, graph, indent + 1, generated))
+                else:
+                    code_lines.append(f"{indent_str}    pass")
+
+            else:
+                # While or For loop
+                loop_type_combo = getattr(item, '_loop_type_combo', None)
+                loop_type = loop_type_combo.currentText().lower() if loop_type_combo else "while"
+
+                if loop_type == "for":
+                    fs = getattr(item, '_for_start_input', None)
+                    fe = getattr(item, '_for_end_input', None)
+                    fp = getattr(item, '_for_step_input', None)
+                    start = fs.text() if fs and fs.text() else "0"
+                    end = fe.text() if fe and fe.text() else "10"
+                    step = fp.text() if fp and fp.text() else "1"
+                    code_lines.append(f"{indent_str}for i in range({start}, {end}, {step}):")
+                else:
+                    condition_expr = self._get_condition_from_connection(node_id, graph)
+                    code_lines.append(f"{indent_str}while {condition_expr}:")
+
+                # Generate loop body
+                body_targets = outgoing.get('loop_body', [])
+                if body_targets:
+                    for target_id, _ in body_targets:
+                        code_lines.extend(self._generate_node_code(target_id, graph, indent + 1, generated))
+                else:
+                    code_lines.append(f"{indent_str}    pass")
+
+                # Continue with loop_end (code after loop)
+                end_targets = outgoing.get('loop_end', [])
+                for target_id, _ in end_targets:
+                    code_lines.extend(self._generate_node_code(target_id, graph, indent, generated))
+
+        # Handle Condition nodes
+        elif "Condition" in node_name:
+            if logic_node:
+                # Sync parameters
+                self._sync_node_parameters(item)
+                node_code = logic_node.to_code()
+                for line in node_code.strip().split('\n'):
+                    code_lines.append(f"{indent_str}{line}")
+
+            # Continue with result output (data flow, not control flow)
+            # Don't follow result connections as they are data, not flow
+
+        # Handle Action/Sensor nodes
+        else:
+            if logic_node:
+                self._sync_node_parameters(item)
+                node_code = logic_node.to_code()
+                for line in node_code.strip().split('\n'):
+                    code_lines.append(f"{indent_str}{line}")
+            else:
+                # Fallback
+                combo = getattr(item, '_combo', None)
+                if combo and "Action Execution" in node_name:
+                    action = combo.currentText()
+                    robot_action = self._action_mapping.get(action, action.lower().replace(" ", "_"))
+                    code_lines.append(f"{indent_str}# Action: {action}")
+                    code_lines.append(f"{indent_str}robot.run_action('{robot_action}')")
+                elif combo and "Sensor Input" in node_name:
+                    code_lines.append(f"{indent_str}# Sensor read")
+                    code_lines.append(f"{indent_str}sensor_data = robot.get_sensor_data()")
+
+            # Continue with flow_out
+            flow_targets = outgoing.get('flow_out', [])
+            for target_id, _ in flow_targets:
+                code_lines.extend(self._generate_node_code(target_id, graph, indent, generated))
+
+        return code_lines
+
     def regenerate_code(self):
-        """Regenerate code"""
+        """Regenerate code with proper control flow nesting"""
         if not self._code_editor:
             return
 
-        code_lines = [
-            "# Auto-generated code",
-            "# Generated by Celebrimbor",
-            "",
-            "def execute_workflow():",
-        ]
-
-        # Get all nodes
-        nodes = []
+        # Sync all node parameters before generating code
         for item in self.items():
             if item.data(10) == "node":
-                node_info = {
-                    'id': item.data(12),
-                    'name': item.data(11),
-                    'combo': getattr(item, '_combo', None)
-                }
-                nodes.append(node_info)
+                self._sync_node_parameters(item)
 
-        # Generate code
-        for node in nodes:
-            code_lines.append(f"    # {node['name']} (ID: {node['id']})")
-            if node['combo']:
-                action = node['combo'].currentText()
-                code_lines.append(f"    # Action: {action}")
+        code_lines = [
+            "#!/usr/bin/env python3",
+            "# -*- coding: utf-8 -*-",
+            '"""',
+            "Auto-generated workflow code",
+            "Generated by UnitPort - Celebrimbor",
+            '"""',
+            "",
+        ]
 
-            # Logic control details
-            if node['name'] and ("Logic Control" in node['name'] or "逻辑控制" in node['name']):
-                item = None
-                for it in self.items():
-                    if it.data(10) == "node" and it.data(12) == node['id']:
-                        item = it
-                        break
-                if item is not None:
-                    is_if = node['combo'] and node['combo'].currentText().lower().startswith("if")
-                    cond_input = getattr(item, "_condition_input", None)
-                    if cond_input:
-                        code_lines.append(f"    # condition: {cond_input.text()}")
-                    if is_if:
-                        for idx, inp in enumerate(getattr(item, "_elif_inputs", [])):
-                            code_lines.append(f"    # elif_{idx}: {inp.text()}")
-                    else:
-                        loop_type_combo = getattr(item, "_loop_type_combo", None)
-                        loop_type = loop_type_combo.currentText() if loop_type_combo else "While"
-                        code_lines.append(f"    # loop_type: {loop_type}")
-                        if loop_type == "For":
-                            fs = getattr(item, "_for_start_input", None)
-                            fe = getattr(item, "_for_end_input", None)
-                            fp = getattr(item, "_for_step_input", None)
-                            if fs and fe and fp:
-                                code_lines.append(
-                                    f"    # for: start={fs.text()}, end={fe.text()}, step={fp.text()}"
-                                )
+        # Build connection graph
+        graph = self._build_connection_graph()
 
-            # Condition/comparison details
-            if node['name'] and ("Condition" in node['name'] or "条件判断" in node['name']):
-                item = None
-                for it in self.items():
-                    if it.data(10) == "node" and it.data(12) == node['id']:
-                        item = it
-                        break
-                if item is not None:
-                    left_input = getattr(item, "_left_input", None)
-                    right_input = getattr(item, "_right_input", None)
-                    inp = getattr(item, "_input_box", None)
-                    if left_input or right_input:
-                        left_val = left_input.text() if left_input else ""
-                        right_val = right_input.text() if right_input else ""
-                        code_lines.append(f"    # left: {left_val}")
-                        code_lines.append(f"    # right: {right_val}")
-                    elif inp:
-                        code_lines.append(f"    # inputs: {inp.text()}")
+        if not graph['nodes']:
+            code_lines.extend([
+                "def execute_workflow(robot=None):",
+                "    '''Execute the visual workflow'''",
+                "    pass  # No nodes in workflow",
+                "",
+            ])
+        else:
+            code_lines.extend([
+                "def execute_workflow(robot=None):",
+                "    '''Execute the visual workflow'''",
+                "",
+            ])
 
-            code_lines.append("")
+            # Find entry points and generate code
+            entry_nodes = self._find_entry_nodes(graph)
+            generated = set()
 
-        code_lines.append("if __name__ == '__main__':")
-        code_lines.append("    execute_workflow()")
+            # First generate Condition nodes that provide data (not in control flow)
+            for node_id, item in graph['nodes'].items():
+                node_name = item.data(11)
+                if "Condition" in node_name:
+                    # Check if this feeds into a Logic Control node
+                    outgoing = graph['outgoing'].get(node_id, {})
+                    result_targets = outgoing.get('result', [])
+                    for target_id, target_port in result_targets:
+                        if target_port == 'condition':
+                            # This is a data provider, generate it first
+                            code_lines.extend(self._generate_node_code(node_id, graph, 1, generated))
+                            code_lines.append("")
+                            break
+
+            # Generate code starting from entry nodes
+            for entry_id in entry_nodes:
+                if entry_id not in generated:
+                    node_code = self._generate_node_code(entry_id, graph, 1, generated)
+                    code_lines.extend(node_code)
+                    if node_code:
+                        code_lines.append("")
+
+            # Check if any code was generated
+            if len(code_lines) <= 8:  # Only header
+                code_lines.append("    pass  # No connected workflow")
+
+        code_lines.extend([
+            "",
+            "if __name__ == '__main__':",
+            "    # Initialize robot (simulation or real)",
+            "    # from models import get_robot_model",
+            "    # robot = get_robot_model('go2')",
+            "    robot = None  # Replace with actual robot instance",
+            "    execute_workflow(robot)",
+        ])
 
         # Use set_code method
         self._code_editor.set_code("\n".join(code_lines))
+
+    def get_workflow_data(self) -> Dict[str, Any]:
+        """Get workflow data for execution"""
+        ordered_nodes = self._build_workflow_order()
+        workflow = {
+            'nodes': [],
+            'connections': [],
+            'execution_order': []
+        }
+
+        for item in ordered_nodes:
+            node_id = item.data(12)
+            node_name = item.data(11)
+            logic_node = self._logic_nodes.get(node_id)
+
+            node_data = {
+                'id': node_id,
+                'name': node_name,
+                'type': logic_node.node_type if logic_node else 'unknown',
+                'logic_node': logic_node,
+                'parameters': logic_node.parameters.copy() if logic_node else {}
+            }
+
+            # Add UI-specific parameters
+            combo = getattr(item, '_combo', None)
+            if combo:
+                node_data['ui_selection'] = combo.currentText()
+
+            workflow['nodes'].append(node_data)
+            workflow['execution_order'].append(node_id)
+
+        # Collect connections
+        for item in self.items():
+            if isinstance(item, ConnectionItem):
+                if item.out_port and item.in_port and isValid(item.out_port) and isValid(item.in_port):
+                    out_node = item.out_port.parentItem()
+                    in_node = item.in_port.parentItem()
+                    if out_node and in_node:
+                        workflow['connections'].append({
+                            'from_node': out_node.data(12),
+                            'from_port': item.out_port.data(3),
+                            'to_node': in_node.data(12),
+                            'to_port': item.in_port.data(3)
+                        })
+
+        return workflow

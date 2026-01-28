@@ -23,6 +23,7 @@ UnitPort/
 │   │   ├── logger.py                # Logging system
 │   │   ├── theme_manager.py         # Theme manager
 │   │   ├── localisation.py          # Localisation manager
+│   │   ├── robot_context.py         # Global robot state manager (CRITICAL) ★★
 │   │   ├── node_executor.py         # Node execution engine
 │   │   ├── simulation_thread.py     # Simulation thread
 │   │   └── README.md                # Module documentation
@@ -66,6 +67,12 @@ UnitPort/
 
 Core infrastructure: config, logging, theme, localisation, execution engine.
 
+**Critical Component: `robot_context.py`**
+- Global robot state manager (singleton pattern)
+- Maps robot types to brands (go2 → unitree, etc.)
+- Factory for creating brand-specific robot models
+- All action nodes MUST use RobotContext, not direct model imports
+
 ### UI Design (`bin/components/`)
 
 User interface: main window, graph editor, code editor, module palette.
@@ -76,9 +83,22 @@ User interface: main window, graph editor, code editor, module palette.
 - `nodes/sys_nodes/`: Built-in system nodes (action, logic, sensor)
 - `custom_nodes/`: Community/user-defined custom nodes
 
+**Important**: Action/sensor nodes use `RobotContext` for robot-agnostic execution.
+
 ### Robot Integration (`models/`)
 
-Robot model abstraction: base class, Unitree implementation, simulation thread.
+Robot model abstraction: base class, brand-specific implementations.
+
+**Structure**:
+```
+models/
+├── base.py              # BaseRobotModel (abstract)
+├── __init__.py          # Model registry
+└── {brand}/             # Brand-specific implementation
+    └── {brand}_model.py # e.g., unitree_model.py
+```
+
+**Adding new robot brand**: See README.md "Adding New Robot Brand" section.
 
 ## Config Path Management
 

@@ -87,11 +87,16 @@ if not UNITREE_AVAILABLE:
 
 class UnitreeModel(BaseRobotModel):
     """Unitree机器人模型类"""
-    
+
+    # Class-level persistent viewer (shared across instances)
+    _persistent_viewer = None
+    _viewer_model = None
+    _viewer_data = None
+
     def __init__(self, robot_type: str = "go2"):
         """
         初始化Unitree机器人模型
-        
+
         Args:
             robot_type: 机器人型号 (go2, a1, b1)
         """
@@ -99,19 +104,19 @@ class UnitreeModel(BaseRobotModel):
         self.config = ConfigManager()
         self.is_available = UNITREE_AVAILABLE
         self.mujoco_available = MUJOCO_AVAILABLE
-        
+
         # MuJoCo模型相关
         self.model = None
         self.data = None
         self.viewer = None
-        
+
         # 仿真控制
         self.running = False
         self.stop_requested = False
-        
+
         # 注册可用动作
         self._register_actions()
-        
+
         log_info(f"UnitreeModel 初始化: robot_type={robot_type}, available={self.is_available}")
     
     def _register_actions(self):
@@ -292,6 +297,110 @@ class UnitreeModel(BaseRobotModel):
         self.running = False
         self.stop_requested = True
         log_info("停止请求已发送")
+
+    def ensure_viewer(self) -> bool:
+        """
+        Ensure MuJoCo viewer is open. Creates new one if needed, reuses if exists.
+
+        Returns:
+            True if viewer is ready, False otherwise
+        """
+        if not self.mujoco_available:
+            return False
+
+        # Reset stop flag for new action
+        self.stop_requested = False
+        self.running = True
+
+        # Check if model is loaded
+        if self.model is None:
+            if not self.load_model():
+                return False
+
+        # Check if persistent viewer exists and is valid
+        if UnitreeModel._persistent_viewer is not None:
+            try:
+                # Check if viewer is still running
+                if not UnitreeModel._persistent_viewer.is_running():
+                    raise Exception("Viewer not running")
+                # Try to sync - if it fails, viewer is closed
+                UnitreeModel._persistent_viewer.sync()
+                # Viewer exists and is valid, update reference
+                self.viewer = UnitreeModel._persistent_viewer
+                # Update model/data if changed
+                if UnitreeModel._viewer_model != self.model:
+                    log_info("Model changed, recreating viewer...")
+                    self.close_viewer()
+                else:
+                    log_info("Reusing existing viewer")
+                    return True
+            except Exception as e:
+                # Viewer was closed, need to recreate
+                log_info(f"Viewer was closed ({e}), recreating...")
+                UnitreeModel._persistent_viewer = None
+                UnitreeModel._viewer_model = None
+                UnitreeModel._viewer_data = None
+
+        # Create new persistent viewer
+        try:
+            log_info("Creating new MuJoCo viewer...")
+            self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+            UnitreeModel._persistent_viewer = self.viewer
+            UnitreeModel._viewer_model = self.model
+            UnitreeModel._viewer_data = self.data
+
+            # Set initial pose
+            self._set_initial_pose()
+            mujoco.mj_forward(self.model, self.data)
+            self.viewer.sync()
+
+            log_info("Viewer created successfully")
+            return True
+
+        except Exception as e:
+            log_error(f"Failed to create viewer: {e}")
+            return False
+
+    def close_viewer(self):
+        """Close the persistent viewer."""
+        if UnitreeModel._persistent_viewer is not None:
+            try:
+                UnitreeModel._persistent_viewer.close()
+            except Exception:
+                pass
+            UnitreeModel._persistent_viewer = None
+            UnitreeModel._viewer_model = None
+            UnitreeModel._viewer_data = None
+            self.viewer = None
+            log_info("Viewer closed")
+
+    def is_viewer_open(self) -> bool:
+        """Check if viewer is currently open."""
+        if UnitreeModel._persistent_viewer is None:
+            return False
+        try:
+            UnitreeModel._persistent_viewer.sync()
+            return True
+        except Exception:
+            return False
+
+    def reset_simulation(self) -> bool:
+        """Reset MuJoCo state and ensure the viewer is ready."""
+        if not self.mujoco_available:
+            return True
+
+        if not self.ensure_viewer():
+            return False
+
+        try:
+            self._set_initial_pose()
+            mujoco.mj_forward(self.model, self.data)
+            if self.viewer:
+                self.viewer.sync()
+            return True
+        except Exception as e:
+            log_error(f"Reset simulation failed: {e}")
+            return False
     
     def _set_initial_pose(self):
         """设置初始姿势"""
@@ -366,33 +475,29 @@ class UnitreeModel(BaseRobotModel):
         if not self.mujoco_available:
             log_warning("模拟模式：抬右腿动作")
             return True
-        
+
         try:
             log_info("执行抬右腿动作...")
-            
-            with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
-                # 设置初始姿势
-                self._set_initial_pose()
-                mujoco.mj_forward(self.model, self.data)
-                viewer.sync()
-                
-                # 执行抬腿动作
-                self._lift_right_leg_simulation(viewer)
-                
-                # 保持窗口打开一段时间
-                keep_time = self.config.get_float('MUJOCO', 'keep_window_time', fallback=5.0)
-                keep_steps = int(keep_time / self.model.opt.timestep)
-                
-                for i in range(keep_steps):
-                    if self.stop_requested:
-                        break
-                    mujoco.mj_forward(self.model, self.data)
-                    viewer.sync()
-                    time.sleep(self.model.opt.timestep)
-            
-            log_info("抬右腿动作完成")
+
+            # Use persistent viewer
+            if not self.ensure_viewer():
+                log_error("无法创建/获取 viewer")
+                return False
+
+            viewer = self.viewer
+
+            # Reset to initial pose before action
+            self._set_initial_pose()
+            mujoco.mj_forward(self.model, self.data)
+            viewer.sync()
+
+            # 执行抬腿动作
+            self._lift_right_leg_simulation(viewer)
+
+            # Action complete, but viewer stays open
+            log_info("抬右腿动作完成 (viewer 保持打开)")
             return True
-            
+
         except Exception as e:
             log_error(f"抬右腿动作失败: {e}")
             return False
@@ -735,43 +840,215 @@ class UnitreeModel(BaseRobotModel):
         if not self.mujoco_available:
             log_warning("模拟模式：站立动作")
             return True
-        
+
         try:
             log_info("执行站立动作...")
-            
-            with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
-                self._set_initial_pose()
-                mujoco.mj_forward(self.model, self.data)
+
+            # Use persistent viewer
+            if not self.ensure_viewer():
+                log_error("无法创建/获取 viewer")
+                return False
+
+            viewer = self.viewer
+
+            # Set standing pose
+            self._set_initial_pose()
+            mujoco.mj_forward(self.model, self.data)
+            viewer.sync()
+
+            # Hold standing pose for a short time
+            duration = kwargs.get('duration', 1.0)  # Reduced default duration
+            steps = int(duration / self.model.opt.timestep)
+
+            for _ in range(steps):
+                if self.stop_requested:
+                    break
+                mujoco.mj_step(self.model, self.data)
                 viewer.sync()
-                
-                # 保持站立姿势
-                duration = kwargs.get('duration', 5.0)
-                steps = int(duration / self.model.opt.timestep)
-                
-                for _ in range(steps):
-                    if self.stop_requested:
-                        break
-                    mujoco.mj_step(self.model, self.data)
-                    viewer.sync()
-                    time.sleep(self.model.opt.timestep)
-            
-            log_info("站立动作完成")
+                time.sleep(self.model.opt.timestep)
+
+            log_info("站立动作完成 (viewer 保持打开)")
             return True
-            
+
         except Exception as e:
             log_error(f"站立动作失败: {e}")
             return False
-    
+
     def _sit_action(self, **kwargs) -> bool:
         """坐下姿势动作"""
-        log_warning("坐下动作尚未实现")
-        return True
-    
+        if not self.mujoco_available:
+            log_warning("模拟模式：坐下动作")
+            return True
+
+        try:
+            log_info("执行坐下动作...")
+
+            if not self.ensure_viewer():
+                log_error("无法创建/获取 viewer")
+                return False
+
+            viewer = self.viewer
+
+            # Sit pose targets (lower body)
+            if self.robot_type.lower() == "go2":
+                sit_targets = self._get_go2_stand_targets()
+                # Modify for sitting - bend legs more
+                sit_targets["FR_thigh_joint"] = 1.2
+                sit_targets["FR_calf_joint"] = -2.4
+                sit_targets["FL_thigh_joint"] = 1.2
+                sit_targets["FL_calf_joint"] = -2.4
+                sit_targets["RR_thigh_joint"] = 1.2
+                sit_targets["RR_calf_joint"] = -2.4
+                sit_targets["RL_thigh_joint"] = 1.2
+                sit_targets["RL_calf_joint"] = -2.4
+
+                duration = kwargs.get('duration', 1.5)
+                steps = int(duration / self.model.opt.timestep)
+
+                for _ in range(steps):
+                    if self.stop_requested:
+                        break
+                    self._apply_pd_control(sit_targets)
+                    mujoco.mj_step(self.model, self.data)
+                    viewer.sync()
+                    time.sleep(self.model.opt.timestep)
+
+            log_info("坐下动作完成 (viewer 保持打开)")
+            return True
+
+        except Exception as e:
+            log_error(f"坐下动作失败: {e}")
+            return False
+
     def _walk_action(self, **kwargs) -> bool:
-        """行走动作"""
-        log_warning("行走动作尚未实现")
-        return True
-    
+        """行走动作 - 向前行走"""
+        if not self.mujoco_available:
+            log_warning("模拟模式：行走动作")
+            return True
+
+        try:
+            log_info("执行行走动作...")
+
+            if not self.ensure_viewer():
+                log_error("无法创建/获取 viewer")
+                return False
+
+            viewer = self.viewer
+
+            if self.robot_type.lower() == "go2":
+                stand_targets = self._get_go2_stand_targets()
+                num_cycles = kwargs.get('cycles', 4)
+
+                # Walking gait parameters
+                swing_duration = 0.15  # Time for swing phase
+                stance_duration = 0.15  # Time for stance phase
+                swing_steps = int(swing_duration / self.model.opt.timestep)
+                stance_steps = int(stance_duration / self.model.opt.timestep)
+
+                # Joint angle offsets for forward walking
+                # In this model, positive hip moves the leg forward.
+                swing_hip_offset = 0.3    # Swing leg forward
+                push_hip_offset = -0.2    # Push leg backward
+                lift_thigh = 0.9          # Lift during swing
+                extend_calf = -1.1        # Extend during swing
+
+                for cycle in range(num_cycles):
+                    if self.stop_requested:
+                        break
+
+                    # Phase 1: FR + RL swing forward, FL + RR push back
+                    for step in range(swing_steps):
+                        if self.stop_requested:
+                            break
+                        progress = step / swing_steps
+                        targets = dict(stand_targets)
+
+                        # Swing legs (FR, RL): lift and move forward
+                        targets["FR_thigh_joint"] = lift_thigh
+                        targets["FR_calf_joint"] = extend_calf
+                        targets["FR_hip_joint"] = swing_hip_offset * progress
+
+                        targets["RL_thigh_joint"] = lift_thigh
+                        targets["RL_calf_joint"] = extend_calf
+                        targets["RL_hip_joint"] = swing_hip_offset * progress
+
+                        # Stance legs (FL, RR): push backward
+                        targets["FL_hip_joint"] = push_hip_offset * progress
+                        targets["RR_hip_joint"] = push_hip_offset * progress
+
+                        self._apply_pd_control(targets)
+                        mujoco.mj_step(self.model, self.data)
+                        viewer.sync()
+                        time.sleep(self.model.opt.timestep)
+
+                    # Phase 2: FR + RL land, all legs return
+                    for step in range(stance_steps):
+                        if self.stop_requested:
+                            break
+                        progress = step / stance_steps
+                        targets = dict(stand_targets)
+
+                        # Return all hips to neutral
+                        targets["FR_hip_joint"] = swing_hip_offset * (1 - progress)
+                        targets["RL_hip_joint"] = swing_hip_offset * (1 - progress)
+                        targets["FL_hip_joint"] = push_hip_offset * (1 - progress)
+                        targets["RR_hip_joint"] = push_hip_offset * (1 - progress)
+
+                        self._apply_pd_control(targets)
+                        mujoco.mj_step(self.model, self.data)
+                        viewer.sync()
+                        time.sleep(self.model.opt.timestep)
+
+                    # Phase 3: FL + RR swing forward, FR + RL push back
+                    for step in range(swing_steps):
+                        if self.stop_requested:
+                            break
+                        progress = step / swing_steps
+                        targets = dict(stand_targets)
+
+                        # Swing legs (FL, RR): lift and move forward
+                        targets["FL_thigh_joint"] = lift_thigh
+                        targets["FL_calf_joint"] = extend_calf
+                        targets["FL_hip_joint"] = swing_hip_offset * progress
+
+                        targets["RR_thigh_joint"] = lift_thigh
+                        targets["RR_calf_joint"] = extend_calf
+                        targets["RR_hip_joint"] = swing_hip_offset * progress
+
+                        # Stance legs (FR, RL): push backward
+                        targets["FR_hip_joint"] = push_hip_offset * progress
+                        targets["RL_hip_joint"] = push_hip_offset * progress
+
+                        self._apply_pd_control(targets)
+                        mujoco.mj_step(self.model, self.data)
+                        viewer.sync()
+                        time.sleep(self.model.opt.timestep)
+
+                    # Phase 4: FL + RR land, all legs return
+                    for step in range(stance_steps):
+                        if self.stop_requested:
+                            break
+                        progress = step / stance_steps
+                        targets = dict(stand_targets)
+
+                        # Return all hips to neutral
+                        targets["FL_hip_joint"] = swing_hip_offset * (1 - progress)
+                        targets["RR_hip_joint"] = swing_hip_offset * (1 - progress)
+                        targets["FR_hip_joint"] = push_hip_offset * (1 - progress)
+                        targets["RL_hip_joint"] = push_hip_offset * (1 - progress)
+
+                        self._apply_pd_control(targets)
+                        mujoco.mj_step(self.model, self.data)
+                        viewer.sync()
+                        time.sleep(self.model.opt.timestep)
+
+            log_info("行走动作完成 (viewer 保持打开)")
+            return True
+
+        except Exception as e:
+            log_error(f"行走动作失败: {e}")
+            return False
+
     def _stop_action(self, **kwargs) -> bool:
         """停止运动"""
         self.stop()

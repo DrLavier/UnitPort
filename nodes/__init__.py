@@ -17,7 +17,10 @@ from .sys_nodes import (
     IfNode,
     WhileLoopNode,
     ComparisonNode,
-    SensorInputNode
+    SensorInputNode,
+    MathNode,
+    TimerNode,
+    VariableNode,
 )
 
 # Import custom nodes interface
@@ -90,7 +93,8 @@ def list_system_nodes() -> List[str]:
     system_types = [
         'action_execution', 'stop',
         'if', 'while_loop', 'comparison',
-        'sensor_input'
+        'sensor_input',
+        'math', 'timer', 'variable'
     ]
     return [t for t in system_types if t in REGISTERED_NODES]
 
@@ -116,6 +120,11 @@ register_node("comparison", ComparisonNode)
 
 # Sensor nodes
 register_node("sensor_input", SensorInputNode)
+
+# Utility nodes
+register_node("math", MathNode)
+register_node("timer", TimerNode)
+register_node("variable", VariableNode)
 
 
 # ============================================================================
@@ -165,5 +174,8 @@ __all__ = [
     'IfNode',
     'WhileLoopNode',
     'ComparisonNode',
-    'SensorInputNode'
+    'SensorInputNode',
+    'MathNode',
+    'TimerNode',
+    'VariableNode',
 ]

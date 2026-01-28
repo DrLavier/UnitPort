@@ -22,6 +22,7 @@ from bin.core.data_manager import get_value, load_data, up_data
 from bin.core.theme_manager import get_color, get_font_size, set_theme
 from bin.core.logger import CmdLogWidget, log_info, log_success, log_warning, log_error, log_debug
 from bin.core.localisation import get_localisation, tr
+from bin.core.robot_context import RobotContext
 
 
 class MainWindow(QMainWindow):
@@ -279,8 +280,12 @@ class MainWindow(QMainWindow):
         self.status = QStatusBar()
         self.setStatusBar(self.status)
 
-        # Show initial status
+        # Initialize RobotContext with default robot type
         robot_type = self.robot_combo.currentText()
+        RobotContext.set_robot_type(robot_type)
+        self.robot_model = RobotContext.get_robot_model()
+
+        # Show initial status
         self.status.showMessage(
             tr("status.ready", "Ready | Robot: {robot}", robot=robot_type)
         )
@@ -297,20 +302,22 @@ class MainWindow(QMainWindow):
         log_success(tr("log.robot_model_set", "Robot model set: {model}", model=robot_model))
 
     def _on_robot_type_changed(self, robot_type: str):
-        """Robot type changed"""
+        """Robot type changed - updates global RobotContext"""
         log_info(tr("log.robot_type_changed", "Robot type changed: {type}", type=robot_type))
         self.status.showMessage(
             tr("status.robot_changed", "Robot type changed: {robot}", robot=robot_type),
             2000
         )
 
+        # Update global RobotContext (CRITICAL: This is the global state)
+        RobotContext.set_robot_type(robot_type)
+
         # Update graph scene robot type
         if hasattr(self, 'graph_scene'):
             self.graph_scene.set_robot_type(robot_type)
 
-        # Update model type if available
-        if self.robot_model:
-            self.robot_model.robot_type = robot_type
+        # Get robot model from context
+        self.robot_model = RobotContext.get_robot_model()
 
     def _on_language_changed(self, index: int):
         """Language changed"""
@@ -361,16 +368,146 @@ class MainWindow(QMainWindow):
         )
 
     def _on_run(self):
-        """Run"""
+        """Run the connected workflow"""
         log_info(tr("log.run", "Run"))
-        QMessageBox.information(
-            self,
-            tr("messages.info", "Info"),
-            tr(
-                "messages.run_select_action",
-                "Run feature requires selecting an action node in the graph editor"
+
+        # Get workflow data from graph scene
+        if not hasattr(self, 'graph_scene'):
+            log_error("Graph scene not available")
+            return
+
+        workflow = self.graph_scene.get_workflow_data()
+
+        # Check if there are connected nodes
+        if not workflow['nodes']:
+            QMessageBox.information(
+                self,
+                tr("messages.info", "Info"),
+                tr(
+                    "messages.no_connected_nodes",
+                    "No connected nodes in workflow. Please connect nodes to create a workflow."
+                )
             )
+            return
+
+        # Check if simulation is already running
+        if self.simulation_thread and self.simulation_thread.isRunning():
+            log_warning(tr("log.simulation_running", "Simulation is already running"))
+            QMessageBox.warning(
+                self,
+                tr("messages.warning", "Warning"),
+                tr("messages.simulation_running", "Simulation is already running")
+            )
+            return
+
+        has_action = any(
+            node.get('type') in ('action_execution', 'stop')
+            or "Action Execution" in node.get('name', '')
+            for node in workflow['nodes']
         )
+
+        if has_action and self.robot_model is not None:
+            try:
+                reset_ok = True
+                if hasattr(self.robot_model, "reset_simulation"):
+                    reset_ok = self.robot_model.reset_simulation()
+                if not reset_ok:
+                    log_error("Simulation reset failed")
+                    QMessageBox.warning(
+                        self,
+                        tr("messages.warning", "Warning"),
+                        tr(
+                            "messages.simulation_reset_failed",
+                            "Failed to reset simulation. Please check MuJoCo setup."
+                        )
+                    )
+                    return
+            except Exception as e:
+                log_error(f"Simulation reset failed: {e}")
+                QMessageBox.warning(
+                    self,
+                    tr("messages.warning", "Warning"),
+                    tr(
+                        "messages.simulation_reset_failed",
+                        "Failed to reset simulation. Please check MuJoCo setup."
+                    )
+                )
+                return
+
+        # Execute workflow
+        log_info(f"Executing workflow with {len(workflow['nodes'])} nodes")
+        self.status.showMessage(
+            tr("status.executing_workflow", "Executing workflow...")
+        )
+
+        # Execute each node in order
+        results = {}
+        has_action = False
+
+        for node_data in workflow['nodes']:
+            node_id = node_data['id']
+            node_name = node_data['name']
+            logic_node = node_data.get('logic_node')
+            node_type = node_data.get('type', 'unknown')
+
+            log_info(f"Executing node: {node_name} (ID: {node_id}, Type: {node_type})")
+
+            if logic_node:
+                # Set robot model for action/sensor nodes
+                if node_type in ('action_execution', 'sensor_input', 'stop'):
+                    logic_node.set_parameter('robot_model', self.robot_model)
+                    has_action = True
+
+                # Collect inputs from previous nodes
+                inputs = {}
+                for conn in workflow['connections']:
+                    if conn['to_node'] == node_id:
+                        from_node_id = conn['from_node']
+                        from_port = conn['from_port']
+                        to_port = conn['to_port']
+                        if from_node_id in results:
+                            from_result = results[from_node_id]
+                            if isinstance(from_result, dict) and from_port in from_result:
+                                inputs[to_port] = from_result[from_port]
+
+                # Execute the node
+                try:
+                    result = logic_node.execute(inputs)
+                    results[node_id] = result
+                    log_debug(f"Node {node_id} result: {result}")
+                except Exception as e:
+                    log_error(f"Node {node_id} execution failed: {e}")
+                    results[node_id] = {'error': str(e)}
+            else:
+                # Handle nodes without logic implementation
+                ui_selection = node_data.get('ui_selection', '')
+                if "Action Execution" in node_name and self.robot_model:
+                    has_action = True
+                    action = self.graph_scene._action_mapping.get(
+                        ui_selection,
+                        ui_selection.lower().replace(" ", "_")
+                    )
+                    log_info(f"Executing action: {action}")
+                    try:
+                        success = self.robot_model.run_action(action)
+                        results[node_id] = {'status': 'success' if success else 'failed', 'action': action}
+                    except Exception as e:
+                        log_error(f"Action execution failed: {e}")
+                        results[node_id] = {'error': str(e)}
+
+        # Show completion message
+        if has_action and self.robot_model is None:
+            QMessageBox.warning(
+                self,
+                tr("messages.warning", "Warning"),
+                tr("messages.no_robot_model", "Robot model not set. Actions were not executed on hardware.")
+            )
+
+        self.status.showMessage(
+            tr("status.workflow_completed", "Workflow execution completed"),
+            5000
+        )
+        log_success(f"Workflow completed. Executed {len(workflow['nodes'])} nodes.")
 
     def _test_lift_leg(self):
         """Test lift leg action"""

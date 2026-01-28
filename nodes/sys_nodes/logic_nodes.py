@@ -49,17 +49,20 @@ class IfNode(BaseNode):
         return "Select execution path based on condition"
 
     def to_code(self) -> str:
+        condition_expr = self.get_parameter('condition_expr', '') or 'condition'
         elif_blocks = ""
         for idx, expr in enumerate(self.parameters.get('elif_conditions', [])):
             cond_expr = expr or f"elif_condition_{idx}"
-            elif_blocks += f"elif {cond_expr}:\n    # elif branch {idx}\n"
+            elif_blocks += f"elif {cond_expr}:\n    # elif branch {idx}\n    pass\n"
         return (
-            "# Conditional branch\n"
-            "if condition:\n"
-            "    # true branch\n"
+            f"# Conditional branch\n"
+            f"if {condition_expr}:\n"
+            f"    # true branch\n"
+            f"    pass\n"
             f"{elif_blocks}"
-            "else:\n"
-            "    # false branch\n"
+            f"else:\n"
+            f"    # false branch\n"
+            f"    pass\n"
         )
 
 
@@ -109,8 +112,9 @@ class WhileLoopNode(BaseNode):
             start = self.get_parameter('for_start', 0)
             end = self.get_parameter('for_end', 1)
             step = self.get_parameter('for_step', 1)
-            return f"# For loop\nfor i in range({start}, {end}, {step}):\n    # loop body\n"
-        return "# While loop\nwhile condition:\n    # loop body\n"
+            return f"# For loop\nfor i in range({start}, {end}, {step}):\n    # loop body\n    pass\n"
+        condition_expr = self.get_parameter('condition_expr', '') or 'condition'
+        return f"# While loop\nwhile {condition_expr}:\n    # loop body\n    pass\n"
 
 
 class ComparisonNode(BaseNode):
@@ -155,6 +159,6 @@ class ComparisonNode(BaseNode):
     def to_code(self) -> str:
         operator = self.get_parameter('operator', '==')
         compare_value = self.get_parameter('compare_value', 0)
-        input_expr = self.get_parameter('input_expr', 'value')
-        output_name = self.get_parameter('output_name', 'result')
-        return f"# Comparison\n{output_name} = {input_expr} {operator} {compare_value}\n"
+        input_expr = self.get_parameter('input_expr', '') or 'left_value'
+        output_name = self.get_parameter('output_name', '') or 'result'
+        return f"# Comparison: {input_expr} {operator} {compare_value}\n{output_name} = {input_expr} {operator} {compare_value}\n"

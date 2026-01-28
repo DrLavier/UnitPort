@@ -125,6 +125,10 @@ class BaseRobotModel(ABC):
     def stop(self):
         """停止机器人运行"""
         pass
+
+    def reset_simulation(self) -> bool:
+        """Reset simulation state if supported by the model."""
+        return True
     
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(robot_type='{self.robot_type}')"

@@ -9,13 +9,21 @@ from .base_node import BaseNode
 from .action_nodes import ActionExecutionNode, StopNode
 from .logic_nodes import IfNode, WhileLoopNode, ComparisonNode
 from .sensor_nodes import SensorInputNode
+from .utility_nodes import MathNode, TimerNode, VariableNode
 
 __all__ = [
     'BaseNode',
+    # Action nodes
     'ActionExecutionNode',
     'StopNode',
+    # Logic nodes
     'IfNode',
     'WhileLoopNode',
     'ComparisonNode',
-    'SensorInputNode'
+    # Sensor nodes
+    'SensorInputNode',
+    # Utility nodes
+    'MathNode',
+    'TimerNode',
+    'VariableNode',
 ]
