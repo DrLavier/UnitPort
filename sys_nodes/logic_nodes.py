@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-逻辑控制相关节点
+Logic Control Nodes
 """
 
 from typing import Dict, Any
@@ -9,62 +9,62 @@ from .base_node import BaseNode
 
 
 class IfNode(BaseNode):
-    """条件判断节点"""
-    
+    """Conditional branch node"""
+
     def __init__(self, node_id: str):
         super().__init__(node_id, "if")
         self.inputs = {'condition': None}
         self.outputs = {'out_true': None, 'out_false': None}
-    
+
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """执行条件判断"""
+        """Execute conditional branch"""
         condition = inputs.get('condition', False)
-        
+
         if condition:
             return {'out_true': {'value': True}, 'out_false': None}
         else:
             return {'out_true': None, 'out_false': {'value': False}}
-    
+
     def get_display_name(self) -> str:
-        return "如果"
-    
+        return "If"
+
     def get_description(self) -> str:
-        return "根据条件选择执行路径"
-    
+        return "Select execution path based on condition"
+
     def to_code(self) -> str:
-        return "# 条件判断\nif condition:\n    # true分支\nelse:\n    # false分支\n"
+        return "# Conditional branch\nif condition:\n    # true branch\nelse:\n    # false branch\n"
 
 
 class WhileLoopNode(BaseNode):
-    """while循环节点"""
-    
+    """While loop node"""
+
     def __init__(self, node_id: str):
         super().__init__(node_id, "while_loop")
         self.inputs = {'condition': None}
         self.outputs = {'loop_body': None, 'loop_end': None}
-    
+
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """执行循环"""
+        """Execute loop"""
         condition = inputs.get('condition', False)
-        
+
         if condition:
             return {'loop_body': {'continue': True}, 'loop_end': None}
         else:
             return {'loop_body': None, 'loop_end': {'finished': True}}
-    
+
     def get_display_name(self) -> str:
-        return "当循环"
-    
+        return "While Loop"
+
     def get_description(self) -> str:
-        return "当条件为真时重复执行"
-    
+        return "Repeat execution while condition is true"
+
     def to_code(self) -> str:
-        return "# while循环\nwhile condition:\n    # 循环体\n"
+        return "# While loop\nwhile condition:\n    # loop body\n"
 
 
 class ComparisonNode(BaseNode):
-    """比较节点"""
-    
+    """Comparison node"""
+
     def __init__(self, node_id: str):
         super().__init__(node_id, "comparison")
         self.inputs = {'value_in': None}
@@ -73,13 +73,13 @@ class ComparisonNode(BaseNode):
             'operator': '==',  # ==, !=, >, <, >=, <=
             'compare_value': 0
         }
-    
+
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """执行比较"""
+        """Execute comparison"""
         value = inputs.get('value_in', 0)
         operator = self.get_parameter('operator', '==')
         compare_value = self.get_parameter('compare_value', 0)
-        
+
         operators = {
             '==': lambda a, b: a == b,
             '!=': lambda a, b: a != b,
@@ -88,18 +88,18 @@ class ComparisonNode(BaseNode):
             '>=': lambda a, b: a >= b,
             '<=': lambda a, b: a <= b
         }
-        
+
         result = operators.get(operator, operators['=='])(value, compare_value)
-        
+
         return {'result': {'value': result}}
-    
+
     def get_display_name(self) -> str:
-        return "条件判断"
-    
+        return "Comparison"
+
     def get_description(self) -> str:
-        return "比较两个值"
-    
+        return "Compare two values"
+
     def to_code(self) -> str:
         operator = self.get_parameter('operator', '==')
         compare_value = self.get_parameter('compare_value', 0)
-        return f"# 比较\nresult = value {operator} {compare_value}\n"
+        return f"# Comparison\nresult = value {operator} {compare_value}\n"

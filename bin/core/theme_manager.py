@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-主题管理器
-支持颜色和字体配置的动态加载
+Theme Manager
+Supports dynamic loading of color and font configurations
 """
 
 import configparser
@@ -11,133 +11,165 @@ from typing import Optional
 from PySide6.QtGui import QFont, QColor
 
 
+# Global config path - set by main.py via init_theme_manager()
+_ui_config_path: Optional[str] = None
+
+
+def init_theme_manager(config_path: str):
+    """
+    Initialize theme manager with config path from main.py
+
+    Args:
+        config_path: Path to ui.ini file
+    """
+    global _ui_config_path
+    _ui_config_path = config_path
+
+    # Reinitialize slots if they exist
+    global _color_slot, _font_slot
+    if _color_slot is not None:
+        _color_slot._config_path = config_path
+        _color_slot.reload()
+    if _font_slot is not None:
+        _font_slot._config_path = config_path
+        _font_slot.reload()
+
+
+def _get_default_config_path() -> str:
+    """Get default config path (fallback)"""
+    if _ui_config_path:
+        return _ui_config_path
+    # Fallback to relative path calculation
+    return str(Path(__file__).parent.parent.parent / "config" / "ui.ini")
+
+
 class ColorSlot:
     """
-    颜色槽位管理器（单例）
-    从 UI.ini 的 [Light] 和 [Dark] 读取颜色配置
+    Color slot manager (singleton)
+    Reads color config from [Light] and [Dark] sections of ui.ini
     """
-    
+
     _instance: Optional['ColorSlot'] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
-    def __init__(self, config_path: str = None):
+
+    def __init__(self):
         if self._initialized:
             return
-        
-        self._config_path = config_path or str(Path(__file__).parent.parent.parent / "config" / "ui.ini")
-        self._current_theme = "light"
+
+        self._config_path = _get_default_config_path()
+        self._current_theme = "dark"
         self._colors = {}
         self._loaded = False
         self._initialized = True
-    
+
     def _ensure_loaded(self):
-        """确保配置已加载"""
+        """Ensure config is loaded"""
         if not self._loaded:
             self._load_colors()
-    
+
     def _load_colors(self):
-        """从配置文件加载颜色"""
+        """Load colors from config file"""
         try:
             config = configparser.ConfigParser()
             config.read(self._config_path, encoding='utf-8')
-            
+
             self._colors.clear()
-            
-            # 加载 Light 主题
+
+            # Load Light theme
             if 'Light' in config:
                 self._colors['light'] = dict(config['Light'])
             else:
                 self._colors['light'] = {}
-            
-            # 加载 Dark 主题
+
+            # Load Dark theme
             if 'Dark' in config:
                 self._colors['dark'] = dict(config['Dark'])
             else:
                 self._colors['dark'] = {}
-            
+
             self._loaded = True
         except Exception as e:
-            print(f"[ColorSlot] Error loading color config: {e}")
+            # Silent fallback - avoid print in production
             self._colors = {'light': {}, 'dark': {}}
             self._loaded = True
-    
+
     def set_theme(self, theme: str):
-        """设置当前主题"""
+        """Set current theme"""
         self._ensure_loaded()
         if theme in ['light', 'dark']:
             self._current_theme = theme
-    
+
     def get_color(self, color_key: str, fallback: str = "#FFFFFF") -> str:
-        """获取当前主题的颜色值（返回字符串）"""
+        """Get color value for current theme (returns string)"""
         self._ensure_loaded()
         theme_colors = self._colors.get(self._current_theme, {})
         return theme_colors.get(color_key, fallback)
-    
+
     def get_qcolor(self, color_key: str, fallback: str = "#FFFFFF") -> QColor:
-        """获取 QColor 对象"""
+        """Get QColor object"""
         color_str = self.get_color(color_key, fallback)
         return QColor(color_str)
-    
+
     def get_color_int(self, color_key: str, fallback: str = "#FFFFFF") -> tuple:
-        """获取 RGB 整数元组"""
+        """Get RGB integer tuple"""
         color = self.get_qcolor(color_key, fallback)
         return (color.red(), color.green(), color.blue())
-    
+
     def reload(self):
-        """重新加载配置"""
+        """Reload config"""
         self._loaded = False
         self._load_colors()
 
 
 class FontSlot:
     """
-    字体槽位管理器（单例）
-    从 UI.ini 的 [Font] 读取字体配置
+    Font slot manager (singleton)
+    Reads font config from [Font] section of ui.ini
     """
-    
+
     _instance: Optional['FontSlot'] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
         return cls._instance
-    
-    def __init__(self, config_path: str = None):
+
+    def __init__(self):
         if self._initialized:
             return
-        
-        self._config_path = config_path or str(Path(__file__).parent.parent.parent / "config" / "ui.ini")
+
+        self._config_path = _get_default_config_path()
         self._family = "Arial"
         self._sizes = {}
         self._loaded = False
         self._initialized = True
-    
+
     def _ensure_loaded(self):
-        """确保配置已加载"""
+        """Ensure config is loaded"""
         if not self._loaded:
             self._load_fonts()
-    
+
     def _load_fonts(self):
-        """从配置文件加载字体"""
+        """Load fonts from config file"""
         try:
             config = configparser.ConfigParser()
             config.read(self._config_path, encoding='utf-8')
-            
+
             if 'Font' not in config:
                 self._family = "Arial"
                 self._sizes = {}
                 self._loaded = True
                 return
-            
+
             font_section = config['Font']
             self._family = font_section.get('family', 'Arial')
-            
+
             self._sizes.clear()
             for key in font_section.keys():
                 if key == "family":
@@ -146,38 +178,38 @@ class FontSlot:
                     self._sizes[key] = font_section.getint(key)
                 except ValueError:
                     continue
-            
+
             self._loaded = True
         except Exception as e:
-            print(f"[FontSlot] Error loading font config: {e}")
+            # Silent fallback
             self._loaded = True
-    
+
     def get_qfont(self, size_slot: str, fallback_size: int = 12) -> QFont:
-        """获取 QFont 对象"""
+        """Get QFont object"""
         self._ensure_loaded()
         size = self._sizes.get(size_slot, fallback_size)
         font = QFont(self._family)
         font.setPointSize(size)
         return font
-    
+
     def get_size(self, size_slot: str, fallback_size: int = 12) -> int:
-        """只取字号（整数）"""
+        """Get font size (int only)"""
         self._ensure_loaded()
         return self._sizes.get(size_slot, fallback_size)
-    
+
     def family(self) -> str:
-        """获取当前字体 family"""
+        """Get current font family"""
         self._ensure_loaded()
         return self._family
-    
+
     def reload(self):
-        """重新加载配置"""
+        """Reload config"""
         self._loaded = False
         self._load_fonts()
 
 
 # ============================================================================
-# 全局实例和便捷函数
+# Global instances and convenience functions
 # ============================================================================
 
 _color_slot: Optional[ColorSlot] = None
@@ -185,7 +217,7 @@ _font_slot: Optional[FontSlot] = None
 
 
 def get_color_slot() -> ColorSlot:
-    """获取 ColorSlot 单例"""
+    """Get ColorSlot singleton"""
     global _color_slot
     if _color_slot is None:
         _color_slot = ColorSlot()
@@ -193,7 +225,7 @@ def get_color_slot() -> ColorSlot:
 
 
 def get_font_slot() -> FontSlot:
-    """获取 FontSlot 单例"""
+    """Get FontSlot singleton"""
     global _font_slot
     if _font_slot is None:
         _font_slot = FontSlot()
@@ -201,30 +233,30 @@ def get_font_slot() -> FontSlot:
 
 
 def get_color(color_key: str, fallback: str = "#FFFFFF") -> str:
-    """获取颜色值（字符串）"""
+    """Get color value (string)"""
     return get_color_slot().get_color(color_key, fallback)
 
 
 def get_qcolor(color_key: str, fallback: str = "#FFFFFF") -> QColor:
-    """获取 QColor 对象"""
+    """Get QColor object"""
     return get_color_slot().get_qcolor(color_key, fallback)
 
 
 def get_color_int(color_key: str, fallback: str = "#FFFFFF") -> tuple:
-    """获取 RGB 整数元组"""
+    """Get RGB integer tuple"""
     return get_color_slot().get_color_int(color_key, fallback)
 
 
 def get_font(size_slot: str, fallback_size: int = 12) -> QFont:
-    """获取字体对象"""
+    """Get font object"""
     return get_font_slot().get_qfont(size_slot, fallback_size)
 
 
 def get_font_size(size_slot: str, fallback_size: int = 12) -> int:
-    """获取字体大小（仅返回 int）"""
+    """Get font size (int only)"""
     return get_font_slot().get_size(size_slot, fallback_size)
 
 
 def set_theme(theme: str):
-    """设置全局主题"""
+    """Set global theme"""
     get_color_slot().set_theme(theme)

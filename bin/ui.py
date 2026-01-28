@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-主UI模块
-包含MainWindow和主要UI组件
+Main UI Module
+Contains MainWindow and main UI components
 """
 
 from PySide6.QtCore import Qt, QSize
@@ -21,118 +21,119 @@ from bin.core.config_manager import ConfigManager
 from bin.core.data_manager import get_value, load_data, up_data
 from bin.core.theme_manager import get_color, get_font_size, set_theme
 from bin.core.logger import CmdLogWidget, log_info, log_success, log_warning, log_error, log_debug
+from bin.core.localisation import get_localisation, tr
 
 
 class MainWindow(QMainWindow):
-    """主窗口"""
-    
+    """Main Window"""
+
     def __init__(self, config: ConfigManager):
         super().__init__()
         self.config = config
         self.robot_model = None
         self.simulation_thread = None
-        
-        # 加载UI配置
+
+        # Load UI config
         self._load_ui_config()
-        
+
         self._init_ui()
         self._init_toolbar()
         self._init_statusbar()
-        
-        log_info("主窗口初始化完成")
-    
+
+        log_info("Main window initialized")
+
     def _load_ui_config(self):
-        """加载UI配置"""
+        """Load UI configuration"""
         ui_config_path = self.config.project_root / "config" / "ui.ini"
         load_data(str(ui_config_path))
-        
-        # 设置主题
+
+        # Set theme
         theme = self.config.get('PREFERENCES', 'theme', fallback='dark', config_type='user')
         set_theme(theme)
-    
+
     def _init_ui(self):
-        """初始化UI"""
-        # 从配置读取窗口大小
+        """Initialize UI"""
+        # Read window size from config
         width = self.config.get_int('UI', 'window_width', fallback=1400)
         height = self.config.get_int('UI', 'window_height', fallback=900)
-        
-        self.setWindowTitle("Celebrimbor - 机器人可视化编程平台")
+
+        self.setWindowTitle("UnitPort - Robot Visual Programming Platform")
         self.resize(width, height)
-        
-        # 创建中央部件
+
+        # Create central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # 主布局
+
+        # Main layout
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
-        # 创建主分割器：日志 + 中间工作区 + 右侧代码编辑器
+
+        # Create main splitter: Log + Middle workspace + Right code editor
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        
-        # 左侧：日志显示器
+
+        # Left: Log display
         self.cmd_log = CmdLogWidget()
         self.cmd_log.setMinimumWidth(300)
-        
-        # 中间：模块面板 + 图形编辑器
+
+        # Middle: Module palette + Graph editor
         middle_widget = QWidget()
         middle_layout = QHBoxLayout(middle_widget)
         middle_layout.setContentsMargins(0, 0, 0, 0)
         middle_layout.setSpacing(0)
-        
-        # 中间分割器
+
+        # Middle splitter
         middle_splitter = QSplitter(Qt.Orientation.Horizontal)
-        
-        # 模块面板
+
+        # Module palette
         self.module_palette = ModulePalette()
-        
-        # 图形编辑器
+
+        # Graph editor
         self.graph_scene = GraphScene()
         self.graph_view = GraphView(self.graph_scene)
-        
+
         middle_splitter.addWidget(self.module_palette)
         middle_splitter.addWidget(self.graph_view)
         middle_splitter.setSizes([280, 720])
-        
+
         middle_layout.addWidget(middle_splitter)
-        
-        # 右侧：代码编辑器
+
+        # Right: Code editor
         self.code_editor = CodeEditor()
-        
-        # 连接图形场景和代码编辑器
+
+        # Connect graph scene and code editor
         self.graph_scene.set_code_editor(self.code_editor)
-        
-        # 添加到主分割器
+
+        # Add to main splitter
         self.main_splitter.addWidget(self.cmd_log)
         self.main_splitter.addWidget(middle_widget)
         self.main_splitter.addWidget(self.code_editor)
-        
-        # 设置主分割器比例 (日志:图形编辑器:代码编辑器 = 1:3:1.5)
+
+        # Set main splitter ratio (Log:Graph editor:Code editor = 1:3:1.5)
         self.main_splitter.setSizes([300, 900, 400])
-        
+
         main_layout.addWidget(self.main_splitter)
-        
-        # 应用样式
+
+        # Apply stylesheet
         self._apply_stylesheet()
-        
-        log_debug("UI布局创建完成")
-        log_info("图形编辑器已就绪，可以从左侧拖拽模块到画布")
-    
+
+        log_debug("UI layout created")
+        log_info("Graph editor ready, drag modules from left panel to canvas")
+
     def _apply_stylesheet(self):
-        """应用样式表"""
+        """Apply stylesheet"""
         try:
             bg = get_color('bg', '#1e1e1e')
             card_bg = get_color('card_bg', '#2d2d2d')
             border = get_color('border', '#444444')
             text_primary = get_color('text_primary', '#ffffff')
         except:
-            # 降级方案
+            # Fallback
             bg = '#1e1e1e'
             card_bg = '#2d2d2d'
             border = '#444444'
             text_primary = '#ffffff'
-        
+
         self.setStyleSheet(f"""
             QMainWindow {{
                 background-color: {bg};
@@ -143,7 +144,7 @@ class MainWindow(QMainWindow):
             QLabel {{
                 background-color: {card_bg};
                 border-radius: 12px;
-                padding: 20px;
+                padding: 2px;
             }}
             QSplitter::handle {{
                 background-color: {border};
@@ -155,17 +156,19 @@ class MainWindow(QMainWindow):
                 height: 2px;
             }}
         """)
-    
+
     def _init_toolbar(self):
-        """初始化工具栏"""
-        toolbar = QToolBar("主工具栏")
+        """Initialize toolbar"""
+        toolbar = QToolBar("Main Toolbar")
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(16, 16))
         self.addToolBar(toolbar)
-        
-        # 机器人类型选择
-        toolbar.addWidget(QLabel(" 机器人: "))
-        
+
+        # Robot type selection
+        t1 = QLabel(" Robot: ")
+        t1.setMaximumHeight(35)
+        toolbar.addWidget(t1)
+
         self.robot_combo = QComboBox()
         available_robots = self.config.get_available_robots()
         self.robot_combo.addItems(available_robots)
@@ -174,112 +177,151 @@ class MainWindow(QMainWindow):
         self.robot_combo.currentTextChanged.connect(self._on_robot_type_changed)
         self.robot_combo.setMinimumWidth(80)
         toolbar.addWidget(self.robot_combo)
-        
+
         toolbar.addSeparator()
-        
-        # 工具栏按钮
+
+        # Toolbar buttons
         actions = [
-            ("新建", self._on_new),
-            ("打开", self._on_open),
-            ("保存", self._on_save),
-            ("导出源码", self._on_export_code),
-            ("运行", self._on_run)
+            ("New", self._on_new),
+            ("Open", self._on_open),
+            ("Save", self._on_save),
+            ("Export Code", self._on_export_code),
+            ("Run", self._on_run)
         ]
-        
+
         for text, handler in actions:
             action = QAction(text, self)
             action.triggered.connect(handler)
             toolbar.addAction(action)
-        
+
         toolbar.addSeparator()
-        
-        # 测试按钮
-        test_action = QAction("测试抬右腿", self)
+
+        # Test button
+        test_action = QAction("Test Lift Leg", self)
         test_action.triggered.connect(self._test_lift_leg)
         toolbar.addAction(test_action)
-    
+
+        # Add spacer to push language combo to the right
+        spacer = QWidget()
+        spacer.setSizePolicy(spacer.sizePolicy().horizontalPolicy(), spacer.sizePolicy().verticalPolicy())
+        spacer.setMinimumWidth(20)
+        toolbar.addWidget(spacer)
+
+        # Flexible spacer
+        flexible_spacer = QWidget()
+        flexible_spacer.setSizePolicy(
+            flexible_spacer.sizePolicy().Policy.Expanding,
+            flexible_spacer.sizePolicy().Policy.Preferred
+        )
+        toolbar.addWidget(flexible_spacer)
+
+        # Language selection (right side)
+        toolbar.addWidget(QLabel(" Language: "))
+
+        self.language_combo = QComboBox()
+        # Currently only English is available
+        self.language_combo.addItem("EN", "en")
+        self.language_combo.setMinimumWidth(60)
+        self.language_combo.setCurrentIndex(0)
+        self.language_combo.currentIndexChanged.connect(self._on_language_changed)
+        toolbar.addWidget(self.language_combo)
+
     def _init_statusbar(self):
-        """初始化状态栏"""
+        """Initialize status bar"""
         self.status = QStatusBar()
         self.setStatusBar(self.status)
-        
-        # 显示初始状态
+
+        # Show initial status
         robot_type = self.robot_combo.currentText()
-        self.status.showMessage(f"就绪 | 机器人: {robot_type}")
-    
+        self.status.showMessage(f"Ready | Robot: {robot_type}")
+
     def set_robot_model(self, robot_model):
-        """设置机器人模型"""
+        """Set robot model"""
         self.robot_model = robot_model
-        
-        # 同时设置图形场景的机器人类型
+
+        # Also set graph scene robot type
         if hasattr(self, 'graph_scene') and robot_model:
             robot_type = getattr(robot_model, 'robot_type', 'go2')
             self.graph_scene.set_robot_type(robot_type)
-        
-        log_success(f"机器人模型已设置: {robot_model}")
-    
+
+        log_success(f"Robot model set: {robot_model}")
+
     def _on_robot_type_changed(self, robot_type: str):
-        """机器人类型改变"""
-        log_info(f"切换机器人类型: {robot_type}")
-        self.status.showMessage(f"已切换机器人类型: {robot_type}", 2000)
-        
-        # 更新图形场景的机器人类型
+        """Robot type changed"""
+        log_info(f"Robot type changed: {robot_type}")
+        self.status.showMessage(f"Robot type changed: {robot_type}", 2000)
+
+        # Update graph scene robot type
         if hasattr(self, 'graph_scene'):
             self.graph_scene.set_robot_type(robot_type)
-        
-        # 如果有模型，更新模型类型
+
+        # Update model type if available
         if self.robot_model:
             self.robot_model.robot_type = robot_type
-    
+
+    def _on_language_changed(self, index: int):
+        """Language changed"""
+        lang_code = self.language_combo.currentData()
+        loc = get_localisation()
+        if loc.load_language(lang_code):
+            log_info(f"Language changed to: {lang_code}")
+            # Note: Full UI refresh would require more extensive changes
+            # For now, new text will appear on next widget creation
+
     def _on_new(self):
-        """新建项目"""
-        log_info("新建项目")
+        """New project"""
+        log_info("New project")
         self.code_editor.clear()
-        self.status.showMessage("新建项目", 2000)
-    
+        self.status.showMessage("New project", 2000)
+
     def _on_open(self):
-        """打开项目"""
-        log_info("打开项目")
-        QMessageBox.information(self, "提示", "打开项目功能尚未实现")
-    
+        """Open project"""
+        log_info("Open project")
+        QMessageBox.information(self, "Info", "Open project feature not implemented")
+
     def _on_save(self):
-        """保存项目"""
-        log_info("保存项目")
-        QMessageBox.information(self, "提示", "保存项目功能尚未实现")
-    
+        """Save project"""
+        log_info("Save project")
+        QMessageBox.information(self, "Info", "Save project feature not implemented")
+
     def _on_export_code(self):
-        """导出源码"""
-        log_info("导出源码")
+        """Export code"""
+        log_info("Export code")
         code = self.code_editor.get_code()
-        QMessageBox.information(self, "导出源码", f"代码长度: {len(code)} 字符\n（导出功能尚未实现）")
-    
+        QMessageBox.information(
+            self,
+            "Export Code",
+            f"Code length: {len(code)} characters\n(Export feature not implemented)"
+        )
+
     def _on_run(self):
-        """运行"""
-        log_info("运行")
-        QMessageBox.information(self, "提示", "运行功能需要在图形编辑器中选择动作节点")
-    
+        """Run"""
+        log_info("Run")
+        QMessageBox.information(self, "Info",
+                                "Run feature requires selecting an action node in the graph editor")
+
     def _test_lift_leg(self):
-        """测试抬右腿动作"""
+        """Test lift leg action"""
         if self.robot_model is None:
-            log_warning("未设置机器人模型")
-            QMessageBox.warning(self, "警告", "未设置机器人模型")
+            log_warning("Robot model not set")
+            QMessageBox.warning(self, "Warning", "Robot model not set")
             return
-        
+
         if self.simulation_thread and self.simulation_thread.isRunning():
-            log_warning("仿真正在运行中")
-            QMessageBox.warning(self, "警告", "仿真正在运行中")
+            log_warning("Simulation is already running")
+            QMessageBox.warning(self, "Warning", "Simulation is already running")
             return
-        
-        log_info("开始测试抬右腿动作")
-        self.status.showMessage("正在执行抬右腿动作...")
-        
-        # 创建仿真线程
+
+        log_info("Starting lift leg action test")
+        self.status.showMessage("Executing lift leg action...")
+
+        # Create simulation thread
         self.simulation_thread = SimulationThread(
             self.robot_model,
             "lift_right_leg"
         )
-        
-        # 连接信号
+
+        # Connect signals
         self.simulation_thread.simulation_started.connect(
             lambda msg: self.status.showMessage(msg)
         )
@@ -287,18 +329,18 @@ class MainWindow(QMainWindow):
             lambda msg: self.status.showMessage(msg, 3000)
         )
         self.simulation_thread.error_occurred.connect(
-            lambda msg: QMessageBox.critical(self, "错误", msg)
+            lambda msg: QMessageBox.critical(self, "Error", msg)
         )
-        
-        # 启动线程
+
+        # Start thread
         self.simulation_thread.start()
-    
+
     def closeEvent(self, event):
-        """窗口关闭事件"""
-        # 停止仿真线程
+        """Window close event"""
+        # Stop simulation thread
         if self.simulation_thread and self.simulation_thread.isRunning():
             self.simulation_thread.stop()
-            self.simulation_thread.wait(3000)  # 等待最多3秒
-        
-        logger.info("主窗口关闭")
+            self.simulation_thread.wait(3000)  # Wait up to 3 seconds
+
+        log_info("Main window closed")
         event.accept()

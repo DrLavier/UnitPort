@@ -1,65 +1,107 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Celebrimbor - 机器人可视化编程平台
-主入口文件
+UnitPort - Robot Visual Programming Platform
+Main entry file
 """
 
 import sys
 from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
-# 添加项目根目录到路径
+# Add project root to path
 PROJECT_ROOT = Path(__file__).parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# ============================================================================
+# Config Paths - Central definition for all config file access
+# ============================================================================
+CONFIG_DIR = PROJECT_ROOT / "config"
+SYSTEM_CONFIG_PATH = CONFIG_DIR / "system.ini"
+USER_CONFIG_PATH = CONFIG_DIR / "user.ini"
+UI_CONFIG_PATH = CONFIG_DIR / "ui.ini"
+LOCALISATION_DIR = PROJECT_ROOT / "localisation"
+
+# Export paths for other modules
+CONFIG_PATHS = {
+    'config_dir': CONFIG_DIR,
+    'system': SYSTEM_CONFIG_PATH,
+    'user': USER_CONFIG_PATH,
+    'ui': UI_CONFIG_PATH,
+    'localisation': LOCALISATION_DIR
+}
+
+
+def get_config_path(config_type: str) -> Path:
+    """
+    Get config file path by type
+
+    Args:
+        config_type: 'system', 'user', 'ui', or 'localisation'
+
+    Returns:
+        Path object
+    """
+    return CONFIG_PATHS.get(config_type, CONFIG_DIR)
+
+
+# Now import modules (after path setup)
 from bin.core.config_manager import ConfigManager
+from bin.core.theme_manager import init_theme_manager
+from bin.core.localisation import get_localisation
 from bin.ui import MainWindow
 from models import get_model
-from bin.core.logger import log_info, log_success, log_error, log_debug, log_warning
-from utils.logger import setup_logger  # 这个保留，用于设置文件日志
+from utils.logger import setup_logger
 
 
 def main():
-    """主函数"""
-    # 设置日志
+    """Main function"""
+    # Setup file logger
     logger = setup_logger()
     logger.info("=" * 60)
-    logger.info("Celebrimbor 启动中...")
+    logger.info("UnitPort starting...")
     logger.info("=" * 60)
-    
-    # 加载配置
+
+    # Initialize config manager
     config = ConfigManager()
-    logger.info("配置文件加载完成")
-    
-    # 创建Qt应用
+    logger.info("Config files loaded")
+
+    # Initialize theme manager with UI config path
+    init_theme_manager(str(UI_CONFIG_PATH))
+
+    # Initialize localisation
+    loc = get_localisation()
+    loc.set_localisation_dir(str(LOCALISATION_DIR))
+    loc.load_language("en")
+
+    # Create Qt application
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    
-    # 创建主窗口
+
+    # Create main window
     window = MainWindow(config)
-    
-    # 加载默认机器人模型
+
+    # Load default robot model
     default_robot = config.get('SIMULATION', 'default_robot', fallback='go2')
-    logger.info(f"加载默认机器人: {default_robot}")
-    
+    logger.info(f"Loading default robot: {default_robot}")
+
     try:
         model = get_model('unitree')
         if model:
             robot_instance = model(default_robot)
             window.set_robot_model(robot_instance)
-            logger.info(f"✅ Unitree模型加载成功")
+            logger.info("Unitree model loaded successfully")
         else:
-            logger.warning("⚠️ 未找到Unitree模型，使用模拟模式")
+            logger.warning("Unitree model not found, using simulation mode")
     except Exception as e:
-        logger.error(f"❌ 模型加载失败: {e}")
-        logger.warning("⚠️ 继续使用模拟模式")
-    
-    # 显示窗口
+        logger.error(f"Model loading failed: {e}")
+        logger.warning("Continuing with simulation mode")
+
+    # Show window
     window.show()
-    logger.info("主窗口已显示")
-    
-    # 运行应用
+    logger.info("Main window displayed")
+
+    # Run application
     sys.exit(app.exec())
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-传感器输入相关节点
+Sensor Input Nodes
 """
 
 from typing import Dict, Any
@@ -9,8 +9,8 @@ from .base_node import BaseNode
 
 
 class SensorInputNode(BaseNode):
-    """传感器输入节点"""
-    
+    """Sensor input node"""
+
     def __init__(self, node_id: str):
         super().__init__(node_id, "sensor_input")
         self.inputs = {}
@@ -19,15 +19,15 @@ class SensorInputNode(BaseNode):
             'sensor_type': 'imu',  # imu, camera, ultrasonic, infrared, odometry
             'robot_model': None
         }
-    
+
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """读取传感器数据"""
+        """Read sensor data"""
         sensor_type = self.get_parameter('sensor_type', 'imu')
         robot_model = self.get_parameter('robot_model')
-        
+
         if robot_model is None:
-            return {'out': {'status': 'error', 'message': '未设置机器人模型'}}
-        
+            return {'out': {'status': 'error', 'message': 'Robot model not set'}}
+
         try:
             sensor_data = robot_model.get_sensor_data()
             return {
@@ -39,13 +39,13 @@ class SensorInputNode(BaseNode):
             }
         except Exception as e:
             return {'out': {'status': 'error', 'message': str(e)}}
-    
+
     def get_display_name(self) -> str:
-        return "传感输入"
-    
+        return "Sensor Input"
+
     def get_description(self) -> str:
-        return "读取机器人传感器数据"
-    
+        return "Read robot sensor data"
+
     def to_code(self) -> str:
         sensor_type = self.get_parameter('sensor_type', 'imu')
-        return f"# 传感器输入: {sensor_type}\nsensor_data = robot.get_sensor_data()\n"
+        return f"# Sensor input: {sensor_type}\nsensor_data = robot.get_sensor_data()\n"

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-日志系统
-支持线程安全的日志信号传递和UI显示
+Logger Module
+Thread-safe log signal transmission and UI display
 """
 
 import threading
@@ -21,7 +21,7 @@ from bin.core.theme_manager import get_color, get_font_size
 # ============================================================================
 
 class LogSignal(QObject):
-    """日志信号（线程安全）"""
+    """Log signal (thread-safe)"""
     log_message = Signal(str, str, bool, bool)  # text, log_type, wrap, typer
 
     _instance: Optional["LogSignal"] = None
@@ -35,7 +35,7 @@ class LogSignal(QObject):
             return cls._instance
 
     def emit_log(self, text: str, log_type="info", wrap=True, typer=False):
-        """发送日志信号"""
+        """Emit log signal"""
         self.log_message.emit(text, log_type, wrap, typer)
 
     def debug(self, text, wrap=True, typer=False):
@@ -55,42 +55,42 @@ class LogSignal(QObject):
 
 
 def get_log_signal() -> LogSignal:
-    """获取全局日志信号实例"""
+    """Get global log signal instance"""
     return LogSignal.instance()
 
 
 def log(text, log_type="info", wrap=True, typer=False):
-    """发送日志"""
+    """Send log"""
     text = str(text)
     get_log_signal().emit_log(text, log_type, wrap, typer)
 
 
 def log_info(text, wrap=True, typer=False):
-    """信息日志"""
+    """Info log"""
     text = str(text)
     get_log_signal().info(text, wrap, typer)
 
 
 def log_debug(text, wrap=True, typer=False):
-    """调试日志"""
+    """Debug log"""
     text = str(text)
     get_log_signal().debug(text, wrap, typer)
 
 
 def log_warning(text, wrap=True, typer=False):
-    """警告日志"""
+    """Warning log"""
     text = str(text)
     get_log_signal().warning(text, wrap, typer)
 
 
 def log_error(text, wrap=True, typer=False):
-    """错误日志"""
+    """Error log"""
     text = str(text)
     get_log_signal().error(text, wrap, typer)
 
 
 def log_success(text, wrap=True, typer=False):
-    """成功日志"""
+    """Success log"""
     text = str(text)
     get_log_signal().success(text, wrap, typer)
 
@@ -100,7 +100,7 @@ def log_success(text, wrap=True, typer=False):
 # ============================================================================
 
 class TyperThread(QThread):
-    """打字机效果线程"""
+    """Typewriter effect thread"""
     char_ready = Signal(str)
     finished = Signal()
 
@@ -127,7 +127,7 @@ class TyperThread(QThread):
 # ============================================================================
 
 class CmdLogWidget(QWidget):
-    """命令行日志显示器"""
+    """Command line log display widget"""
 
     LOG_COLORS = {
         "debug": "#8B8B8B",
@@ -155,25 +155,27 @@ class CmdLogWidget(QWidget):
         get_log_signal().log_message.connect(self._on_log)
 
     def _init_ui(self):
-        """初始化UI"""
+        """Initialize UI"""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # 头部
+        # Header
         header = QWidget()
         hl = QHBoxLayout(header)
         hl.setContentsMargins(10, 5, 10, 5)
 
-        hl.addWidget(QLabel("Console"))
+        tt = QLabel("Console")
+        tt.setMaximumHeight(35)
+        hl.addWidget(tt)
         hl.addStretch()
 
-        btn = QPushButton("清空")
+        btn = QPushButton("Clear")
         btn.clicked.connect(self.clear)
         hl.addWidget(btn)
 
         layout.addWidget(header)
 
-        # 文本编辑器
+        # Text editor
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
         layout.addWidget(self.text_edit)
@@ -181,14 +183,14 @@ class CmdLogWidget(QWidget):
         self._apply_style()
 
     def _on_log(self, text, log_type, wrap, typer):
-        """处理日志消息"""
+        """Handle log message"""
         if typer:
             self._start_typer(text, log_type, wrap)
         else:
             self._append_log(text, log_type, wrap)
 
     def _clear_status_line(self):
-        """清除状态行"""
+        """Clear status line"""
         if self._status_start_pos is None:
             return
 
@@ -201,7 +203,7 @@ class CmdLogWidget(QWidget):
         self._status_start_pos = None
 
     def _append_log(self, text, log_type, wrap):
-        """追加日志"""
+        """Append log"""
         cursor = self.text_edit.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
 
@@ -226,7 +228,7 @@ class CmdLogWidget(QWidget):
         self.text_edit.ensureCursorVisible()
 
     def _start_typer(self, text, log_type, wrap):
-        """启动打字机效果"""
+        """Start typewriter effect"""
         if self._typer_thread and self._typer_thread.isRunning():
             self._typer_thread.stop()
             self._typer_thread.wait()
@@ -258,7 +260,7 @@ class CmdLogWidget(QWidget):
         self._typer_thread.start()
 
     def _append_char(self, ch, fmt):
-        """追加字符"""
+        """Append character"""
         cursor = self.text_edit.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.setCharFormat(fmt)
@@ -267,7 +269,7 @@ class CmdLogWidget(QWidget):
         self.text_edit.ensureCursorVisible()
 
     def _on_typer_finished(self, wrap):
-        """打字机效果结束"""
+        """Typewriter effect finished"""
         if wrap:
             cursor = self.text_edit.textCursor()
             cursor.movePosition(QTextCursor.MoveOperation.End)
@@ -276,32 +278,21 @@ class CmdLogWidget(QWidget):
             self._status_start_pos = None
 
     def clear(self):
-        """清空日志"""
+        """Clear log"""
         self.text_edit.clear()
         self._status_start_pos = None
 
     def _apply_style(self):
-        """应用样式"""
+        """Apply style"""
         btn_r = 10
-        
-        try:
-            cmd_bg = get_color('cmd_bg', '#1e1e1e')
-            card_bg = get_color('card_bg', '#2d2d2d')
-            hover_bg = get_color('hover_bg', '#3d3d3d')
-            border = get_color('border', '#444444')
-            text_primary = get_color('text_primary', '#ffffff')
+        cmd_bg = get_color('cmd_bg', '#1e1e1e')
+        card_bg = get_color('card_bg', '#2d2d2d')
+        hover_bg = get_color('hover_bg', '#3d3d3d')
+        border = get_color('border', '#444444')
+        text_primary = get_color('text_primary', '#ffffff')
 
-            size_small = get_font_size('size_small', 11)
-            size_normal = get_font_size('size_normal', 12)
-        except:
-            # 降级方案
-            cmd_bg = '#1e1e1e'
-            card_bg = '#2d2d2d'
-            hover_bg = '#3d3d3d'
-            border = '#444444'
-            text_primary = '#ffffff'
-            size_small = 11
-            size_normal = 12
+        size_small = get_font_size('size_small', 11)
+        size_normal = get_font_size('size_normal', 12)
 
         self.setStyleSheet(f"""
             QTextEdit {{
@@ -329,7 +320,7 @@ class CmdLogWidget(QWidget):
                 background-color: {hover_bg};
             }}
         """)
-    
+
     def refresh_style(self):
-        """刷新样式（主题切换时调用）"""
+        """Refresh style (called when theme changes)"""
         self._apply_style()
