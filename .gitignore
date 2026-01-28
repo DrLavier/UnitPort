@@ -1,0 +1,34 @@
+# Python venv
+venv/
+.venv/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+
+# Logs / runtime
+logs/
+*.log
+
+# Temp / editor
+*.tmp
+*.swp
+*.swo
+*.bak
+.cache/
+.pytest_cache/
+
+# OS files
+.DS_Store
+desktop.ini
+
+# Local config overrides
+config/user.ini
+config/*.local.ini
+config/local.ini

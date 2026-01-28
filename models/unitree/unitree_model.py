@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import time
+import math
 
 from models.base import BaseRobotModel
 from bin.core.logger import log_info, log_error, log_debug, log_warning
@@ -406,6 +407,12 @@ class UnitreeModel(BaseRobotModel):
             log_warning(f"模型控制输入不足 (nu={self.model.nu})，无法执行完整动作")
             return
         
+        # 如果是 Go2 模型，使用 PD 位置控制保持稳定站姿并抬腿
+        if self.robot_type.lower() == "go2":
+            self._lift_right_leg_simulation_go2(viewer)
+            return
+
+        # 兜底逻辑（非 Go2）
         # 第一阶段：确保站立姿势
         log_info("第一步：确保站立姿势...")
         stand_duration = 1.0
@@ -485,6 +492,243 @@ class UnitreeModel(BaseRobotModel):
             time.sleep(self.model.opt.timestep)
         
         log_info("动作执行完毕")
+
+    def _lift_right_leg_simulation_go2(self, viewer):
+        """Go2 抬右腿（PD 位置控制 + 支撑侧重心偏移）"""
+        stand_targets = self._get_go2_stand_targets()
+
+        # 站立稳态
+        log_info("第一步：确保站立姿势 (Go2 PD)...")
+        stand_duration = 1.0
+        stand_steps = int(stand_duration / self.model.opt.timestep)
+        for _ in range(stand_steps):
+            if self.stop_requested:
+                return
+            self._apply_pd_control(stand_targets)
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(self.model.opt.timestep)
+
+        # 预下蹲：降低重心
+        log_info("第二步：下蹲降低重心 (Go2)...")
+        crouch_targets = dict(stand_targets)
+        crouch_targets["FR_thigh_joint"] = 0.85
+        crouch_targets["FR_calf_joint"] = -1.75
+        crouch_targets["FL_thigh_joint"] = 0.85
+        crouch_targets["FL_calf_joint"] = -1.75
+        crouch_targets["RR_thigh_joint"] = 0.85
+        crouch_targets["RR_calf_joint"] = -1.75
+        crouch_targets["RL_thigh_joint"] = 0.85
+        crouch_targets["RL_calf_joint"] = -1.75
+        crouch_duration = 0.8
+        crouch_steps = int(crouch_duration / self.model.opt.timestep)
+        for _ in range(crouch_steps):
+            if self.stop_requested:
+                return
+            self._apply_pd_control(crouch_targets)
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(self.model.opt.timestep)
+
+        # 支撑相：轻微向左侧偏重心，避免抬腿侧翻
+        # 注意：不同模型关节正负方向可能相反，这里自动选择更稳定的偏移方向
+        log_info("第三步：重心左移 (Go2)...")
+        support_sign = self._choose_support_abd_sign(crouch_targets, viewer)
+        support_targets = dict(crouch_targets)
+        # 保持抬腿侧(右前)髋外展不动，主要通过支撑腿调整重心
+        support_targets["FR_hip_joint"] = stand_targets["FR_hip_joint"]
+        support_targets["RR_hip_joint"] = 0.12 * support_sign
+        support_targets["FL_hip_joint"] = -0.28 * support_sign
+        support_targets["RL_hip_joint"] = -0.22 * support_sign
+        # 让左侧更稳定一些，右后略支撑
+        support_targets["FL_thigh_joint"] = 0.95
+        support_targets["FL_calf_joint"] = -1.90
+        support_targets["RL_thigh_joint"] = 0.95
+        support_targets["RL_calf_joint"] = -1.90
+        support_targets["RR_thigh_joint"] = 0.90
+        support_targets["RR_calf_joint"] = -1.85
+
+        support_duration = 1.2
+        support_steps = int(support_duration / self.model.opt.timestep)
+        for _ in range(support_steps):
+            if self.stop_requested:
+                return
+            self._apply_pd_control(support_targets)
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(self.model.opt.timestep)
+
+        log_info("重心就绪，开始抬右前腿 (Go2)...")
+        lift_duration = 1.8
+        hold_duration = 1.0
+        lower_duration = 1.6
+
+        total_steps = int((lift_duration + hold_duration + lower_duration) / self.model.opt.timestep)
+
+        # 目标角度
+        original_thigh = support_targets["FR_thigh_joint"]
+        original_calf = support_targets["FR_calf_joint"]
+        original_abd = support_targets["FR_hip_joint"]
+        target_thigh = 1.45
+        target_calf = -2.45
+        target_abd = original_abd
+
+        for step_count in range(total_steps):
+            if self.stop_requested:
+                return
+
+            targets = dict(support_targets)
+            if step_count < lift_duration / self.model.opt.timestep:
+                progress = step_count / (lift_duration / self.model.opt.timestep)
+                targets["FR_thigh_joint"] = original_thigh + (target_thigh - original_thigh) * progress
+                targets["FR_calf_joint"] = original_calf + (target_calf - original_calf) * progress
+                targets["FR_hip_joint"] = original_abd
+            elif step_count < (lift_duration + hold_duration) / self.model.opt.timestep:
+                targets["FR_thigh_joint"] = target_thigh
+                targets["FR_calf_joint"] = target_calf
+                targets["FR_hip_joint"] = original_abd
+            else:
+                progress = (step_count - (lift_duration + hold_duration) / self.model.opt.timestep) / (
+                    lower_duration / self.model.opt.timestep
+                )
+                targets["FR_thigh_joint"] = target_thigh - (target_thigh - original_thigh) * progress
+                targets["FR_calf_joint"] = target_calf - (target_calf - original_calf) * progress
+                targets["FR_hip_joint"] = original_abd
+
+            gain_scale = {
+                "FR_hip_joint": 1.0,
+                "FR_thigh_joint": 1.2,
+                "FR_calf_joint": 1.2,
+                "FL_hip_joint": 1.6,
+                "FL_thigh_joint": 1.6,
+                "FL_calf_joint": 1.6,
+                "RR_hip_joint": 1.4,
+                "RR_thigh_joint": 1.4,
+                "RR_calf_joint": 1.4,
+                "RL_hip_joint": 1.6,
+                "RL_thigh_joint": 1.6,
+                "RL_calf_joint": 1.6,
+            }
+            self._apply_pd_control(targets, gain_scale=gain_scale)
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(self.model.opt.timestep)
+
+        log_info("第三步：返回站立姿势 (Go2)...")
+        return_steps = int(0.8 / self.model.opt.timestep)
+        for _ in range(return_steps):
+            if self.stop_requested:
+                return
+            self._apply_pd_control(stand_targets)
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(self.model.opt.timestep)
+
+        log_info("动作执行完毕 (Go2)")
+
+    def _get_go2_stand_targets(self) -> Dict[str, float]:
+        """Go2 站立目标角度"""
+        return {
+            "FR_hip_joint": 0.0,
+            "FR_thigh_joint": 0.67,
+            "FR_calf_joint": -1.3,
+            "FL_hip_joint": 0.0,
+            "FL_thigh_joint": 0.67,
+            "FL_calf_joint": -1.3,
+            "RR_hip_joint": 0.0,
+            "RR_thigh_joint": 0.67,
+            "RR_calf_joint": -1.3,
+            "RL_hip_joint": 0.0,
+            "RL_thigh_joint": 0.67,
+            "RL_calf_joint": -1.3,
+        }
+
+    def _choose_support_abd_sign(self, stand_targets: Dict[str, float], viewer) -> int:
+        """自动选择更稳定的髋外展偏移方向（返回 +1 或 -1）"""
+        best_sign = 1
+        best_roll = None
+        test_steps = int(0.3 / self.model.opt.timestep)
+        for sign in (1, -1):
+            targets = dict(stand_targets)
+            targets["FR_hip_joint"] = stand_targets["FR_hip_joint"]
+            targets["RR_hip_joint"] = 0.08 * sign
+            targets["FL_hip_joint"] = -0.16 * sign
+            targets["RL_hip_joint"] = -0.12 * sign
+
+            accum = 0.0
+            for _ in range(test_steps):
+                if self.stop_requested:
+                    return best_sign
+                self._apply_pd_control(targets)
+                mujoco.mj_step(self.model, self.data)
+                viewer.sync()
+                time.sleep(self.model.opt.timestep)
+                accum += abs(self._get_base_roll())
+
+            avg_roll = accum / max(test_steps, 1)
+            if best_roll is None or avg_roll < best_roll:
+                best_roll = avg_roll
+                best_sign = sign
+
+        return best_sign
+
+    def _get_base_roll(self) -> float:
+        """获取机身 roll 角（弧度）"""
+        if self.model.nq < 7:
+            return 0.0
+        qw, qx, qy, qz = self.data.qpos[3:7]
+        sinr_cosp = 2 * (qw * qx + qy * qz)
+        cosr_cosp = 1 - 2 * (qx * qx + qy * qy)
+        return math.atan2(sinr_cosp, cosr_cosp)
+
+    def _apply_pd_control(self, targets: Dict[str, float], gain_scale: Optional[Dict[str, float]] = None):
+        """基于关节目标角度的 PD 控制（用于 Go2）"""
+        actuator_names = [
+            "FR_hip", "FR_thigh", "FR_calf",
+            "FL_hip", "FL_thigh", "FL_calf",
+            "RR_hip", "RR_thigh", "RR_calf",
+            "RL_hip", "RL_thigh", "RL_calf",
+        ]
+
+        for act_name in actuator_names:
+            joint_name = f"{act_name}_joint"
+            if joint_name not in targets:
+                continue
+
+            try:
+                aid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, act_name)
+                jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+            except Exception:
+                continue
+
+            qpos_adr = self.model.jnt_qposadr[jid]
+            qvel_adr = self.model.jnt_dofadr[jid]
+            q = self.data.qpos[qpos_adr]
+            qd = self.data.qvel[qvel_adr]
+
+            # 关节类型分配不同增益
+            if "calf" in joint_name:
+                kp, kd = 80.0, 4.0
+            elif "thigh" in joint_name:
+                kp, kd = 60.0, 3.0
+            else:
+                kp, kd = 40.0, 2.5
+
+            if gain_scale and joint_name in gain_scale:
+                scale = gain_scale[joint_name]
+                kp *= scale
+                kd *= scale
+
+            tau = kp * (targets[joint_name] - q) - kd * qd
+
+            # 扭矩限幅
+            ctrl_min, ctrl_max = self.model.actuator_ctrlrange[aid]
+            if tau < ctrl_min:
+                tau = ctrl_min
+            elif tau > ctrl_max:
+                tau = ctrl_max
+
+            self.data.ctrl[aid] = tau
     
     def _stand_action(self, **kwargs) -> bool:
         """站立姿势动作"""
