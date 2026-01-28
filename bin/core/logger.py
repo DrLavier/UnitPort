@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt, QObject, Signal, QThread
 from PySide6.QtGui import QColor, QTextCursor, QTextCharFormat
 
 from bin.core.theme_manager import get_color, get_font_size
+from bin.core.localisation import tr
 
 
 # ============================================================================
@@ -164,12 +165,12 @@ class CmdLogWidget(QWidget):
         hl = QHBoxLayout(header)
         hl.setContentsMargins(10, 5, 10, 5)
 
-        tt = QLabel("Console")
+        tt = QLabel(tr("console.title", "Console"))
         tt.setMaximumHeight(35)
         hl.addWidget(tt)
         hl.addStretch()
 
-        btn = QPushButton("Clear")
+        btn = QPushButton(tr("console.clear", "Clear"))
         btn.clicked.connect(self.clear)
         hl.addWidget(btn)
 

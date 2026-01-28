@@ -31,7 +31,7 @@ class ConnectionItem(QGraphicsPathItem):
         self.in_port = in_port
 
         # Set style
-        self.setPen(QPen(QColor("#60a5fa"), 2.5))
+        self.setPen(QPen(QColor(self._base_color()), 2.5))
         self.setZValue(-1)
         self.setData(0, "connection")
 
@@ -51,8 +51,8 @@ class ConnectionItem(QGraphicsPathItem):
         """Create endpoint markers (for reconnection)"""
         # Start marker
         self._start_marker = QGraphicsEllipseItem(-4, -4, 8, 8, self)
-        self._start_marker.setBrush(QBrush(QColor("#60a5fa")))
-        self._start_marker.setPen(QPen(QColor("#ffffff"), 1))
+        self._start_marker.setBrush(QBrush(QColor(self._base_color())))
+        self._start_marker.setPen(QPen(QColor(self._marker_border_color()), 1))
         self._start_marker.setZValue(10)
         self._start_marker.setFlag(QGraphicsItem.ItemIsSelectable, False)
         self._start_marker.setData(0, "connection_marker")
@@ -63,8 +63,8 @@ class ConnectionItem(QGraphicsPathItem):
 
         # End marker
         self._end_marker = QGraphicsEllipseItem(-4, -4, 8, 8, self)
-        self._end_marker.setBrush(QBrush(QColor("#60a5fa")))
-        self._end_marker.setPen(QPen(QColor("#ffffff"), 1))
+        self._end_marker.setBrush(QBrush(QColor(self._base_color())))
+        self._end_marker.setPen(QPen(QColor(self._marker_border_color()), 1))
         self._end_marker.setZValue(10)
         self._end_marker.setFlag(QGraphicsItem.ItemIsSelectable, False)
         self._end_marker.setData(0, "connection_marker")
@@ -110,7 +110,7 @@ class ConnectionItem(QGraphicsPathItem):
 
     def hoverEnterEvent(self, event):
         """Mouse hover - show endpoint markers"""
-        self.setPen(QPen(QColor("#3b82f6"), 3.5))
+        self.setPen(QPen(QColor(self._hover_color()), 3.5))
         if self._start_marker:
             self._start_marker.setVisible(True)
         if self._end_marker:
@@ -120,7 +120,7 @@ class ConnectionItem(QGraphicsPathItem):
     def hoverLeaveEvent(self, event):
         """Mouse leave - hide endpoint markers"""
         if not self.isSelected():
-            self.setPen(QPen(QColor("#60a5fa"), 2.5))
+            self.setPen(QPen(QColor(self._base_color()), 2.5))
         if self._start_marker:
             self._start_marker.setVisible(False)
         if self._end_marker:
@@ -131,19 +131,41 @@ class ConnectionItem(QGraphicsPathItem):
         """Item change event"""
         if change == QGraphicsItem.ItemSelectedHasChanged:
             if value:  # Selected
-                self.setPen(QPen(QColor("#3b82f6"), 3.5))
+                self.setPen(QPen(QColor(self._hover_color()), 3.5))
                 if self._start_marker:
                     self._start_marker.setVisible(True)
                 if self._end_marker:
                     self._end_marker.setVisible(True)
             else:  # Not selected
-                self.setPen(QPen(QColor("#60a5fa"), 2.5))
+                self.setPen(QPen(QColor(self._base_color()), 2.5))
                 if self._start_marker:
                     self._start_marker.setVisible(False)
                 if self._end_marker:
                     self._end_marker.setVisible(False)
 
         return super().itemChange(change, value)
+
+    def _base_color(self) -> str:
+        return get_color("connection", "#60a5fa")
+
+    def _hover_color(self) -> str:
+        return get_color("connection_hover", "#3b82f6")
+
+    def _marker_border_color(self) -> str:
+        return get_color("connection_marker_border", "#ffffff")
+
+    def refresh_style(self):
+        """Refresh connection colors"""
+        if self.isSelected():
+            self.setPen(QPen(QColor(self._hover_color()), 3.5))
+        else:
+            self.setPen(QPen(QColor(self._base_color()), 2.5))
+        if self._start_marker:
+            self._start_marker.setBrush(QBrush(QColor(self._base_color())))
+            self._start_marker.setPen(QPen(QColor(self._marker_border_color()), 1))
+        if self._end_marker:
+            self._end_marker.setBrush(QBrush(QColor(self._base_color())))
+            self._end_marker.setPen(QPen(QColor(self._marker_border_color()), 1))
 
 
 class PortInputRow(QWidget):
@@ -181,9 +203,7 @@ class GraphScene(QGraphicsScene):
         self.grid_big = self.grid_small * 5
 
         # Color configuration
-        self.color_bg = QColor(30, 31, 34)
-        self.color_grid_small = QColor(50, 51, 55)
-        self.color_grid_big = QColor(60, 62, 67)
+        self._apply_theme()
 
         # Nodes and connections
         self._node_seq = 0
@@ -224,6 +244,75 @@ class GraphScene(QGraphicsScene):
         """Set robot type"""
         self._robot_type = robot_type
         log_info(f"Robot type set to: {robot_type}")
+
+    def _apply_theme(self):
+        """Apply theme colors and widget styles"""
+        self.color_bg = QColor(get_color("graph_bg", get_color("bg", "#1e1e1e")))
+        self.color_grid_small = QColor(get_color("graph_grid_small", "#323337"))
+        self.color_grid_big = QColor(get_color("graph_grid_big", "#3c3e43"))
+        self._node_title_color = QColor(get_color("node_title", "#ffffff"))
+
+        input_bg = get_color("input_bg", get_color("cmd_bg", "#0f1115"))
+        input_text = get_color("input_text", get_color("text_primary", "#e5e7eb"))
+        input_border = get_color("input_border", get_color("border", "#4b5563"))
+        popup_bg = get_color("input_popup_bg", get_color("card_bg", "#111827"))
+        popup_sel = get_color("input_popup_selected_bg", get_color("hover_bg", "#334155"))
+        hover_bg = get_color("hover_bg", "#1f2937")
+        button_bg = get_color("button_bg", get_color("card_bg", "#111827"))
+        button_text = get_color("button_text", get_color("text_primary", "#e5e7eb"))
+        button_border = get_color("button_border", input_border)
+
+        self._combo_style = f"""
+            QComboBox {{
+                background: {input_bg};
+                color: {input_text};
+                border: 1px solid {input_border};
+                border-radius: 4px;
+                padding: 2px 4px;
+                font-size: 11px;
+            }}
+        """
+        self._combo_view_style = f"""
+            QComboBox QAbstractItemView {{
+                background: {popup_bg};
+                color: {input_text};
+                selection-background-color: {popup_sel};
+            }}
+        """
+        self._input_style = f"""
+            QLineEdit {{
+                background: {input_bg};
+                color: {input_text};
+                border: 1px solid {input_border};
+                border-radius: 4px;
+                padding: 2px 4px;
+                font-size: 11px;
+            }}
+        """
+        self._button_style = f"""
+            QPushButton {{
+                background: {button_bg};
+                color: {button_text};
+                border: 1px solid {button_border};
+                border-radius: 4px;
+                padding: 2px 4px;
+                font-size: 10px;
+            }}
+            QPushButton:hover {{
+                background: {hover_bg};
+            }}
+        """
+        tag_bg = get_color("tag_bg", get_color("hover_bg", "#3d3d3d"))
+        tag_text = get_color("tag_text", get_color("text_primary", "#ffffff"))
+        self._tag_style = f"""
+            QLabel#nodeTag {{
+                color: {tag_text};
+                background: {tag_bg};
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 11px;
+            }}
+        """
 
     def _resolve_node_gradient(self, name: str, grad: Optional[tuple]) -> tuple:
         """Resolve node gradient from ui.ini NodeColors"""
@@ -456,7 +545,8 @@ class GraphScene(QGraphicsScene):
         path.lineTo(pos)
 
         self._temp_connection = QGraphicsPathItem(path)
-        self._temp_connection.setPen(QPen(QColor("#f59e0b"), 3))
+        temp_color = get_color("connection_temp", "#f59e0b")
+        self._temp_connection.setPen(QPen(QColor(temp_color), 3))
         self.addItem(self._temp_connection)
 
         log_debug(f"Starting reconnection: {end_type} end")
@@ -535,7 +625,8 @@ class GraphScene(QGraphicsScene):
         path.lineTo(pos)
 
         self._temp_connection = QGraphicsPathItem(path)
-        self._temp_connection.setPen(QPen(QColor("#60a5fa"), 3))
+        temp_color = get_color("connection", "#60a5fa")
+        self._temp_connection.setPen(QPen(QColor(temp_color), 3))
         self.addItem(self._temp_connection)
 
     def _update_temp_connection(self, pos):
@@ -608,6 +699,57 @@ class GraphScene(QGraphicsScene):
             if isinstance(item, ConnectionItem):
                 item.update_path()
 
+    def refresh_style(self):
+        """Refresh theme styles across the scene"""
+        self._apply_theme()
+        port_bg = get_color("port_bg", "#1f2937")
+        port_border = get_color("port_border", get_color("connection", "#60a5fa"))
+        node_border = get_color("node_border", get_color("border", "#78828c"))
+
+        for item in self.items():
+            if isinstance(item, ConnectionItem):
+                item.refresh_style()
+                continue
+
+            if item.data(0) == "port":
+                item.setBrush(QBrush(QColor(port_bg)))
+                item.setPen(QPen(QColor(port_border), 2))
+                continue
+
+            if item.data(10) == "node":
+                if isinstance(item, QGraphicsRectItem):
+                    item.setPen(QPen(QColor(node_border), 2))
+                for child in item.childItems():
+                    if isinstance(child, QGraphicsProxyWidget):
+                        self._apply_proxy_widget_theme(child)
+                    elif hasattr(child, "setDefaultTextColor"):
+                        child.setDefaultTextColor(self._node_title_color)
+
+        self.update()
+
+    def _apply_proxy_widget_theme(self, proxy: QGraphicsProxyWidget):
+        widget = proxy.widget()
+        if not widget:
+            return
+        if isinstance(widget, QComboBox):
+            widget.setStyleSheet(self._combo_style + self._combo_view_style)
+        if isinstance(widget, QLineEdit):
+            widget.setStyleSheet(self._input_style)
+        if isinstance(widget, QPushButton):
+            widget.setStyleSheet(self._button_style)
+        if isinstance(widget, QLabel) and widget.objectName() == "nodeTag":
+            widget.setStyleSheet(self._tag_style)
+
+        for combo in widget.findChildren(QComboBox):
+            combo.setStyleSheet(self._combo_style + self._combo_view_style)
+        for line_edit in widget.findChildren(QLineEdit):
+            line_edit.setStyleSheet(self._input_style)
+        for btn in widget.findChildren(QPushButton):
+            btn.setStyleSheet(self._button_style)
+        for lbl in widget.findChildren(QLabel):
+            if lbl.objectName() == "nodeTag":
+                lbl.setStyleSheet(self._tag_style)
+
     def create_node(self, name: str, scene_pos: QPointF,
                     features: List[str] = None, grad: tuple = None):
         """
@@ -641,7 +783,7 @@ class GraphScene(QGraphicsScene):
         else:
             rect.setBrush(QBrush(QColor(45, 50, 60)))
 
-        rect.setPen(QPen(QColor(120, 130, 140), 2))
+        rect.setPen(QPen(QColor(get_color("node_border", get_color("border", "#78828c"))), 2))
         rect.setFlag(QGraphicsItem.ItemIsMovable, True)
         rect.setFlag(QGraphicsItem.ItemIsSelectable, True)
         rect.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)  # Important: send geometry change signals
@@ -653,7 +795,7 @@ class GraphScene(QGraphicsScene):
         f.setPointSize(9)
         f.setBold(True)
         label = self.addText(str(name), f)
-        label.setDefaultTextColor(QColor("#ffffff"))
+        label.setDefaultTextColor(self._node_title_color)
         label.setParentItem(rect)
         label.setZValue(2)
         label.setPos(8, 6)
@@ -671,8 +813,10 @@ class GraphScene(QGraphicsScene):
         def _mk_port(x, y, io, slot, radius=port_r):
             p = QGraphicsEllipseItem(-radius, -radius, radius * 2, radius * 2, rect)
             p.setPos(x, y)
-            p.setBrush(QBrush(QColor("#1f2937")))
-            p.setPen(QPen(QColor("#60a5fa"), 2))
+            port_bg = get_color("port_bg", "#1f2937")
+            port_border = get_color("port_border", get_color("connection", "#60a5fa"))
+            p.setBrush(QBrush(QColor(port_bg)))
+            p.setPen(QPen(QColor(port_border), 2))
             p.setData(0, "port")
             p.setData(1, io)
             p.setData(2, [])
@@ -691,73 +835,24 @@ class GraphScene(QGraphicsScene):
             combo.addItems(features)
             combo.setMinimumWidth(int(w * 0.8))
             combo.setMaximumWidth(int(w - 16))
-            combo.setStyleSheet("""
-                QComboBox {
-                    background: #0f1115;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 11px;
-                }
-                QComboBox QAbstractItemView {
-                    background: #111827;
-                    color: #e5e7eb;
-                    selection-background-color: #334155;
-                }
-            """)
+            combo.setStyleSheet(self._combo_style + self._combo_view_style)
 
             condition_input = QLineEdit()
             condition_input.setPlaceholderText("condition / connect")
-            condition_input.setStyleSheet("""
-                QLineEdit {
-                    background: #0f1115;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 11px;
-                }
-            """)
+            condition_input.setStyleSheet(self._input_style)
 
             add_elif_btn = QPushButton("+elif")
             add_elif_btn.setFixedWidth(48)
-            add_elif_btn.setStyleSheet("""
-                QPushButton {
-                    background: #111827;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 10px;
-                }
-                QPushButton:hover {
-                    background: #1f2937;
-                }
-            """)
+            add_elif_btn.setStyleSheet(self._button_style)
 
             loop_type_combo = QComboBox()
             loop_type_combo.addItems(["While", "For"])
-            loop_type_combo.setStyleSheet("""
-                QComboBox {
-                    background: #0f1115;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 11px;
-                }
-            """)
-
-            tag_bg = get_color("hover_bg", "#3d3d3d")
-            tag_fg = get_color("text_primary", "#ffffff")
+            loop_type_combo.setStyleSheet(self._combo_style + self._combo_view_style)
 
             def _make_tag(text: str) -> QLabel:
                 lbl = QLabel(text)
-                lbl.setStyleSheet(
-                    f"QLabel {{ color: {tag_fg}; background: {tag_bg}; "
-                    "border-radius: 4px; padding: 2px 6px; font-size: 11px; }}"
-                )
+                lbl.setObjectName("nodeTag")
+                lbl.setStyleSheet(self._tag_style)
                 return lbl
 
             loop_label = _make_tag("Loop")
@@ -1166,41 +1261,18 @@ class GraphScene(QGraphicsScene):
             combo.addItems(features)
             combo.setMinimumWidth(60)
             combo.setMaximumWidth(70)
-            combo.setStyleSheet("""
-                QComboBox {
-                    background: #0f1115;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 11px;
-                }
-            """)
+            combo.setStyleSheet(self._combo_style + self._combo_view_style)
 
-            input_style = """
-                QLineEdit {
-                    background: #0f1115;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 11px;
-                }
-            """
+            input_style = self._input_style
 
             left_row = PortInputRow("left", input_style)
             left_input = left_row.line_edit
             left_input.setMaximumWidth(int(w - 16))
 
-            tag_bg = get_color("hover_bg", "#3d3d3d")
-            tag_fg = get_color("text_primary", "#ffffff")
-
             def _make_tag(text: str) -> QLabel:
                 lbl = QLabel(text)
-                lbl.setStyleSheet(
-                    f"QLabel {{ color: {tag_fg}; background: {tag_bg}; "
-                    "border-radius: 4px; padding: 2px 6px; font-size: 11px; }}"
-                )
+                lbl.setObjectName("nodeTag")
+                lbl.setStyleSheet(self._tag_style)
                 return lbl
 
             out_label = _make_tag("Result")
@@ -1292,16 +1364,7 @@ class GraphScene(QGraphicsScene):
             combo.addItems(features)
             combo.setMinimumWidth(int(w * 0.85))
             combo.setMaximumWidth(int(w - 16))
-            combo.setStyleSheet("""
-                QComboBox {
-                    background: #0f1115;
-                    color: #e5e7eb;
-                    border: 1px solid #4b5563;
-                    border-radius: 4px;
-                    padding: 2px 4px;
-                    font-size: 11px;
-                }
-            """)
+            combo.setStyleSheet(self._combo_style + self._combo_view_style)
 
             _mk_port(0, h / 2, "in", "flow_in", radius=6)
             _mk_port(w, h / 2, "out", "flow_out", radius=6)

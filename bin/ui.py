@@ -40,7 +40,7 @@ class MainWindow(QMainWindow):
         self._init_toolbar()
         self._init_statusbar()
 
-        log_info("Main window initialized")
+        log_info(tr("log.main_window_init", "Main window initialized"))
 
     def _load_ui_config(self):
         """Load UI configuration"""
@@ -49,6 +49,10 @@ class MainWindow(QMainWindow):
 
         # Set theme
         theme = self.config.get('PREFERENCES', 'theme', fallback='dark', config_type='user')
+        theme = (theme or "dark").lower()
+        if theme not in ("light", "dark"):
+            theme = "dark"
+        self._theme = theme
         set_theme(theme)
 
     def _init_ui(self):
@@ -57,7 +61,7 @@ class MainWindow(QMainWindow):
         width = self.config.get_int('UI', 'window_width', fallback=1400)
         height = self.config.get_int('UI', 'window_height', fallback=900)
 
-        self.setWindowTitle("UnitPort - Robot Visual Programming Platform")
+        self.setWindowTitle(tr("app.title", "UnitPort - Robot Visual Programming Platform"))
         self.resize(width, height)
 
         # Create central widget
@@ -118,8 +122,8 @@ class MainWindow(QMainWindow):
         # Apply stylesheet
         self._apply_stylesheet()
 
-        log_debug("UI layout created")
-        log_info("Graph editor ready, drag modules from left panel to canvas")
+        log_debug(tr("log.ui_layout_created", "UI layout created"))
+        log_info(tr("log.graph_editor_ready", "Graph editor ready, drag modules from left panel to canvas"))
 
     def _apply_stylesheet(self):
         """Apply stylesheet"""
@@ -128,12 +132,16 @@ class MainWindow(QMainWindow):
             card_bg = get_color('card_bg', '#2d2d2d')
             border = get_color('border', '#444444')
             text_primary = get_color('text_primary', '#ffffff')
+            text_secondary = get_color('text_secondary', '#cccccc')
+            hover_bg = get_color('hover_bg', '#3d3d3d')
         except:
             # Fallback
             bg = '#1e1e1e'
             card_bg = '#2d2d2d'
             border = '#444444'
             text_primary = '#ffffff'
+            text_secondary = '#cccccc'
+            hover_bg = '#3d3d3d'
 
         self.setStyleSheet(f"""
             QMainWindow {{
@@ -146,6 +154,39 @@ class MainWindow(QMainWindow):
                 background-color: {card_bg};
                 border-radius: 12px;
                 padding: 2px;
+            }}
+            QToolBar {{
+                background-color: {bg};
+                border-bottom: 1px solid {border};
+                spacing: 6px;
+            }}
+            QToolButton, QPushButton {{
+                background-color: {card_bg};
+                color: {text_primary};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 4px 8px;
+            }}
+            QToolButton:hover, QPushButton:hover {{
+                background-color: {hover_bg};
+            }}
+            QComboBox {{
+                background-color: {card_bg};
+                color: {text_primary};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 2px 6px;
+                min-height: 20px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {card_bg};
+                color: {text_primary};
+                selection-background-color: {hover_bg};
+            }}
+            QStatusBar {{
+                background-color: {bg};
+                color: {text_secondary};
+                border-top: 1px solid {border};
             }}
             QSplitter::handle {{
                 background-color: {border};
@@ -166,7 +207,7 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
 
         # Robot type selection
-        t1 = QLabel(" Robot: ")
+        t1 = QLabel(f" {tr('toolbar.robot', 'Robot:')} ")
         t1.setMaximumHeight(35)
         toolbar.addWidget(t1)
 
@@ -183,11 +224,11 @@ class MainWindow(QMainWindow):
 
         # Toolbar buttons
         actions = [
-            ("New", self._on_new),
-            ("Open", self._on_open),
-            ("Save", self._on_save),
-            ("Export Code", self._on_export_code),
-            ("Run", self._on_run)
+            (tr("toolbar.new", "New"), self._on_new),
+            (tr("toolbar.open", "Open"), self._on_open),
+            (tr("toolbar.save", "Save"), self._on_save),
+            (tr("toolbar.export_code", "Export Code"), self._on_export_code),
+            (tr("toolbar.run", "Run"), self._on_run)
         ]
 
         for text, handler in actions:
@@ -198,7 +239,7 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
 
         # Test button
-        test_action = QAction("Test Lift Leg", self)
+        test_action = QAction(tr("toolbar.test_lift_leg", "Test Lift Leg"), self)
         test_action.triggered.connect(self._test_lift_leg)
         toolbar.addAction(test_action)
 
@@ -216,8 +257,14 @@ class MainWindow(QMainWindow):
         )
         toolbar.addWidget(flexible_spacer)
 
+        # Theme toggle (left of language selection)
+        self.theme_button = QPushButton()
+        self.theme_button.clicked.connect(self._on_theme_toggle)
+        toolbar.addWidget(self.theme_button)
+        self._sync_theme_button()
+
         # Language selection (right side)
-        toolbar.addWidget(QLabel(" Language: "))
+        toolbar.addWidget(QLabel(f" {tr('toolbar.language', 'Language:')} "))
 
         self.language_combo = QComboBox()
         # Currently only English is available
@@ -234,7 +281,9 @@ class MainWindow(QMainWindow):
 
         # Show initial status
         robot_type = self.robot_combo.currentText()
-        self.status.showMessage(f"Ready | Robot: {robot_type}")
+        self.status.showMessage(
+            tr("status.ready", "Ready | Robot: {robot}", robot=robot_type)
+        )
 
     def set_robot_model(self, robot_model):
         """Set robot model"""
@@ -245,12 +294,15 @@ class MainWindow(QMainWindow):
             robot_type = getattr(robot_model, 'robot_type', 'go2')
             self.graph_scene.set_robot_type(robot_type)
 
-        log_success(f"Robot model set: {robot_model}")
+        log_success(tr("log.robot_model_set", "Robot model set: {model}", model=robot_model))
 
     def _on_robot_type_changed(self, robot_type: str):
         """Robot type changed"""
-        log_info(f"Robot type changed: {robot_type}")
-        self.status.showMessage(f"Robot type changed: {robot_type}", 2000)
+        log_info(tr("log.robot_type_changed", "Robot type changed: {type}", type=robot_type))
+        self.status.showMessage(
+            tr("status.robot_changed", "Robot type changed: {robot}", robot=robot_type),
+            2000
+        )
 
         # Update graph scene robot type
         if hasattr(self, 'graph_scene'):
@@ -268,53 +320,82 @@ class MainWindow(QMainWindow):
             log_info(f"Language changed to: {lang_code}")
             # Note: Full UI refresh would require more extensive changes
             # For now, new text will appear on next widget creation
+            self._refresh_theme()
 
     def _on_new(self):
         """New project"""
-        log_info("New project")
+        log_info(tr("log.new_project", "New project"))
         self.code_editor.clear()
-        self.status.showMessage("New project", 2000)
+        self.status.showMessage(tr("status.new_project", "New project"), 2000)
 
     def _on_open(self):
         """Open project"""
-        log_info("Open project")
-        QMessageBox.information(self, "Info", "Open project feature not implemented")
+        log_info(tr("log.open_project", "Open project"))
+        QMessageBox.information(
+            self,
+            tr("messages.info", "Info"),
+            tr("messages.open_not_implemented", "Open project feature not implemented")
+        )
 
     def _on_save(self):
         """Save project"""
-        log_info("Save project")
-        QMessageBox.information(self, "Info", "Save project feature not implemented")
+        log_info(tr("log.save_project", "Save project"))
+        QMessageBox.information(
+            self,
+            tr("messages.info", "Info"),
+            tr("messages.save_not_implemented", "Save project feature not implemented")
+        )
 
     def _on_export_code(self):
         """Export code"""
-        log_info("Export code")
+        log_info(tr("log.export_code", "Export code"))
         code = self.code_editor.get_code()
         QMessageBox.information(
             self,
-            "Export Code",
-            f"Code length: {len(code)} characters\n(Export feature not implemented)"
+            tr("toolbar.export_code", "Export Code"),
+            tr(
+                "messages.export_code_length",
+                "Code length: {length} characters\n(Export feature not implemented)",
+                length=len(code)
+            )
         )
 
     def _on_run(self):
         """Run"""
-        log_info("Run")
-        QMessageBox.information(self, "Info",
-                                "Run feature requires selecting an action node in the graph editor")
+        log_info(tr("log.run", "Run"))
+        QMessageBox.information(
+            self,
+            tr("messages.info", "Info"),
+            tr(
+                "messages.run_select_action",
+                "Run feature requires selecting an action node in the graph editor"
+            )
+        )
 
     def _test_lift_leg(self):
         """Test lift leg action"""
         if self.robot_model is None:
-            log_warning("Robot model not set")
-            QMessageBox.warning(self, "Warning", "Robot model not set")
+            log_warning(tr("log.no_robot_model", "Robot model not set"))
+            QMessageBox.warning(
+                self,
+                tr("messages.warning", "Warning"),
+                tr("messages.no_robot_model", "Robot model not set")
+            )
             return
 
         if self.simulation_thread and self.simulation_thread.isRunning():
-            log_warning("Simulation is already running")
-            QMessageBox.warning(self, "Warning", "Simulation is already running")
+            log_warning(tr("log.simulation_running", "Simulation is already running"))
+            QMessageBox.warning(
+                self,
+                tr("messages.warning", "Warning"),
+                tr("messages.simulation_running", "Simulation is already running")
+            )
             return
 
-        log_info("Starting lift leg action test")
-        self.status.showMessage("Executing lift leg action...")
+        log_info(tr("log.test_lift_leg_start", "Starting lift leg action test"))
+        self.status.showMessage(
+            tr("status.executing_action", "Executing lift leg action...")
+        )
 
         # Create simulation thread
         self.simulation_thread = SimulationThread(
@@ -361,5 +442,45 @@ class MainWindow(QMainWindow):
             self.simulation_thread.stop()
             self.simulation_thread.wait(3000)  # Wait up to 3 seconds
 
-        log_info("Main window closed")
+        log_info(tr("log.main_window_closed", "Main window closed"))
         event.accept()
+
+    def _on_theme_toggle(self):
+        """Toggle theme between light/dark"""
+        next_theme = "light" if self._theme == "dark" else "dark"
+        self._apply_theme(next_theme, persist=True)
+
+    def _apply_theme(self, theme: str, persist: bool = True):
+        """Apply theme and refresh UI"""
+        theme = (theme or "dark").lower()
+        if theme not in ("light", "dark"):
+            theme = "dark"
+        self._theme = theme
+        set_theme(theme)
+        if persist:
+            self.config.set('PREFERENCES', 'theme', theme, config_type='user')
+            self.config.save_user_config()
+        self._refresh_theme()
+        self._sync_theme_button()
+
+    def _sync_theme_button(self):
+        """Sync theme toggle button label"""
+        if not hasattr(self, "theme_button"):
+            return
+        if self._theme == "dark":
+            self.theme_button.setText(tr("toolbar.theme_dark", "Dark"))
+        else:
+            self.theme_button.setText(tr("toolbar.theme_light", "Light"))
+        self.theme_button.setToolTip(tr("toolbar.theme_toggle", "Toggle theme"))
+
+    def _refresh_theme(self):
+        """Refresh theme styles across components"""
+        self._apply_stylesheet()
+        if hasattr(self, "cmd_log"):
+            self.cmd_log.refresh_style()
+        if hasattr(self, "module_palette"):
+            self.module_palette.refresh_style()
+        if hasattr(self, "code_editor"):
+            self.code_editor.refresh_style()
+        if hasattr(self, "graph_scene"):
+            self.graph_scene.refresh_style()

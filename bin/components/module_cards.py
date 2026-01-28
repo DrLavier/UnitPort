@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-模块卡片组件
-左侧面板的可拖拽节点库（折叠列表）
+Module palette component for the node library.
 """
 
 import json
@@ -16,6 +15,8 @@ from PySide6.QtWidgets import (
 )
 
 from bin.core.logger import log_debug
+from bin.core.localisation import tr
+from bin.core.theme_manager import get_color, get_font_size
 from nodes.sys_nodes import (
     ActionExecutionNode,
     StopNode,
@@ -29,7 +30,7 @@ from custom_nodes import get_custom_nodes
 
 
 class NodeTree(QTreeWidget):
-    """可拖拽节点树"""
+    """Draggable node tree"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -39,25 +40,36 @@ class NodeTree(QTreeWidget):
         self.setFocusPolicy(Qt.NoFocus)
         self.setDragEnabled(True)
         self.setDragDropMode(QTreeWidget.DragOnly)
-        self.setStyleSheet("""
-            QTreeWidget {
+        self.refresh_style()
+
+    def refresh_style(self):
+        """Refresh theme styles"""
+        text_primary = get_color("text_primary", "#e5e7eb")
+        hover_bg = get_color("hover_bg", "#111827")
+        selected_bg = get_color("card_bg", "#1f2937")
+        font_size = get_font_size("size_small", 12)
+
+        self.setStyleSheet(
+            f"""
+            QTreeWidget {{
                 background: transparent;
                 border: none;
-                color: #e5e7eb;
-                font-size: 12px;
-            }
-            QTreeWidget::item {
+                color: {text_primary};
+                font-size: {font_size}px;
+            }}
+            QTreeWidget::item {{
                 padding: 4px 6px;
                 border-radius: 6px;
-            }
-            QTreeWidget::item:selected {
-                background: #1f2937;
-                color: #ffffff;
-            }
-            QTreeWidget::item:hover {
-                background: #111827;
-            }
-        """)
+            }}
+            QTreeWidget::item:selected {{
+                background: {selected_bg};
+                color: {text_primary};
+            }}
+            QTreeWidget::item:hover {{
+                background: {hover_bg};
+            }}
+            """
+        )
 
     def startDrag(self, supportedActions):
         item = self.currentItem()
@@ -73,11 +85,11 @@ class NodeTree(QTreeWidget):
         mime.setText(f"Node: {payload.get('title', '')}")
         drag.setMimeData(mime)
         drag.exec(Qt.CopyAction)
-        log_debug(f"拖拽节点: {payload.get('title')}")
+        log_debug(tr("log.module_dragged", "Module dragged: {title}", title=payload.get("title", "")))
 
 
 class ModulePalette(QWidget):
-    """模块面板"""
+    """Module palette widget"""
 
     node_requested = Signal(dict)
 
@@ -87,45 +99,29 @@ class ModulePalette(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        """初始化UI"""
+        """Initialize UI"""
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(12)
 
-        panel = QFrame()
-        panel.setObjectName("panel")
-        panel.setStyleSheet("""
-            #panel {
-                background: #2a2c33;
-                border-radius: 14px;
-                border: 1px solid #3f4147;
-            }
-            QLabel#panelTitle {
-                color: #e5e7eb;
-                font-weight: 700;
-                font-size: 16px;
-            }
-            QLabel#panelSubtitle {
-                color: #9ca3af;
-                font-size: 12px;
-            }
-        """)
+        self.panel = QFrame()
+        self.panel.setObjectName("panel")
 
-        v = QVBoxLayout(panel)
+        v = QVBoxLayout(self.panel)
         v.setContentsMargins(16, 16, 16, 16)
         v.setSpacing(12)
 
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
 
-        title = QLabel("🧩 Node Library")
-        title.setObjectName("panelTitle")
-        subtitle = QLabel("Drag or double-click")
-        subtitle.setObjectName("panelSubtitle")
+        self.title = QLabel(tr("modules.panel_title", "Node Library"))
+        self.title.setObjectName("panelTitle")
+        self.subtitle = QLabel(tr("modules.panel_subtitle", "Drag to canvas"))
+        self.subtitle.setObjectName("panelSubtitle")
 
-        title_row.addWidget(title)
+        title_row.addWidget(self.title)
         title_row.addStretch(1)
-        title_row.addWidget(subtitle)
+        title_row.addWidget(self.subtitle)
         v.addLayout(title_row)
 
         self.tree = NodeTree()
@@ -133,21 +129,65 @@ class ModulePalette(QWidget):
         self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
         v.addWidget(self.tree, 1)
 
-        status_label = QLabel("✅ 图形编辑器就绪")
-        status_label.setStyleSheet("""
-            QLabel {
-                color: #10b981;
-                font-size: 11px;
-                padding: 6px;
-                background: rgba(255, 255, 255, 0.03);
-                border-radius: 6px;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        """)
-        status_label.setAlignment(Qt.AlignCenter)
-        v.addWidget(status_label)
+        self.status_label = QLabel(tr("modules.status_ready", "Graph editor ready"))
+        self.status_label.setAlignment(Qt.AlignCenter)
+        v.addWidget(self.status_label)
 
-        root.addWidget(panel)
+        root.addWidget(self.panel)
+        self._apply_style()
+
+    def _apply_style(self):
+        """Apply theme styles"""
+        panel_bg = get_color("panel_bg", get_color("card_bg", "#2a2c33"))
+        panel_border = get_color("panel_border", get_color("border", "#3f4147"))
+        title_color = get_color("text_primary", "#e5e7eb")
+        subtitle_color = get_color("text_secondary", "#9ca3af")
+        status_text = get_color("text_secondary", "#9ca3af")
+        status_bg = get_color("hover_bg", "rgba(255, 255, 255, 0.03)")
+        status_border = get_color("border", "rgba(255, 255, 255, 0.1)")
+        title_size = get_font_size("size_large", 16)
+        subtitle_size = get_font_size("size_small", 12)
+
+        self.panel.setStyleSheet(
+            f"""
+            #panel {{
+                background: {panel_bg};
+                border-radius: 14px;
+                border: 1px solid {panel_border};
+            }}
+            QLabel#panelTitle {{
+                color: {title_color};
+                font-weight: 700;
+                font-size: {title_size}px;
+            }}
+            QLabel#panelSubtitle {{
+                color: {subtitle_color};
+                font-size: {subtitle_size}px;
+            }}
+            """
+        )
+
+        self.status_label.setStyleSheet(
+            f"""
+            QLabel {{
+                color: {status_text};
+                font-size: {subtitle_size}px;
+                padding: 6px;
+                background: {status_bg};
+                border-radius: 6px;
+                border: 1px solid {status_border};
+            }}
+            """
+        )
+
+    def refresh_style(self):
+        """Refresh theme styles"""
+        self.title.setText(tr("modules.panel_title", "Node Library"))
+        self.subtitle.setText(tr("modules.panel_subtitle", "Drag to canvas"))
+        self.status_label.setText(tr("modules.status_ready", "Graph editor ready"))
+        self._apply_style()
+        self.tree.refresh_style()
+        self._populate_tree()
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem):
         payload = item.data(0, Qt.UserRole)
@@ -158,17 +198,17 @@ class ModulePalette(QWidget):
     def _populate_tree(self):
         self.tree.clear()
 
-        system_root = QTreeWidgetItem(["System Nodes"])
-        custom_root = QTreeWidgetItem(["Custom Nodes"])
+        system_root = QTreeWidgetItem([tr("modules.system_nodes", "System Nodes")])
+        custom_root = QTreeWidgetItem([tr("modules.custom_nodes", "Custom Nodes")])
         system_root.setExpanded(True)
         custom_root.setExpanded(True)
         self.tree.addTopLevelItem(system_root)
         self.tree.addTopLevelItem(custom_root)
 
-        action_group = QTreeWidgetItem(["Action Nodes"])
-        base_group = QTreeWidgetItem(["Base Nodes"])
-        logic_group = QTreeWidgetItem(["Logic Nodes"])
-        sensor_group = QTreeWidgetItem(["Sensor Nodes"])
+        action_group = QTreeWidgetItem([tr("modules.action_nodes", "Action Nodes")])
+        base_group = QTreeWidgetItem([tr("modules.base_nodes", "Base Nodes")])
+        logic_group = QTreeWidgetItem([tr("modules.logic_nodes", "Logic Nodes")])
+        sensor_group = QTreeWidgetItem([tr("modules.sensor_nodes", "Sensor Nodes")])
 
         system_root.addChild(action_group)
         system_root.addChild(base_group)
@@ -216,7 +256,7 @@ class ModulePalette(QWidget):
 
         custom_nodes = get_custom_nodes()
         if not custom_nodes:
-            empty = QTreeWidgetItem(["(no custom nodes)"])
+            empty = QTreeWidgetItem([tr("modules.no_custom_nodes", "(no custom nodes)")])
             custom_root.addChild(empty)
         else:
             for node_type in sorted(custom_nodes.keys()):
