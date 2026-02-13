@@ -1,0 +1,40 @@
+{
+    "name": "sample_02_two_actions_chained",
+    "description": "Two Action nodes chained: Stand -> Walk",
+    "version": "1.0",
+    "robot_type": "go2",
+    "nodes": [
+        {
+            "id": 0,
+            "display_name": "Action Execution",
+            "position": {"x": 100, "y": 100},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Stand",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        },
+        {
+            "id": 1,
+            "display_name": "Action Execution",
+            "position": {"x": 400, "y": 100},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Walk",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        }
+    ],
+    "connections": [
+        {
+            "from_node": 0,
+            "from_port": "flow_out",
+            "to_node": 1,
+            "to_port": "flow_in"
+        }
+    ],
+    "expected_code_contains": [
+        "RobotContext.run_action('stand')",
+        "RobotContext.run_action('walk')"
+    ]
+}

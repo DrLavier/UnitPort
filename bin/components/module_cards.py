@@ -95,7 +95,8 @@ class ModulePalette(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(280)
+        self.setMinimumWidth(200)
+        self.setMaximumWidth(280)
         self._init_ui()
 
     def _init_ui(self):

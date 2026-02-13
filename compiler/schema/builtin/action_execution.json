@@ -1,0 +1,27 @@
+{
+    "schema_id": "builtin.action_execution",
+    "display_name": "Action Execution",
+    "node_type": "action_execution",
+    "kind": "action",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "flow_out", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "action",
+            "param_type": "string",
+            "default": "stand",
+            "constraints": {
+                "choices": ["lift_right_leg", "stand", "sit", "walk", "stop"]
+            },
+            "description": "Robot action to execute"
+        }
+    ],
+    "code_template": "RobotContext.run_action('{action}')",
+    "robot_compat": ["go2", "a1", "b1", "b2", "h1"],
+    "safety": {
+        "requires_robot": true
+    },
+    "version": "1.0"
+}

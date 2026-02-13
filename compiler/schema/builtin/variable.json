@@ -1,0 +1,34 @@
+{
+    "schema_id": "builtin.variable",
+    "display_name": "Variable",
+    "node_type": "variable",
+    "kind": "variable",
+    "ports": [
+        {"name": "set_value", "direction": "input", "data_type": "any"},
+        {"name": "value", "direction": "output", "data_type": "any"}
+    ],
+    "parameters": [
+        {
+            "name": "name",
+            "param_type": "string",
+            "default": "var",
+            "description": "Variable name"
+        },
+        {
+            "name": "initial_value",
+            "param_type": "any",
+            "default": 0,
+            "description": "Initial value"
+        },
+        {
+            "name": "value_type",
+            "param_type": "string",
+            "default": "number",
+            "constraints": {"choices": ["number", "string", "boolean"]},
+            "description": "Value type"
+        }
+    ],
+    "code_template": "{name} = {initial_value}",
+    "robot_compat": [],
+    "version": "1.0"
+}

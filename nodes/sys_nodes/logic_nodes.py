@@ -14,7 +14,7 @@ class IfNode(BaseNode):
     def __init__(self, node_id: str):
         super().__init__(node_id, "if")
         self.inputs = {'condition': None}
-        self.outputs = {'out_true': None, 'out_false': None}
+        self.outputs = {'out_if': None, 'out_else': None}
         self.parameters = {
             'condition_expr': '',
             'elif_conditions': []  # list of condition expressions
@@ -32,15 +32,15 @@ class IfNode(BaseNode):
         condition = inputs.get('condition', False)
 
         if condition:
-            return {'out_true': {'value': True}, 'out_false': None}
+            return {'out_if': {'value': True}, 'out_else': None}
 
         # Check elif conditions (if any)
         for idx in range(len(self.parameters.get('elif_conditions', []))):
             elif_cond = inputs.get(f'elif_{idx}', False)
             if elif_cond:
-                return {f'out_elif_{idx}': {'value': True}, 'out_false': None}
+                return {f'out_elif_{idx}': {'value': True}, 'out_else': None}
 
-        return {'out_true': None, 'out_false': {'value': False}}
+        return {'out_if': None, 'out_else': {'value': False}}
 
     def get_display_name(self) -> str:
         return "If"

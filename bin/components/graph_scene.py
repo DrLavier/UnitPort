@@ -85,6 +85,10 @@ class ConnectionItem(QGraphicsPathItem):
         if not isValid(self.out_port) or not isValid(self.in_port):
             return
 
+        # Check if parent items exist (ports must belong to nodes)
+        if not self.out_port.parentItem() or not self.in_port.parentItem():
+            return
+
         # Get port center positions
         try:
             start = self.out_port.mapToScene(self.out_port.boundingRect().center())
@@ -192,6 +196,15 @@ class PortInputRow(QWidget):
     def center_y(self, proxy: QGraphicsProxyWidget) -> float:
         geo = self.geometry()
         return proxy.pos().y() + geo.y() + geo.height() / 2
+
+
+def _block_recursive(widget, block: bool):
+    """Recursively block/unblock signals on a widget and all its children."""
+    if widget is None:
+        return
+    widget.blockSignals(block)
+    for child in widget.findChildren(QWidget):
+        child.blockSignals(block)
 
 
 class GraphScene(QGraphicsScene):
@@ -474,30 +487,38 @@ class GraphScene(QGraphicsScene):
         deleted_connections = []
 
         for item in items:
-            # Delete node
-            if item.data(10) == "node":
-                node_name = item.data(11)
-                node_id = item.data(12)
+            try:
+                if not isValid(item):
+                    continue
 
-                # Delete all connections related to the node
-                self._delete_node_connections(item)
+                # Delete node
+                if item.data(10) == "node":
+                    node_name = item.data(11)
+                    node_id = item.data(12)
 
-                # Delete corresponding logic node
-                if node_id in self._logic_nodes:
-                    del self._logic_nodes[node_id]
+                    # Delete all connections related to the node
+                    self._delete_node_connections(item)
 
-                # Delete the node itself
-                self.removeItem(item)
-                deleted_nodes.append(f"{node_name} (ID: {node_id})")
-                log_info(f"Node deleted: {node_name} (ID: {node_id})")
+                    # Delete corresponding logic node
+                    if node_id is not None and node_id in self._logic_nodes:
+                        del self._logic_nodes[node_id]
 
-            # Delete connection
-            elif item.data(0) == "connection" or isinstance(item, ConnectionItem):
-                # Remove connection reference from ports
-                if isinstance(item, ConnectionItem):
-                    self._detach_connection(item)
-                self.removeItem(item)
-                deleted_connections.append("Connection")
+                    # Delete the node itself
+                    if item.scene() is not None:
+                        self.removeItem(item)
+                    deleted_nodes.append(f"{node_name} (ID: {node_id})")
+                    log_info(f"Node deleted: {node_name} (ID: {node_id})")
+
+                # Delete connection
+                elif item.data(0) == "connection" or isinstance(item, ConnectionItem):
+                    # Remove connection reference from ports
+                    if isinstance(item, ConnectionItem):
+                        self._detach_connection(item)
+                    if item.scene() is not None:
+                        self.removeItem(item)
+                    deleted_connections.append("Connection")
+            except Exception as e:
+                log_debug(f"Error deleting item: {e}")
 
         if deleted_nodes:
             log_success(f"{len(deleted_nodes)} node(s) deleted")
@@ -509,22 +530,32 @@ class GraphScene(QGraphicsScene):
 
     def _delete_node_connections(self, node_item):
         """Delete all connections related to a node"""
-        # Find all ports
-        ports = []
-        for child in node_item.childItems():
-            if self._is_port(child):
-                ports.append(child)
+        try:
+            if not node_item or not isValid(node_item):
+                return
 
-        # Delete connections for each port
-        for port in ports:
-            connections = port.data(2) or []
-            for conn in list(connections):  # Use list() to create copy to avoid modification during iteration
-                if conn and isValid(conn) and conn.scene() is not None:
-                    self.removeItem(conn)
+            # Find all ports
+            ports = []
+            for child in node_item.childItems():
+                if child and isValid(child) and self._is_port(child):
+                    ports.append(child)
+
+            # Delete connections for each port
+            for port in ports:
+                connections = port.data(2) or []
+                for conn in list(connections):  # Use list() to create copy to avoid modification during iteration
+                    if conn and isValid(conn) and conn.scene() is not None:
+                        self._detach_connection(conn)
+                        self.removeItem(conn)
+        except Exception as e:
+            log_debug(f"Error deleting node connections: {e}")
 
     def _detach_connection(self, connection):
         """Remove connection reference from ports"""
-        if isinstance(connection, ConnectionItem):
+        try:
+            if not isinstance(connection, ConnectionItem):
+                return
+
             # Remove from output port
             if connection.out_port and isValid(connection.out_port):
                 conns = connection.out_port.data(2) or []
@@ -539,6 +570,8 @@ class GraphScene(QGraphicsScene):
                     conns.remove(connection)
                     connection.in_port.setData(2, conns)
                 self._clear_input_for_port(connection.in_port)
+        except Exception as e:
+            log_debug(f"Error detaching connection: {e}")
 
     def _start_reconnection(self, connection, end_type, pos):
         """Start reconnection"""
@@ -906,8 +939,8 @@ class GraphScene(QGraphicsScene):
 
             loop_label = _make_tag("Loop")
             condition_label = _make_tag("Condition")
-            out_true_label = _make_tag("True")
-            out_false_label = _make_tag("False")
+            out_if_label = _make_tag("If")
+            out_else_label = _make_tag("Else")
             loop_body_label = _make_tag("Body")
             loop_end_label = _make_tag("End")
             for_end_label = _make_tag("End")
@@ -968,7 +1001,7 @@ class GraphScene(QGraphicsScene):
             cond_row.addWidget(condition_label)
             cond_row.addWidget(add_elif_btn)
             cond_row.addStretch(1)
-            cond_row.addWidget(out_true_label)
+            cond_row.addWidget(out_if_label)
             vbox.addLayout(cond_row)
 
             else_row_widget = QWidget()
@@ -979,7 +1012,7 @@ class GraphScene(QGraphicsScene):
             else_label = _make_tag("Else")
             else_row.addWidget(else_label)
             else_row.addStretch(1)
-            else_row.addWidget(out_false_label)
+            else_row.addWidget(out_else_label)
             vbox.addWidget(else_row_widget)
 
             loop_row_widget = QWidget()
@@ -1038,8 +1071,8 @@ class GraphScene(QGraphicsScene):
             for_end_port = _mk_port(data_port_x, h * 0.72, "in", "for_end", radius=4)
             for_step_port = _mk_port(data_port_x, h * 0.82, "in", "for_step", radius=4)
 
-            out_true = _mk_port(w, h * 0.28, "out", "out_true", radius=6)
-            out_false = _mk_port(w, h * 0.88, "out", "out_false", radius=6)
+            out_if = _mk_port(w, h * 0.28, "out", "out_if", radius=6)
+            out_else = _mk_port(w, h * 0.88, "out", "out_else", radius=6)
             loop_body = _mk_port(w, h * 0.28, "out", "loop_body", radius=6)
             loop_end = _mk_port(w, h * 0.88, "out", "loop_end", radius=6)
 
@@ -1139,6 +1172,7 @@ class GraphScene(QGraphicsScene):
                 QTimer.singleShot(0, _sync_layout)
                 self.regenerate_code()
 
+            rect._add_elif = _add_elif
             add_elif_btn.clicked.connect(_add_elif)
 
             def _set_if_mode(enabled: bool):
@@ -1146,8 +1180,8 @@ class GraphScene(QGraphicsScene):
                 add_elif_btn.setVisible(enabled)
                 else_row_widget.setVisible(enabled)
                 condition_label.setVisible(not enabled)
-                out_true_label.setVisible(enabled)
-                out_false_label.setVisible(enabled)
+                out_if_label.setVisible(enabled)
+                out_else_label.setVisible(enabled)
                 # no loop condition label in IF mode
                 loop_body_label.setVisible(not enabled)
                 loop_end_label.setVisible(False)
@@ -1156,8 +1190,8 @@ class GraphScene(QGraphicsScene):
                     row.setVisible(enabled)
                 for p in rect._elif_input_ports + rect._elif_output_ports:
                     p.setVisible(enabled)
-                out_true.setVisible(enabled)
-                out_false.setVisible(enabled)
+                out_if.setVisible(enabled)
+                out_else.setVisible(enabled)
                 condition_port.setVisible(enabled)
                 # no loop condition port in IF mode
 
@@ -1255,10 +1289,10 @@ class GraphScene(QGraphicsScene):
                 y = _port_y(condition_input if condition_input.isVisible() else condition_label)
                 if y is not None:
                     condition_port.setPos(data_port_x, y)
-                    out_true.setPos(w_now, y)
+                    out_if.setPos(w_now, y)
                 y = _port_y(else_row_widget)
                 if y is not None:
-                    out_false.setPos(w_now, y)
+                    out_else.setPos(w_now, y)
                 y = _port_y(for_start_input)
                 if y is not None:
                     for_start_port.setPos(data_port_x, y)
@@ -1737,115 +1771,123 @@ class GraphScene(QGraphicsScene):
 
     def _apply_connection_to_input(self, in_port, out_port):
         """Apply incoming connection to input widgets"""
-        if not in_port or not out_port:
-            return
-        node_item = in_port.parentItem()
-        if not node_item or node_item.data(10) != "node":
-            return
+        try:
+            if not in_port or not out_port:
+                return
+            if not isValid(in_port) or not isValid(out_port):
+                return
+            node_item = in_port.parentItem()
+            if not node_item or not isValid(node_item) or node_item.data(10) != "node":
+                return
 
-        in_slot = in_port.data(3)
-        label = self._format_connection_label(out_port)
+            in_slot = in_port.data(3)
+            label = self._format_connection_label(out_port)
 
-        if in_slot == "condition":
-            inp = getattr(node_item, "_condition_input", None)
-            if inp and inp.isVisible():
-                inp.setText(label)
-            else:
-                lbl = getattr(node_item, "_condition_label", None)
-                if lbl:
-                    lbl.setText(label)
-        elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
-            idx = int(in_slot.split("_")[1])
-            elif_inputs = getattr(node_item, "_elif_inputs", [])
-            if idx < len(elif_inputs):
-                elif_inputs[idx].setText(label)
-        elif in_slot in ("for_start", "for_end", "for_step"):
-            field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
-            if field:
-                field.setText(label)
-        elif in_slot == "duration":
-            duration_input = getattr(node_item, "_duration_input", None)
-            if duration_input:
-                duration_input.setText(label)
-        elif in_slot in ("left", "right"):
-            left_input = getattr(node_item, "_left_input", None)
-            right_input = getattr(node_item, "_right_input", None)
-            if left_input or right_input:
-                if in_slot == "left" and left_input:
-                    left_input.setText(label)
-                if in_slot == "right" and right_input:
-                    right_input.setText(label)
-            else:
-                input_box = getattr(node_item, "_input_box", None)
-                if input_box:
-                    cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
-                    cmp_inputs[in_slot] = label
-                    node_item._cmp_inputs = cmp_inputs
-                    left = cmp_inputs.get("left", "")
-                    right = cmp_inputs.get("right", "")
-                    parts = []
-                    if left:
-                        parts.append(f"left={left}")
-                    if right:
-                        parts.append(f"right={right}")
-                    input_box.setText(", ".join(parts))
+            if in_slot == "condition":
+                inp = getattr(node_item, "_condition_input", None)
+                if inp and inp.isVisible():
+                    inp.setText(label)
+                else:
+                    lbl = getattr(node_item, "_condition_label", None)
+                    if lbl:
+                        lbl.setText(label)
+            elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
+                idx = int(in_slot.split("_")[1])
+                elif_inputs = getattr(node_item, "_elif_inputs", [])
+                if idx < len(elif_inputs):
+                    elif_inputs[idx].setText(label)
+            elif in_slot in ("for_start", "for_end", "for_step"):
+                field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
+                if field:
+                    field.setText(label)
+            elif in_slot == "duration":
+                duration_input = getattr(node_item, "_duration_input", None)
+                if duration_input:
+                    duration_input.setText(label)
+            elif in_slot in ("left", "right"):
+                left_input = getattr(node_item, "_left_input", None)
+                right_input = getattr(node_item, "_right_input", None)
+                if left_input or right_input:
+                    if in_slot == "left" and left_input:
+                        left_input.setText(label)
+                    if in_slot == "right" and right_input:
+                        right_input.setText(label)
+                else:
+                    input_box = getattr(node_item, "_input_box", None)
+                    if input_box:
+                        cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
+                        cmp_inputs[in_slot] = label
+                        node_item._cmp_inputs = cmp_inputs
+                        left = cmp_inputs.get("left", "")
+                        right = cmp_inputs.get("right", "")
+                        parts = []
+                        if left:
+                            parts.append(f"left={left}")
+                        if right:
+                            parts.append(f"right={right}")
+                        input_box.setText(", ".join(parts))
 
-        self._update_node_params(node_item)
+            self._update_node_params(node_item)
+        except Exception as e:
+            log_debug(f"Error applying connection to input: {e}")
 
     def _clear_input_for_port(self, in_port):
         """Clear input widgets when a connection is removed"""
-        if not in_port:
-            return
-        node_item = in_port.parentItem()
-        if not node_item or node_item.data(10) != "node":
-            return
-        in_slot = in_port.data(3)
+        try:
+            if not in_port or not isValid(in_port):
+                return
+            node_item = in_port.parentItem()
+            if not node_item or not isValid(node_item) or node_item.data(10) != "node":
+                return
+            in_slot = in_port.data(3)
 
-        if in_slot == "condition":
-            inp = getattr(node_item, "_condition_input", None)
-            if inp and inp.isVisible():
-                inp.setText("")
-            else:
-                lbl = getattr(node_item, "_condition_label", None)
-                if lbl:
-                    lbl.setText("Condition")
-        elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
-            idx = int(in_slot.split("_")[1])
-            elif_inputs = getattr(node_item, "_elif_inputs", [])
-            if idx < len(elif_inputs):
-                elif_inputs[idx].setText("")
-        elif in_slot in ("for_start", "for_end", "for_step"):
-            field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
-            if field:
-                field.setText("")
-        elif in_slot == "duration":
-            duration_input = getattr(node_item, "_duration_input", None)
-            if duration_input:
-                duration_input.setText("")
-        elif in_slot in ("left", "right"):
-            left_input = getattr(node_item, "_left_input", None)
-            right_input = getattr(node_item, "_right_input", None)
-            if left_input or right_input:
-                if in_slot == "left" and left_input:
-                    left_input.setText("")
-                if in_slot == "right" and right_input:
-                    right_input.setText("")
-            else:
-                input_box = getattr(node_item, "_input_box", None)
-                if input_box:
-                    cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
-                    cmp_inputs[in_slot] = ""
-                    node_item._cmp_inputs = cmp_inputs
-                    left = cmp_inputs.get("left", "")
-                    right = cmp_inputs.get("right", "")
-                    parts = []
-                    if left:
-                        parts.append(f"left={left}")
-                    if right:
-                        parts.append(f"right={right}")
-                    input_box.setText(", ".join(parts))
+            if in_slot == "condition":
+                inp = getattr(node_item, "_condition_input", None)
+                if inp and inp.isVisible():
+                    inp.setText("")
+                else:
+                    lbl = getattr(node_item, "_condition_label", None)
+                    if lbl:
+                        lbl.setText("Condition")
+            elif isinstance(in_slot, str) and in_slot.startswith("elif_"):
+                idx = int(in_slot.split("_")[1])
+                elif_inputs = getattr(node_item, "_elif_inputs", [])
+                if idx < len(elif_inputs):
+                    elif_inputs[idx].setText("")
+            elif in_slot in ("for_start", "for_end", "for_step"):
+                field = getattr(node_item, f"_for_{in_slot.split('_')[1]}_input", None)
+                if field:
+                    field.setText("")
+            elif in_slot == "duration":
+                duration_input = getattr(node_item, "_duration_input", None)
+                if duration_input:
+                    duration_input.setText("")
+            elif in_slot in ("left", "right"):
+                left_input = getattr(node_item, "_left_input", None)
+                right_input = getattr(node_item, "_right_input", None)
+                if left_input or right_input:
+                    if in_slot == "left" and left_input:
+                        left_input.setText("")
+                    if in_slot == "right" and right_input:
+                        right_input.setText("")
+                else:
+                    input_box = getattr(node_item, "_input_box", None)
+                    if input_box:
+                        cmp_inputs = getattr(node_item, "_cmp_inputs", {"left": "", "right": ""})
+                        cmp_inputs[in_slot] = ""
+                        node_item._cmp_inputs = cmp_inputs
+                        left = cmp_inputs.get("left", "")
+                        right = cmp_inputs.get("right", "")
+                        parts = []
+                        if left:
+                            parts.append(f"left={left}")
+                        if right:
+                            parts.append(f"right={right}")
+                        input_box.setText(", ".join(parts))
 
-        self._update_node_params(node_item)
+            self._update_node_params(node_item)
+        except Exception as e:
+            log_debug(f"Error clearing input for port: {e}")
 
     def _format_connection_label(self, out_port):
         """Format a readable label for a connected output"""
@@ -1900,6 +1942,9 @@ class GraphScene(QGraphicsScene):
 
         node_item.setData(20, params)
 
+        # Trigger code regeneration after parameter update
+        self.regenerate_code()
+
     def _build_workflow_order(self) -> List[Any]:
         """
         Build workflow execution order based on connections (left to right).
@@ -1908,26 +1953,50 @@ class GraphScene(QGraphicsScene):
         Returns:
             List of node items in execution order
         """
+        # Create snapshot to avoid modification during iteration
+        items_snapshot = list(self.items())
+
         # Collect all connections and connected nodes
         connections = []
         connected_node_ids = set()
         node_map = {}  # id -> node item
 
-        for item in self.items():
+        for item in items_snapshot:
+            # Skip invalid items
+            if not isValid(item):
+                continue
+
             if isinstance(item, ConnectionItem):
-                if item.out_port and item.in_port and isValid(item.out_port) and isValid(item.in_port):
-                    out_node = item.out_port.parentItem()
-                    in_node = item.in_port.parentItem()
-                    if out_node and in_node and out_node.data(10) == "node" and in_node.data(10) == "node":
-                        out_id = out_node.data(12)
-                        in_id = in_node.data(12)
-                        connections.append((out_id, in_id))
-                        connected_node_ids.add(out_id)
-                        connected_node_ids.add(in_id)
-                        node_map[out_id] = out_node
-                        node_map[in_id] = in_node
+                # Skip incomplete connections
+                if not item.out_port or not item.in_port:
+                    continue
+                if not isValid(item.out_port) or not isValid(item.in_port):
+                    continue
+
+                out_node = item.out_port.parentItem()
+                in_node = item.in_port.parentItem()
+
+                if not out_node or not in_node:
+                    continue
+                if out_node.data(10) != "node" or in_node.data(10) != "node":
+                    continue
+
+                out_id = out_node.data(12)
+                in_id = in_node.data(12)
+
+                if out_id is None or in_id is None:
+                    continue
+
+                connections.append((out_id, in_id))
+                connected_node_ids.add(out_id)
+                connected_node_ids.add(in_id)
+                node_map[out_id] = out_node
+                node_map[in_id] = in_node
+
             elif item.data(10) == "node":
-                node_map[item.data(12)] = item
+                node_id = item.data(12)
+                if node_id is not None:
+                    node_map[node_id] = item
 
         # If no connections, return empty (no connected workflow)
         if not connected_node_ids:
@@ -1972,35 +2041,59 @@ class GraphScene(QGraphicsScene):
             'incoming': {},     # node_id -> {port_name -> [(source_node_id, source_port)]}
         }
 
+        # Create snapshot to avoid modification during iteration
+        items_snapshot = list(self.items())
+
         # Collect all nodes
-        for item in self.items():
+        for item in items_snapshot:
+            if not isValid(item):
+                continue
             if item.data(10) == "node":
                 node_id = item.data(12)
-                graph['nodes'][node_id] = item
-                graph['outgoing'][node_id] = {}
-                graph['incoming'][node_id] = {}
+                if node_id is not None:
+                    graph['nodes'][node_id] = item
+                    graph['outgoing'][node_id] = {}
+                    graph['incoming'][node_id] = {}
 
         # Collect all connections
-        for item in self.items():
+        for item in items_snapshot:
+            if not isValid(item):
+                continue
             if isinstance(item, ConnectionItem):
-                if item.out_port and item.in_port and isValid(item.out_port) and isValid(item.in_port):
-                    out_node = item.out_port.parentItem()
-                    in_node = item.in_port.parentItem()
-                    if out_node and in_node and out_node.data(10) == "node" and in_node.data(10) == "node":
-                        out_id = out_node.data(12)
-                        in_id = in_node.data(12)
-                        out_port = item.out_port.data(3)
-                        in_port = item.in_port.data(3)
+                # Skip incomplete connections
+                if not item.out_port or not item.in_port:
+                    continue
+                if not isValid(item.out_port) or not isValid(item.in_port):
+                    continue
 
-                        # Add to outgoing
-                        if out_port not in graph['outgoing'][out_id]:
-                            graph['outgoing'][out_id][out_port] = []
-                        graph['outgoing'][out_id][out_port].append((in_id, in_port))
+                out_node = item.out_port.parentItem()
+                in_node = item.in_port.parentItem()
 
-                        # Add to incoming
-                        if in_port not in graph['incoming'][in_id]:
-                            graph['incoming'][in_id][in_port] = []
-                        graph['incoming'][in_id][in_port].append((out_id, out_port))
+                if not out_node or not in_node:
+                    continue
+                if out_node.data(10) != "node" or in_node.data(10) != "node":
+                    continue
+
+                out_id = out_node.data(12)
+                in_id = in_node.data(12)
+
+                if out_id is None or in_id is None:
+                    continue
+                if out_id not in graph['nodes'] or in_id not in graph['nodes']:
+                    continue
+
+                out_port = item.out_port.data(3)
+                in_port = item.in_port.data(3)
+
+                # Add to outgoing
+                if out_port not in graph['outgoing'][out_id]:
+                    graph['outgoing'][out_id][out_port] = []
+                graph['outgoing'][out_id][out_port].append((in_id, in_port))
+
+                # Add to incoming
+                if in_port not in graph['incoming'][in_id]:
+                    graph['incoming'][in_id][in_port] = []
+                graph['incoming'][in_id][in_port].append((out_id, out_port))
 
         return graph
 
@@ -2008,39 +2101,52 @@ class GraphScene(QGraphicsScene):
         """Find nodes with no flow_in connections (entry points)"""
         entry_nodes = []
         for node_id, item in graph['nodes'].items():
+            if not item or not isValid(item):
+                continue
             incoming = graph['incoming'].get(node_id, {})
             # Check if has flow_in connection
             has_flow_in = 'flow_in' in incoming and len(incoming['flow_in']) > 0
             if not has_flow_in:
                 entry_nodes.append(node_id)
 
-        # Sort by x position (left to right)
-        entry_nodes.sort(key=lambda nid: graph['nodes'][nid].pos().x())
+        # Sort by x position (left to right) - with safe access
+        def get_x_pos(nid):
+            item = graph['nodes'].get(nid)
+            if item and isValid(item):
+                try:
+                    return item.pos().x()
+                except RuntimeError:
+                    return 0
+            return 0
+
+        entry_nodes.sort(key=get_x_pos)
         return entry_nodes
 
     def _get_condition_from_connection(self, node_id: int, graph: Dict[str, Any]) -> str:
-        """Get condition expression from connected Condition node"""
+        """Get condition expression from connected Condition node or input field"""
         incoming = graph['incoming'].get(node_id, {})
         condition_sources = incoming.get('condition', [])
 
         if condition_sources:
             source_id, source_port = condition_sources[0]
             source_item = graph['nodes'].get(source_id)
-            if source_item:
+            if source_item and isValid(source_item):
                 source_name = source_item.data(11)
                 # If connected to a Condition node, use its output variable
-                if "Condition" in source_name:
+                if source_name and "Condition" in source_name:
                     logic_node = self._logic_nodes.get(source_id)
                     if logic_node:
                         output_name = logic_node.get_parameter('output_name', '') or 'result'
                         return output_name
 
-        # Fallback to condition input text
+        # Fallback to condition input text - always read current value from widget
         item = graph['nodes'].get(node_id)
-        if item:
+        if item and isValid(item):
             cond_input = getattr(item, '_condition_input', None)
-            if cond_input and cond_input.text():
-                return cond_input.text()
+            if cond_input:
+                text = cond_input.text()
+                if text:
+                    return text
 
         return 'condition'
 
@@ -2049,16 +2155,20 @@ class GraphScene(QGraphicsScene):
         """Recursively generate code for a node and its downstream nodes"""
         if node_id in generated:
             return []
+        if node_id is None:
+            return []
 
         generated.add(node_id)
         code_lines = []
         indent_str = "    " * indent
 
         item = graph['nodes'].get(node_id)
-        if not item:
+        if not item or not isValid(item):
             return []
 
         node_name = item.data(11)
+        if not node_name:
+            return []
         logic_node = self._logic_nodes.get(node_id)
         outgoing = graph['outgoing'].get(node_id, {})
 
@@ -2073,7 +2183,7 @@ class GraphScene(QGraphicsScene):
                 code_lines.append(f"{indent_str}if {condition_expr}:")
 
                 # Generate true branch
-                true_targets = outgoing.get('out_true', [])
+                true_targets = outgoing.get('out_if', [])
                 if true_targets:
                     for target_id, _ in true_targets:
                         code_lines.extend(self._generate_node_code(target_id, graph, indent + 1, generated))
@@ -2096,7 +2206,7 @@ class GraphScene(QGraphicsScene):
 
                 # Generate else branch
                 code_lines.append(f"{indent_str}else:")
-                false_targets = outgoing.get('out_false', [])
+                false_targets = outgoing.get('out_else', [])
                 if false_targets:
                     for target_id, _ in false_targets:
                         code_lines.extend(self._generate_node_code(target_id, graph, indent + 1, generated))
@@ -2173,11 +2283,107 @@ class GraphScene(QGraphicsScene):
 
     def regenerate_code(self):
         """Regenerate code with proper control flow nesting"""
+        # Suppress during batch load
+        if getattr(self, '_loading_workflow', False):
+            return
+        # Prevent recursive calls
+        if getattr(self, '_regenerating', False):
+            return
         if not self._code_editor:
             return
 
-        # Sync all node parameters before generating code
-        for item in self.items():
+        self._regenerating = True
+        try:
+            self._regenerate_code_impl()
+        except Exception as e:
+            # On any error, show a safe fallback code
+            log_warning(f"Code generation error: {e}")
+            fallback_code = [
+                "#!/usr/bin/env python3",
+                "# -*- coding: utf-8 -*-",
+                '"""',
+                "Auto-generated workflow code",
+                "Generated by UnitPort - Celebrimbor",
+                '"""',
+                "",
+                "def execute_workflow(robot=None):",
+                "    '''Execute the visual workflow'''",
+                "    pass  # Workflow incomplete or error during generation",
+                "",
+                "if __name__ == '__main__':",
+                "    robot = None",
+                "    execute_workflow(robot)",
+            ]
+            try:
+                self._code_editor.set_code("\n".join(fallback_code))
+            except Exception:
+                pass
+        finally:
+            self._regenerating = False
+
+    def export_graph_data(self) -> Dict[str, Any]:
+        """
+        Export graph data as a Qt-independent dict for the compiler pipeline.
+        Syncs all node parameters before export.
+
+        Returns:
+            Dict with nodes and connections suitable for CanvasToIR.
+        """
+        items_snapshot = list(self.items())
+        for item in items_snapshot:
+            if not isValid(item):
+                continue
+            if item.data(10) == "node":
+                self._sync_node_parameters(item)
+
+        return self.serialize_workflow()
+
+    def _show_diagnostics(self, diags):
+        """Show diagnostics from the compiler pipeline."""
+        for diag in diags:
+            msg = str(diag)
+            if diag.level.value == "error":
+                log_error(msg)
+            elif diag.level.value == "warn":
+                log_warning(msg)
+            else:
+                log_debug(msg)
+
+    def _regenerate_code_impl(self):
+        """Internal implementation of code regeneration using the compiler IR pipeline."""
+        try:
+            from compiler.lowering.canvas_to_ir import CanvasToIR
+            from compiler.codegen.ir_to_code import IRToCode
+            from compiler.semantic.validator import SemanticValidator
+
+            graph_data = self.export_graph_data()
+            converter = CanvasToIR()
+            ir, convert_diags = converter.convert(graph_data, self._robot_type)
+
+            validator = SemanticValidator()
+            validate_diags = validator.validate(ir)
+
+            generator = IRToCode()
+            code, gen_diags, source_map = generator.generate(ir)
+
+            all_diags = convert_diags + validate_diags + gen_diags
+            self._show_diagnostics(all_diags)
+
+            self._code_editor.set_code(code)
+            return
+        except Exception as e:
+            log_warning(f"IR pipeline error, falling back to legacy codegen: {e}")
+
+        # Legacy fallback
+        self._regenerate_code_impl_legacy()
+
+    def _regenerate_code_impl_legacy(self):
+        """Legacy code regeneration (pre-IR pipeline)."""
+        # Create snapshot and sync all node parameters before generating code
+        items_snapshot = list(self.items())
+        for item in items_snapshot:
+            if not isValid(item):
+                continue
             if item.data(10) == "node":
                 self._sync_node_parameters(item)
 
@@ -2251,6 +2457,334 @@ class GraphScene(QGraphicsScene):
         # Use set_code method
         self._code_editor.set_code("\n".join(code_lines))
 
+    def serialize_workflow(self) -> Dict[str, Any]:
+        """
+        Serialize the current workflow state to a JSON-compatible dict.
+        Used for saving, regression baselines, and round-trip testing.
+
+        Returns:
+            Dict with nodes, connections, and metadata.
+        """
+        items_snapshot = list(self.items())
+
+        nodes = []
+        for item in items_snapshot:
+            if not isValid(item):
+                continue
+            if item.data(10) != "node":
+                continue
+
+            node_id = item.data(12)
+            if node_id is None:
+                continue
+
+            name = item.data(11) or ""
+            logic_node = self._logic_nodes.get(node_id)
+
+            # Position
+            pos = item.pos()
+            node_entry = {
+                "id": node_id,
+                "display_name": name,
+                "position": {"x": round(pos.x(), 1), "y": round(pos.y(), 1)},
+                "width": round(item.rect().width(), 1),
+                "height": round(item.rect().height(), 1),
+                "node_type": logic_node.node_type if logic_node else "unknown",
+            }
+
+            # Combo selection
+            combo = getattr(item, '_combo', None)
+            if combo:
+                node_entry["ui_selection"] = combo.currentText()
+
+            # Condition input
+            cond_input = getattr(item, '_condition_input', None)
+            if cond_input:
+                node_entry["condition_expr"] = cond_input.text()
+
+            # Loop type
+            loop_type_combo = getattr(item, '_loop_type_combo', None)
+            if loop_type_combo:
+                node_entry["loop_type"] = loop_type_combo.currentText()
+
+            # For loop params
+            for_start = getattr(item, '_for_start_input', None)
+            for_end = getattr(item, '_for_end_input', None)
+            for_step = getattr(item, '_for_step_input', None)
+            if for_start:
+                node_entry["for_start"] = for_start.text() or "0"
+            if for_end:
+                node_entry["for_end"] = for_end.text() or "10"
+            if for_step:
+                node_entry["for_step"] = for_step.text() or "1"
+
+            # Condition node inputs
+            left_input = getattr(item, '_left_input', None)
+            right_input = getattr(item, '_right_input', None)
+            if left_input:
+                node_entry["left_value"] = left_input.text()
+            if right_input:
+                node_entry["right_value"] = right_input.text()
+
+            # Timer duration
+            duration_input = getattr(item, '_duration_input', None)
+            if duration_input:
+                node_entry["duration"] = duration_input.text()
+
+            # Elif conditions
+            elif_inputs = getattr(item, '_elif_inputs', None)
+            if elif_inputs:
+                node_entry["elif_conditions"] = [inp.text() for inp in elif_inputs]
+
+            # Features (available combo items)
+            if combo:
+                node_entry["features"] = [combo.itemText(i) for i in range(combo.count())]
+
+            nodes.append(node_entry)
+
+        # Connections
+        connections = []
+        for item in items_snapshot:
+            if not isValid(item):
+                continue
+            if not isinstance(item, ConnectionItem):
+                continue
+            if not item.out_port or not item.in_port:
+                continue
+            if not isValid(item.out_port) or not isValid(item.in_port):
+                continue
+
+            out_node = item.out_port.parentItem()
+            in_node = item.in_port.parentItem()
+            if not out_node or not in_node:
+                continue
+
+            from_id = out_node.data(12)
+            to_id = in_node.data(12)
+            if from_id is None or to_id is None:
+                continue
+
+            connections.append({
+                "from_node": from_id,
+                "from_port": item.out_port.data(3),
+                "to_node": to_id,
+                "to_port": item.in_port.data(3),
+            })
+
+        return {
+            "version": "1.0",
+            "robot_type": self._robot_type,
+            "nodes": nodes,
+            "connections": connections,
+        }
+
+    def load_workflow(self, data: Dict[str, Any]):
+        """
+        Load a workflow from a serialized dict (as produced by serialize_workflow).
+        Clears the current scene and recreates all nodes and connections.
+
+        Args:
+            data: Workflow dict with nodes and connections.
+        """
+        # Suppress regenerate_code during batch loading
+        self._loading_workflow = True
+        try:
+            self._load_workflow_impl(data)
+        finally:
+            self._loading_workflow = False
+
+        # Single regenerate at the end
+        self.regenerate_code()
+        log_info(f"Workflow loaded: {len(data.get('nodes', []))} nodes, "
+                 f"{len(data.get('connections', []))} connections")
+
+    def _load_workflow_impl(self, data: Dict[str, Any]):
+        """Internal implementation of workflow loading (signals suppressed)."""
+        # Clear existing nodes
+        self.clear_all_nodes()
+
+        # Set robot type
+        if "robot_type" in data:
+            self._robot_type = data["robot_type"]
+
+        # Map old node IDs to new graphics items for connection wiring
+        id_to_item: Dict[int, Any] = {}
+
+        for node_data in data.get("nodes", []):
+            old_id = node_data["id"]
+            node_type = str(node_data.get("node_type", "") or "").lower()
+            name = node_data.get("display_name", "")
+            pos_data = node_data.get("position", {})
+            x = pos_data.get("x", 100)
+            y = pos_data.get("y", 100)
+            w = node_data.get("width", 180)
+            h = node_data.get("height", 110)
+            features = node_data.get("features", [])
+            ui_selection = node_data.get("ui_selection")
+
+            # Prefer explicit node_type when restoring from compiler output.
+            # This avoids ambiguity between logic nodes that share display names.
+            if node_type == "if":
+                name = "Logic Control"
+                features = features or ["If", "While Loop"]
+                ui_selection = ui_selection or "If"
+            elif node_type == "while_loop":
+                name = "Logic Control"
+                features = features or ["If", "While Loop"]
+                ui_selection = ui_selection or "While Loop"
+
+            pos = QPointF(x + w / 2, y + h / 2)
+            rect = self.create_node(name, pos, features)
+
+            # Block signals on all child widgets to prevent triggering
+            # regenerate_code during batch restoration
+            self._set_node_widgets_silent(rect, True)
+
+            try:
+                # Set combo selection
+                combo = getattr(rect, '_combo', None)
+                if ui_selection and combo:
+                    combo.setCurrentText(ui_selection)
+
+                # Set condition expression
+                cond_expr = node_data.get("condition_expr")
+                cond_input = getattr(rect, '_condition_input', None)
+                if cond_expr and cond_input:
+                    cond_input.setText(cond_expr)
+
+                # Restore elif branches
+                elif_conditions = node_data.get("elif_conditions", [])
+                add_elif_fn = getattr(rect, '_add_elif', None)
+                if elif_conditions and add_elif_fn:
+                    for elif_cond in elif_conditions:
+                        add_elif_fn()
+                    # Set the text for each elif input
+                    elif_inputs = getattr(rect, '_elif_inputs', [])
+                    for i, cond_text in enumerate(elif_conditions):
+                        if i < len(elif_inputs):
+                            elif_inputs[i].setText(cond_text)
+
+                # Set loop type
+                loop_type = node_data.get("loop_type")
+                loop_combo = getattr(rect, '_loop_type_combo', None)
+                if loop_type and loop_combo:
+                    loop_combo.setCurrentText(loop_type)
+
+                # Set for loop params
+                for field_name, attr_name in [
+                    ("for_start", "_for_start_input"),
+                    ("for_end", "_for_end_input"),
+                    ("for_step", "_for_step_input"),
+                ]:
+                    val = node_data.get(field_name)
+                    widget = getattr(rect, attr_name, None)
+                    if val is not None and widget:
+                        widget.setText(str(val))
+
+                # Set condition node inputs
+                for field_name, attr_name in [
+                    ("left_value", "_left_input"),
+                    ("right_value", "_right_input"),
+                ]:
+                    val = node_data.get(field_name)
+                    widget = getattr(rect, attr_name, None)
+                    if val is not None and widget:
+                        widget.setText(str(val))
+
+                # Set timer duration
+                duration = node_data.get("duration")
+                duration_widget = getattr(rect, '_duration_input', None)
+                if duration is not None and duration_widget:
+                    duration_widget.setText(str(duration))
+            finally:
+                # Restore signals
+                self._set_node_widgets_silent(rect, False)
+
+            # Sync params once (without regenerating code)
+            self._update_node_params(rect)
+
+            id_to_item[old_id] = rect
+
+        # Build port lookup: (node_item, port_name) -> port_item
+        def _find_port(node_item, port_name, io_direction):
+            if not node_item or not isValid(node_item):
+                return None
+            for child in node_item.childItems():
+                if (child.data(0) == "port"
+                        and child.data(1) == io_direction
+                        and child.data(3) == port_name):
+                    return child
+            return None
+
+        # Create connections
+        for conn_data in data.get("connections", []):
+            from_id = conn_data.get("from_node")
+            to_id = conn_data.get("to_node")
+            from_port_name = conn_data.get("from_port", "flow_out")
+            to_port_name = conn_data.get("to_port", "flow_in")
+
+            from_item = id_to_item.get(from_id)
+            to_item = id_to_item.get(to_id)
+            if not from_item or not to_item:
+                continue
+
+            out_port = _find_port(from_item, from_port_name, "out")
+            in_port = _find_port(to_item, to_port_name, "in")
+            if not out_port or not in_port:
+                continue
+
+            self._create_connection(out_port, in_port)
+
+    @staticmethod
+    def _set_node_widgets_silent(node_item, block: bool):
+        """Block or unblock signals on all QWidget children of a node item."""
+        from PySide6.QtWidgets import QGraphicsProxyWidget
+        if not node_item or not isValid(node_item):
+            return
+        for child in node_item.childItems():
+            if not isValid(child):
+                continue
+            if isinstance(child, QGraphicsProxyWidget):
+                w = child.widget()
+                if w:
+                    _block_recursive(w, block)
+
+    def _center_view_on_content(self):
+        """Center the graph view on the content bounding rect."""
+        items = [item for item in self.items()
+                 if isValid(item) and item.data(10) == "node"]
+        if not items:
+            return
+        # Compute bounding rect of all nodes
+        from PySide6.QtCore import QRectF
+        rect = QRectF()
+        for item in items:
+            rect = rect.united(item.sceneBoundingRect())
+        # Add padding
+        rect.adjust(-50, -50, 50, 50)
+        # Find the view and fit
+        for view in self.views():
+            view.fitInView(rect, Qt.KeepAspectRatio)
+            break
+
+    def clear_all_nodes(self):
+        """Clear all nodes and connections from the scene."""
+        # Remove all items
+        items_to_remove = []
+        for item in self.items():
+            if not isValid(item):
+                continue
+            if isinstance(item, ConnectionItem) or item.data(10) == "node":
+                items_to_remove.append(item)
+
+        for item in items_to_remove:
+            if isValid(item) and item.scene() is not None:
+                self.removeItem(item)
+
+        self._logic_nodes.clear()
+        self._node_seq = 0
+        log_info("All nodes cleared")
+
     def get_workflow_data(self) -> Dict[str, Any]:
         """Get workflow data for execution"""
         ordered_nodes = self._build_workflow_order()
@@ -2261,7 +2795,14 @@ class GraphScene(QGraphicsScene):
         }
 
         for item in ordered_nodes:
+            # Skip invalid items
+            if not isValid(item):
+                continue
+
             node_id = item.data(12)
+            if node_id is None:
+                continue
+
             node_name = item.data(11)
             logic_node = self._logic_nodes.get(node_id)
 
@@ -2281,18 +2822,108 @@ class GraphScene(QGraphicsScene):
             workflow['nodes'].append(node_data)
             workflow['execution_order'].append(node_id)
 
+        # Create snapshot for connections to avoid modification during iteration
+        items_snapshot = list(self.items())
+
         # Collect connections
-        for item in self.items():
+        for item in items_snapshot:
+            if not isValid(item):
+                continue
             if isinstance(item, ConnectionItem):
-                if item.out_port and item.in_port and isValid(item.out_port) and isValid(item.in_port):
-                    out_node = item.out_port.parentItem()
-                    in_node = item.in_port.parentItem()
-                    if out_node and in_node:
-                        workflow['connections'].append({
-                            'from_node': out_node.data(12),
-                            'from_port': item.out_port.data(3),
-                            'to_node': in_node.data(12),
-                            'to_port': item.in_port.data(3)
-                        })
+                # Skip incomplete connections
+                if not item.out_port or not item.in_port:
+                    continue
+                if not isValid(item.out_port) or not isValid(item.in_port):
+                    continue
+
+                out_node = item.out_port.parentItem()
+                in_node = item.in_port.parentItem()
+
+                if not out_node or not in_node:
+                    continue
+
+                from_node_id = out_node.data(12)
+                to_node_id = in_node.data(12)
+
+                if from_node_id is None or to_node_id is None:
+                    continue
+
+                workflow['connections'].append({
+                    'from_node': from_node_id,
+                    'from_port': item.out_port.data(3),
+                    'to_node': to_node_id,
+                    'to_port': item.in_port.data(3)
+                })
 
         return workflow
+
+    def get_execution_graph(self) -> Dict[str, Any]:
+        """
+        Get execution graph for workflow execution with control flow support.
+
+        Returns a graph structure that supports conditional branching and loops.
+        """
+        graph = self._build_connection_graph()
+
+        # Build node data map
+        node_data_map = {}
+        for node_id, item in graph['nodes'].items():
+            if not item or not isValid(item):
+                continue
+
+            node_name = item.data(11)
+            logic_node = self._logic_nodes.get(node_id)
+
+            node_data = {
+                'id': node_id,
+                'name': node_name or '',
+                'item': item,
+                'type': logic_node.node_type if logic_node else 'unknown',
+                'logic_node': logic_node,
+                'parameters': logic_node.parameters.copy() if logic_node else {}
+            }
+
+            # Add UI-specific parameters
+            combo = getattr(item, '_combo', None)
+            if combo:
+                node_data['ui_selection'] = combo.currentText()
+
+            # Add condition input for Logic Control nodes
+            cond_input = getattr(item, '_condition_input', None)
+            if cond_input:
+                node_data['condition_expr'] = cond_input.text()
+
+            # Add loop parameters
+            loop_type_combo = getattr(item, '_loop_type_combo', None)
+            if loop_type_combo:
+                node_data['loop_type'] = loop_type_combo.currentText().lower()
+
+            for_start = getattr(item, '_for_start_input', None)
+            for_end = getattr(item, '_for_end_input', None)
+            for_step = getattr(item, '_for_step_input', None)
+            if for_start:
+                node_data['for_start'] = for_start.text() or '0'
+            if for_end:
+                node_data['for_end'] = for_end.text() or '10'
+            if for_step:
+                node_data['for_step'] = for_step.text() or '1'
+
+            # Add Condition node inputs
+            left_input = getattr(item, '_left_input', None)
+            right_input = getattr(item, '_right_input', None)
+            if left_input:
+                node_data['left_value'] = left_input.text()
+            if right_input:
+                node_data['right_value'] = right_input.text()
+
+            node_data_map[node_id] = node_data
+
+        # Find entry nodes
+        entry_nodes = self._find_entry_nodes(graph)
+
+        return {
+            'nodes': node_data_map,
+            'outgoing': graph['outgoing'],
+            'incoming': graph['incoming'],
+            'entry_nodes': entry_nodes
+        }

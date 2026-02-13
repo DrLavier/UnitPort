@@ -100,15 +100,18 @@ class MainWindow(QMainWindow):
 
         middle_splitter.addWidget(self.module_palette)
         middle_splitter.addWidget(self.graph_view)
-        middle_splitter.setSizes([280, 720])
+        middle_splitter.setSizes([240, 760])
+        middle_splitter.setStretchFactor(0, 0)  # Palette does not stretch
+        middle_splitter.setStretchFactor(1, 1)  # Graph takes remaining space
 
         middle_layout.addWidget(middle_splitter)
 
         # Right: Code editor
         self.code_editor = CodeEditor()
 
-        # Connect graph scene and code editor
+        # Connect graph scene and code editor (bidirectional)
         self.graph_scene.set_code_editor(self.code_editor)
+        self.code_editor.set_graph_scene(self.graph_scene)
 
         # Add to main splitter
         self.main_splitter.addWidget(self.cmd_log)
@@ -368,7 +371,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_run(self):
-        """Run the connected workflow"""
+        """Run the connected workflow with control flow support"""
         log_info(tr("log.run", "Run"))
 
         # Get workflow data from graph scene
@@ -376,10 +379,11 @@ class MainWindow(QMainWindow):
             log_error("Graph scene not available")
             return
 
-        workflow = self.graph_scene.get_workflow_data()
+        # Get execution graph with control flow information
+        exec_graph = self.graph_scene.get_execution_graph()
 
-        # Check if there are connected nodes
-        if not workflow['nodes']:
+        # Check if there are nodes
+        if not exec_graph['nodes']:
             QMessageBox.information(
                 self,
                 tr("messages.info", "Info"),
@@ -400,10 +404,11 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Check for action nodes and reset simulation
         has_action = any(
             node.get('type') in ('action_execution', 'stop')
             or "Action Execution" in node.get('name', '')
-            for node in workflow['nodes']
+            for node in exec_graph['nodes'].values()
         )
 
         if has_action and self.robot_model is not None:
@@ -434,66 +439,161 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-        # Execute workflow
-        log_info(f"Executing workflow with {len(workflow['nodes'])} nodes")
+        # Execute workflow with control flow
+        log_info(f"Executing workflow with {len(exec_graph['nodes'])} nodes")
         self.status.showMessage(
             tr("status.executing_workflow", "Executing workflow...")
         )
 
-        # Execute each node in order
+        # Execute using recursive control flow
         results = {}
-        has_action = False
+        executed = set()
+        executed_count = [0]  # Use list to allow modification in nested function
 
-        for node_data in workflow['nodes']:
-            node_id = node_data['id']
-            node_name = node_data['name']
-            logic_node = node_data.get('logic_node')
+        def execute_node(node_id):
+            """Recursively execute a node and its downstream nodes"""
+            if node_id in executed:
+                return
+            if node_id not in exec_graph['nodes']:
+                return
+
+            node_data = exec_graph['nodes'][node_id]
+            node_name = node_data.get('name', '')
             node_type = node_data.get('type', 'unknown')
+            logic_node = node_data.get('logic_node')
+            outgoing = exec_graph['outgoing'].get(node_id, {})
+            incoming = exec_graph['incoming'].get(node_id, {})
 
+            executed.add(node_id)
+            executed_count[0] += 1
             log_info(f"Executing node: {node_name} (ID: {node_id}, Type: {node_type})")
 
-            if logic_node:
-                # Set robot model for action/sensor nodes
-                if node_type in ('action_execution', 'sensor_input', 'stop'):
-                    logic_node.set_parameter('robot_model', self.robot_model)
-                    has_action = True
+            # Handle Logic Control nodes (if/while/for)
+            if "Logic Control" in node_name:
+                ui_selection = node_data.get('ui_selection', 'If')
 
-                # Collect inputs from previous nodes
-                inputs = {}
-                for conn in workflow['connections']:
-                    if conn['to_node'] == node_id:
-                        from_node_id = conn['from_node']
-                        from_port = conn['from_port']
-                        to_port = conn['to_port']
-                        if from_node_id in results:
-                            from_result = results[from_node_id]
-                            if isinstance(from_result, dict) and from_port in from_result:
-                                inputs[to_port] = from_result[from_port]
+                if ui_selection.lower().startswith('if'):
+                    # Evaluate condition
+                    condition_result = self._evaluate_condition(node_id, node_data, exec_graph, results)
+                    log_debug(f"If condition evaluated to: {condition_result}")
 
-                # Execute the node
-                try:
-                    result = logic_node.execute(inputs)
-                    results[node_id] = result
-                    log_debug(f"Node {node_id} result: {result}")
-                except Exception as e:
-                    log_error(f"Node {node_id} execution failed: {e}")
-                    results[node_id] = {'error': str(e)}
+                    if condition_result:
+                        # Execute true branch
+                        true_targets = outgoing.get('out_if', [])
+                        for target_id, _ in true_targets:
+                            execute_node(target_id)
+                    else:
+                        # Execute false branch
+                        false_targets = outgoing.get('out_else', [])
+                        for target_id, _ in false_targets:
+                            execute_node(target_id)
+
+                elif ui_selection.lower().startswith('while'):
+                    loop_type = node_data.get('loop_type', 'while')
+
+                    if loop_type == 'for':
+                        # For loop execution
+                        try:
+                            start = int(node_data.get('for_start', '0') or '0')
+                            end = int(node_data.get('for_end', '10') or '10')
+                            step = int(node_data.get('for_step', '1') or '1')
+                        except ValueError:
+                            start, end, step = 0, 10, 1
+
+                        log_debug(f"For loop: range({start}, {end}, {step})")
+                        for i in range(start, end, step):
+                            results[f'{node_id}_i'] = i
+                            # Execute loop body
+                            body_targets = outgoing.get('loop_body', [])
+                            for target_id, _ in body_targets:
+                                executed.discard(target_id)  # Allow re-execution
+                                execute_node(target_id)
+
+                        # Execute loop end
+                        end_targets = outgoing.get('loop_end', [])
+                        for target_id, _ in end_targets:
+                            execute_node(target_id)
+                    else:
+                        # While loop execution (with max iterations for safety)
+                        max_iterations = 100
+                        iteration = 0
+                        while iteration < max_iterations:
+                            condition_result = self._evaluate_condition(node_id, node_data, exec_graph, results)
+                            if not condition_result:
+                                break
+
+                            # Execute loop body
+                            body_targets = outgoing.get('loop_body', [])
+                            for target_id, _ in body_targets:
+                                executed.discard(target_id)  # Allow re-execution
+                                execute_node(target_id)
+                            iteration += 1
+
+                        if iteration >= max_iterations:
+                            log_warning(f"While loop exceeded max iterations ({max_iterations})")
+
+                        # Execute loop end
+                        end_targets = outgoing.get('loop_end', [])
+                        for target_id, _ in end_targets:
+                            execute_node(target_id)
+
+                return  # Logic Control nodes don't have flow_out
+
+            # Handle Condition nodes (comparison)
+            elif "Condition" in node_name:
+                result = self._execute_condition_node(node_id, node_data, exec_graph, results)
+                results[node_id] = result
+                # Condition nodes don't continue flow, they provide data
+                return
+
+            # Handle Action/Sensor/Other nodes
             else:
-                # Handle nodes without logic implementation
-                ui_selection = node_data.get('ui_selection', '')
-                if "Action Execution" in node_name and self.robot_model:
-                    has_action = True
-                    action = self.graph_scene._action_mapping.get(
-                        ui_selection,
-                        ui_selection.lower().replace(" ", "_")
-                    )
-                    log_info(f"Executing action: {action}")
+                if logic_node:
+                    # Set robot model for action/sensor nodes
+                    if node_type in ('action_execution', 'sensor_input', 'stop'):
+                        logic_node.set_parameter('robot_model', self.robot_model)
+
+                    # Collect inputs from connected nodes
+                    inputs = {}
+                    for port_name, sources in incoming.items():
+                        for source_id, source_port in sources:
+                            if source_id in results:
+                                source_result = results[source_id]
+                                if isinstance(source_result, dict) and source_port in source_result:
+                                    inputs[port_name] = source_result[source_port]
+
+                    # Execute the node
                     try:
-                        success = self.robot_model.run_action(action)
-                        results[node_id] = {'status': 'success' if success else 'failed', 'action': action}
+                        result = logic_node.execute(inputs)
+                        results[node_id] = result
+                        log_debug(f"Node {node_id} result: {result}")
                     except Exception as e:
-                        log_error(f"Action execution failed: {e}")
+                        log_error(f"Node {node_id} execution failed: {e}")
                         results[node_id] = {'error': str(e)}
+                else:
+                    # Handle nodes without logic implementation
+                    ui_selection = node_data.get('ui_selection', '')
+                    if "Action Execution" in node_name and self.robot_model:
+                        action = self.graph_scene._action_mapping.get(
+                            ui_selection,
+                            ui_selection.lower().replace(" ", "_")
+                        )
+                        log_info(f"Executing action: {action}")
+                        try:
+                            success = self.robot_model.run_action(action)
+                            results[node_id] = {'status': 'success' if success else 'failed', 'action': action}
+                        except Exception as e:
+                            log_error(f"Action execution failed: {e}")
+                            results[node_id] = {'error': str(e)}
+
+                # Continue with flow_out
+                flow_targets = outgoing.get('flow_out', [])
+                for target_id, _ in flow_targets:
+                    execute_node(target_id)
+
+        # Execute from entry nodes
+        for entry_id in exec_graph['entry_nodes']:
+            execute_node(entry_id)
 
         # Show completion message
         if has_action and self.robot_model is None:
@@ -507,7 +607,106 @@ class MainWindow(QMainWindow):
             tr("status.workflow_completed", "Workflow execution completed"),
             5000
         )
-        log_success(f"Workflow completed. Executed {len(workflow['nodes'])} nodes.")
+        log_success(f"Workflow completed. Executed {executed_count[0]} nodes.")
+
+    def _evaluate_condition(self, node_id, node_data, exec_graph, results):
+        """Evaluate condition for Logic Control nodes"""
+        # First check if there's a Condition node connected
+        incoming = exec_graph['incoming'].get(node_id, {})
+        condition_sources = incoming.get('condition', [])
+
+        if condition_sources:
+            source_id, source_port = condition_sources[0]
+            # Execute condition node if not already done
+            if source_id not in results and source_id in exec_graph['nodes']:
+                source_data = exec_graph['nodes'][source_id]
+                result = self._execute_condition_node(source_id, source_data, exec_graph, results)
+                results[source_id] = result
+
+            # Get result from condition node
+            if source_id in results:
+                source_result = results[source_id]
+                if isinstance(source_result, dict):
+                    value = source_result.get('result', {}).get('value', False)
+                    return bool(value)
+
+        # Fallback: evaluate condition expression directly
+        condition_expr = node_data.get('condition_expr', '')
+        if condition_expr:
+            try:
+                # Safe evaluation of simple expressions
+                return self._safe_eval_condition(condition_expr, results)
+            except Exception as e:
+                log_warning(f"Condition evaluation failed: {e}")
+                return False
+
+        return False
+
+    def _execute_condition_node(self, node_id, node_data, exec_graph, results):
+        """Execute a Condition (comparison) node"""
+        logic_node = node_data.get('logic_node')
+
+        if logic_node:
+            # Collect inputs
+            incoming = exec_graph['incoming'].get(node_id, {})
+            inputs = {}
+
+            for port_name, sources in incoming.items():
+                for source_id, source_port in sources:
+                    if source_id in results:
+                        source_result = results[source_id]
+                        if isinstance(source_result, dict) and source_port in source_result:
+                            inputs[port_name] = source_result[source_port]
+
+            # Use values from UI if not connected
+            if 'left' not in inputs:
+                left_val = node_data.get('left_value', '0')
+                try:
+                    inputs['left'] = float(left_val) if '.' in left_val else int(left_val)
+                except ValueError:
+                    inputs['left'] = left_val
+
+            if 'right' not in inputs:
+                right_val = node_data.get('right_value', '0')
+                try:
+                    inputs['right'] = float(right_val) if '.' in right_val else int(right_val)
+                except ValueError:
+                    inputs['right'] = right_val
+
+            try:
+                return logic_node.execute(inputs)
+            except Exception as e:
+                log_error(f"Condition node {node_id} execution failed: {e}")
+                return {'result': {'value': False}}
+
+        return {'result': {'value': False}}
+
+    def _safe_eval_condition(self, expr, results):
+        """Safely evaluate a condition expression"""
+        expr = expr.strip()
+
+        # Handle simple boolean literals
+        if expr.lower() == 'true':
+            return True
+        if expr.lower() == 'false':
+            return False
+
+        # Handle simple numeric comparisons
+        try:
+            # Try to evaluate as a simple expression
+            # Only allow safe operations
+            allowed_names = {'True': True, 'False': False, 'None': None}
+            # Add results variables
+            for node_id, result in results.items():
+                if isinstance(result, dict):
+                    for key, val in result.items():
+                        if isinstance(val, dict) and 'value' in val:
+                            allowed_names[f'result_{node_id}_{key}'] = val['value']
+
+            return eval(expr, {"__builtins__": {}}, allowed_names)
+        except Exception:
+            # If evaluation fails, return False
+            return False
 
     def _test_lift_leg(self):
         """Test lift leg action"""

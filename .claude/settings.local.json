@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(__NEW_LINE_76bc3bf059e6ddd9__ echo \"\")"
+      "Bash(__NEW_LINE_76bc3bf059e6ddd9__ echo \"\")",
+      "Bash(dir /s /b \"D:\\\\Unitport\\\\UnitPort\\\\models\\\\unitree\\\\unitree_sdk2_python\\\\example\")",
+      "Bash(dir /s /b \"D:\\\\Unitport\\\\UnitPort\\\\models\\\\unitree\\\\unitree_sdk2_python\\\\example\\\\go2\\\\*\")",
+      "Bash(find:*)",
+      "Bash(python3:*)"
     ]
   }
 }

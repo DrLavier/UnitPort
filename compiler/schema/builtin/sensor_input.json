@@ -1,0 +1,27 @@
+{
+    "schema_id": "builtin.sensor_input",
+    "display_name": "Sensor Input",
+    "node_type": "sensor_input",
+    "kind": "sensor",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "flow_out", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "sensor_type",
+            "param_type": "string",
+            "default": "imu",
+            "constraints": {
+                "choices": ["ultrasonic", "infrared", "camera", "imu", "odometry"]
+            },
+            "description": "Type of sensor to read"
+        }
+    ],
+    "code_template": "sensor_data = RobotContext.get_sensor_data()",
+    "robot_compat": ["go2", "a1", "b1", "b2", "h1"],
+    "safety": {
+        "requires_robot": true
+    },
+    "version": "1.0"
+}

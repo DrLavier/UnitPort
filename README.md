@@ -1,10 +1,29 @@
-# UnitPort - Robot Visual Programming Platform
+# UnitPort - Unified Robot Programming Framework
 
-A PySide6-based visual robot control system supporting graphical programming and MuJoCo simulation.
+[![Website](https://img.shields.io/badge/Website-uniport.ai-blue)](https://uniport.ai)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+
+A cross-platform visual robot programming framework that unifies **task orchestration (Canvas)**, **behavior programming (Compiler)**, and **scenario configuration (Scenario)** into a consistent engineering system.
+
+**🌐 Visit us at [uniport.ai](https://uniport.ai)**
+
+## Core Value Proposition
+
+- **Simulation-to-Real Deployment**: Execute the same task seamlessly in simulation or on physical robots
+- **Multi-Robot Support**: Vendor-agnostic design through Service adapter layer (Unitree, Boston Dynamics, and more)
+- **Safety-First Runtime**: Built-in execution interception and constraint system at compile-time and runtime
+- **Visual + Code**: Low-code Canvas for task flow + Python Compiler for fine-grained behavior control
+
+---
 
 ## Quick Start
 
 ```bash
+# Clone repository
+git clone https://github.com/your-org/unitport.git
+cd unitport
+
 # Install dependencies
 pip install -r requirements.txt
 
@@ -12,222 +31,243 @@ pip install -r requirements.txt
 python main.py
 ```
 
+---
+
+## Architecture Overview
+
+UnitPort is built on a **4-layer design system** with **3 interaction layers**:
+
+### Design Layers (Backend)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Mission Layer    │ Task orchestration & flow composition       │
+├─────────────────────────────────────────────────────────────────┤
+│  Behavior Layer   │ Action logic, state machines & strategies   │
+├─────────────────────────────────────────────────────────────────┤
+│  Service Layer    │ Vendor SDK adaptation & capability mapping  │
+├─────────────────────────────────────────────────────────────────┤
+│  Runtime Layer    │ Execution scheduling, monitoring & Safety   │
+│   └─ Safety       │ Compile/pre-exec/exec/post-exec intercept  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Interaction Layers (Frontend)
+
+```
+[Canvas]     Visual task builder (node-based programming)
+   ↓
+[Compiler]   Python behavior scripting (parameters, logic, plugins)
+   ↓
+[Scenario]   Execution config (sim/real, safety rules, connection)
+   ↓
+[Runtime] → [Service] → [Robot SDK]
+```
+
+### Key Design Principles
+
+| Layer | Principle | Responsibility |
+|-------|-----------|----------------|
+| **Mission** | Describes "what to do", not "how" | Project-level task flow orchestration |
+| **Behavior** | Describes "how to do", encapsulated as reusable nodes | Node-internal logic, state machines, sensor feedback |
+| **Service** | Unified interface abstraction over vendor SDKs | Protocol translation, capability mapping, SDK calls |
+| **Runtime** | Event-driven, observable, interruptible with Safety | Task scheduling, resource arbitration, safety interception |
+
+---
+
 ## Project Structure
 
 ```
 UnitPort/
-├── main.py                 # Entry point (config path definitions)
+├── main.py                 # Application entry point
 ├── config/                 # Configuration files
-│   ├── system.ini         # System config
+│   ├── system.ini         # System settings
 │   ├── user.ini           # User preferences
-│   └── ui.ini             # UI style config
-├── localisation/          # Translation files (i18n)
+│   └── ui.ini             # UI style configuration
+├── localisation/          # i18n translation files
 │   └── en.json            # English translations
-├── bin/                   # UI and core logic
-│   ├── ui.py             # Main window
-│   ├── core/             # Framework (→ bin/core/README.md)
-│   └── components/       # UI components (→ bin/components/README.md)
-├── nodes/                 # Node registry (→ nodes/README.md)
-├── nodes/sys_nodes/      # Built-in system nodes
-├── custom_nodes/         # Community/user custom nodes
-└── models/               # Robot integration (→ models/README.md)
+├── bin/
+│   ├── ui.py             # Main window interface
+│   ├── core/             # Framework core (config, logging, theme, i18n)
+│   │   ├── robot_context.py   # RobotContext (global state manager)
+│   │   └── README.md           # Core framework documentation
+│   └── components/       # UI components (graph editor, code editor)
+│       └── README.md           # UI component documentation
+├── nodes/                 # Node system
+│   ├── sys_nodes/        # Built-in system nodes (do not modify)
+│   ├── custom_nodes/     # Community/user custom nodes
+│   └── README.md         # Node design documentation
+└── models/               # Robot integration layer
+    ├── base.py           # BaseRobotModel (abstract interface)
+    ├── unitree/          # Unitree robot support (Go2/A1/B1)
+    └── README.md         # Robot integration documentation
 ```
 
-## Department Documentation
-
-| Module | Path | Responsibilities |
-|--------|------|------------------|
-| Framework | [bin/core/README.md](bin/core/README.md) | Config, logging, theme, localisation |
-| UI Design | [bin/components/README.md](bin/components/README.md) | Main window, graph editor, code editor |
-| Node Design | [nodes/README.md](nodes/README.md) | Node base class, action/logic/sensor nodes |
-| Robot Integration | [models/README.md](models/README.md) | Robot models, Unitree integration, simulation |
+---
 
 ## Features
 
-- Visual node-based programming
-- Auto code generation
-- MuJoCo simulation support
-- Unitree Go2/A1/B1 robot support
-- Light/Dark theme switching
-- Localisation support (i18n)
+### Visual Programming (Canvas)
+- Drag-and-drop node-based task composition
+- Real-time graph visualization
+- Task flow validation and error checking
 
-## Configuration Files
+### Behavior Scripting (Compiler)
+- Python-based behavior definition
+- Parameter templates and fine-tuning
+- Plugin/agent integration (LLM, sensors, custom logic)
 
-| File | Description |
-|------|-------------|
-| `config/system.ini` | System config (paths, simulation params) |
-| `config/user.ini` | User preferences (theme) |
-| `config/ui.ini` | UI style (fonts, colors) |
+### Scenario Management
+- Simulation/real robot switching
+- Safety protocol configuration
+- Environment and connection setup
+- Reproducible execution profiles
 
-## Localisation
+### Multi-Robot Support
+- **Current**: Unitree Go2, A1, B1
+- **Architecture**: Extensible to Boston Dynamics, ANYbotics, and more
+- **RobotContext Pattern**: Hot-swappable robot models without code changes
 
-All user-facing text should use the localisation system:
+### Safety System (Runtime-Embedded)
+- **Compile-time**: Parameter boundary checks, capability validation
+- **Pre-execution**: Environment and connection verification
+- **Runtime**: Threshold monitoring, resource conflict detection, timeout handling
+- **Post-execution**: Graceful degradation, rollback, emergency stop, audit logs
+
+### MuJoCo Simulation
+- Physics-accurate robot simulation
+- Sensor feedback emulation
+- Sim-to-real transfer validation
+
+### Internationalization
+- Multi-language support (English, Chinese, more)
+- Easy translation contribution workflow
+
+---
+
+## Multi-Robot Support Architecture
+
+UnitPort uses a **RobotContext pattern** for vendor-agnostic design:
+
+```python
+# In UI: User selects robot
+RobotContext.set_robot_type("go2")
+
+# In Action Nodes: Generic execution
+RobotContext.run_action('stand')  # Automatically routed to correct SDK
+
+# RobotContext handles:
+# - Brand mapping: "go2" → "unitree"
+# - Model factory: Creates UnitreeModel("go2")
+# - SDK adaptation: Translates to Unitree SDK calls
+```
+
+### Adding New Robot Brands
+
+See [models/README.md](models/README.md) for detailed instructions on adding support for new robot brands.
+
+---
+
+## End-to-End Workflow
+
+1. **Build Mission**: Use Canvas to compose task flow with nodes
+2. **Configure Behavior**: Define node-internal logic via Canvas + Compiler
+3. **Set Scenario**: Configure sim/real target, safety rules, connection params
+4. **Execute**: Runtime schedules tasks with Safety interception
+5. **Adapt**: Service layer translates to vendor SDK
+6. **Monitor**: Runtime provides unified status feedback and error handling
+
+---
+
+## Configuration
+
+| File | Purpose |
+|------|---------|
+| `config/system.ini` | System paths, simulation parameters |
+| `config/user.ini` | User preferences (theme, language) |
+| `config/ui.ini` | UI styling (fonts, colors, layout) |
+
+---
+
+## Internationalization (i18n)
+
+All user-facing text uses the localisation system:
 
 ```python
 from bin.core.localisation import tr
 
-# In code
+# Usage
 message = tr("status.ready", "Ready")
 ```
 
-Translation files are in `localisation/` directory. See [localisation/README.md](localisation/README.md) for details.
+**Contributing translations**: See [localisation/README.md](localisation/README.md)
 
-**Important**: When adding new features, always use `tr()` for user-facing text to maintain i18n compatibility.
-
-## Node System
-
-Nodes are organized into two categories:
-
-- **nodes/sys_nodes/**: Built-in system nodes (do not modify)
-- **custom_nodes/**: Community and user-defined nodes
-
-See [custom_nodes/README.md](custom_nodes/README.md) for creating custom nodes.
+---
 
 ## Extension Development
 
-**Adding new nodes**: See [custom_nodes/README.md](custom_nodes/README.md)
+### Adding Custom Nodes
+See [custom_nodes/README.md](custom_nodes/README.md) for node creation guidelines.
 
-**Adding new robots**: See [models/README.md](models/README.md)
+### Adding Robot Support
+See [models/README.md](models/README.md) for robot integration instructions.
+
+### Contributing
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Follow architecture principles in [PROJECT_README.md](PROJECT_README.md)
+4. Submit a pull request
+
+---
 
 ## Tech Stack
 
-- GUI: PySide6
-- Simulation: MuJoCo 3.0+
-- Robot SDK: Unitree SDK 2
+- **GUI Framework**: PySide6
+- **Simulation**: MuJoCo 3.0+
+- **Robot SDKs**: Unitree SDK 2, (extensible to others)
+- **Language**: Python 3.8+
 
-## Architecture: Multi-Robot Support
+---
 
-### Critical Design Rule: RobotContext
+## Documentation
 
-UnitPort uses a **RobotContext** pattern to support multiple robot brands while keeping action nodes generic. This is a critical architectural decision.
+| Topic | Location |
+|-------|----------|
+| Architecture Overview | [PROJECT_README.md](PROJECT_README.md) |
+| Framework Core | [bin/core/README.md](bin/core/README.md) |
+| UI Components | [bin/components/README.md](bin/components/README.md) |
+| Node System | [nodes/README.md](nodes/README.md) |
+| Robot Integration | [models/README.md](models/README.md) |
+| Internationalization | [localisation/README.md](localisation/README.md) |
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         UI Layer                                │
-│   ┌─────────────┐                                               │
-│   │ robot_combo │ ──► RobotContext.set_robot_type("go2")       │
-│   └─────────────┘                                               │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    bin/core/robot_context.py                    │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │ RobotContext (Global State Manager)                       │  │
-│  │  - _current_robot_type: str                               │  │
-│  │  - _current_robot_model: BaseRobotModel                   │  │
-│  │  - ROBOT_BRAND_MAP: {"go2": "unitree", "a1": "unitree"}  │  │
-│  │                                                           │  │
-│  │  + set_robot_type(type) → updates global state            │  │
-│  │  + get_robot_model() → returns correct model instance     │  │
-│  │  + run_action(name) → delegates to model                  │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       Model Layer                               │
-│  models/                                                        │
-│  ├── base.py           # BaseRobotModel (abstract)             │
-│  ├── unitree/                                                   │
-│  │   └── unitree_model.py  # UnitreeModel(go2/a1/b1/...)       │
-│  ├── boston_dynamics/      # (future)                          │
-│  │   └── bd_model.py       # BDModel(spot/...)                 │
-│  └── ...                                                        │
-└─────────────────────────────────────────────────────────────────┘
-```
+---
 
-### How It Works
+## Design Principles (Must Follow)
 
-1. **UI Selection**: When user selects a robot in `robot_combo`, it calls:
-   ```python
-   RobotContext.set_robot_type("go2")
-   ```
+- **Single Semantic Source**: Canvas and Compiler converge to unified task semantics
+- **Loose Coupling**: Mission/Behavior never directly call vendor SDKs
+- **Hot-Swappable**: Service adapters are pluggable without Runtime changes
+- **Auditable**: All interceptions, exceptions, rollbacks are traceable
+- **Sim-to-Real**: Same task validates in simulation before real execution
 
-2. **Brand Routing**: RobotContext maps robot type to brand:
-   ```python
-   ROBOT_BRAND_MAP = {
-       "go2": "unitree",
-       "a1": "unitree",
-       "spot": "boston_dynamics",  # future
-   }
-   ```
+---
 
-3. **Model Factory**: Creates the correct model instance:
-   ```python
-   def _create_model_for_brand(brand, robot_type):
-       if brand == "unitree":
-           from models.unitree import UnitreeModel
-           return UnitreeModel(robot_type)
-       elif brand == "boston_dynamics":
-           from models.boston_dynamics import BDModel
-           return BDModel(robot_type)
-   ```
+## Community & Support
 
-4. **Action Nodes**: Use RobotContext, NOT direct model imports:
-   ```python
-   # CORRECT - in action_nodes.py
-   from bin.core.robot_context import RobotContext
-   RobotContext.run_action('stand')
+- **Website**: [uniport.ai](https://uniport.ai)
+- **Issues**: [GitHub Issues](https://github.com/your-org/unitport/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-org/unitport/discussions)
 
-   # WRONG - do NOT do this
-   from models.unitree import UnitreeModel
-   model = UnitreeModel('go2')
-   model.run_action('stand')
-   ```
+---
 
-### Adding New Robot Brand
+## License
 
-To add support for a new robot brand:
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-1. **Create model directory**:
-   ```
-   models/
-   └── new_brand/
-       ├── __init__.py
-       └── new_brand_model.py
-   ```
+---
 
-2. **Implement BaseRobotModel**:
-   ```python
-   # models/new_brand/new_brand_model.py
-   from models.base import BaseRobotModel
+## Acknowledgments
 
-   class NewBrandModel(BaseRobotModel):
-       def run_action(self, action_name, **kwargs):
-           # Brand-specific implementation
-           pass
-   ```
+Built with ❤️ by the UnitPort team and community contributors.
 
-3. **Register in RobotContext** (`bin/core/robot_context.py`):
-   ```python
-   ROBOT_BRAND_MAP = {
-       # ... existing entries
-       "new_robot_type": "new_brand",
-   }
-
-   def _create_model_for_brand(cls, brand, robot_type):
-       # ... existing code
-       elif brand == "new_brand":
-           from models.new_brand import NewBrandModel
-           return NewBrandModel(robot_type)
-   ```
-
-4. **Register in models/__init__.py**:
-   ```python
-   try:
-       from .new_brand import NewBrandModel
-       register_model("new_brand", NewBrandModel)
-   except ImportError:
-       pass
-   ```
-
-### Key Principles
-
-| Principle | Description |
-|-----------|-------------|
-| **Single Source of Truth** | `RobotContext` is THE global robot state manager |
-| **Lazy Initialization** | Robot model created only when first needed |
-| **Brand Abstraction** | Action nodes never import brand-specific code |
-| **Hot-Swappable** | Changing robot type updates model automatically |
-| **Fail-Safe** | Missing SDK gracefully falls back to simulation mode |
+**Make robot programming accessible to everyone.**

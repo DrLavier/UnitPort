@@ -1,0 +1,23 @@
+{
+    "name": "sample_09_sensor_standalone",
+    "description": "Standalone Sensor Input node reading IMU data",
+    "version": "1.0",
+    "robot_type": "go2",
+    "nodes": [
+        {
+            "id": 0,
+            "display_name": "Sensor Input",
+            "position": {"x": 100, "y": 100},
+            "width": 180,
+            "height": 110,
+            "node_type": "sensor_input",
+            "ui_selection": "Read IMU",
+            "features": ["Read Ultrasonic", "Read Infrared", "Read Camera", "Read IMU", "Read Odometry"]
+        }
+    ],
+    "connections": [],
+    "expected_code_contains": [
+        "def execute_workflow",
+        "sensor"
+    ]
+}

@@ -117,6 +117,10 @@ class UnitreeModel(BaseRobotModel):
         # 注册可用动作
         self._register_actions()
 
+        # SDK clients (lazy init)
+        self._sport_client = None
+        self._sdk_channel_inited = False
+
         log_info(f"UnitreeModel 初始化: robot_type={robot_type}, available={self.is_available}")
     
     def _register_actions(self):
@@ -297,6 +301,27 @@ class UnitreeModel(BaseRobotModel):
         self.running = False
         self.stop_requested = True
         log_info("停止请求已发送")
+
+    def _should_stop(self, viewer=None) -> bool:
+        """
+        检查是否应该停止仿真
+
+        Returns:
+            True if should stop (stop requested or viewer closed)
+        """
+        if self.stop_requested:
+            return True
+        # 检查 viewer 是否仍在运行
+        if viewer is not None:
+            try:
+                if not viewer.is_running():
+                    self.stop_requested = True
+                    log_info("Viewer 已关闭，停止仿真")
+                    return True
+            except Exception:
+                self.stop_requested = True
+                return True
+        return False
 
     def ensure_viewer(self) -> bool:
         """
@@ -525,9 +550,9 @@ class UnitreeModel(BaseRobotModel):
         stand_hip_angle = 0.67
         
         for step in range(stand_steps):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
-            
+
             # 设置所有腿的站立角度
             if self.model.nu > 1:
                 self.data.ctrl[1] = stand_hip_angle  # 右前腿髋屈曲
@@ -557,7 +582,7 @@ class UnitreeModel(BaseRobotModel):
         log_info(f"抬右前腿: {original_hip_angle} -> {target_hip_angle}")
         
         for step_count in range(total_steps):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
             
             if step_count < lift_duration / self.model.opt.timestep:
@@ -586,7 +611,7 @@ class UnitreeModel(BaseRobotModel):
         # 第三阶段：返回站立姿势
         log_info("返回站立姿势...")
         for step in range(min(stand_steps, 50)):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
             
             if self.model.nu > 1:
@@ -607,7 +632,7 @@ class UnitreeModel(BaseRobotModel):
         stand_duration = 1.0
         stand_steps = int(stand_duration / self.model.opt.timestep)
         for _ in range(stand_steps):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
             self._apply_pd_control(stand_targets)
             mujoco.mj_step(self.model, self.data)
@@ -628,7 +653,7 @@ class UnitreeModel(BaseRobotModel):
         crouch_duration = 0.8
         crouch_steps = int(crouch_duration / self.model.opt.timestep)
         for _ in range(crouch_steps):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
             self._apply_pd_control(crouch_targets)
             mujoco.mj_step(self.model, self.data)
@@ -656,7 +681,7 @@ class UnitreeModel(BaseRobotModel):
         support_duration = 1.2
         support_steps = int(support_duration / self.model.opt.timestep)
         for _ in range(support_steps):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
             self._apply_pd_control(support_targets)
             mujoco.mj_step(self.model, self.data)
@@ -679,7 +704,7 @@ class UnitreeModel(BaseRobotModel):
         target_abd = original_abd
 
         for step_count in range(total_steps):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
 
             targets = dict(support_targets)
@@ -722,7 +747,7 @@ class UnitreeModel(BaseRobotModel):
         log_info("第三步：返回站立姿势 (Go2)...")
         return_steps = int(0.8 / self.model.opt.timestep)
         for _ in range(return_steps):
-            if self.stop_requested:
+            if self._should_stop(viewer):
                 return
             self._apply_pd_control(stand_targets)
             mujoco.mj_step(self.model, self.data)
@@ -762,7 +787,7 @@ class UnitreeModel(BaseRobotModel):
 
             accum = 0.0
             for _ in range(test_steps):
-                if self.stop_requested:
+                if self._should_stop(viewer):
                     return best_sign
                 self._apply_pd_control(targets)
                 mujoco.mj_step(self.model, self.data)
@@ -861,7 +886,7 @@ class UnitreeModel(BaseRobotModel):
             steps = int(duration / self.model.opt.timestep)
 
             for _ in range(steps):
-                if self.stop_requested:
+                if self._should_stop(viewer):
                     break
                 mujoco.mj_step(self.model, self.data)
                 viewer.sync()
@@ -906,7 +931,7 @@ class UnitreeModel(BaseRobotModel):
                 steps = int(duration / self.model.opt.timestep)
 
                 for _ in range(steps):
-                    if self.stop_requested:
+                    if self._should_stop(viewer):
                         break
                     self._apply_pd_control(sit_targets)
                     mujoco.mj_step(self.model, self.data)
@@ -921,132 +946,166 @@ class UnitreeModel(BaseRobotModel):
             return False
 
     def _walk_action(self, **kwargs) -> bool:
-        """行走动作 - 向前行走"""
+        """
+        Walk action - Go2 prefers official SDK high-level control.
+
+        In MuJoCo, use a simplified trot gait (thigh/calf swing + foot lift).
+        """
+        # Prefer official SDK walk for real robot (no MuJoCo)
+        if self.robot_type.lower() == "go2" and not self.mujoco_available and UNITREE_AVAILABLE:
+            return self._walk_sdk_go2(**kwargs)
+
         if not self.mujoco_available:
-            log_warning("模拟模式：行走动作")
+            log_warning("Simulation mode: walk action")
             return True
 
         try:
-            log_info("执行行走动作...")
+            log_info("Running walk action...")
 
             if not self.ensure_viewer():
-                log_error("无法创建/获取 viewer")
+                log_error("Failed to create/get viewer")
                 return False
 
             viewer = self.viewer
 
             if self.robot_type.lower() == "go2":
-                stand_targets = self._get_go2_stand_targets()
-                num_cycles = kwargs.get('cycles', 4)
+                self._walk_trot_gait_go2(viewer, **kwargs)
 
-                # Walking gait parameters
-                swing_duration = 0.15  # Time for swing phase
-                stance_duration = 0.15  # Time for stance phase
-                swing_steps = int(swing_duration / self.model.opt.timestep)
-                stance_steps = int(stance_duration / self.model.opt.timestep)
-
-                # Joint angle offsets for forward walking
-                # In this model, positive hip moves the leg forward.
-                swing_hip_offset = 0.3    # Swing leg forward
-                push_hip_offset = -0.2    # Push leg backward
-                lift_thigh = 0.9          # Lift during swing
-                extend_calf = -1.1        # Extend during swing
-
-                for cycle in range(num_cycles):
-                    if self.stop_requested:
-                        break
-
-                    # Phase 1: FR + RL swing forward, FL + RR push back
-                    for step in range(swing_steps):
-                        if self.stop_requested:
-                            break
-                        progress = step / swing_steps
-                        targets = dict(stand_targets)
-
-                        # Swing legs (FR, RL): lift and move forward
-                        targets["FR_thigh_joint"] = lift_thigh
-                        targets["FR_calf_joint"] = extend_calf
-                        targets["FR_hip_joint"] = swing_hip_offset * progress
-
-                        targets["RL_thigh_joint"] = lift_thigh
-                        targets["RL_calf_joint"] = extend_calf
-                        targets["RL_hip_joint"] = swing_hip_offset * progress
-
-                        # Stance legs (FL, RR): push backward
-                        targets["FL_hip_joint"] = push_hip_offset * progress
-                        targets["RR_hip_joint"] = push_hip_offset * progress
-
-                        self._apply_pd_control(targets)
-                        mujoco.mj_step(self.model, self.data)
-                        viewer.sync()
-                        time.sleep(self.model.opt.timestep)
-
-                    # Phase 2: FR + RL land, all legs return
-                    for step in range(stance_steps):
-                        if self.stop_requested:
-                            break
-                        progress = step / stance_steps
-                        targets = dict(stand_targets)
-
-                        # Return all hips to neutral
-                        targets["FR_hip_joint"] = swing_hip_offset * (1 - progress)
-                        targets["RL_hip_joint"] = swing_hip_offset * (1 - progress)
-                        targets["FL_hip_joint"] = push_hip_offset * (1 - progress)
-                        targets["RR_hip_joint"] = push_hip_offset * (1 - progress)
-
-                        self._apply_pd_control(targets)
-                        mujoco.mj_step(self.model, self.data)
-                        viewer.sync()
-                        time.sleep(self.model.opt.timestep)
-
-                    # Phase 3: FL + RR swing forward, FR + RL push back
-                    for step in range(swing_steps):
-                        if self.stop_requested:
-                            break
-                        progress = step / swing_steps
-                        targets = dict(stand_targets)
-
-                        # Swing legs (FL, RR): lift and move forward
-                        targets["FL_thigh_joint"] = lift_thigh
-                        targets["FL_calf_joint"] = extend_calf
-                        targets["FL_hip_joint"] = swing_hip_offset * progress
-
-                        targets["RR_thigh_joint"] = lift_thigh
-                        targets["RR_calf_joint"] = extend_calf
-                        targets["RR_hip_joint"] = swing_hip_offset * progress
-
-                        # Stance legs (FR, RL): push backward
-                        targets["FR_hip_joint"] = push_hip_offset * progress
-                        targets["RL_hip_joint"] = push_hip_offset * progress
-
-                        self._apply_pd_control(targets)
-                        mujoco.mj_step(self.model, self.data)
-                        viewer.sync()
-                        time.sleep(self.model.opt.timestep)
-
-                    # Phase 4: FL + RR land, all legs return
-                    for step in range(stance_steps):
-                        if self.stop_requested:
-                            break
-                        progress = step / stance_steps
-                        targets = dict(stand_targets)
-
-                        # Return all hips to neutral
-                        targets["FL_hip_joint"] = swing_hip_offset * (1 - progress)
-                        targets["RR_hip_joint"] = swing_hip_offset * (1 - progress)
-                        targets["FR_hip_joint"] = push_hip_offset * (1 - progress)
-                        targets["RL_hip_joint"] = push_hip_offset * (1 - progress)
-
-                        self._apply_pd_control(targets)
-                        mujoco.mj_step(self.model, self.data)
-                        viewer.sync()
-                        time.sleep(self.model.opt.timestep)
-
-            log_info("行走动作完成 (viewer 保持打开)")
+            log_info("Walk action completed (viewer kept open)")
             return True
 
         except Exception as e:
-            log_error(f"行走动作失败: {e}")
+            log_error(f"Walk action failed: {e}")
+            return False
+
+    def _walk_trot_gait_go2(self, viewer, **kwargs):
+        """
+        Go2 trot gait using joint order from unitree_sdk2_python.
+        - hip: abduction/adduction (keep standing)
+        - thigh/calf: fore-aft swing + foot lift
+        """
+        import math
+
+        num_cycles = kwargs.get("cycles", 6)
+        gait_period = kwargs.get("gait_period", 0.5)
+        thigh_swing = kwargs.get("thigh_swing", 0.22)
+        calf_lift = kwargs.get("calf_lift", 0.35)
+
+        stand_targets = self._get_go2_stand_targets()
+
+        dt = self.model.opt.timestep
+        steps_per_cycle = max(2, int(gait_period / dt))
+        half_cycle_steps = max(1, steps_per_cycle // 2)
+
+        def apply_targets(targets, gain_scale=None):
+            self._apply_pd_control(targets, gain_scale=gain_scale)
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(dt)
+
+        # Stabilize standing
+        log_info("Stabilizing standing pose...")
+        for _ in range(int(1.0 / dt)):
+            if self._should_stop(viewer):
+                return
+            apply_targets(stand_targets)
+
+        log_info(f"Start trot gait walk ({num_cycles} cycles)...")
+
+        for _ in range(num_cycles):
+            if self._should_stop(viewer):
+                break
+
+            # Phase 1: FR + RL swing forward, FL + RR support
+            for step in range(half_cycle_steps):
+                if self._should_stop(viewer):
+                    return
+
+                progress = step / half_cycle_steps
+                swing = math.sin(progress * math.pi)
+
+                targets = dict(stand_targets)
+
+                for leg in ("FR", "RL"):
+                    targets[f"{leg}_thigh_joint"] = stand_targets[f"{leg}_thigh_joint"] + thigh_swing * swing
+                    targets[f"{leg}_calf_joint"] = stand_targets[f"{leg}_calf_joint"] + calf_lift * swing
+
+                for leg in ("FL", "RR"):
+                    targets[f"{leg}_thigh_joint"] = stand_targets[f"{leg}_thigh_joint"] - 0.6 * thigh_swing * swing
+                    targets[f"{leg}_calf_joint"] = stand_targets[f"{leg}_calf_joint"] - 0.3 * calf_lift * swing
+
+                apply_targets(targets)
+
+            # Phase 2: FL + RR swing forward, FR + RL support
+            for step in range(half_cycle_steps):
+                if self._should_stop(viewer):
+                    return
+
+                progress = step / half_cycle_steps
+                swing = math.sin(progress * math.pi)
+
+                targets = dict(stand_targets)
+
+                for leg in ("FL", "RR"):
+                    targets[f"{leg}_thigh_joint"] = stand_targets[f"{leg}_thigh_joint"] + thigh_swing * swing
+                    targets[f"{leg}_calf_joint"] = stand_targets[f"{leg}_calf_joint"] + calf_lift * swing
+
+                for leg in ("FR", "RL"):
+                    targets[f"{leg}_thigh_joint"] = stand_targets[f"{leg}_thigh_joint"] - 0.6 * thigh_swing * swing
+                    targets[f"{leg}_calf_joint"] = stand_targets[f"{leg}_calf_joint"] - 0.3 * calf_lift * swing
+
+                apply_targets(targets)
+
+        # Return to standing
+        log_info("Returning to standing pose...")
+        for _ in range(int(0.5 / dt)):
+            if self._should_stop(viewer):
+                return
+            apply_targets(stand_targets)
+
+    def _walk_sdk_go2(self, **kwargs) -> bool:
+        """
+        Go2 walk via official SDK Move/StopMove high-level control.
+        Reference: unitree_sdk2_python/example/go2/high_level/go2_sport_client.py
+        """
+        try:
+            from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+            from unitree_sdk2py.go2.sport.sport_client import SportClient
+        except Exception as e:
+            log_warning(f"SDK import failed: {e}")
+            return False
+
+        iface = kwargs.get("iface") or kwargs.get("network_interface")
+        if not self._sdk_channel_inited:
+            try:
+                if iface:
+                    ChannelFactoryInitialize(0, iface)
+                else:
+                    ChannelFactoryInitialize(0)
+                self._sdk_channel_inited = True
+            except Exception as e:
+                log_error(f"SDK channel init failed: {e}")
+                return False
+
+        if self._sport_client is None:
+            self._sport_client = SportClient()
+            self._sport_client.SetTimeout(5.0)
+            self._sport_client.Init()
+
+        vx = kwargs.get("vx", 0.3)
+        vy = kwargs.get("vy", 0.0)
+        vyaw = kwargs.get("vyaw", 0.0)
+        duration = kwargs.get("duration", 2.0)
+
+        log_info(f"SDK walk: vx={vx}, vy={vy}, vyaw={vyaw}, duration={duration}s")
+
+        try:
+            self._sport_client.Move(vx, vy, vyaw)
+            time.sleep(max(0.0, duration))
+            self._sport_client.StopMove()
+            return True
+        except Exception as e:
+            log_error(f"SDK walk failed: {e}")
             return False
 
     def _stop_action(self, **kwargs) -> bool:

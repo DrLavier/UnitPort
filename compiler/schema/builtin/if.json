@@ -1,0 +1,29 @@
+{
+    "schema_id": "builtin.if",
+    "display_name": "Logic Control",
+    "node_type": "if",
+    "kind": "logic",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "condition", "direction": "input", "data_type": "bool"},
+        {"name": "out_if", "direction": "output", "data_type": "void"},
+        {"name": "out_else", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "condition_expr",
+            "param_type": "string",
+            "default": "",
+            "description": "Condition expression (used if no connection)"
+        },
+        {
+            "name": "elif_conditions",
+            "param_type": "string",
+            "default": [],
+            "description": "List of elif condition expressions"
+        }
+    ],
+    "code_template": "if {condition_expr}:",
+    "robot_compat": [],
+    "version": "1.0"
+}

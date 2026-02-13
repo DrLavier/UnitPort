@@ -1,0 +1,23 @@
+{
+    "name": "sample_01_single_action",
+    "description": "Single Action Execution node set to Stand",
+    "version": "1.0",
+    "robot_type": "go2",
+    "nodes": [
+        {
+            "id": 0,
+            "display_name": "Action Execution",
+            "position": {"x": 100, "y": 100},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Stand",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        }
+    ],
+    "connections": [],
+    "expected_code_contains": [
+        "def execute_workflow",
+        "RobotContext.run_action('stand')"
+    ]
+}

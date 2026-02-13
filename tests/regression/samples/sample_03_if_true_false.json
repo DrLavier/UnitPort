@@ -1,0 +1,59 @@
+{
+    "name": "sample_03_if_true_false",
+    "description": "If node with true branch (Stand) and false branch (Sit)",
+    "version": "1.0",
+    "robot_type": "go2",
+    "nodes": [
+        {
+            "id": 0,
+            "display_name": "Logic Control",
+            "position": {"x": 100, "y": 100},
+            "width": 240,
+            "height": 200,
+            "node_type": "if",
+            "ui_selection": "If",
+            "condition_expr": "True",
+            "features": ["If", "While Loop"]
+        },
+        {
+            "id": 1,
+            "display_name": "Action Execution",
+            "position": {"x": 450, "y": 50},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Stand",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        },
+        {
+            "id": 2,
+            "display_name": "Action Execution",
+            "position": {"x": 450, "y": 250},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Sit",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        }
+    ],
+    "connections": [
+        {
+            "from_node": 0,
+            "from_port": "out_if",
+            "to_node": 1,
+            "to_port": "flow_in"
+        },
+        {
+            "from_node": 0,
+            "from_port": "out_else",
+            "to_node": 2,
+            "to_port": "flow_in"
+        }
+    ],
+    "expected_code_contains": [
+        "if",
+        "RobotContext.run_action('stand')",
+        "else",
+        "RobotContext.run_action('sit')"
+    ]
+}

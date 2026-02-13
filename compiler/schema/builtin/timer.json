@@ -1,0 +1,31 @@
+{
+    "schema_id": "builtin.timer",
+    "display_name": "Timer",
+    "node_type": "timer",
+    "kind": "timer",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "duration", "direction": "input", "data_type": "float"},
+        {"name": "flow_out", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "duration",
+            "param_type": "float",
+            "default": 1.0,
+            "constraints": {"min_value": 0.0, "max_value": 60.0},
+            "unit": "seconds",
+            "description": "Wait duration"
+        },
+        {
+            "name": "unit",
+            "param_type": "string",
+            "default": "seconds",
+            "constraints": {"choices": ["seconds", "milliseconds"]},
+            "description": "Time unit"
+        }
+    ],
+    "code_template": "time.sleep({duration})",
+    "robot_compat": [],
+    "version": "1.0"
+}
