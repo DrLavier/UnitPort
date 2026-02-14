@@ -2,7 +2,7 @@
 
 [![Website](https://img.shields.io/badge/Website-uniport.ai-blue)](https://uniport.ai)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/downloads/)
 
 > [!WARNING]
 > **WIP (Work In Progress)**  
@@ -230,7 +230,7 @@ See [models/README.md](models/README.md) for robot integration instructions.
 - **GUI Framework**: PySide6
 - **Simulation**: MuJoCo 3.0+
 - **Robot SDKs**: Unitree SDK 2, (extensible to others)
-- **Language**: Python 3.8+
+- **Language**: Python 3.12+
 
 ---
 
