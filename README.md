@@ -4,6 +4,11 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
+> [!WARNING]
+> **WIP (Work In Progress)**  
+> This project is under active development.  
+> **End-user local feature implementation is not supported yet.**
+
 A cross-platform visual robot programming framework that unifies **task orchestration (Canvas)**, **behavior programming (Compiler)**, and **scenario configuration (Scenario)** into a consistent engineering system.
 
 **🌐 Visit us at [uniport.ai](https://uniport.ai)**

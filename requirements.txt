@@ -1,25 +1,25 @@
-# Celebrimbor - 机器人可视化编程平台
-# Python依赖包列表
+# Celebrimbor - Robot Visual Programming Platform
+# Python dependency list
 
-# GUI框架
+# GUI framework
 PySide6>=6.5.0
 
-# MuJoCo仿真
+# MuJoCo simulation
 mujoco>=3.0.0
 
-# 数值计算
+# Numerical computing
 numpy>=1.24.0
 
-# 配置文件解析（Python标准库，无需安装）
+# Config parsing (Python standard library, no installation required)
 # configparser
 
-# 日志（Python标准库，无需安装）
+# Logging (Python standard library, no installation required)
 # logging
 
-# Unitree SDK（需要手动安装）
-# unitree_sdk2_python（通过Unitree官方渠道获取）
+# Unitree SDK (manual install required)
+# unitree_sdk2_python (obtain via official Unitree distribution channels)
 
-# 开发依赖（可选）
-# pytest>=7.4.0  # 单元测试
-# black>=23.0.0  # 代码格式化
-# pylint>=2.17.0  # 代码检查
+# Development dependencies (optional)
+# pytest>=7.4.0  # unit tests
+# black>=23.0.0  # code formatting
+# pylint>=2.17.0  # static analysis

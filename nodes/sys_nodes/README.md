@@ -1,8 +1,8 @@
-# System Node Development Guide
+﻿# System Node Development Guide
 
 This directory (`nodes/sys_nodes/`) contains **built-in system nodes** used by the core runtime.
 These nodes are **maintained by the core team** and are **not meant for community edits**.
-If you are adding or updating nodes here, follow the�淶 below.
+If you are adding or updating nodes here, follow the rules below.
 
 > Default language is English. Any user-facing strings must go through `tr()` (localisation).
 > UI styles are defined in `config/ui.ini`; do not hardcode them in node logic.
@@ -167,4 +167,5 @@ class ExampleThresholdNode(BaseNode):
 - Outputs are returned in expected shape
 - No hardcoded UI text or styles
 - Localisation keys exist and are valid
+
 

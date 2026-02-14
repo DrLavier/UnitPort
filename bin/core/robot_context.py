@@ -26,6 +26,9 @@ Usage:
 
 from typing import Optional, Dict, Any, TYPE_CHECKING
 from bin.core.logger import log_info, log_error, log_debug, log_warning
+from design.service.service_registry import ServiceRegistry
+from design.service.service_router import ServiceRouter
+from design.service.adapters.unitree_sdk2.adapter import UnitreeAdapter
 
 if TYPE_CHECKING:
     from models.base import BaseRobotModel
@@ -48,6 +51,8 @@ class RobotContext:
     _current_robot_type: str = "go2"
     _current_robot_model: Optional['BaseRobotModel'] = None
     _initialized: bool = False
+    _service_registry: ServiceRegistry = ServiceRegistry()
+    _service_router: ServiceRouter = ServiceRouter(_service_registry)
 
     # Robot type to brand mapping
     ROBOT_BRAND_MAP: Dict[str, str] = {
@@ -67,6 +72,10 @@ class RobotContext:
         "unitree": ["go2", "a1", "b1", "b2", "h1"],
         # "boston_dynamics": ["spot"],
         # "anybotics": ["anymal"],
+    }
+
+    BRAND_ADAPTER_MAP: Dict[str, str] = {
+        "unitree": "unitree_sdk2",
     }
 
     @classmethod
@@ -129,7 +138,8 @@ class RobotContext:
         robot_type = cls._current_robot_type
 
         try:
-            model = cls._create_model_for_brand(brand, robot_type)
+            adapter = cls._ensure_adapter(brand, robot_type, force_reinit=force_reinit)
+            model = adapter.get_model() if adapter is not None else None
             if model:
                 cls._current_robot_model = model
                 cls._initialized = True
@@ -169,6 +179,28 @@ class RobotContext:
             return UnitreeModel(robot_type)
 
     @classmethod
+    def _ensure_adapter(cls, brand: str, robot_type: str, force_reinit: bool = False):
+        """Ensure adapter is registered and bound to current robot type."""
+        adapter_name = cls.BRAND_ADAPTER_MAP.get(brand, "unitree_sdk2")
+        adapter = cls._service_registry.get(adapter_name)
+
+        if adapter is None:
+            if adapter_name == "unitree_sdk2":
+                adapter = UnitreeAdapter(robot_type)
+            else:
+                log_warning(f"Unknown adapter '{adapter_name}', falling back to unitree_sdk2")
+                adapter = UnitreeAdapter(robot_type)
+            cls._service_registry.register(adapter_name, adapter)
+
+        try:
+            adapter.connect(robot_type=robot_type, force_reinit=force_reinit)
+        except Exception as e:
+            log_error(f"Adapter connect failed ({adapter_name}): {e}")
+            return None
+
+        return adapter
+
+    @classmethod
     def run_action(cls, action_name: str, **kwargs) -> bool:
         """
         Execute an action on the current robot model.
@@ -182,12 +214,20 @@ class RobotContext:
         Returns:
             True if action executed successfully, False otherwise
         """
-        robot = cls.get_robot_model()
-        if robot is None:
-            log_error(f"Cannot execute action '{action_name}': No robot model available")
+        brand = cls.get_current_brand()
+        adapter_name = cls.BRAND_ADAPTER_MAP.get(brand, "unitree_sdk2")
+        adapter = cls._ensure_adapter(brand, cls._current_robot_type)
+        if adapter is None:
+            log_error(f"Cannot execute action '{action_name}': Adapter unavailable")
             return False
-
-        return robot.run_action(action_name, **kwargs)
+        try:
+            return bool(cls._service_router.run_action(adapter_name, action_name, **kwargs))
+        except Exception as e:
+            log_error(f"Action routing failed ({action_name}): {e}")
+            robot = cls.get_robot_model()
+            if robot is None:
+                return False
+            return bool(robot.run_action(action_name, **kwargs))
 
     @classmethod
     def get_sensor_data(cls) -> Dict[str, Any]:
@@ -197,18 +237,35 @@ class RobotContext:
         Returns:
             Sensor data dictionary
         """
-        robot = cls.get_robot_model()
-        if robot is None:
+        brand = cls.get_current_brand()
+        adapter_name = cls.BRAND_ADAPTER_MAP.get(brand, "unitree_sdk2")
+        adapter = cls._ensure_adapter(brand, cls._current_robot_type)
+        if adapter is None:
             return {'error': 'No robot model available'}
-
-        return robot.get_sensor_data()
+        try:
+            return cls._service_router.get_sensor_data(adapter_name)
+        except Exception as e:
+            log_error(f"Sensor routing failed: {e}")
+            robot = cls.get_robot_model()
+            if robot is None:
+                return {'error': 'No robot model available'}
+            return robot.get_sensor_data()
 
     @classmethod
     def stop(cls):
         """Stop the current robot."""
-        robot = cls.get_robot_model()
-        if robot:
-            robot.stop()
+        brand = cls.get_current_brand()
+        adapter_name = cls.BRAND_ADAPTER_MAP.get(brand, "unitree_sdk2")
+        adapter = cls._ensure_adapter(brand, cls._current_robot_type)
+        if adapter is None:
+            return
+        try:
+            cls._service_router.stop(adapter_name)
+        except Exception as e:
+            log_error(f"Stop routing failed: {e}")
+            robot = cls.get_robot_model()
+            if robot:
+                robot.stop()
 
     @classmethod
     def get_available_actions(cls) -> list:
@@ -234,6 +291,8 @@ class RobotContext:
         """Reset the context to initial state."""
         cls._current_robot_model = None
         cls._initialized = False
+        cls._service_registry = ServiceRegistry()
+        cls._service_router = ServiceRouter(cls._service_registry)
         log_debug("Robot context reset")
 
 
