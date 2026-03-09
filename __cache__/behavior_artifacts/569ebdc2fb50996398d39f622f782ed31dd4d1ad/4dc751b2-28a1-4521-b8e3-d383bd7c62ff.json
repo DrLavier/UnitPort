@@ -1,0 +1,24 @@
+{
+  "artifact_id": "4dc751b2-28a1-4521-b8e3-d383bd7c62ff",
+  "behavior_ref": "stand",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [
+      {
+        "id": "n0",
+        "schema_id": "ok_node",
+        "kind": "action",
+        "params": {}
+      }
+    ],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [],
+  "trace_id": "b23e2feb-711c-41bf-bce9-770f313a5745",
+  "compiled_at": "2026-02-27T07:45:01.308235+00:00",
+  "source_hash": null
+}

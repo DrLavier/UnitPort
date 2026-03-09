@@ -1,0 +1,6 @@
+-f ../../../prebuilt
+bosdyn-client >= 3.1
+
+matplotlib
+numpy
+PyQt5

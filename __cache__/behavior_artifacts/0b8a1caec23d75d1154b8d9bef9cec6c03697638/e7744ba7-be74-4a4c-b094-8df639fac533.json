@@ -1,0 +1,35 @@
+{
+  "artifact_id": "e7744ba7-be74-4a4c-b094-8df639fac533",
+  "behavior_ref": "broken",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [
+    {
+      "level": "warning",
+      "code": "E1002",
+      "message": "Parse error: Line 1:1: Unexpected token: EOF ('')",
+      "location": null,
+      "trace_id": "8f6f94d5-6959-4ded-a1d0-f46b12a64124"
+    },
+    {
+      "level": "info",
+      "code": "I4002",
+      "message": "AST lowered: 0 nodes, 0 edges",
+      "location": null,
+      "trace_id": "8f6f94d5-6959-4ded-a1d0-f46b12a64124"
+    }
+  ],
+  "trace_id": "8f6f94d5-6959-4ded-a1d0-f46b12a64124",
+  "compiled_at": "2026-03-02T14:03:17.572496+00:00",
+  "source_hash": "a6bf297b5d227ba707c46846764d3f67cf86bd8f5494a88fc1edd36fdfa72dc1",
+  "heartbeat_ir": null,
+  "heartbeat_policy": null,
+  "heartbeat_script": null
+}

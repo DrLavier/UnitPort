@@ -1,0 +1,25 @@
+{
+  "artifact_id": "da8fb1b2-128a-441e-b03c-d9a84edea299",
+  "behavior_ref": "idle",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [
+    {
+      "level": "info",
+      "code": "I4002",
+      "message": "AST lowered: 0 nodes, 0 edges",
+      "location": null,
+      "trace_id": "my-trace-99"
+    }
+  ],
+  "trace_id": "my-trace-99",
+  "compiled_at": "2026-02-27T07:45:01.258612+00:00",
+  "source_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

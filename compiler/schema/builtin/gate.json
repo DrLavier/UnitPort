@@ -1,0 +1,35 @@
+{
+    "schema_id": "builtin.gate",
+    "display_name": "Gate",
+    "node_type": "gate",
+    "kind": "gate",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "out_pass", "direction": "output", "data_type": "void"},
+        {"name": "out_block", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "mode",
+            "param_type": "string",
+            "default": "condition",
+            "constraints": {"choices": ["condition", "event"]},
+            "description": "Gate mode: condition or event"
+        },
+        {
+            "name": "condition_expr",
+            "param_type": "string",
+            "default": "",
+            "description": "Condition expression (condition mode)"
+        },
+        {
+            "name": "event_name",
+            "param_type": "string",
+            "default": "",
+            "description": "Event name (event mode)"
+        }
+    ],
+    "code_template": "if {condition_expr}:",
+    "robot_compat": [],
+    "version": "1.0"
+}

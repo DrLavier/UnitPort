@@ -1,0 +1,54 @@
+{
+    "schema_id": "builtin.while_loop",
+    "display_name": "While Loop",
+    "node_type": "while_loop",
+    "kind": "logic",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "condition", "direction": "input", "data_type": "bool"},
+        {"name": "for_start", "direction": "input", "data_type": "int"},
+        {"name": "for_end", "direction": "input", "data_type": "int"},
+        {"name": "for_step", "direction": "input", "data_type": "int"},
+        {"name": "loop_body", "direction": "output", "data_type": "void"},
+        {"name": "loop_end", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "loop_type",
+            "param_type": "string",
+            "default": "while",
+            "constraints": {
+                "choices": ["while", "for"]
+            },
+            "description": "Loop type: while or for"
+        },
+        {
+            "name": "condition_expr",
+            "param_type": "string",
+            "default": "",
+            "description": "While loop condition expression"
+        },
+        {
+            "name": "for_start",
+            "param_type": "int",
+            "default": 0,
+            "description": "For loop start value"
+        },
+        {
+            "name": "for_end",
+            "param_type": "int",
+            "default": 10,
+            "description": "For loop end value"
+        },
+        {
+            "name": "for_step",
+            "param_type": "int",
+            "default": 1,
+            "constraints": {"min_value": -100, "max_value": 100},
+            "description": "For loop step value"
+        }
+    ],
+    "code_template": "for i in range({for_start}, {for_end}, {for_step}):",
+    "robot_compat": [],
+    "version": "1.0"
+}

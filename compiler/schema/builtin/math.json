@@ -1,0 +1,38 @@
+{
+    "schema_id": "builtin.math",
+    "display_name": "Math",
+    "node_type": "math",
+    "kind": "math",
+    "ports": [
+        {"name": "a", "direction": "input", "data_type": "float"},
+        {"name": "b", "direction": "input", "data_type": "float"},
+        {"name": "values", "direction": "input", "data_type": "any"},
+        {"name": "result", "direction": "output", "data_type": "float"}
+    ],
+    "parameters": [
+        {
+            "name": "operation",
+            "param_type": "string",
+            "default": "add",
+            "constraints": {
+                "choices": ["add", "subtract", "multiply", "divide", "power", "modulo", "min", "max", "abs", "sum", "average"]
+            },
+            "description": "Mathematical operation"
+        },
+        {
+            "name": "value_a",
+            "param_type": "float",
+            "default": 0,
+            "description": "First operand (if not connected)"
+        },
+        {
+            "name": "value_b",
+            "param_type": "float",
+            "default": 0,
+            "description": "Second operand (if not connected)"
+        }
+    ],
+    "code_template": "result = {value_a} {op_symbol} {value_b}",
+    "robot_compat": [],
+    "version": "1.0"
+}

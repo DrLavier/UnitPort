@@ -1,0 +1,35 @@
+// Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
+//
+// Downloading, reproducing, distributing or otherwise using the SDK Software
+// is subject to the terms and conditions of the Boston Dynamics Software
+// Development Kit License (20191101-BDSDK-SL).
+
+syntax = "proto3";
+
+package bosdyn.api;
+option go_package = "bosdyn/api/power_service";
+
+option java_outer_classname = "PowerServiceProto";
+
+import "bosdyn/api/power.proto";
+
+// The power service for the robot that can power on/off the robot's motors.
+service PowerService {
+    // Starts a power command on the robot. A robot can only accept one power command at once.
+    // Power commands, are not interruptible. Once a command is issued, it must complete before
+    // another command can be issued.
+    rpc PowerCommand(PowerCommandRequest) returns (PowerCommandResponse) {}
+
+    // Check the status of a power command.
+    rpc PowerCommandFeedback(PowerCommandFeedbackRequest) returns (PowerCommandFeedbackResponse) {}
+
+    // Separate RPC for toggling fan power due to need for time/percent power parameters
+    rpc FanPowerCommand(FanPowerCommandRequest) returns (FanPowerCommandResponse) {}
+
+    // Check the status of a fan power command.
+    rpc FanPowerCommandFeedback(FanPowerCommandFeedbackRequest)
+        returns (FanPowerCommandFeedbackResponse) {}
+
+    // Reset the safety stop bit on SRSF-configured robots.
+    rpc ResetSafetyStop(ResetSafetyStopRequest) returns (ResetSafetyStopResponse) {}
+}

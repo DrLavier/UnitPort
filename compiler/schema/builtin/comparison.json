@@ -1,0 +1,43 @@
+{
+    "schema_id": "builtin.comparison",
+    "display_name": "Condition",
+    "node_type": "comparison",
+    "kind": "comparison",
+    "ports": [
+        {"name": "left", "direction": "input", "data_type": "any"},
+        {"name": "right", "direction": "input", "data_type": "any"},
+        {"name": "result", "direction": "output", "data_type": "bool"}
+    ],
+    "parameters": [
+        {
+            "name": "operator",
+            "param_type": "string",
+            "default": "==",
+            "constraints": {
+                "choices": ["==", "!=", ">", "<", ">=", "<="]
+            },
+            "description": "Comparison operator"
+        },
+        {
+            "name": "input_expr",
+            "param_type": "string",
+            "default": "",
+            "description": "Left-side expression"
+        },
+        {
+            "name": "compare_value",
+            "param_type": "string",
+            "default": "0",
+            "description": "Right-side value"
+        },
+        {
+            "name": "output_name",
+            "param_type": "string",
+            "default": "",
+            "description": "Output variable name for condition result"
+        }
+    ],
+    "code_template": "{output_name} = {input_expr} {operator} {compare_value}",
+    "robot_compat": [],
+    "version": "1.0"
+}

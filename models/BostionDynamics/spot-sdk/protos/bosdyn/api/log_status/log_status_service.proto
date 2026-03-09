@@ -1,0 +1,54 @@
+// Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
+//
+// Downloading, reproducing, distributing or otherwise using the SDK Software
+// is subject to the terms and conditions of the Boston Dynamics Software
+// Development Kit License (20191101-BDSDK-SL).
+
+syntax = "proto3";
+
+package bosdyn.api.log_status;
+option go_package = "bosdyn/api/log_status/log_status_service";
+
+import "bosdyn/api/log_status/log_status.proto";
+
+// The LogStatusService provides clients the ability to
+//   - Retrieve log status by id
+//   - Access a collection of active logs
+//   - Start and stop retro logs
+//   - Start, extend and stop experiment logs
+//   - Terminate logs before their expiration time
+service LogStatusService {
+    // Retrieve log status by id.
+    rpc GetLogStatus(GetLogStatusRequest) returns (GetLogStatusResponse);
+
+    // View statuses of active logs.
+    rpc GetActiveLogStatuses(GetActiveLogStatusesRequest) returns (GetActiveLogStatusesResponse);
+
+    // Given a duration T, StartRetroLog(T) triggers a log covering the timespan [logStartTime,
+    // t_rpc], where logStartTime = max(t_rpc - T, t_buffer), t_rpc = time of RPC reception, and
+    // t_buffer = time of first log on the buffer.
+    rpc StartRetroLog(StartRetroLogRequest) returns (StartRetroLogResponse);
+
+    // Given a duration T, StartExperimentLog(T) starts logging all data to
+    // disk with a keepalive/watchdog timer of T. The duration of the log will be [t_rpc, t_rpc + T]
+    // where t_rpc = time of RPC reception. The duration of this log can be extended by calling
+    // UpdateExperimentLog before the log's status reaches a terminal state.
+    // If any retro logs are running, they will be terminated by starting an experiment log.
+    // Only one experiment log can be run at a time.
+    rpc StartExperimentLog(StartExperimentLogRequest) returns (StartExperimentLogResponse);
+
+    // Given a duration T and an event E, starts an experiment log that will include any data
+    // the robot associates with E, with a keepalive/watchdog timer of T. However, unlike an
+    // experiment log it allows for concurrency, so E must be provided to constrain the data
+    // included in the log.
+    rpc StartConcurrentLog(StartConcurrentLogRequest) returns (StartConcurrentLogResponse);
+
+    // UpdateExperimentLog(id, T) will update the keepalive/watchdog timer of
+    // the log with the provided id if the log is active. The updated duration
+    // of the log will be [t_rpc, t_rpc + T] where t_rpc = time of RPC reception.
+    rpc UpdateExperimentLog(UpdateExperimentLogRequest) returns (UpdateExperimentLogResponse);
+
+    // Terminate Log before it is complete.
+    rpc TerminateLog(TerminateLogRequest) returns (TerminateLogResponse);
+
+}

@@ -1,0 +1,21 @@
+{
+    "schema_id": "builtin.opaque_code",
+    "display_name": "Code Block",
+    "node_type": "opaque_code",
+    "kind": "opaque",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "flow_out", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "code",
+            "param_type": "string",
+            "default": "",
+            "description": "Raw code content that could not be parsed"
+        }
+    ],
+    "code_template": "{code}",
+    "robot_compat": [],
+    "version": "1.0"
+}

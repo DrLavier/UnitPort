@@ -1,0 +1,578 @@
+// Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
+//
+// Downloading, reproducing, distributing or otherwise using the SDK Software
+// is subject to the terms and conditions of the Boston Dynamics Software
+// Development Kit License (20191101-BDSDK-SL).
+
+syntax = "proto3";
+
+package bosdyn.api.graph_nav;
+option go_package = "bosdyn/api/graph_nav/map";
+option java_outer_classname = "MapProto";
+
+import "bosdyn/api/graph_nav/lost_detection.proto";
+import "bosdyn/api/geometry.proto";
+import "bosdyn/api/graph_nav/area_callback_data.proto";
+import "bosdyn/api/image.proto";
+import "bosdyn/api/local_grid.proto";
+import "bosdyn/api/payload.proto";
+import "bosdyn/api/point_cloud.proto";
+import "bosdyn/api/robot_id.proto";
+import "bosdyn/api/robot_state.proto";
+import "bosdyn/api/spot/robot_command.proto";
+import "bosdyn/api/stairs.proto";
+import "bosdyn/api/world_object.proto";
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+
+// Indicator of whether or not the waypoint and edge annotations are complete and filled out.
+enum AnnotationState {
+    // No assertions made about this annotation.
+    ANNOTATION_STATE_UNKNOWN = 0;
+    // This annotation and all of its fields have been deliberately set.
+    ANNOTATION_STATE_SET = 1;
+    // This annotation has been deliberately set to "no annotation" -- any subfields are unset.
+    ANNOTATION_STATE_NONE = 2;
+}
+
+// A base element of the graph nav map. A waypoint consists of a reference frame, a name,
+// a unique ID, annotations, and sensor data.
+message Waypoint {
+    // Identifier of the waypoint. Unique across all maps.
+    // This identifier does not have to be updated when its fields change.
+    string id = 1;
+
+    // Identifier of this waypoint's Snapshot data.
+    string snapshot_id = 2;
+
+    // Transform from the KO frame (at time of recording) to the waypoint.
+    SE3Pose waypoint_tform_ko = 3;
+
+    enum WaypointSource {
+        WAYPOINT_SOURCE_UNKNOWN = 0;
+        // Waypoints from the robot's location during recording.
+        WAYPOINT_SOURCE_ROBOT_PATH = 1;
+        // Waypoints with user-requested placement.
+        WAYPOINT_SOURCE_USER_REQUEST = 2;
+        // Waypoints that may help find alternate routes.
+        WAYPOINT_SOURCE_ALTERNATE_ROUTE_FINDING = 3;
+    };
+
+    // Annotations understood by BostonDynamics systems.
+    message Annotations {
+        // Human-friendly name of the waypoint. For example, "Kitchen Fridge"
+        string name = 1;
+
+        // The time that the waypoint was created while recording a map.
+        google.protobuf.Timestamp creation_time = 4;
+
+        // Estimate of the variance of ICP when performed at this waypoint, collected at record
+        // time.
+        bosdyn.api.SE3Covariance icp_variance = 2;
+
+        message LocalizeRegion {
+            // Check this before reading other fields.
+            AnnotationState state = 1;
+
+            // Use the default region to localize in.
+            message Default {}
+            // Do not localize to this waypoint.
+            message Empty {}
+            // Indicates the number of meters away we can be from this waypoint we can be before
+            // scan matching.
+            // - If zero, the default value is used.
+            // - If less than zero, no scan matching will be performed at this waypoint.
+            // - If greater than zero, scan matching will only be performed if the robot is at most
+            // this
+            //   far away from the waypoint.
+            // Distance calculation is done in the 2d plane with respect to the waypoint.
+            message Circle2D {
+                double dist_2d = 1;  // meters.
+            }
+
+            oneof region {
+                // Oneof field that describes the waypoint's location as a default region (no
+                // special features/traits).
+                Default default_region = 2;
+                // Oneof field that describes the waypoint's location as a empty/featureless region.
+                Empty empty = 3;
+                // Oneof field that describes the waypoint's location as a circular region.
+                Circle2D circle = 4;
+            }
+        }
+        // Options for how to localize to a waypoint (if at all).
+        LocalizeRegion scan_match_region = 3;
+
+        // How this waypoint was made.
+        WaypointSource waypoint_source = 5;
+
+        // Information about the state of the client when this waypoint was created.
+        ClientMetadata client_metadata = 6;
+
+        message LoopClosureSettings {
+            // If true, loop closure will be fully disabled at this waypoint.
+            bool disable_loop_closure = 1;
+            // If true, collision checking will be disabled for loop closures
+            // from or to this waypoint.
+            bool disable_collision_check = 2;
+            // If nonzero, edges are allowed to be this long when making loop
+            // closures to this waypoint. If zero, global/default settings will
+            // be used.
+            double max_edge_length = 3;
+            // If nonzero, loop closures to this waypoint may shortcut this amount
+            // of path length. If zero, global/default settings will be used.
+            double max_odometry_path_length = 4;
+        }
+        // This waypoint may have specific settings to help with loop closure. This
+        // Is useful for example when trying to ensure that a loop closure occurs at
+        // a particular intersection or near a dock.
+        LoopClosureSettings loop_closure_settings = 7;
+
+        // Waypoints can optionally define where they are in an Earth-Centered-Earth-Fixed (ECEF)
+        // frame, which can aid in localization.
+        message GPSSettings {
+            // If the annotation state is set, the GPS settings will be applied. Otherwise, they
+            // will be ignored. If ignored, GPS will only be used at this waypoint if data from a
+            // GPS exists in the waypoint snapshot, and the robot has a GPS payload installed and
+            // running. Set the annotation state to override this behavior.
+            AnnotationState state = 1;
+            // This defines the pose of the waypoint in the Earth-Centered-Earth-Fixed (ECEF) frame.
+            SE3Pose ecef_tform_waypoint = 2;
+            // If true, GPS localization will be disabled at this waypoint. If false, the robot will
+            // use GPS when available to localize to this waypoint.
+            bool disable_gps_localization = 5;
+        }
+        // Optional GPS navigation settings for this waypoint.
+        GPSSettings gps_settings = 8;
+
+        // Regions may be defined around the waypoint which affect how scan matching or other
+        // parameters work.
+        repeated RegionWithFrame regions = 9;
+
+        // Strictness of the lost detector to use while traversing this waypoint. If unset, the
+        // default strictness will be used.
+        LostDetectorStrictness lost_detector_strictness = 10;
+    }
+    // Annotations specific to the current waypoint.
+    Annotations annotations = 4;
+}
+
+// Optional metadata to attach to waypoints that are being recorded.
+message ClientMetadata {
+    // User-provided name for this recording "session". For example, the user
+    // may start and stop recording at various times and assign a name to a region
+    // that is being recorded. Usually, this will just be the map name.
+    string session_name = 1;
+    // If the application recording the map has a special user name,
+    // this is the name of that user.
+    string client_username = 2;
+    // Version string of any client software that generated this object.
+    string client_software_version = 3;
+    // Identifier of any client software that generated this object.
+    string client_id = 4;
+    // Special tag for the client software which created this object.
+    // For example, "Tablet", "Scout", "Python SDK", etc.
+    string client_type = 5;
+}
+
+// Relevant data collected at the waypoint.
+// May be used for localization or automatically generating annotations, for example.
+// Should be indexed by a waypoint's "snapshot_id" field.
+message WaypointSnapshot {
+    // Identifier of this snapshot.
+    // Snapshots are immutable -- if any of the other fields change, this ID must also change.
+    string id = 1;
+
+    // Any images captured at the waypoint.
+    repeated bosdyn.api.ImageResponse images = 2;
+
+    // Aggregated point cloud data.
+    bosdyn.api.PointCloud point_cloud = 3;
+
+    // Perception objects seen at snapshot time.
+    repeated bosdyn.api.WorldObject objects = 4;
+
+    // Full robot state during snapshot.
+    bosdyn.api.RobotState robot_state = 5;
+
+    // Robot grid data.
+    repeated bosdyn.api.LocalGrid robot_local_grids = 6;
+
+
+    // If true, the point cloud of this snapshot has been processed.
+    bool is_point_cloud_processed = 8;
+    // If this snapshot is a modified version of the raw snapshot with the given ID (for example, it
+    // has been processed), a new unique ID will we assigned to this field. If the field is empty,
+    // this is the raw version of the snapshot.
+    string version_id = 9;
+
+    // If true, the point cloud contains data from a remote point cloud service,
+    // such as LIDAR.
+    bool has_remote_point_cloud_sensor = 10;
+
+    // Transform from the robot body to the remote point cloud sensor's
+    // reference frame.
+    bosdyn.api.SE3Pose body_tform_remote_point_cloud_sensor = 11;
+
+    // Defines the payloads attached to the robot at this waypoint.
+    repeated bosdyn.api.Payload payloads = 12;
+
+
+    // Identifiers (software, nickname, etc.) of the robot that created this waypoint.
+    bosdyn.api.RobotId robot_id = 14;
+
+    // Information about when the recording session started in robot time basis.
+    // This will be filled out by the recording service when StartRecording is called.
+    google.protobuf.Timestamp recording_started_on = 15;
+
+}
+
+
+// A base element of the graph nav map. Edges consist of a directed edge from one
+// waypoint to another and a transform that estimates the relationship in 3D space
+// between the two waypoints.
+message Edge {
+    // An edge is uniquely identified by the waypoints it connects.
+    // Two waypoints will only ever be connected by a single edge.
+    // That edge is traversable in either direction.
+    message Id {
+        // Identifier of the "from" waypoint.
+        string from_waypoint = 1;
+        // Identifier of the "to" waypoint.
+        string to_waypoint = 2;
+    }
+
+    // Identifier of this Edge.
+    // Edges are mutable -- the identifier does not have to be updated when other fields change.
+    Id id = 1;
+
+    // Identifier of this edge's Snapshot data.
+    string snapshot_id = 2;
+
+    // Describes the transform between the "from" waypoint and the "to" waypoint.
+    bosdyn.api.SE3Pose from_tform_to = 3;
+
+    enum EdgeSource {
+        EDGE_SOURCE_UNKNOWN = 0;
+        // Edges with transforms from odometry.
+        EDGE_SOURCE_ODOMETRY = 1;
+        // Edges with transforms from a short chain of other edges.
+        EDGE_SOURCE_SMALL_LOOP_CLOSURE = 2;
+        // Edges with transforms from multiple fiducial observations.
+        EDGE_SOURCE_FIDUCIAL_LOOP_CLOSURE = 3;
+        // Edges that may help find alternate routes.
+        EDGE_SOURCE_ALTERNATE_ROUTE_FINDING = 4;
+        // Created via a CreateEdge RPC.
+        EDGE_SOURCE_USER_REQUEST = 5;
+        // Created when we start recording after recording has been paused.
+        // For example, an "extension" of a graph will start with an edge
+        // of type EDGE_SOURCE_LOCALIZATION.
+        EDGE_SOURCE_LOCALIZATION = 6;
+    };
+
+    // Annotations understood by BostonDynamics systems.
+    message Annotations {
+        // Defines any parameters of the stairs
+        message StairData {
+            // Check this before reading other fields.
+            AnnotationState state = 1;
+
+            // Parameters describing a straight staircase.
+            // DEPRECATED as of 3.3.  Please use staircase_with_landings.
+            bosdyn.api.StraightStaircase straight_staircase = 2 [deprecated = true];
+
+            // Parameters describing an arbitrary staircase.
+            bosdyn.api.StaircaseWithLandings staircase_with_landings = 3;
+
+            enum DescentPreference {
+                // Unknown value, default to DESCENT_PREFERENCE_ALWAYS_REVERSE.
+                DESCENT_PREFERENCE_UNKNOWN = 0;
+                // Robot will prefer to descend in reverse, but may descend forwards if the route
+                // could not otherwise be executed. This could be due to conflicting constraints
+                // created by an annotation or by another staircase.
+                DESCENT_PREFERENCE_PREFER_REVERSE = 1;
+                // Robot will always attempt to descend stairs in reverse, even if it causes
+                // navigation to fail.
+                DESCENT_PREFERENCE_ALWAYS_REVERSE = 2;
+                // Robot may descend in any order. The exact order it chooses will be decided by
+                // the lowest cost path found by the local trajectory optimizer and adjacent
+                // constraints, if they exist.
+                // NOTE: If a staircase which is difficult for the robot to descend in the forward
+                // direction is marked with this option, it may cause the robot to fall.
+                DESCENT_PREFERENCE_NONE = 3;
+            }
+            DescentPreference descent_preference = 4;
+
+            // The Y position with respect to the staircase frame to align to when traversing this
+            // staircase. Regardless of how the recorded waypoints are distributed on the staircase,
+            // when traversing the staircase all navigation goals will have this Y position with
+            // respect to the staircase in order to guide the robot over the stairs in a straight
+            // line.
+            google.protobuf.DoubleValue traversal_y_offset = 5;
+        }
+        // Stairs information/parameters specific to the edge.
+        StairData stairs = 2;
+
+        enum DirectionConstraint {
+            // We don't know if there are direction constraints.
+            DIRECTION_CONSTRAINT_UNKNOWN = 0;
+            // The robot must not turn while walking the edge, but can face either waypoint.
+            DIRECTION_CONSTRAINT_NO_TURN = 1;
+            // Robot should walk the edge face-first.
+            DIRECTION_CONSTRAINT_FORWARD = 2;
+            // Robot should walk the edge rear-first.
+            DIRECTION_CONSTRAINT_REVERSE = 3;
+            // No constraints on which way the robot faces.
+            DIRECTION_CONSTRAINT_NONE = 4;
+        }
+        // Direction constraints for how the robot must move and the directions it can face
+        // when traversing the edge.
+        DirectionConstraint direction_constraint = 4;
+
+        // If true, the robot must be aligned with the edge in yaw before traversing it.
+        google.protobuf.BoolValue require_alignment = 5;
+
+        // If true, the edge crosses flat ground and the robot shouldn't try to climb over
+        // obstacles.
+        // DEPRECATED as of 3.3.  Replaced by ground_clutter_mode.
+        // As of 4.1, no longer functional.
+        google.protobuf.BoolValue flat_ground = 6 [deprecated = true];
+
+        // Overrides the following fields of the mobility parameters to whatever is
+        // stored in the map. For example, if this FieldMask contains "stairs_mode" and
+        // "terrain_params.enable_grated_floor", then the map will be
+        // annotated with "stairs_mode" and "enable_grated_floor" settings. An empty FieldMask means
+        // all fields are active annotations. Note that the more conservative of the velocity limit
+        // stored in the mobility parameters and the TravelParams of the entire route will be used
+        // for this edge (regardless of what override_mobility_params says).
+        google.protobuf.FieldMask override_mobility_params = 9;
+        // Contains terrain parameters, swing height, obstacle avoidance parameters, etc.
+        // When the robot crosses this edge, it will use the mobility parameters here.
+        bosdyn.api.spot.MobilityParams mobility_params = 10;
+
+        // Assign edges a cost; used when finding the "shortest" (lowest cost) path.
+        google.protobuf.DoubleValue cost = 11;
+
+        // How this edge was made.
+        EdgeSource edge_source = 12;
+
+        // If true, disables alternate-route-finding for this edge.
+        bool disable_alternate_route_finding = 13;
+
+        // Path following mode
+        enum PathFollowingMode {
+            PATH_MODE_UNKNOWN = 0;  // Unknown value
+            PATH_MODE_DEFAULT = 1;  // Use default path following parameters
+            PATH_MODE_STRICT = 2;   // Use strict path following parameters
+        }
+
+        // Path following mode for this edge.
+        PathFollowingMode path_following_mode = 14;
+
+        // Max distance from the recorded edge that the robot is allowed to travel when avoiding
+        // obstacles or optimized its path. This is half of the full width of the corridor the robot
+        // may walk within. If this value is not set, the robot will choose a default corridor
+        // width.
+        double max_corridor_distance = 18;
+
+        // Disable directed exploration for this edge.
+        bool disable_directed_exploration = 15;
+
+        // Reference to area callback regions needed to cross this edge.
+        // The string is a unique id for this region, which may be shared
+        // across multiple edges.
+        map<string, AreaCallbackRegion> area_callbacks = 16;
+
+        // Ground clutter avoidance mode.
+        // This enables detection and avoidance of low obstacles.
+        enum GroundClutterAvoidanceMode {
+            // The mode is unset.
+            GROUND_CLUTTER_UNKNOWN = 0;
+            // The mode is explicitly off.
+            GROUND_CLUTTER_OFF = 1;
+            // Enable detection of ground clutter using recorded footfalls.
+            // Objects that were not stepped on during map recording are obstacles.
+            GROUND_CLUTTER_FROM_FOOTFALLS = 2;
+        }
+        GroundClutterAvoidanceMode ground_clutter_mode = 17;
+
+        message AudioVisualSettings {
+            // Behavior to run while traversing this edge.
+            string behavior_name = 1;
+        }
+
+        AudioVisualSettings audio_visual_settings = 19;
+    }
+    // Annotations specific to the current edge.
+    Annotations annotations = 4;
+}
+
+// Relevant data collected along the edge.
+// May be used for automatically generating annotations, for example.
+message EdgeSnapshot {
+    // Identifier of this snapshot.
+    // Snapshots are immutable -- if any of the other fields change, this ID must also change.
+    string id = 1;
+
+    message Stance {
+        // Timestamp of the stance.
+        google.protobuf.Timestamp timestamp = 1;
+        // List of all the foot positions for a single stance.
+        repeated bosdyn.api.FootState foot_states = 2;
+        // KO Body position corresponding to this stance.
+        bosdyn.api.SE3Pose ko_tform_body = 3;
+        // Vision Body position corresponding to this stance.
+        bosdyn.api.SE3Pose vision_tform_body = 5;
+        // Does this stance correspond to a planar ground region.
+        google.protobuf.BoolValue planar_ground = 4;
+    }
+    // Sampling of stances as robot traversed this edge.
+    repeated Stance stances = 2;
+
+    // Data used by area callback services to perform their action.
+    map<string, AreaCallbackData> area_callbacks = 16;
+}
+
+// This associates a waypoint with a common reference frame, which is not necessarily metric.
+message Anchor {
+    // Identifier of the waypoint.
+    string id = 1;
+
+    // Pose of the waypoint in the seed frame.
+    SE3Pose seed_tform_waypoint = 2;
+}
+
+// This associates a world object with a common reference frame, which is not necessarily metric.
+message AnchoredWorldObject {
+    // Identifier of the world object.
+    string id = 1;
+
+    // Pose of the object in the seed frame.
+    SE3Pose seed_tform_object = 2;
+}
+
+message Anchoring {
+    // The waypoint ids for the graph, expressed in a common reference frame, which is not
+    // necessarily metric. If there is no anchoring, this is empty.
+    repeated Anchor anchors = 1;
+
+    // World objects, located in the common reference frame.
+    repeated AnchoredWorldObject objects = 2;
+}
+
+// Data for a AreaCallback in the annotation.
+message AreaCallbackRegion {
+    // This service must be used in a given region to safely traverse it.
+    string service_name = 1;
+
+    // Human-readable description of this region.
+    string description = 3;
+
+    // Configuration data associated with this area callback.
+    AreaCallbackData recorded_data = 4;
+}
+
+// This is an arbitrary collection of waypoints and edges. The edges and waypoints are not required
+// to be connected. A waypoint may belong to multiple graphs. This message is used to pass around
+// information about a graph's topology, and is used to serialize map topology to and from files.
+// Note that the graph does not contain any of the waypoint/edge data (which is found in snapshots).
+// Snapshots are stored separately.
+message Graph {
+    // The waypoints for the graph (containing frames, annotations, and sensor data).
+    repeated Waypoint waypoints = 1;
+    // The edges connecting the graph's waypoints.
+    repeated Edge edges = 2;
+
+    // The anchoring (mapping from waypoints to their pose in a shared reference frame).
+    Anchoring anchoring = 3;
+}
+
+// General statistics on the map that is loaded into GraphNav on the robot, including
+// information on the graph topology and snapshot data.
+message MapStats {
+    // Statistics from a particular type of object stored in the GraphNav map.
+    message Stat {
+        // The number of elements.
+        int32 count = 1;
+        // Lower bound on the number of bytes allocated for these elements on RAM
+        // inside the GraphNav server.
+        int64 num_bytes = 2;
+    }
+    // Waypoints (including alternate route finding waypoints).
+    Stat waypoints = 1;
+    // Waypoint snapshots.
+    Stat waypoint_snapshots = 2;
+    // The alternate route finding waypoints (used for alternate path planning).
+    Stat alternate_waypoints = 3;
+    // Edges (including alternate route finding edges).
+    Stat edges = 4;
+    // Edge snapshots.
+    Stat edge_snapshots = 5;
+    // Alternate edges (used for alternate path planning).
+    Stat alternate_edges = 6;
+    // Anchors for waypoints. (For computing anchorings to fixed reference frames).
+    Stat waypoint_anchors = 7;
+    // Anchors for world objects (fiducials).
+    Stat object_anchors = 8;
+    // The total distance travelled along recorded edges by the robot in the loaded
+    // map.
+    double total_path_length = 9;
+}
+
+// Defines a region in a map. Regions are shapes, commonly they are boxes. Many waypoints may share
+// the same regions. Regions do not need to cover the waypoint itself. A common use for such regions
+// is to define certain parts of the point cloud as being unreliable for localization. Note that
+// this is a different concept than the LocalizeRegion, which is used to determine where the robot's
+// body must be relative to the waypoint for it to localize -- the RegionWithFrame instead can be
+// used to label data near the waypoint. *Regions and Reference Frames* -- regions are stored inside
+// waypoint annotations as "RegionWithFrames". These consist of a region and a named reference frame
+// relative to the waypoint (such as "odom" or "seed", or "waypoint" etc).
+message Region {
+    // Unique identifier of the region within a map. This will be used to deduplicate
+    // regions that many waypoints may reference. Note that the transform of the region is
+    // defined with respect to this waypoint's KO frame, so the same region may exist in several
+    // waypoints while having different transforms in each case. Regions with the same ID are not
+    // guaranteed to be unique. Graph Nav will use whatever regions exist in the current waypoint
+    // only, and will ignore all other regions; so if you want Graph Nav to use a region in multiple
+    // waypoints, you must duplicate the region into each waypoint in which it is to be used.
+    string region_id = 1;
+
+    oneof shape {
+        // Oriented bounding box defining the region. The axes are defined relative to the "base
+        // frame" for this region. See RegionWithFrame for how this frame may be defined.
+        Box3 bounding_box = 2;
+    };
+
+    // Defines how scan match data is filtered near this waypoint. Data filters are logical set
+    // operators expressed on sets of data near the waypoint. Notes on interactions: If there are
+    // multiple regions marked as INCLUDE_ONLY, data that falls within any of these regions will be
+    // used, that is the operation of many DATA_FILTER_INCLUDE_ONLY regions is a logical set union.
+    // Conversely, DATA_FILTER_IGNORE operators override DATA_FILTER_INCLUDE_ONLY.
+    // For example, if there are 3 regions, A, B and C; and region A is marked as INCLUDE_ONLY, B is
+    // marked as INCLUDE_ONLY, and C is marked as IGNORE, the data that will be used for scan
+    // matching is: (A _u_ B) ~ C (that is, union(A, B) excluding C).
+    enum DataFilter {
+        DATA_FILTER_UNKNOWN = 0;  // Defaults to DATA_FILTER_NONE.
+        DATA_FILTER_NONE = 1;     // No special considerations for scan matching in this region.
+        DATA_FILTER_IGNORE = 2;   // No scan match data falling within this region will be used.
+        DATA_FILTER_INCLUDE_ONLY = 3;  // Only data from within this region will be used.
+    }
+    // How (if at all) the region affects data filtering for scan matching.
+    DataFilter data_filter = 3;
+}
+
+// Defines a region and a transform near a specific waypoint. Regions will only be used if they are
+// attached to waypoint annotations. Regions may be duplicated over many waypoints.
+message RegionWithFrame {
+    // The region attached to this waypoint.
+    Region region = 1;
+    // Reference frame that the region's transform is defined with respect to. For example,
+    // "waypoint" for the waypoint's reference frame, or "odom" for the odometry frame at the time
+    // of waypoint recording.
+    string base_frame_name = 2;
+    // Transform of the region in the base frame.
+    SE3Pose base_frame_tform_region = 3;
+}

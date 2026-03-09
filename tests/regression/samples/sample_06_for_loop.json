@@ -1,0 +1,44 @@
+{
+    "name": "sample_06_for_loop",
+    "description": "For loop with range(0, 5, 1) containing an action",
+    "version": "1.0",
+    "robot_type": "go2",
+    "nodes": [
+        {
+            "id": 0,
+            "display_name": "Logic Control",
+            "position": {"x": 100, "y": 100},
+            "width": 240,
+            "height": 200,
+            "node_type": "while_loop",
+            "ui_selection": "While Loop",
+            "loop_type": "For",
+            "for_start": "0",
+            "for_end": "5",
+            "for_step": "1",
+            "features": ["If", "While Loop"]
+        },
+        {
+            "id": 1,
+            "display_name": "Action Execution",
+            "position": {"x": 450, "y": 100},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Stand",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        }
+    ],
+    "connections": [
+        {
+            "from_node": 0,
+            "from_port": "loop_body",
+            "to_node": 1,
+            "to_port": "flow_in"
+        }
+    ],
+    "expected_code_contains": [
+        "for i in range(0, 5, 1)",
+        "RobotContext.run_action('stand')"
+    ]
+}

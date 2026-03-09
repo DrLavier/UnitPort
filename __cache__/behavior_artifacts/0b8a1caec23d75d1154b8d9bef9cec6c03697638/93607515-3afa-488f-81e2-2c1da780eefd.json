@@ -1,0 +1,38 @@
+{
+  "artifact_id": "93607515-3afa-488f-81e2-2c1da780eefd",
+  "behavior_ref": "broken",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [],
+    "edges": [],
+    "variables": []
+  },
+  "core_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [
+    {
+      "level": "error",
+      "code": "E1",
+      "message": "compile failure",
+      "location": null,
+      "trace_id": "68fe4f4d-7e2b-4098-a108-5edd1dd5cf49"
+    }
+  ],
+  "trace_id": "a4a15f41-7777-4633-a2ee-792004daeec0",
+  "compiled_at": "2026-03-05T13:54:54.978586+00:00",
+  "source_hash": null,
+  "heartbeat_ir": null,
+  "heartbeat_policy": null,
+  "heartbeat_script": null,
+  "timeline_data": null
+}

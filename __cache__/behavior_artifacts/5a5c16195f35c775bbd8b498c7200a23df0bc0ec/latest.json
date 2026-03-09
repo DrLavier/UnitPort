@@ -1,0 +1,66 @@
+{
+  "artifact_id": "69b65553-fca8-4899-a8d7-de46c0969143",
+  "behavior_ref": "lift_right_leg",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [
+      {
+        "id": "0",
+        "schema_id": "builtin.opaque",
+        "kind": "opaque",
+        "params": {},
+        "opaque_code": "walk(speed=0.3, duration=4.0)"
+      }
+    ],
+    "edges": [],
+    "variables": []
+  },
+  "core_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [
+      {
+        "id": "0",
+        "schema_id": "builtin.opaque",
+        "kind": "opaque",
+        "params": {},
+        "opaque_code": "walk(speed=0.3, duration=4.0)"
+      }
+    ],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [
+    {
+      "level": "warning",
+      "code": "E1002",
+      "message": "Parse error: Line 1:11: Expected RPAREN, got ASSIGN ('=')",
+      "location": null,
+      "trace_id": "9ae9b55a-d8a4-427f-8796-ac98926ce26a"
+    },
+    {
+      "level": "info",
+      "code": "I4002",
+      "message": "AST lowered: 1 nodes, 0 edges",
+      "location": null,
+      "trace_id": "9ae9b55a-d8a4-427f-8796-ac98926ce26a"
+    }
+  ],
+  "trace_id": "9ae9b55a-d8a4-427f-8796-ac98926ce26a",
+  "compiled_at": "2026-03-04T06:56:48.476082+00:00",
+  "source_hash": "3fd5f3d9f3e8a5295b540f88ec5d1805633e495f754639adbe2d5a4c03d23018",
+  "heartbeat_ir": null,
+  "heartbeat_policy": {
+    "tick_ms": 100,
+    "timeout_ms": 5000,
+    "fail_policy": "stop_behavior",
+    "max_override": 0.2,
+    "safety_mode": "strict"
+  },
+  "heartbeat_script": null
+}

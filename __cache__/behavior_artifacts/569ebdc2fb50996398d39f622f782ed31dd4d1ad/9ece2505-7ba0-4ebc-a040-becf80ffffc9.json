@@ -1,0 +1,40 @@
+{
+  "artifact_id": "9ece2505-7ba0-4ebc-a040-becf80ffffc9",
+  "behavior_ref": "stand",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [
+      {
+        "id": "0",
+        "schema_id": "builtin.opaque",
+        "kind": "opaque",
+        "params": {},
+        "opaque_code": "stand()"
+      }
+    ],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [
+    {
+      "level": "warning",
+      "code": "W2002",
+      "message": "Unknown function call 'stand' wrapped as opaque block",
+      "location": null,
+      "trace_id": "47f8c303-3cbe-4cc4-bc3f-ace284b13be0"
+    },
+    {
+      "level": "info",
+      "code": "I4002",
+      "message": "AST lowered: 1 nodes, 0 edges",
+      "location": null,
+      "trace_id": "47f8c303-3cbe-4cc4-bc3f-ace284b13be0"
+    }
+  ],
+  "trace_id": "47f8c303-3cbe-4cc4-bc3f-ace284b13be0",
+  "compiled_at": "2026-02-27T07:45:01.259413+00:00",
+  "source_hash": "7719c01018f10f3a1d7d46b23d6e33ff2bcd13ceba937a039c575ed82ee2e457"
+}

@@ -1,0 +1,28 @@
+{
+    "schema_id": "builtin.cancel",
+    "display_name": "Cancel",
+    "node_type": "cancel",
+    "kind": "cancel",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "flow_out", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "target",
+            "param_type": "string",
+            "default": "current",
+            "constraints": {"choices": ["current", "tag", "all"]},
+            "description": "Cancel target"
+        },
+        {
+            "name": "tag",
+            "param_type": "string",
+            "default": "",
+            "description": "Tag name (when target is 'tag')"
+        }
+    ],
+    "code_template": "scheduler.cancel('{target}')",
+    "robot_compat": [],
+    "version": "1.0"
+}

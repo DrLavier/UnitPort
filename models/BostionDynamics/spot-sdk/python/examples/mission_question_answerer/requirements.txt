@@ -1,0 +1,3 @@
+-f ../../../prebuilt
+bosdyn-client >= 4.0
+bosdyn-mission >= 4.0

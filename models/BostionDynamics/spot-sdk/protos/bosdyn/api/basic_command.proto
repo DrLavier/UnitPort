@@ -1,0 +1,672 @@
+// Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
+//
+// Downloading, reproducing, distributing or otherwise using the SDK Software
+// is subject to the terms and conditions of the Boston Dynamics Software
+// Development Kit License (20191101-BDSDK-SL).
+
+syntax = "proto3";
+
+package bosdyn.api;
+option go_package = "bosdyn/api/basic_command";
+
+option java_outer_classname = "BasicCommandProto";
+
+import "bosdyn/api/geometry.proto";
+import "bosdyn/api/trajectory.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+message RobotCommandFeedbackStatus {
+    enum Status {
+        /// Behavior execution is in an unknown / unexpected state.
+        STATUS_UNKNOWN = 0;
+
+        /// The robot is actively working on the command
+        STATUS_PROCESSING = 1;
+
+        /// The command was replaced by a new command
+        STATUS_COMMAND_OVERRIDDEN = 2;
+
+        /// The command expired
+        STATUS_COMMAND_TIMED_OUT = 3;
+
+        /// The robot is in an unsafe state, and will only respond to known safe commands.
+        STATUS_ROBOT_FROZEN = 4;
+
+        /// The request cannot be executed because the required hardware is missing.
+        /// For example, an armless robot receiving a synchronized command with an arm_command
+        /// request will return this value in the arm_command_feedback status.
+        STATUS_INCOMPATIBLE_HARDWARE = 5;
+    }
+}
+
+// Get the robot into a convenient pose for changing the battery
+message BatteryChangePoseCommand {
+    message Request {
+        enum DirectionHint {
+            // Unknown direction, just hold still
+            HINT_UNKNOWN = 0;
+            // Roll over right (right feet end up under the robot)
+            HINT_RIGHT = 1;
+            // Roll over left (left feet end up under the robot)
+            HINT_LEFT = 2;
+        }
+        DirectionHint direction_hint = 1;
+    }
+
+    message Feedback {
+        enum Status {
+            STATUS_UNKNOWN = 0;
+            // Robot is finished rolling
+            STATUS_COMPLETED = 1;
+            // Robot still in process of rolling over
+            STATUS_IN_PROGRESS = 2;
+            // Robot has failed to roll onto its side
+            STATUS_FAILED = 3;
+        }
+        Status status = 1;
+    }
+}
+
+// Move the robot into a "ready" position from which it can sit or stand up.
+message SelfRightCommand {
+    message Request {
+        // SelfRight command request takes no additional arguments.
+    }
+
+    message Feedback {
+        enum Status {
+            STATUS_UNKNOWN = 0;
+            // Self-right has completed
+            STATUS_COMPLETED = 1;
+            // Robot is in progress of attempting to self-right
+            STATUS_IN_PROGRESS = 2;
+        }
+        Status status = 1;
+    }
+}
+
+// Stop the robot in place with minimal motion.
+message StopCommand {
+    message Request {
+        // Stop command request takes no additional arguments.
+    }
+
+    message Feedback {
+        // Stop command provides no feedback.
+    }
+}
+
+// Freeze all joints at their current positions (no balancing control).
+message FreezeCommand {
+    message Request {
+        // Freeze command request takes no additional arguments.
+    }
+
+    message Feedback {
+        // Freeze command provides no feedback.
+    }
+}
+
+// Get robot into a position where it is safe to power down, then power down. If the robot has
+// fallen, it will power down directly. If the robot is standing, it will first sit then power down.
+// With appropriate request parameters and under limited scenarios, the robot may take additional
+// steps to move to a safe position. The robot will not power down until it is in a sitting state.
+message SafePowerOffCommand {
+    message Request {
+        // Robot action in response to a command received while in an unsafe position. If not
+        // specified, UNSAFE_MOVE_TO_SAFE_POSITION will be used
+        enum UnsafeAction {
+            UNSAFE_UNKNOWN = 0;
+            // Robot may attempt to move to a safe position (i.e. descends stairs) before sitting
+            // and powering off.
+            UNSAFE_MOVE_TO_SAFE_POSITION = 1;
+            // Force sit and power off regardless of positioning. Robot will not take additional
+            // steps
+            UNSAFE_FORCE_COMMAND = 2;
+        }
+        UnsafeAction unsafe_action = 1;
+    }
+
+    message Feedback {
+        // The SafePowerOff will provide feedback on whether or not it has succeeded in powering off
+        // the robot yet.
+
+        enum Status {
+            // STATUS_UNKNOWN should never be used. If used, an internal error has happened.
+            STATUS_UNKNOWN = 0;
+            // Robot has powered off.
+            STATUS_POWERED_OFF = 1;
+            // Robot is trying to safely power off.
+            STATUS_IN_PROGRESS = 2;
+        }
+        // Current status of the command.
+        Status status = 1;
+    }
+}
+
+// Move along a trajectory in 2D space.
+message SE2TrajectoryCommand {
+    message Request {
+        // The timestamp (in robot time) by which a command must finish executing.
+        // This is a required field and used to prevent runaway commands.
+        google.protobuf.Timestamp end_time = 1;
+
+        // The name of the frame that trajectory is relative to. The trajectory
+        // must be expressed in a gravity aligned frame, so either "vision",
+        // "odom", or "body". Any other provided se2_frame_name will be rejected
+        // and the trajectory command will not be executed.
+        string se2_frame_name = 3;
+
+        // The trajectory that the robot should follow, expressed in the frame
+        // identified by se2_frame_name.
+        SE2Trajectory trajectory = 2;
+    }
+
+    message Feedback {
+        // The SE2TrajectoryCommand will provide feedback on whether or not the robot has reached
+        // the final point of the trajectory.
+
+        enum Status {
+            option allow_alias = true;
+            // STATUS_UNKNOWN should never be used. If used, an internal error has happened.
+            STATUS_UNKNOWN = 0;
+            // The robot has stopped. Either the robot has reached the end of the trajectory or it
+            // believes that it cannot reach the desired position. Robot may start to move again if
+            // a blocked path clears.
+            STATUS_STOPPED = 1;
+            // The robot is nearing the end of the requested trajectory and is doing final
+            // positioning.
+            STATUS_STOPPING = 3;
+            // The robot is actively following the requested trajectory.
+            STATUS_IN_PROGRESS = 2;
+
+            // The following enum values were possibly confusing in situations where the robot
+            // cannot achieve the requested trajectory and are now deprecated.
+            STATUS_AT_GOAL = 1;
+            STATUS_NEAR_GOAL = 3;
+            STATUS_GOING_TO_GOAL = 2;
+        }
+        // Current status of the command.
+        Status status = 1;
+
+        enum BodyMovementStatus {
+            // STATUS_UNKNOWN should never be used. If used, an internal error has happened.
+            BODY_STATUS_UNKNOWN = 0;
+            // The robot body is not settled at the goal.
+            BODY_STATUS_MOVING = 1;
+            // The robot is at the goal and the body has stopped moving.
+            BODY_STATUS_SETTLED = 2;
+        }
+        // Current status of how the body is moving
+        BodyMovementStatus body_movement_status = 2;
+
+        enum FinalGoalStatus {
+            // FINAL_GOAL_STATUS_UNKNOWN should never be used. If used, an internal error has
+            // happened.
+            FINAL_GOAL_STATUS_UNKNOWN = 0;
+            // Robot is not stopped or stopping.
+            FINAL_GOAL_STATUS_IN_PROGRESS = 1;
+            // Final position was achievable.
+            FINAL_GOAL_STATUS_ACHIEVABLE = 2;
+            // Final position was not achievable.
+            FINAL_GOAL_STATUS_BLOCKED = 3;
+        }
+        // Flag indicating if the final requested position was achievable.
+        FinalGoalStatus final_goal_status = 5;
+
+        // Enables clients to monitor the commanded goal trajectory, even if not sending the
+        // command.
+        SE2TrajectoryCommand.Request request_information = 6;
+    }
+}
+
+// Move the robot at a specific SE2 velocity for a fixed amount of time.
+message SE2VelocityCommand {
+    message Request {
+        // The timestamp (in robot time) by which a command must finish executing. This is a
+        // required field and used to prevent runaway commands.
+        google.protobuf.Timestamp end_time = 1;
+
+        // The name of the frame that velocity and slew_rate_limit are relative to.
+        // The trajectory must be expressed in a gravity aligned frame, so either
+        // "vision", "odom", or "flat_body". Any other provided
+        // se2_frame_name will be rejected and the velocity command will not be executed.
+        string se2_frame_name = 5;
+
+        // Desired planar velocity of the robot body relative to se2_frame_name.
+        SE2Velocity velocity = 2;
+
+        // If set, limits how quickly velocity can change relative to se2_frame_name.
+        // Otherwise, robot may decide to limit velocities using default settings.
+        // These values should be non-negative.
+        SE2Velocity slew_rate_limit = 4;
+
+        // Reserved for deprecated fields.
+        reserved 3;
+    }
+
+    message Feedback {
+        // Enables clients to monitor the commanded goal velocity, even if not sending the command.
+        SE2VelocityCommand.Request request_information = 1;
+    }
+}
+
+// Sit the robot down in its current position.
+message SitCommand {
+    message Request {
+        // Sit command request takes no additional arguments.
+    }
+
+    message Feedback {
+        enum Status {
+            // STATUS_UNKNOWN should never be used. If used, an internal error has happened.
+            STATUS_UNKNOWN = 0;
+            // Robot is currently sitting.
+            STATUS_IS_SITTING = 1;
+            // Robot is trying to sit.
+            STATUS_IN_PROGRESS = 2;
+        }
+        // Current status of the command.
+        Status status = 2;
+    }
+}
+
+// The stand the robot up in its current position.
+message StandCommand {
+    message Request {
+        // Stand command request takes no additional arguments.
+    }
+
+    message Feedback {
+        // The StandCommand will provide two feedback fields: status, and standing_state. Status
+        // reflects if the robot has four legs on the ground and is near a final pose. StandingState
+        // reflects if the robot has converged to a final pose and does not expect future movement.
+
+        enum Status {
+            // STATUS_UNKNOWN should never be used. If used, an internal error has happened.
+            STATUS_UNKNOWN = 0;
+            // Robot has finished standing up and has completed desired body trajectory.
+            STATUS_IS_STANDING = 1;
+            // Robot is trying to come to a steady stand.
+            STATUS_IN_PROGRESS = 2;
+        }
+        // Current status of the command.
+        Status status = 1;
+
+        enum StandingState {
+            // STANDING_UNKNOWN should never be used. If used, an internal error has happened.
+            STANDING_UNKNOWN = 0;
+            // Robot is standing up and actively controlling its body so it may occasionally make
+            // small body adjustments.
+            STANDING_CONTROLLED = 1;
+            // Robot is standing still with its body frozen in place so it should not move unless
+            // commanded to. Motion sensitive tasks like laser scanning should be performed in this
+            // state.
+            STANDING_FROZEN = 2;
+        }
+        // What type of standing the robot is doing currently.
+        StandingState standing_state = 2;
+    }
+}
+
+// Precise foot placement
+// This can be used to reposition the robots feet in place.
+message StanceCommand {
+    message Request {
+        /// The timestamp (in robot time) by which a command must finish executing.
+        /// This is a required field and used to prevent runaway commands.
+        google.protobuf.Timestamp end_time = 1;
+
+        Stance stance = 2;
+    }
+
+    message Feedback {
+        enum Status {
+            STATUS_UNKNOWN = 0;
+            // Robot has finished moving feet and they are at the specified position
+            STATUS_STANCED = 1;
+            // Robot is in the process of moving feet to specified position
+            STATUS_GOING_TO_STANCE = 2;
+            // Robot is not moving, the specified stance was too far away.
+            // Hint: Try using SE2TrajectoryCommand to safely put the robot at the
+            //       correct location first.
+            STATUS_TOO_FAR_AWAY = 3;
+        }
+        Status status = 1;
+    }
+}
+
+message Stance {
+    // The frame name which the desired foot_positions are described in.
+    string se2_frame_name = 3;
+
+    // Map of foot name to its x,y location in specified frame.
+    // Required positions for spot: "fl", "fr", "hl", "hr".
+    map<string, Vec2> foot_positions = 2;
+
+    // Required foot positional accuracy in meters
+    // Advised = 0.05 ( 5cm)
+    // Minimum = 0.02 ( 2cm)
+    // Maximum = 0.10 (10cm)
+    float accuracy = 4;
+}
+
+// The base will move in response to the hand's location, allow the arm to reach beyond
+// its current workspace.  If the hand is moved forward, the body will begin walking
+// forward to keep the base at the desired offset from the hand.
+message FollowArmCommand {
+    message Request {
+
+        // Optional body offset from the hand.
+        // For example, to have the body 0.75 meters behind the hand, use (0.75, 0, 0)
+        Vec3 body_offset_from_hand = 1;
+
+        // DEPRECATED as of 3.1.
+        // To reproduce the robot's behavior of disable_walking == true,
+        // issue a StandCommand setting the enable_body_yaw_assist_for_manipulation and
+        // enable_hip_height_assist_for_manipulation MobilityParams to true.  Any combination
+        // of the enable_*_for_manipulation are accepted in stand giving finer control of
+        // the robot's behavior.
+        bool disable_walking = 2 [deprecated = true];
+    }
+
+    message Feedback {
+        // FollowArmCommand commands provide no feedback.
+    }
+}
+
+message ArmDragCommand {
+    message Request {}
+
+    message Feedback {
+        enum Status {
+            // STATUS_UNKNOWN should never be used. If used, an internal error has happened.
+            STATUS_UNKNOWN = 0;
+            // Robot is dragging.
+            STATUS_DRAGGING = 1;
+            // Robot is not dragging because grasp failed.
+            // This could be due to a lost grasp during a drag, or because the gripper isn't in a
+            // good position at the time of request. You'll have to reposition or regrasp and then
+            // send a new drag request to overcome this type of error. Note: When requesting drag,
+            // make sure the gripper is positioned in front of the robot (not to the side of or
+            // above the robot body).
+            STATUS_GRASP_FAILED = 2;
+            // Robot is not dragging for another reason.
+            // This might be because the gripper isn't holding an item.
+            // You can continue dragging once you resolve this type of error (i.e. by sending an
+            // ApiGraspOverride request). Note: When requesting drag, be sure to that the robot
+            // knows it's holding something (or use APIGraspOverride to OVERRIDE_HOLDING).
+            STATUS_OTHER_FAILURE = 3;
+        }
+        Status status = 1;
+    }
+}
+
+message ConstrainedManipulationCommand {
+    message Request {
+        // Frame that the initial wrench will be expressed in
+        string frame_name = 1;
+        // Direction of the initial wrench to be applied
+        // Depending on the task, either the force vector or the
+        // torque vector are required to be specified. The required
+        // vector should not have a magnitude of zero and will be
+        // normalized to 1. For tasks that require the force vector,
+        // the torque vector can still be specified as a non-zero vector
+        // if it is a good guess of the axis of rotation of the task.
+        // (for e.g. TASK_TYPE_SE3_ROTATIONAL_TORQUE task types.)
+        // Note that if both vectors are non-zero, they have to be perpendicular.
+        // Once the constrained manipulation system estimates the
+        // constraint, the init_wrench_direction and frame_name
+        // will no longer be used.
+        bosdyn.api.Wrench init_wrench_direction_in_frame_name = 2;
+
+        // The desired velocity to move the object
+        // For all tasks besides SE3_ROTATIONAL_TORQUE, set
+        // tangential_speed in units of m/s. For SE3_ROTATIONAL_TORQUE,
+        // set rotational_speed with units of rad/s.
+        oneof task_speed {
+            // Recommended values are in the range of [-4, 4] m/s
+            double tangential_speed = 3;
+            // Recommended values are in the range of [-4, 4] rad/s
+            double rotational_speed = 4;
+        }
+
+        // The limit on the force that is applied on any translation direction
+        // Value must be positive
+        // If unspecified, a default value of 40 N will be used.
+        google.protobuf.DoubleValue force_limit = 5;
+        // The limit on the torque that is applied on any rotational direction
+        // Value must be positive
+        // If unspecified, a default value of 4 Nm will be used.
+        google.protobuf.DoubleValue torque_limit = 6;
+
+        // Geometrical category of a task. See the constrained_manipulation_helper function
+        // for examples of each of these categories. For e.g. SE3_CIRCLE_FORCE_TORQUE corresponds
+        // to lever type objects.
+        enum TaskType {
+            TASK_TYPE_UNKNOWN = 0;
+            // This task type corresponds to circular tasks where
+            // both the end-effector position and orientation rotate about a circle to manipulate.
+            // The constrained manipulation logic will generate forces and torques in this case.
+            // Example tasks are: A lever or a ball valve with a solid grasp
+            // This task type will require an initial force vector specified
+            // in init_wrench_direction_in_frame_name. A torque vector can be specified
+            // as well if a good initial guess of the axis of rotation of the task is available.
+            TASK_TYPE_SE3_CIRCLE_FORCE_TORQUE = 1;
+            // This task type corresponds to circular tasks that have an extra degree of freedom.
+            // In these tasks the end-effector position rotates about a circle
+            // but the orientation does not need to follow a circle (can remain fixed).
+            // The constrained manipulation logic will generate translational forces in this case.
+            // Example tasks are: A crank that has a loose handle and moves in a circle
+            // and the end-effector is free to rotate about the handle in one direction.
+            // This task type will require an initial force vector specified
+            // in init_wrench_direction_in_frame_name.
+            TASK_TYPE_R3_CIRCLE_EXTRADOF_FORCE = 2;
+            // This task type corresponds to purely rotational tasks.
+            // In these tasks the orientation of the end-effector follows a circle,
+            // and the position remains fixed. The robot will apply a torque at the
+            // end-effector in these tasks.
+            // Example tasks are: rotating a knob or valve that does not have a lever arm.
+            // This task type will require an initial torque vector specified
+            // in init_wrench_direction_in_frame_name.
+            TASK_TYPE_SE3_ROTATIONAL_TORQUE = 3;
+            // This task type corresponds to circular tasks where
+            // the end-effector position and orientation rotate about a circle
+            // but the orientation does always strictly follow the circle due to slips.
+            // The constrained manipulation logic will generate translational forces in this case.
+            // Example tasks are: manipulating a cabinet where the grasp on handle is not very rigid
+            // or can often slip.
+            // This task type will require an initial force vector specified
+            // in init_wrench_direction_in_frame_name.
+            TASK_TYPE_R3_CIRCLE_FORCE = 4;
+            // This task type corresponds to linear tasks where
+            // the end-effector position moves in a line
+            // but the orientation does not need to change.
+            // The constrained manipulation logic will generate a force in this case.
+            // Example tasks are: A crank that has a loose handle, or manipulating
+            // a cabinet where the grasp of the handle is loose and the end-effector is free
+            // to rotate about the handle in one direction.
+            // This task type will require an initial force vector specified
+            // in init_wrench_direction_in_frame_name.
+            TASK_TYPE_R3_LINEAR_FORCE = 5;
+            // This option simply holds the hand in place with stiff impedance control.
+            // You can use this mode at the beginning of a constrained manipulation task or to
+            // hold position while transitioning between two different constrained manipulation
+            // tasks. The target pose to hold will be the measured hand pose upon transitioning to
+            // constrained manipulation or upon switching to this task type. This mode should only
+            // be used during constrained manipulation tasks, since it uses impedance control to
+            // hold the hand in place. This is not intended to stop the arm during position control
+            // moves.
+            TASK_TYPE_HOLD_POSE = 6;
+        }
+        TaskType task_type = 7;
+
+        // The timestamp (in robot time) by which a command must finish executing.
+        // This is a required field and used to prevent runaway commands.
+        google.protobuf.Timestamp end_time = 8;
+
+        // Whether to enable the robot to take steps during constrained manip to keep the hand in
+        // the workspace.
+        google.protobuf.BoolValue enable_robot_locomotion = 9;
+
+        enum ControlMode {
+            CONTROL_MODE_UNKNOWN = 0;
+            // Position control mode, either a linear or angular position is specified
+            // and constrained manipulation moves to that position with a trapezoidal
+            // trajectory that has the max velocity specified in task_speed
+            CONTROL_MODE_POSITION = 1;
+            // Velocity control mode where constrained manipulation applies forces to
+            // maintain the velocity specified in task_speed
+            CONTROL_MODE_VELOCITY = 2;
+        }
+        ControlMode control_mode = 10;
+
+        // Desired final task position to achieve
+        // The position is computed relative to the starting position.
+        oneof task_target_position {
+            // Desired linear position to travel for task type
+            // TASK_TYPE_R3_LINEAR_FORCE
+            double target_linear_position = 11;
+            // Desired rotation in task space for all tasks other than
+            // TASK_TYPE_R3_LINEAR_FORCE
+            // This angle is about the estimated axis of rotation.
+            double target_angle = 12;
+        }
+
+        // Acceleration limit for the planned trajectory in the free task DOF.
+        // Note that the units of this variable will be m/(s^2) or rad/(s^2) depending
+        // on the choice of target_linear_position vs. target_angle above.
+        google.protobuf.DoubleValue accel_limit = 13;
+
+        // Constrained manipulation estimates the task frame given the observed initial motion.
+        // Setting this to false saves and uses the estimation state from the previous
+        // constrained manipulation move. This is true by default.
+        google.protobuf.BoolValue reset_estimator = 14;
+    }
+
+    message Feedback {
+        enum Status {
+            // STATUS_UNKNOWN should never be used. If used, an internal error has happened.
+            STATUS_UNKNOWN = 0;
+            // Constrained manipulation is working as expected
+            STATUS_RUNNING = 1;
+            // Arm is stuck, either force is being applied in a direction
+            // where the affordance can't move or not enough force is applied
+            STATUS_ARM_IS_STUCK = 2;
+            // The grasp was lost. In this situation, constrained manipulation
+            // will stop applying force, and will hold the last position.
+            STATUS_GRASP_IS_LOST = 3;
+        }
+        Status status = 1;
+
+        // Desired wrench in odom world frame, applied at hand frame origin
+        bosdyn.api.Wrench desired_wrench_odom_frame = 2;
+
+        // A boolean signal indicating constrained manipulation has seen
+        // enough motion to estimate the constraint and that the wrench
+        // is being applied along the estimated directions.
+        google.protobuf.BoolValue estimation_activated = 3;
+    }
+}
+
+message JointCommand {
+    message Request {
+        // Empty message, no parameters required to activate.
+    }
+
+    message Feedback {
+        enum Status {
+            STATUS_UNKNOWN = 0;
+            // Command is still active and processing incoming joint requests
+            STATUS_ACTIVE = 1;
+            // An error has occurred and joint requests are no longer being processed
+            STATUS_ERROR = 2;
+        }
+        Status status = 1;
+
+        // Number of UpdateRequest messages received through the stream
+        uint64 num_messages_received = 2;
+    }
+
+    message UpdateRequest {
+        // The timestamp (in robot time) when the command will stop executing. This is a
+        // required field and used to prevent runaway commands.
+        google.protobuf.Timestamp end_time = 1;
+
+        // (Optional) joint trajectory reference time. See extrapolation_time for detailed
+        // explanation. If unspecified, this will default to the time the command is received.
+        // If the time is in the future, no extrapolation will be performed until that time
+        // (extrapolation never goes backwards in time)
+        google.protobuf.Timestamp reference_time = 7;
+
+        // (Optional) joint trajectory extrapolation time. If specified, the robot will extrapolate
+        // desired position based on desired velocity, starting at reference_time for at most
+        // extrapolation_duration (or until end_time, whichever is sooner)
+        google.protobuf.Duration extrapolation_duration = 8;
+
+        // Joint orders for the following commands and gains can be found in
+        // `examples/joint_control/constants.py`. The length must match the robots joint count,
+        // which is 12 for base robots and 19 for robots with arms.
+
+        // Commanded joint details
+        repeated float position = 2;
+        repeated float velocity = 3;
+        repeated float load = 4;
+
+        message Gains {
+            repeated float k_q_p = 1;   // position error proportional coefficient
+            repeated float k_qd_p = 2;  // velocity error proportional coefficient
+        }
+
+        // Gains are required to be specified on the first message. After that can be optionally
+        // updated by filling out the gains message again. Partial updates of gains are not
+        // supported, a full gain set must be specified each time.
+        Gains gains = 5;
+
+        // user_command_key is optional, but it can be used for tracking when commands take effect
+        // on the robot and calculating latencies. Avoid using 0
+        uint32 user_command_key = 6;
+
+        // (Optional) Joint velocity safety limit. Possibly useful during initial development or
+        // gain tuning. If the magnitude of any joint velocity passes the threshold the robot will
+        // trigger a behavior fault and go into a safety state. Client must power down the robot or
+        // clear the behavior fault via the Robot Command Service. Values less than or equal to 0
+        // will be considered invalid and must be sent in every UpdateRequest for use.
+        google.protobuf.FloatValue velocity_safety_limit = 9;
+
+    }
+
+    message ContactAdvice {
+        // Usage notes for contact advice. These notes and definitions should be considered BETA and
+        // actual implementation may change in future revisions. ContactAdvice acts as hints to the
+        // robot's internal state machine determining whether a contact is on the ground. See
+        // FootState in robot_state for more details on reported contact states. If a leg is on the
+        // ground (CONTACT_MADE):
+        //   ADVICE_NONE: leg may enter CONTACT_LOST if force sensing falls below threshold
+        //   ADVICE_IN_CONTACT: no change
+        //   ADVICE_NOT_IN_CONTACT: leg will enter CONTACT_LOST state on receipt.
+        // If a leg is not on the ground (CONTACT_LOST):
+        //   ADVICE_NONE: leg will enter CONTACT_MADE if any collision is detected on the foot.
+        //   ADVICE_IN_CONTACT: leg will enter CONTACT_MADE if any collision is detected on the
+        //   foot. ADVICE_NOT_IN_CONTACT: no change
+        // Contact states may be used by the robot to improve state estimation.
+        enum Advice {
+            // ADVICE_UNKNOWN should not be used.
+            ADVICE_UNKNOWN = 0;
+            // No advice. Contact state will be assumed based on force sensing. This is the same
+            // behavior that will be used for all legs if contact advice is not provided
+            ADVICE_NONE = 1;
+            // Advise robot that the foot is likely in contact with the ground.
+            ADVICE_IN_CONTACT = 2;
+            // Advise robot that the foot is likely not in contact with the ground.
+            ADVICE_NOT_IN_CONTACT = 3;
+        }
+
+        // (Optional) Contact advice to improve kinematic odometry. This field should either have
+        // the same length as number of contacts on the robot (4 for Spot) OR be empty. Incorrectly
+        // sized repeateds will return an error.
+        repeated Advice contact_advice = 1;
+    }
+}

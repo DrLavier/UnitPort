@@ -1,0 +1,115 @@
+{
+    "name": "sample_10_complex_workflow",
+    "description": "Complex workflow: Comparison -> If (true: For loop with Stand+Timer, false: Sit)",
+    "version": "1.0",
+    "robot_type": "go2",
+    "nodes": [
+        {
+            "id": 0,
+            "display_name": "Condition",
+            "position": {"x": 100, "y": 150},
+            "width": 260,
+            "height": 170,
+            "node_type": "comparison",
+            "ui_selection": "Greater Than",
+            "left_value": "count",
+            "right_value": "0",
+            "features": ["Equal", "Not Equal", "Greater Than", "Less Than", "Greater Equal", "Less Equal"]
+        },
+        {
+            "id": 1,
+            "display_name": "Logic Control",
+            "position": {"x": 450, "y": 100},
+            "width": 240,
+            "height": 200,
+            "node_type": "if",
+            "ui_selection": "If",
+            "features": ["If", "While Loop"]
+        },
+        {
+            "id": 2,
+            "display_name": "Logic Control",
+            "position": {"x": 800, "y": 50},
+            "width": 240,
+            "height": 200,
+            "node_type": "while_loop",
+            "ui_selection": "While Loop",
+            "loop_type": "For",
+            "for_start": "0",
+            "for_end": "3",
+            "for_step": "1",
+            "features": ["If", "While Loop"]
+        },
+        {
+            "id": 3,
+            "display_name": "Action Execution",
+            "position": {"x": 1150, "y": 50},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Stand",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        },
+        {
+            "id": 4,
+            "display_name": "Timer",
+            "position": {"x": 1450, "y": 50},
+            "width": 180,
+            "height": 110,
+            "node_type": "timer",
+            "duration": "1.0"
+        },
+        {
+            "id": 5,
+            "display_name": "Action Execution",
+            "position": {"x": 800, "y": 350},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Sit",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        }
+    ],
+    "connections": [
+        {
+            "from_node": 0,
+            "from_port": "result",
+            "to_node": 1,
+            "to_port": "condition"
+        },
+        {
+            "from_node": 1,
+            "from_port": "out_if",
+            "to_node": 2,
+            "to_port": "flow_in"
+        },
+        {
+            "from_node": 2,
+            "from_port": "loop_body",
+            "to_node": 3,
+            "to_port": "flow_in"
+        },
+        {
+            "from_node": 3,
+            "from_port": "flow_out",
+            "to_node": 4,
+            "to_port": "flow_in"
+        },
+        {
+            "from_node": 1,
+            "from_port": "out_else",
+            "to_node": 5,
+            "to_port": "flow_in"
+        }
+    ],
+    "expected_code_contains": [
+        "condition_0",
+        ">",
+        "if",
+        "for i in range",
+        "RobotContext.run_action('stand')",
+        "time.sleep",
+        "else",
+        "RobotContext.run_action('sit')"
+    ]
+}

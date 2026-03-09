@@ -1,0 +1,9 @@
+FROM python:3.10-slim
+WORKDIR /app
+
+COPY docker-requirements_client.txt prebuilt/*.whl .
+RUN python3 -m pip install -r docker-requirements_client.txt --find-links .
+
+COPY identify_object.py .
+
+ENTRYPOINT ["python3", "/app/identify_object.py"]

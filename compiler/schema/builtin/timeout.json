@@ -1,0 +1,31 @@
+{
+    "schema_id": "builtin.timeout",
+    "display_name": "Timeout",
+    "node_type": "timeout",
+    "kind": "timeout",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "flow_out", "direction": "output", "data_type": "void"},
+        {"name": "out_timeout", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "duration",
+            "param_type": "float",
+            "default": 5.0,
+            "constraints": {"min_value": 0.0, "max_value": 300.0},
+            "unit": "seconds",
+            "description": "Timeout duration"
+        },
+        {
+            "name": "on",
+            "param_type": "string",
+            "default": "next_step",
+            "constraints": {"choices": ["next_step", "event"]},
+            "description": "Action on timeout"
+        }
+    ],
+    "code_template": "# Timeout: {duration}s",
+    "robot_compat": [],
+    "version": "1.0"
+}

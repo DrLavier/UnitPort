@@ -1,0 +1,49 @@
+{
+  "_meta": {
+    "language": "Chinese",
+    "code": "zh",
+    "version": "1.0.0"
+  },
+  "diagnostics_panel": {
+    "title": "⚠  诊断",
+    "raw": "原始",
+    "goto_node": "跳转到节点",
+    "close": "关闭 ×",
+    "value": {
+      "yes": "是",
+      "no": "否"
+    },
+    "stage": {
+      "acquire": "准备",
+      "open_session": "连接",
+      "preflight": "预检 / 安全",
+      "execute": "执行",
+      "close_session": "清理",
+      "any": "通用"
+    },
+    "category": {
+      "validation": "校验错误",
+      "preflight_safety": "预检 / 安全阻断",
+      "runtime": "运行时失败",
+      "compat_warning": "兼容性警告"
+    },
+    "key": {
+      "node_id": "节点 ID",
+      "node_name": "节点名称",
+      "status": "状态",
+      "stage": "阶段",
+      "error_category": "类别",
+      "reason": "原因码",
+      "operator_text": "说明",
+      "message": "消息",
+      "adapter_name": "适配器",
+      "retryable": "可重试",
+      "context": "上下文",
+      "compat_path": "兼容路径",
+      "compat_reason": "兼容原因",
+      "trace_id": "追踪 ID",
+      "mission_trace_id": "任务追踪",
+      "package_metadata_trace": "包元数据追踪"
+    }
+  }
+}

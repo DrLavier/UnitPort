@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" >
+<head>
+  <meta charset="utf-8" /><meta name="generator" content="Docutils 0.18.1: http://docutils.sourceforge.net/" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Math Helpers &mdash; Spot 5.1.1 documentation</title>
+      <link rel="stylesheet" href="../../../../../_static/pygments.css" type="text/css" />
+      <link rel="stylesheet" href="../../../../../_static/style.css" type="text/css" />
+    <link rel="shortcut icon" href="../../../../../_static/bd-favicon.png"/>
+    <link rel="canonical" href="https://dev.bostondynamics.com/python/bosdyn-client/src/bosdyn/client/math_helpers.html" />
+  <!--[if lt IE 9]>
+    <script src="../../../../../_static/js/html5shiv.min.js"></script>
+  <![endif]-->
+  
+        <script src="../../../../../_static/jquery.js"></script>
+        <script src="../../../../../_static/_sphinx_javascript_frameworks_compat.js"></script>
+        <script data-url_root="../../../../../" id="documentation_options" src="../../../../../_static/documentation_options.js"></script>
+        <script src="../../../../../_static/doctools.js"></script>
+        <script src="../../../../../_static/sphinx_highlight.js"></script>
+    <script src="../../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../../search.html" />
+    <link rel="next" title="Manipulation Api Client" href="manipulation_api_client.html" />
+    <link rel="prev" title="Log Status" href="log_status.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../../README.html">
+            
+              <img src="../../../../../_static/bd-official-white.png" class="logo" alt="Logo"/>
+          </a>
+              <div class="version">
+                5.1.1
+              </div>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../../../../docs/concepts/README.html">Concepts</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/about_spot.html">About Spot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/orbit/about_orbit.html">About Orbit (formerly Scout)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/orbit/orbit_api.html">Orbit API</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/networking.html">Networking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/base_services.html">Base services</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/geometry_and_frames.html">Geometry and Frames</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/robot_services.html">Robot services</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/estop_service.html">E-Stop</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/keepalive_service.html">KeepAlive (BETA)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/audio_visual.html">Audio Visual</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/lease_service.html">Lease</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/developing_api_services.html">Developing API Services</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/service_customization.html">Service Customization</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/faults.html">Faults</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/autonomy/README.html">Autonomy services</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/graphnav_tech_summary.html">Autonomy Technical Summary</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/autonomous_navigation_code_examples.html">Autonomous navigation code examples</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/components_of_autonomous_navigation.html">Components of autonomous navigation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/docking.html">Docking</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/typical_autonomous_navigation_use_case.html">Typical autonomous navigation use case</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/autonomous_navigation_services.html">Autonomous navigation services</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/graphnav_service.html">GraphNav service</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/graphnav_map_structure.html">GraphNav map structure</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/graphnav_area_callbacks.html">GraphNav area callbacks</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/hazard_avoidance.html">Hazard Avoidance</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/initialization.html">Initialization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/localization.html">Localization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/graphnav_and_robot_locomotion.html">GraphNav and robot locomotion</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/missions_service.html">Missions service</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/autowalk_service.html">Autowalk service</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/network_compute_bridge.html">Network compute bridge</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/auto_return.html">AutoReturn service</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/directed_exploration.html">Directed Exploration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/autonomy/gps.html">GPS</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/choreography/README.html">Choreography</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/choreography_service.html">Choreography Service</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/choreographer_setup.html">Choreographer Setup</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/choreographer.html">Choreographer Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/move_reference.html">Move Reference Guide</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/animation_file_specification.html">Animation File Format</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/animations_in_choreographer.html">Animations in Choreography</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/custom_gait.html">CustomGait Reference</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/robot_controls_in_choreographer.html">Robot Connections in Choreographer</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/dance_previews.html">3D/2D Visualization in Choreographer</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/timecode_reference.html">Timecode in Choreographer</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/choreography_in_tablet.html">Tablet Choreography Mode</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/choreography/choreography_in_autowalk.html">Choreography Actions in Autowalk</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/joint_control/README.html">Joint Control API</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/joint_control/supplemental_data.html">Supplemental Robot Information</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../../docs/concepts/joint_control/knee_torque_limits.html">Knee Torque Limits</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/arm/README.html">Spot Arm</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/arm/arm_specification.html">Arm and Gripper Specification</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/arm/arm_concepts.html">Concepts</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/arm/arm_services.html">Services</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/concepts/data.html">Spot Data</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/data_acquisition_overview.html">Data Acquisition Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/data_acquisition_output.html">Data Acquisition Output</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/writing_services_for_data_acquisition.html">Integrate Payloads with the API</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/data_buffer_overview.html">Data Buffer Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/bddf.html">BDDF File Format</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/concepts/data_acquisition_thermal_raw.html">Thermal Raw Data Format</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1 current"><a class="reference internal" href="../../../../../docs/python/README.html">Python</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/python/quickstart.html">Quickstart</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/python/understanding_spot_programming.html">Understanding Spot Programming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../examples/README.html">Examples</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/basic_service_examples.html">Basic Service Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/hello_spot/README.html">Hello Spot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/directory/README.html">Directory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_robot_state/README.html">Get Robot State</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_robot_state_async/README.html">Get Robot State Async</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_image/README.html">Get Image</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_world_objects/README.html">Get World Objects</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_mission_state/README.html">Get Mission State</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/estop/README.html">E-Stop</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/time_sync/README.html">Time Sync</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/comms_test/README.html">Comms Test</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/disable_ir_emission/README.html">IR Enable/Disable</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/reset_safety_stop/README.html">Reset Safety Stop</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/audio_visual/audio_visual_params/README.html">Audio Visual Params</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/audio_visual/audio_visual_behaviors/README.html">Audio Visual Behaviors</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/robot_behavior_examples.html">Robot Behavior and Commands Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/stance/README.html">Stance</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/frame_trajectory_command/README.html">Frame Trajectory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/spot_light/README.html">Spot Light</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/upload_choreographed_sequence/README.html">Upload Choreographed Sequence</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/xbox_controller/README.html">Xbox Controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/wasd/README.html">WASD</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/docking/README.html">Docking</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/animation_recorder/README.html">Animation Recorder</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/auto_return/README.html">Auto Return</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/fan_command/README.html">Fan Commands</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_wasd/README.html">ARM WASD</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/arm_examples.html">Arm Command Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_simple/README.html">Simple Arm Motion</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_stow_unstow/README.html">Stow/unstow Arm</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_freeze/README.html">Arm Freeze</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_and_mobility_command/README.html">Arm and Mobility Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_with_body_follow/README.html">Arm Command with Body Following</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_constrained_manipulation/README.html">Arm Constrained Manipulation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_trajectory/README.html">Arm Trajectory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_trajectory/README.html#long-trajectory">Long Trajectory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_joint_move/README.html">Arm Joint Move Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_force_control/README.html">Arm Force Control Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_grasp/README.html">Arm Grasp Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_grasp_carry_overrides/README.html">Arm Grasp and Carry Overrides</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_gaze/README.html">Arm Gaze Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_surface_contact/README.html">Arm Command with Surface Contact</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_door/README.html">Arm Door Opening Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_walk_to_object/README.html">Walk to And Pick Up Object</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_gcode/README.html">Writing Gcode</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/gripper_camera_params/README.html">Gripper Camera Parameters</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_impedance_control/README.html">Arm Impedance Control</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/inverse_kinematics/README.html">Inverse Kinematics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/arm_wasd/README.html">Arm WASD</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/joint_control/README.html">Wiggle Arm</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/payloads_examples.html">Payloads and Registration Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/payloads/README.html">Payloads</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/self_registration/README.html">Self Registration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/service_faults/README.html">Faults</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/velodyne_client/README.html">Velodyne</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/core_io_gpio/README.html">CORE I/O GPIO</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/metrics_over_coreio/README.html">Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/metrics_over_coreio/README.html#usage">Usage</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/metrics_over_coreio/README.html#components">Components</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/metrics_over_coreio/README.html#recommended-debugging">Recommended debugging</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/extensions/README.html">Extensions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/perception_world_objects_examples.html">Perception and World Objects Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_image/README.html">Get Image</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_world_objects/README.html">Get World Objects</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/world_object_with_image_coordinates/README.html">World Object With Image Coordinates</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/world_object_mutations/README.html">World Object Mutations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/visualizer/README.html">Visualizer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/gripper_camera_params/README.html">Gripper Camera Parameters</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/spot_cam/README.html">Spot CAM Services</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/spot_cam/README.html#spot-cam-video-core-io-extension-example">Spot Cam Video Core IO Extension Example</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/stitch_front_images/README.html">Stitch Front Images</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_depth_plus_visual_image/README.html">Project Depth Data on Visual Images</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/service_customization/custom_parameter_image_server/README.html">Custom Parameter Image Server</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/fiducial_follow/README.html">Fiducial Follow</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/spot_tensorflow_detector/README.html">Tensorflow Detector</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/service_customization/custom_parameter_ncb_worker/README.html">Custom Parameter Tensorflow Detector</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/network_compute_bridge/README.html">Machine Learning with the Network Compute Bridge</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/network_compute_bridge/fire_extinguisher_server/README.html">Fire Extinguisher Detector with the Network Compute Bridge</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/ray_cast/README.html">Ray Cast</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/user_nogo_regions/README.html">No-Go Regions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/gps_service/README.html">GPS</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/logging_examples.html">Logging Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/bddf_download/README.html">BDDF Download</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/data_buffer/README.html">Data Buffer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/data_service/README.html">Data Service</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/logging/README.html">Logging</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/log_status/README.html">Log Status</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/data_acquisition_examples.html">Data Acquisition Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/data_acquisition_service/README.html">Data Acquisition Service</a><ul>
+<li class="toctree-l5"><a class="reference internal" href="../../../../examples/data_acquisition_service/signals_coreio_modem_plugin/README.html">Modem Signals</a></li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/service_faults/README.html">Faults</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/service_customization/custom_parameter_image_server/README.html">Custom Parameter Image Service</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/service_customization/custom_parameters_data_acquisition/README.html">Custom Parameter Data Acquisition Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_image/README.html">Test Image Service Implementation with Get Image</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/post_docking_callbacks/README.html">Post Docking Callbacks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/cloud_upload/README.html">Cloud Upload</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/comms_mapping/README.html">Comms image service</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/comms_mapping/README.html#how-to-use">How to use</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/data_acquisition_service/signals_coreio_modem_plugin/README.html">CoreIO Modem Signals Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/tester_programs/README.html">Tester Programs</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/autonomy_and_missions_examples.html">Autonomy and Missions Examples</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/graph_nav_anchoring_optimization/README.html">Graph Nav Anchoring Optimization</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/graph_nav_command_line/README.html">GraphNav and Recording Service Command Line Interfaces</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/graph_nav_command_line/README.html#example-programs">Example Programs</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/graph_nav_extract_point_cloud/README.html">Graph Nav Extract Point Cloud</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/graph_nav_view_map/README.html">Graph Nav View Map</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/graph_nav_view_gps/README.html">Graph Nav View GPS Data</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/get_mission_state/README.html">Get Mission State</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/remote_mission_service/README.html">Remote Mission Service</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/mission_question_answerer/README.html">Mission Question Answerer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/mission_recorder/README.html">Mission Recorder</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/replay_mission/README.html">Replay Mission</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/post_docking_callbacks/README.html">Post Docking Callbacks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/area_callback/README.html">Area Callbacks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/edit_autowalk/README.html">Edit Autowalk</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/record_autowalk/README.html">Record Autowalk</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/extract_images_from_walk/README.html">Extract Images from Autowalk</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/network_request_callback/README.html">Network Request Callback</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/network_request_callback/README.html#id1">Network Request Callback</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/remote_mission_service/spot_check/README.html">SpotCheck Mission Service</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/access_controlled_doors/README.html">Access Controlled Doors Test Scripts</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/joint_control_examples.html">Joint Control API Examples</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../examples/docs/orbit.html">Orbit</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/hello_orbit/README.html">Hello Orbit</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/export_run_archives/README.html">Export Run Archives</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/export_site_walk_archives/README.html">Export Sitewalk Archives</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/anomalies/README.html">Anomalies</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/schedule_mission/README.html">Schedule Mission</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/runs_response/README.html">Runs Response</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/send_robot_back_to_dock/README.html">Return to Dock</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/toggle_mission_based_on_weather/README.html">Mission Toggle</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/webhook/README.html">Webhook</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/backups/README.html">Backups</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/webhook_integration/README.html">Webhook Integrations</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/webhook_integration/README.html#example-overview">Example Overview</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../examples/orbit/work_orders/README.html">Work Orders Integration</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2 current"><a class="reference internal" href="../../../../README.html">Python Reference Guide</a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="README.html">Client</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="access_controlled_door_util.html">Access Controlled Door Util</a></li>
+<li class="toctree-l4"><a class="reference internal" href="area_callback.html">Area Callback</a></li>
+<li class="toctree-l4"><a class="reference internal" href="area_callback_region_handler_base.html">Area Callback Region Handler</a></li>
+<li class="toctree-l4"><a class="reference internal" href="area_callback_service_runner.html">Area Callback Service Runner</a></li>
+<li class="toctree-l4"><a class="reference internal" href="area_callback_service_servicer.html">Area Callback Servicer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="area_callback_service_utils.html">Area Callback Service Utils</a></li>
+<li class="toctree-l4"><a class="reference internal" href="arm_surface_contact.html">Arm Surface Contact</a></li>
+<li class="toctree-l4"><a class="reference internal" href="async_tasks.html">Async Tasks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="audio_visual.html">Audio Visual</a></li>
+<li class="toctree-l4"><a class="reference internal" href="audio_visual_helpers.html">Audio Visual Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="auth.html">Auth</a></li>
+<li class="toctree-l4"><a class="reference internal" href="auto_return.html">Auto Return</a></li>
+<li class="toctree-l4"><a class="reference internal" href="autowalk.html">Autowalk</a></li>
+<li class="toctree-l4"><a class="reference internal" href="bddf.html">BDDF</a></li>
+<li class="toctree-l4"><a class="reference internal" href="bddf_download.html">BDDF Download</a></li>
+<li class="toctree-l4"><a class="reference internal" href="channel.html">Channel</a></li>
+<li class="toctree-l4"><a class="reference internal" href="command_line.html">Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="common.html">Common</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_acquisition.html">Data Acquisition</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_acquisition_helpers.html">Data Acquisition Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_acquisition_plugin.html">Data Acquisition Plugin</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_acquisition_plugin_service.html">Data Acquisition Plugin Service</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_acquisition_store.html">Data Acquisition Store</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_buffer.html">Data Buffer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_chunk.html">Data Chunk</a></li>
+<li class="toctree-l4"><a class="reference internal" href="data_service.html">Data Service</a></li>
+<li class="toctree-l4"><a class="reference internal" href="directory_registration.html">Directory Registration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="directory.html">Directory</a></li>
+<li class="toctree-l4"><a class="reference internal" href="docking.html">Docking</a></li>
+<li class="toctree-l4"><a class="reference internal" href="door.html">Door</a></li>
+<li class="toctree-l4"><a class="reference internal" href="estop.html">E-Stop</a></li>
+<li class="toctree-l4"><a class="reference internal" href="error_callback_result.html">Error Callback Result</a></li>
+<li class="toctree-l4"><a class="reference internal" href="exceptions.html">Exceptions</a></li>
+<li class="toctree-l4"><a class="reference internal" href="fault.html">Fault</a></li>
+<li class="toctree-l4"><a class="reference internal" href="frame_helpers.html">Frame Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="graph_nav.html">Graph Nav</a></li>
+<li class="toctree-l4"><a class="reference internal" href="gripper_camera_param.html">Gripper Camera Params</a></li>
+<li class="toctree-l4"><a class="reference internal" href="gps/README.html">GPS</a><ul>
+<li class="toctree-l5"><a class="reference internal" href="gps/aggregator_client.html">Aggregator Client</a></li>
+<li class="toctree-l5"><a class="reference internal" href="gps/gps_listener.html">GPS Listener</a></li>
+<li class="toctree-l5"><a class="reference internal" href="gps/NMEAParser.html">NMEA Parser</a></li>
+<li class="toctree-l5"><a class="reference internal" href="gps/ntrip_client.html">NTRIP Client</a></li>
+<li class="toctree-l5"><a class="reference internal" href="gps/registration_client.html">Registration Client</a></li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="hazard_avoidance.html">Hazard Avoidance</a></li>
+<li class="toctree-l4"><a class="reference internal" href="image.html">Image</a></li>
+<li class="toctree-l4"><a class="reference internal" href="image_service_helpers.html">Image Service Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="inverse_kinematics.html">Inverse Kinematics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="ir_enable_disable.html">IR Enable/Disable</a></li>
+<li class="toctree-l4"><a class="reference internal" href="keepalive.html">Keep Alive</a></li>
+<li class="toctree-l4"><a class="reference internal" href="lease.html">Lease</a></li>
+<li class="toctree-l4"><a class="reference internal" href="lease_resource_hierarchy.html">Lease Resource Hierarchy</a></li>
+<li class="toctree-l4"><a class="reference internal" href="lease_validator.html">Lease Validator</a></li>
+<li class="toctree-l4"><a class="reference internal" href="license.html">License</a></li>
+<li class="toctree-l4"><a class="reference internal" href="local_grid.html">Local Grid</a></li>
+<li class="toctree-l4"><a class="reference internal" href="log_status.html">Log Status</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">Math Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="manipulation_api_client.html">Manipulation API</a></li>
+<li class="toctree-l4"><a class="reference internal" href="map_processing.html">Map Processing</a></li>
+<li class="toctree-l4"><a class="reference internal" href="metrics_logging.html">Metrics Logging</a></li>
+<li class="toctree-l4"><a class="reference internal" href="network_compute_bridge_client.html">Network Compute Bridge</a></li>
+<li class="toctree-l4"><a class="reference internal" href="payload_registration.html">Payload Registration</a></li>
+<li class="toctree-l4"><a class="reference internal" href="payload_software_update.html">Payload Software Update</a></li>
+<li class="toctree-l4"><a class="reference internal" href="payload_software_update_initiation.html">Payload Software Update Initiation</a></li>
+<li class="toctree-l4"><a class="reference internal" href="payload.html">Payload</a></li>
+<li class="toctree-l4"><a class="reference internal" href="point_cloud.html">Point Cloud</a></li>
+<li class="toctree-l4"><a class="reference internal" href="power.html">Power</a></li>
+<li class="toctree-l4"><a class="reference internal" href="processors.html">Processors</a></li>
+<li class="toctree-l4"><a class="reference internal" href="ray_cast.html">Ray casting</a></li>
+<li class="toctree-l4"><a class="reference internal" href="recording.html">Recording</a></li>
+<li class="toctree-l4"><a class="reference internal" href="robot_command.html">Robot Command</a></li>
+<li class="toctree-l4"><a class="reference internal" href="robot_id.html">Robot ID</a></li>
+<li class="toctree-l4"><a class="reference internal" href="robot.html">Robot</a></li>
+<li class="toctree-l4"><a class="reference internal" href="robot_state.html">Robot State</a></li>
+<li class="toctree-l4"><a class="reference internal" href="sdk.html">SDK</a></li>
+<li class="toctree-l4"><a class="reference internal" href="server_util.html">Server Util</a></li>
+<li class="toctree-l4"><a class="reference internal" href="service_customization_helpers.html">Service Customization Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="signals_helpers.html">Signals Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="spot_cam/README.html">Spot CAM</a><ul>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/audio.html">Audio</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/compositor.html">Compositor</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/health.html">Health</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/lighting.html">Lighting</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/lights_helper.html">Lights Helper</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/media_log.html">Media Log</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/network.html">Network</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/power.html">Power</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/ptz.html">PTZ</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/streamquality.html">Stream Quality</a></li>
+<li class="toctree-l5"><a class="reference internal" href="spot_cam/version.html">Version</a></li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="spot_check.html">Spot Check</a></li>
+<li class="toctree-l4"><a class="reference internal" href="time_sync.html">Time Sync</a></li>
+<li class="toctree-l4"><a class="reference internal" href="token_cache.html">Token Cache</a></li>
+<li class="toctree-l4"><a class="reference internal" href="token_manager.html">Token Manager</a></li>
+<li class="toctree-l4"><a class="reference internal" href="units_helpers.html">Units Helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="url_validation_util.html">URL Validation Util</a></li>
+<li class="toctree-l4"><a class="reference internal" href="util.html">Util</a></li>
+<li class="toctree-l4"><a class="reference internal" href="world_object.html">World Object</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/README.html">Core</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/README.html">BDDF</a><ul>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/base_data_reader.html">Base Data Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/block_writer.html">Block Writer</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/bosdyn.html">BDDF Conventions</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/common.html">Common</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/data_reader.html">Data Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/data_writer.html">Data Writer</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/file_indexer.html">File Indexer</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/grpc_proto_reader.html">GRPC Proto Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/grpc_reader.html">GRPC Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/grpc_service_reader.html">GRPC Service Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/grpc_service_writer.html">GRPC Service Writer</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/message_reader.html">Message Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/pod_series_reader.html">POD Series Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/pod_series_writer.html">POD Series Writer</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/protobuf_channel_reader.html">Protobuf Channel Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/protobuf_reader.html">Protobuf Reader</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/protobuf_series_writer.html">Protobuf Series Writer</a></li>
+<li class="toctree-l5"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/bddf/stream_data_reader.html">Stream Data Reader</a></li>
+</ul>
+</li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/geometry.html">Geometry</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/util.html">Util</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-core/src/bosdyn/deprecated.html">Deprecated</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../bosdyn-mission/src/bosdyn/mission/README.html">Mission</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-mission/src/bosdyn/mission/client.html">Client</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-mission/src/bosdyn/mission/constants.html">Constants</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-mission/src/bosdyn/mission/remote_client.html">Remote Client</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-mission/src/bosdyn/mission/server_util.html">Server Util</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-mission/src/bosdyn/mission/util.html">Util</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../bosdyn-choreography-client/src/bosdyn/choreography/client/README.html">Choreography</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-choreography-client/src/bosdyn/choreography/client/choreography.html">Choreography</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-choreography-client/src/bosdyn/choreography/client/animation_file_to_proto.html">Animation File to Proto</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-choreography-client/src/bosdyn/choreography/client/animation_file_conversion_helpers.html">Animation File to Proto Helpers</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../bosdyn-orbit/src/bosdyn/orbit/README.html">Orbit (formerly Scout)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-orbit/src/bosdyn/orbit/client.html">Client</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-orbit/src/bosdyn/orbit/utils.html">Utils</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-orbit/src/bosdyn/orbit/exceptions.html">Exceptions</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../bosdyn-scout/src/bosdyn/scout/README.html">Scout (deprecated)</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-scout/src/bosdyn/scout/client.html">Client</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-scout/src/bosdyn/scout/utils.html">Utils</a></li>
+<li class="toctree-l4"><a class="reference internal" href="../../../../bosdyn-scout/src/bosdyn/scout/exceptions.html">Exceptions</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/python/fetch_tutorial/fetch1.html">Fetch Tutorial</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/fetch_tutorial/fetch2.html">Part 2: Training the Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/fetch_tutorial/fetch3.html">Part 3: Evaluating the Model</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/fetch_tutorial/fetch4.html">Part 4: Autonomous Pick Up</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/fetch_tutorial/fetch5.html">Part 5: Detecting People and Playing Fetch</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/fetch_tutorial/fetch6.html">Part 6: Running the model on Core IO</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/python/daq_tutorial/daq1.html">Data Collection Tutorial</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/daq_tutorial/daq2.html">Part 2: Capturing images</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/daq_tutorial/daq3.html">Part 3: Capturing other data</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/daq_tutorial/daq4.html">Part 4: Deploying to the CORE I/O</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/daq_tutorial/daq5.html">Part 5: Collecting data</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/python/daq_tutorial/daq6.html">Part 6: Processing collected data</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../docs/payload/README.html">Payloads</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/payload_configuration_requirements.html">Payload configuration requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/mechanical_interfaces.html">Mechanical interfaces</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/robot_mounting_rails.html">Robot mounting rails</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/guidelines_for_robust_payload_design.html">Guidelines for robust payload design</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/robot_electrical_interface.html">Robot electrical interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/coreio_documentation.html">CORE I/O Documentation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/coreio_openvpn_extension.html">CORE I/O OpenVPN Extension</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/configuring_payload_software.html">Configuring payload software</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/docker_containers.html">Dockerize payload software</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/payload/spot_core_documentation.html">Pre-3.2 Spot CORE Documentation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/payload/spot_core_portainer.html">Configuring Docker containers in SpotCORE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/payload/spot_core_cockpit.html">Spot CORE system management tool: Cockpit</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../docs/payload/spot_core_vnc.html">Spot CORE VNC</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../docs/protos/README.html">API Protocol</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../docs/protos/style_guide.html">Style Guide</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../../../../protos/bosdyn/api/README.html">Proto Reference Guide</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../../../../protos/bosdyn/api/proto_reference.html">Protos</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../../docs/release_notes.html">Release Notes</a></li>
+<li class="toctree-l1"><a class="reference external" href="https://github.com/boston-dynamics/spot-sdk">SDK Repository</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../../README.html">Spot</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../../README.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../../../docs/python/README.html">Python Library</a></li>
+          <li class="breadcrumb-item"><a href="../../../../README.html">Boston Dynamics Python Reference Guide</a></li>
+          <li class="breadcrumb-item"><a href="README.html">Python Client</a></li>
+      <li class="breadcrumb-item active">Math Helpers</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-bosdyn.client.math_helpers">
+<span id="math-helpers"></span><h1>Math Helpers<a class="headerlink" href="#module-bosdyn.client.math_helpers" title="Permalink to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.recenter_value_mod">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">recenter_value_mod</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">center</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">amplitude</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#recenter_value_mod"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.recenter_value_mod" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.recenter_angle_mod">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">recenter_angle_mod</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">theta</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">center</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#recenter_angle_mod"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.recenter_angle_mod" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.angle_diff">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">angle_diff</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#angle_diff"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.angle_diff" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.angle_diff_degrees">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">angle_diff_degrees</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">a2</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#angle_diff_degrees"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.angle_diff_degrees" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec2">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">Vec2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec2"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec2" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing a two-dimensional vector.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec2.length">
+<span class="sig-name descname"><span class="pre">length</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec2.length"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec2.length" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec2.to_proto">
+<span class="sig-name descname"><span class="pre">to_proto</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec2.to_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec2.to_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.Vec2 into an output of the protobuf geometry_pb2.Vec2.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec2.dot">
+<span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec2.dot"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec2.dot" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec2.cross">
+<span class="sig-name descname"><span class="pre">cross</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec2.cross"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec2.cross" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec2.from_proto">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec2.from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec2.from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.Vec2 from a geometry_pb2.Vec2 proto.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">Vec3</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing a three-dimensional vector.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3.length">
+<span class="sig-name descname"><span class="pre">length</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3.length"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3.length" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3.to_proto">
+<span class="sig-name descname"><span class="pre">to_proto</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3.to_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3.to_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.Vec3 into an output of the protobuf geometry_pb2.Vec3.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3.to_numpy">
+<span class="sig-name descname"><span class="pre">to_numpy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3.to_numpy"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3.to_numpy" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.Vec3 into an output of numpy format.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3.dot">
+<span class="sig-name descname"><span class="pre">dot</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3.dot"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3.dot" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3.cross">
+<span class="sig-name descname"><span class="pre">cross</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3.cross"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3.cross" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3.from_proto">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3.from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3.from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.Vec3 from a geometry_pb2.Vec3 proto.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Vec3.from_numpy">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_numpy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Vec3.from_numpy"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Vec3.from_numpy" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.Vec3 from a numpy array.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">SE2Pose</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">angle</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing an SE2Pose with position and angle.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.flatten">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">flatten</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">se3pose</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.flatten"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.flatten" title="Permalink to this definition"></a></dt>
+<dd><p>Flatten a given SE3Pose to an SE2Pose. This will lose height information
+if the se3pose provided is not gravity aligned. The common gravity aligned
+frames are odom, vision, and flat_body.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><p>se3pose (math_helpers.SE3Pose)</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>math_helpers.SE2Pose representing the flattened se3pose.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.to_obj">
+<span class="sig-name descname"><span class="pre">to_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.to_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.to_obj" title="Permalink to this definition"></a></dt>
+<dd><p>Adds the math_helpers.SE2Pose properties into the geometry_pb2.SE2Pose ‘proto’.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.to_proto">
+<span class="sig-name descname"><span class="pre">to_proto</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.to_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.to_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.SE2Pose into an output of the protobuf geometry_pb2.SE2Pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.inverse">
+<span class="sig-name descname"><span class="pre">inverse</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.inverse"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.inverse" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the inverse of the math_helpers.SE2Pose.</p>
+<p>For example, if the SE(2) pose represented a_tform_b, then the inverse pose is b_tform_a.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>math_helpers.SE2Pose representing the inverse of the current SE(2) Pose.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.mult">
+<span class="sig-name descname"><span class="pre">mult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">se2pose</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.mult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.mult" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the multiplication between the current math_helpers.SE2Pose and the input se2pose.</p>
+<p>For example, if the ‘self’ SE2Pose represents a_tform_b and the input se2pose represents b_tform_c,
+then the output will represent the transform a_tform_c.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><p>se2pose (math_helpers.se2pose)</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>math_helpers.se2pose representing the multiplication of two SE(2) poses.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.to_rot_matrix">
+<span class="sig-name descname"><span class="pre">to_rot_matrix</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.to_rot_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.to_rot_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Returns the rotation matrix generate from the angle of the current SE(2) Pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.to_matrix">
+<span class="sig-name descname"><span class="pre">to_matrix</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.to_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.to_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Returns the 3x3 matrix to transform a 2D point (in generalized coordinates).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.to_adjoint_matrix">
+<span class="sig-name descname"><span class="pre">to_adjoint_matrix</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.to_adjoint_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.to_adjoint_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>This creates the adjoint matrix for the current SE2Pose.</p>
+<p>The adjoint matrix can be used to change reference frames for a SE(2) velocity vector. For
+example, if you have math_helpers.SE2Velocity velocity_in_frame_b, then the adjoint matrix
+for the math_helpers.SE2Pose (representing a_tform_b) can be used as follows to transform
+the velocity: velocity_in_frame_a = a_tform_b.to_adjoint_matrix() * velocity_in_frame_b</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>a_adjoint_b (Numpy 3x3 matrix) representing the adjoint matrix for the SE2Pose.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.position">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">position</span></span><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.position" title="Permalink to this definition"></a></dt>
+<dd><p>Property to allow attribute access of the protobuf message field ‘position’ similar to
+the geometry_pb2.SE2Pose for the math_helper.SE2Pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.from_matrix">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mat</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.from_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.from_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Extract SE2Pose from a 3x3 matrix</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.from_obj">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tform</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.from_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.from_obj" title="Permalink to this definition"></a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 3.1.0: </span>Use from_proto instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.from_proto">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tform</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.SE2Pose from a geometry_pb2.SE2Pose proto.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Pose.get_closest_se3_transform">
+<span class="sig-name descname"><span class="pre">get_closest_se3_transform</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">height_z</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Pose.get_closest_se3_transform"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Pose.get_closest_se3_transform" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the closest math_helpers.SE3Pose from the current math_helpers.SE2Pose.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">SE2Velocity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">angular</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Velocity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing an SE2Velocity with linear velocity and angular velocity.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.to_obj">
+<span class="sig-name descname"><span class="pre">to_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Velocity.to_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.to_obj" title="Permalink to this definition"></a></dt>
+<dd><p>Adds the math_helpers.SE2Velocity properties into the geometry_pb2.SE2Velocity ‘proto’.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.to_proto">
+<span class="sig-name descname"><span class="pre">to_proto</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Velocity.to_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.to_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.SE2Velocity into an output of the protobuf geometry_pb2.SE2Velocity.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.to_vector">
+<span class="sig-name descname"><span class="pre">to_vector</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Velocity.to_vector"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.to_vector" title="Permalink to this definition"></a></dt>
+<dd><p>Creates a 3x1 velocity vector as a numpy array.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.from_vector">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">se2_vel_vector</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Velocity.from_vector"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.from_vector" title="Permalink to this definition"></a></dt>
+<dd><p>Converts a 3x1 velocity vector (of either a numpy array or a list) into a math_helpers.SE2Velocity object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.linear">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">linear</span></span><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.linear" title="Permalink to this definition"></a></dt>
+<dd><p>Property to allow attribute access of the protobuf message field ‘linear’ similar to the geometry_pb2.SE2Velocity
+for the math_helper.SE2Velocity.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.angular">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">angular</span></span><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.angular" title="Permalink to this definition"></a></dt>
+<dd><p>Property to allow attribute access of the protobuf message field ‘angular’ similar to the geometry_pb2.SE2Velocity
+for the math_helper.SE2Velocity.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.from_obj">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vel</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Velocity.from_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.from_obj" title="Permalink to this definition"></a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 3.1.0: </span>Use from_proto instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE2Velocity.from_proto">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vel</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE2Velocity.from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE2Velocity.from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.SE2Velocity from a geometry_pb2.SE2Velocity proto.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">SE3Velocity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">lin_x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lin_y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lin_z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ang_x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ang_y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ang_z</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Velocity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing an SE3Velocity with linear velocity and angular velocity.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.to_obj">
+<span class="sig-name descname"><span class="pre">to_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Velocity.to_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.to_obj" title="Permalink to this definition"></a></dt>
+<dd><p>Adds the math_helpers.SE3Velocity properties into the geometry_pb2.SE3Velocity ‘proto’.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.to_proto">
+<span class="sig-name descname"><span class="pre">to_proto</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Velocity.to_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.to_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.SE3Velocity into an output of the protobuf geometry_pb2.SE3Velocity.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.to_vector">
+<span class="sig-name descname"><span class="pre">to_vector</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Velocity.to_vector"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.to_vector" title="Permalink to this definition"></a></dt>
+<dd><p>Creates a 6x1 velocity vector as a numpy array.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.linear">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">linear</span></span><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.linear" title="Permalink to this definition"></a></dt>
+<dd><p>Property to allow attribute access of the protobuf message field ‘linear’ similar to the geometry_pb2.SE3Velocity
+for the math_helper.SE3Velocity.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.angular">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">angular</span></span><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.angular" title="Permalink to this definition"></a></dt>
+<dd><p>Property to allow attribute access of the protobuf message field ‘angular’ similar to the geometry_pb2.SE3Velocity
+for the math_helper.SE3Velocity.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.from_obj">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vel</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Velocity.from_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.from_obj" title="Permalink to this definition"></a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 3.1.0: </span>Use from_proto instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.from_proto">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vel</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Velocity.from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.SE3Velocity from a geometry_pb2.SE3Velocity proto.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Velocity.from_vector">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_vector</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">se3_vel_vector</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Velocity.from_vector"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Velocity.from_vector" title="Permalink to this definition"></a></dt>
+<dd><p>Converts a 6x1 velocity vector (of either a numpy array or a list) into a math_helpers.SE3Velocity object.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">SE3Pose</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rot</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing an SE3Pose with position and rotation.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.from_obj">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tform</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.from_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.from_obj" title="Permalink to this definition"></a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 3.1.0: </span>Use from_proto instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.from_proto">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tform</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.SE3Pose from a geometry_pb2.SE3Pose proto.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.from_se2">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_se2</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tform</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.from_se2"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.from_se2" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.to_obj">
+<span class="sig-name descname"><span class="pre">to_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.to_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.to_obj" title="Permalink to this definition"></a></dt>
+<dd><p>Adds the math_helpers.SE3Pose properties into the geometry_pb2.SE3Pose ‘proto’.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.to_proto">
+<span class="sig-name descname"><span class="pre">to_proto</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.to_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.to_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.SE3Pose into an output of the protobuf geometry_pb2.SE3Pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.inverse">
+<span class="sig-name descname"><span class="pre">inverse</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.inverse"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.inverse" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the inverse of the math_helpers.SE3Pose.</p>
+<p>For example, if the SE(3) pose represented a_tform_b, then the inverse pose is b_tform_a.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>math_helpers.SE3Pose representing the inverse of the current SE(3) Pose.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.transform_point">
+<span class="sig-name descname"><span class="pre">transform_point</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.transform_point"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.transform_point" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the transformation (translation and rotation) of a (x,y,z) vector using the
+current SE(3) pose.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>tuple (size 3) representing the transformed coordinate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.transform_vec3">
+<span class="sig-name descname"><span class="pre">transform_vec3</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vec3</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.transform_vec3"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.transform_vec3" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the transformation (translation and rotation) of a (x,y,z) vector using the
+current SE(3) pose.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Vec3 representing the transformed coordinate.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.transform_cloud">
+<span class="sig-name descname"><span class="pre">transform_cloud</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">points</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.transform_cloud"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.transform_cloud" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the transformation (translation and rotation) of multiple vector/points using the
+current math_helpers.SE3Pose.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><p>points (Nx3 numpy matrix) representing a set of (x,y,z) points to be transformed</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Nx3 numpy matrix of the points after they are transformed with the current math_helpers.SE3Pose.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.transform_cloud_from_matrix">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">transform_cloud_from_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">transform</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.transform_cloud_from_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.transform_cloud_from_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the transformation (translation and rotation) of multiple vector/points using the
+input SE(3) pose.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><p>transform (4x4 numpy matrix) representing the SE3Pose to be used to transform.
+points (Nx3 numpy matrix) representing a set of (x,y,z) points to be transformed</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Nx3 numpy matrix of the points after they are transformed.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.to_matrix">
+<span class="sig-name descname"><span class="pre">to_matrix</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.to_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.to_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Returns the 4x4 matrix to transform a 3D point (in generalized coordinates).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.translation_norm">
+<span class="sig-name descname"><span class="pre">translation_norm</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.translation_norm"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.translation_norm" title="Permalink to this definition"></a></dt>
+<dd><p>Calculates the Euclidean norm (magnitude) of the translation component pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.mult">
+<span class="sig-name descname"><span class="pre">mult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">se3pose</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.mult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.mult" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the multiplication between the current math_helpers.SE3Pose and the input se3pose.</p>
+<p>For example, if the ‘self’ SE3Pose represents a_tform_b and the input se3pose represents b_tform_c,
+then the output will represent the transform a_tform_c.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><p>se3pose (math_helpers.SE3Pose)</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>math_helpers.SE3Pose representing the multiplication of two SE(3) poses.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.position">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">position</span></span><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.position" title="Permalink to this definition"></a></dt>
+<dd><p>Property to allow attribute access of the protobuf message field ‘position’ similar to the geometry_pb2.SE3Pose
+for the math_helper.SE3Pose.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.rotation">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">rotation</span></span><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.rotation" title="Permalink to this definition"></a></dt>
+<dd><p>Property to allow attribute access of the protobuf message field ‘rotation’ similar to the geometry_pb2.SE3Pose
+for the math_helper.SE3Pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.from_matrix">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mat</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.from_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.from_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Extract math_helpers.SE3Pose from a 4x4 matrix.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.from_identity">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_identity</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.from_identity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.from_identity" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.SE3Pose representing the identity SE(3) pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.get_translation">
+<span class="sig-name descname"><span class="pre">get_translation</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.get_translation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.get_translation" title="Permalink to this definition"></a></dt>
+<dd><p>Returns a 3x1 numpy array representing the translation only of the current SE3Pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.to_adjoint_matrix">
+<span class="sig-name descname"><span class="pre">to_adjoint_matrix</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.to_adjoint_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.to_adjoint_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>This creates the adjoint matrix for the current SE3Pose.</p>
+<p>The adjoint matrix can be used to change reference frames for a SE(3) velocity vector. For
+example, if you have math_helpers.SE3Velocity velocity_in_frame_b, then the adjoint matrix
+for the math_helpers.SE3Pose (representing a_tform_b) can be used as follows to transform
+the velocity: velocity_in_frame_a = a_tform_b.to_adjoint_matrix() * velocity_in_frame_b</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>a_adjoint_b (Numpy 6x6 matrix) representing the adjoint matrix for the SE3Pose.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.get_closest_se2_transform">
+<span class="sig-name descname"><span class="pre">get_closest_se2_transform</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.get_closest_se2_transform"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.get_closest_se2_transform" title="Permalink to this definition"></a></dt>
+<dd><p>Compute the closest math_helpers.SE2Pose from the current math_helpers.SE3Pose.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.SE3Pose.interp">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">interp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fraction</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#SE3Pose.interp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.SE3Pose.interp" title="Permalink to this definition"></a></dt>
+<dd><p>Performs a blend of two SE3Poses.  Out = a * (1 - fraction) + b * fraction</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>a</strong> (<a class="reference internal" href="#bosdyn.client.math_helpers.SE3Pose" title="bosdyn.client.math_helpers.SE3Pose"><em>SE3Pose</em></a>) – Lower blend input.</p></li>
+<li><p><strong>b</strong> (<a class="reference internal" href="#bosdyn.client.math_helpers.SE3Pose" title="bosdyn.client.math_helpers.SE3Pose"><em>SE3Pose</em></a>) – Upper blend input.</p></li>
+<li><p><strong>fraction</strong> (<em>float</em>) – The blending factor.  Should be inside [0, 1]</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>SE3Pose</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">Quat</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">w</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">x</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat" title="Permalink to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Class representing a Quaternion.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.inverse">
+<span class="sig-name descname"><span class="pre">inverse</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.inverse"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.inverse" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the inverse of the current math_helpers.Quat.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.transform_point">
+<span class="sig-name descname"><span class="pre">transform_point</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">y</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">z</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.transform_point"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.transform_point" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the transformation (rotation by the quaternion) of a single (x,y,z)
+point using the current math_helpers.Quat.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.transform_vec3">
+<span class="sig-name descname"><span class="pre">transform_vec3</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vec3</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.transform_vec3"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.transform_vec3" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the transformation (rotation by the quaternion) of a Vec3
+point using the current math_helpers.Quat.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.to_matrix">
+<span class="sig-name descname"><span class="pre">to_matrix</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.to_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.to_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Creates the 3x3 numpy rotation matrix from the current math_helpers.Quat</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.from_matrix">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_matrix</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">rot</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.from_matrix"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.from_matrix" title="Permalink to this definition"></a></dt>
+<dd><p>Creates a math_helpers.Quat from a numpy 3x3 matrix representing rotation.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.from_roll">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_roll</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">angle</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.from_roll"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.from_roll" title="Permalink to this definition"></a></dt>
+<dd><p>Computes a representative math_helpers.Quat from the Euler angle for roll.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.from_pitch">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_pitch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">angle</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.from_pitch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.from_pitch" title="Permalink to this definition"></a></dt>
+<dd><p>Computes a representative math_helpers.Quat from the Euler angle for pitch.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.from_yaw">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_yaw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">angle</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.from_yaw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.from_yaw" title="Permalink to this definition"></a></dt>
+<dd><p>Computes a representative math_helpers.Quat from the Euler angle for yaw.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.to_roll">
+<span class="sig-name descname"><span class="pre">to_roll</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.to_roll"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.to_roll" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the Euler angle roll from the current math_helpers.Quat</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.to_pitch">
+<span class="sig-name descname"><span class="pre">to_pitch</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.to_pitch"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.to_pitch" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the Euler angle pitch from the current math_helpers.Quat</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.to_yaw">
+<span class="sig-name descname"><span class="pre">to_yaw</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.to_yaw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.to_yaw" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the Euler angle yaw from the current math_helpers.Quat</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.to_axis_angle">
+<span class="sig-name descname"><span class="pre">to_axis_angle</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.to_axis_angle"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.to_axis_angle" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the angle and the respective axis from the math_helpers.Quat</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.from_obj">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.from_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.from_obj" title="Permalink to this definition"></a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 3.1.0: </span>Use from_proto instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.from_proto">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Create a math_helpers.Quat from a geometry_pb2.Quaternion proto.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.to_obj">
+<span class="sig-name descname"><span class="pre">to_obj</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.to_obj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.to_obj" title="Permalink to this definition"></a></dt>
+<dd><p>Adds the math_helpers.Quat properties into the geometry_pb2.Quaternion ‘proto’.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.to_proto">
+<span class="sig-name descname"><span class="pre">to_proto</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.to_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.to_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts the math_helpers.Quat into an output of the protobuf geometry_pb2.Quaternion.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.mult">
+<span class="sig-name descname"><span class="pre">mult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other_quat</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.mult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.mult" title="Permalink to this definition"></a></dt>
+<dd><p>Computes the multiplication of two math_helpers.Quats.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.normalize">
+<span class="sig-name descname"><span class="pre">normalize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.normalize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.normalize" title="Permalink to this definition"></a></dt>
+<dd><p>Normalizes the quaternion.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.closest_yaw_only_quaternion">
+<span class="sig-name descname"><span class="pre">closest_yaw_only_quaternion</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.closest_yaw_only_quaternion"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.closest_yaw_only_quaternion" title="Permalink to this definition"></a></dt>
+<dd><p>Computes a yaw-only math_helpers.Quat from the current roll/pitch/yaw math_helpers.Quat</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.slerp">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">slerp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">b</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fraction</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.slerp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.slerp" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.from_two_vectors">
+<em class="property"><span class="pre">static</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_two_vectors</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">u_in</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#bosdyn.client.math_helpers.Vec3" title="bosdyn.client.math_helpers.Vec3"><span class="pre">Vec3</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">v_in</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#bosdyn.client.math_helpers.Vec3" title="bosdyn.client.math_helpers.Vec3"><span class="pre">Vec3</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.from_two_vectors"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.from_two_vectors" title="Permalink to this definition"></a></dt>
+<dd><p>Returns a quaternion representing the rotation from u to v.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.Quat.conj">
+<span class="sig-name descname"><span class="pre">conj</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#Quat.conj"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.Quat.conj" title="Permalink to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.pose_to_xyz_yaw">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">pose_to_xyz_yaw</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">A_tform_B</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#pose_to_xyz_yaw"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.pose_to_xyz_yaw" title="Permalink to this definition"></a></dt>
+<dd><p>Gets the x,y,z yaw of B in A from the SE3Pose protobuf message.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.is_within_threshold">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">is_within_threshold</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">pose_3d</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_translation_meters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_yaw_degrees</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#is_within_threshold"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.is_within_threshold" title="Permalink to this definition"></a></dt>
+<dd><p>Determines whether the given SE3 pose is small enough in X, Y, and theta.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.recenter_angle">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">recenter_angle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lower_limit</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upper_limit</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#recenter_angle"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.recenter_angle" title="Permalink to this definition"></a></dt>
+<dd><div class="deprecated">
+<p><span class="versionmodified deprecated">Deprecated since version 3.2.0: </span>Use recenter_angle_mod or recenter_value_mod instead.</p>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.skew_matrix_3d">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">skew_matrix_3d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vec3_proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#skew_matrix_3d"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.skew_matrix_3d" title="Permalink to this definition"></a></dt>
+<dd><p>Creates a 3x3 numpy matrix representing the skew symmetric matrix for a vec3.
+These are used to create the adjoint matrices for SE3Pose’s, among other things.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.skew_matrix_2d">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">skew_matrix_2d</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vec2_proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#skew_matrix_2d"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.skew_matrix_2d" title="Permalink to this definition"></a></dt>
+<dd><p>Creates a 2x1 numpy matrix representing the skew symmetric matrix for a vec2.
+These are used to create the adjoint matrices for SE2Pose’s, among other things.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.matrix_from_proto">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">matrix_from_proto</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proto</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#matrix_from_proto"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.matrix_from_proto" title="Permalink to this definition"></a></dt>
+<dd><p>Converts a geometry_pb2.Matrix or geometry_pb2.Matrixf to a numpy array.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.transform_se2velocity">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">transform_se2velocity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_adjoint_b_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">se2_velocity_in_b</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#transform_se2velocity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.transform_se2velocity" title="Permalink to this definition"></a></dt>
+<dd><p>Changes the frame that the SE(2) Velocity is expressed in. More specifically, it converts the
+SE(2) Velocity in frame b to a SE(2) Velocity in frame c using the adjoint matrix a_adjoint_b.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><p>a_adjoint_b_matrix (3x3 numpy matrix)
+se2_velocity_in_b (geometry_pb2.SE2Velocity OR math_helpers.SE2Velocity) described in frame B.</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>math_helpers.SE2Velocity described in frame a. None if the input velocity is an unknown type.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.transform_se3velocity">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">transform_se3velocity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a_adjoint_b_matrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">se3_velocity_in_b</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#transform_se3velocity"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.transform_se3velocity" title="Permalink to this definition"></a></dt>
+<dd><p>Changes the frame that the SE(3) Velocity is expressed in. More specifically, it converts the
+SE(3) Velocity in frame b to a SE(3) Velocity in frame c using the adjoint matrix a_adjoint_b.</p>
+<dl class="simple">
+<dt>Inputs:</dt><dd><p>a_adjoint_b_matrix (6x6 numpy matrix)
+se3_velocity_in_b (geometry_pb2.SE3Velocity OR math_helpers.SE3Velocity) described in frame B.</p>
+</dd>
+</dl>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>math_helpers.SE3Velocity described in frame a. None if the input velocity is an unknown type.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="bosdyn.client.math_helpers.quat_to_eulerZYX">
+<span class="sig-prename descclassname"><span class="pre">bosdyn.client.math_helpers.</span></span><span class="sig-name descname"><span class="pre">quat_to_eulerZYX</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">q</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../../../../_modules/bosdyn/client/math_helpers.html#quat_to_eulerZYX"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#bosdyn.client.math_helpers.quat_to_eulerZYX" title="Permalink to this definition"></a></dt>
+<dd><p>Convert a Quat object into Euler yaw, pitch, roll angles (radians).</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+      
+      &copy; Copyright 2026 Boston Dynamics. All rights reserved.
+      <a href="https://www.bostondynamics.com/privacy-policy">Privacy Policy</a> | 
+      <a href="https://www.bostondynamics.com/terms">Terms of Use</a>
+
+    </p>
+  </div> 
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(false);
+      });
+  </script>
+    <!-- Theme Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=UA-XXXXXXX-1"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'UA-XXXXXXX-1', {
+          'anonymize_ip': false,
+      });
+    </script> 
+
+</body>
+</html>

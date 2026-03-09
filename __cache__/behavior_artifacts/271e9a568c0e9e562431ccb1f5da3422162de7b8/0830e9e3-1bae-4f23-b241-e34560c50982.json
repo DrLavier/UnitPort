@@ -1,0 +1,27 @@
+{
+  "artifact_id": "0830e9e3-1bae-4f23-b241-e34560c50982",
+  "behavior_ref": "jump",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [
+      {
+        "id": "s0",
+        "schema_id": "subgraph_action",
+        "kind": "action",
+        "params": {}
+      }
+    ],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [],
+  "trace_id": "53059012-d1cd-4bbc-89ea-2cb34a39a4ea",
+  "compiled_at": "2026-03-02T14:44:11.167330+00:00",
+  "source_hash": null,
+  "heartbeat_ir": null,
+  "heartbeat_policy": null,
+  "heartbeat_script": null
+}

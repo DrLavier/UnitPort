@@ -1,0 +1,25 @@
+{
+    "schema_id": "builtin.join",
+    "display_name": "Join",
+    "node_type": "join",
+    "kind": "join",
+    "ports": [
+        {"name": "branch_0", "direction": "input", "data_type": "void"},
+        {"name": "branch_1", "direction": "input", "data_type": "void"},
+        {"name": "branch_2", "direction": "input", "data_type": "void"},
+        {"name": "branch_3", "direction": "input", "data_type": "void"},
+        {"name": "flow_out", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "branch_count",
+            "param_type": "int",
+            "default": 2,
+            "constraints": {"min_value": 2, "max_value": 4},
+            "description": "Number of branches to join"
+        }
+    ],
+    "code_template": "",
+    "robot_compat": [],
+    "version": "1.0"
+}

@@ -1,0 +1,37 @@
+// Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
+//
+// Downloading, reproducing, distributing or otherwise using the SDK Software
+// is subject to the terms and conditions of the Boston Dynamics Software
+// Development Kit License (20191101-BDSDK-SL).
+
+syntax = "proto3";
+
+package bosdyn.api.graph_nav;
+option go_package = "bosdyn/api/graph_nav/area_callback_data";
+option java_outer_classname = "AreaCallbackDataProto";
+
+import "google/protobuf/any.proto";
+import "bosdyn/api/service_customization.proto";
+
+// Configuration data for how an area callback should be treated in a map.
+message AreaCallbackMapConfig {
+}
+
+// Data for a AreaCallback to be stored in the map
+message AreaCallbackData {
+    // Custom config data used by the service to do its job.
+    google.protobuf.Any config_data = 1;
+
+    // Deprecated in 4.1, use param_collection instead so that the
+    // parameter specs are available for building editors.
+    // Any other custom parameters to the callback. This will be copied into
+    // custom_params inside the BeginCallback RPC if it exists.
+    DictParam custom_params = 2 [deprecated = true];
+
+    // Any other custom parameters to the callback. This will be copied into
+    // custom_params inside the BeginCallback RPC if it exists.
+    CustomParamCollection parameters = 4;
+
+    // Configuration data for how this area callback should be treated in the map.
+    AreaCallbackMapConfig map_config = 3;
+}

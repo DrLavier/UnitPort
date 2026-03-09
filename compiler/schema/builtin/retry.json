@@ -1,0 +1,39 @@
+{
+    "schema_id": "builtin.retry",
+    "display_name": "Retry",
+    "node_type": "retry",
+    "kind": "retry",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "retry_body", "direction": "output", "data_type": "void"},
+        {"name": "out_success", "direction": "output", "data_type": "void"},
+        {"name": "out_failed", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "max_attempts",
+            "param_type": "int",
+            "default": 3,
+            "constraints": {"min_value": 1, "max_value": 100},
+            "description": "Maximum retry attempts"
+        },
+        {
+            "name": "backoff_sec",
+            "param_type": "float",
+            "default": 1.0,
+            "constraints": {"min_value": 0.0},
+            "unit": "seconds",
+            "description": "Backoff delay between retries"
+        },
+        {
+            "name": "strategy",
+            "param_type": "string",
+            "default": "fixed",
+            "constraints": {"choices": ["fixed", "exp"]},
+            "description": "Backoff strategy: fixed or exponential"
+        }
+    ],
+    "code_template": "# Retry: max {max_attempts} attempts",
+    "robot_compat": [],
+    "version": "1.0"
+}

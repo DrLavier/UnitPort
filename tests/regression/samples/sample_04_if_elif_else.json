@@ -1,0 +1,78 @@
+{
+    "name": "sample_04_if_elif_else",
+    "description": "If with one elif branch and else",
+    "version": "1.0",
+    "robot_type": "go2",
+    "nodes": [
+        {
+            "id": 0,
+            "display_name": "Logic Control",
+            "position": {"x": 100, "y": 100},
+            "width": 240,
+            "height": 200,
+            "node_type": "if",
+            "ui_selection": "If",
+            "condition_expr": "x > 5",
+            "elif_conditions": ["x > 0"],
+            "features": ["If", "While Loop"]
+        },
+        {
+            "id": 1,
+            "display_name": "Action Execution",
+            "position": {"x": 450, "y": 50},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Stand",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        },
+        {
+            "id": 2,
+            "display_name": "Action Execution",
+            "position": {"x": 450, "y": 200},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Walk",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        },
+        {
+            "id": 3,
+            "display_name": "Action Execution",
+            "position": {"x": 450, "y": 350},
+            "width": 180,
+            "height": 110,
+            "node_type": "action_execution",
+            "ui_selection": "Sit",
+            "features": ["Lift Right Leg", "Stand", "Sit", "Walk", "Stop"]
+        }
+    ],
+    "connections": [
+        {
+            "from_node": 0,
+            "from_port": "out_if",
+            "to_node": 1,
+            "to_port": "flow_in"
+        },
+        {
+            "from_node": 0,
+            "from_port": "out_elif_0",
+            "to_node": 2,
+            "to_port": "flow_in"
+        },
+        {
+            "from_node": 0,
+            "from_port": "out_else",
+            "to_node": 3,
+            "to_port": "flow_in"
+        }
+    ],
+    "expected_code_contains": [
+        "if x > 5",
+        "RobotContext.run_action('stand')",
+        "elif x > 0",
+        "RobotContext.run_action('walk')",
+        "else",
+        "RobotContext.run_action('sit')"
+    ]
+}

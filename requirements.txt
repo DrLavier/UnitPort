@@ -1,0 +1,17 @@
+# Celebrimbor - Robot Visual Programming Platform
+# Python dependency list
+
+# Core runtime dependencies
+PySide6>=6.5.0
+mujoco>=3.0.0
+numpy>=1.24.0
+
+# Optional: test/development
+pytest>=7.4.0
+# black>=23.0.0
+# pylint>=2.17.0
+
+# Optional: Unitree SDK2
+# The project imports `unitree_sdk2py`, but this is typically installed from
+# Unitree's official SDK distribution (local/vendor path), not PyPI.
+# unitree_sdk2py

@@ -1,0 +1,23 @@
+// Copyright (c) 2023 Boston Dynamics, Inc.  All rights reserved.
+//
+// Downloading, reproducing, distributing or otherwise using the SDK Software
+// is subject to the terms and conditions of the Boston Dynamics Software
+// Development Kit License (20191101-BDSDK-SL).
+
+syntax = "proto3";
+
+package bosdyn.api;
+option go_package = "bosdyn/api/gripper_camera_param_service";
+
+option java_outer_classname = "GripperCameraParamServiceProto";
+
+import "bosdyn/api/gripper_camera_param.proto";
+
+service GripperCameraParamService {
+    rpc SetParams(GripperCameraParamRequest) returns (GripperCameraParamResponse) {}
+    rpc GetParams(GripperCameraGetParamRequest) returns (GripperCameraGetParamResponse) {}
+    rpc SetCamCalib(SetGripperCameraCalibrationRequest)
+        returns (SetGripperCameraCalibrationResponse) {}
+    rpc GetCamCalib(GetGripperCameraCalibrationRequest)
+        returns (GetGripperCameraCalibrationResponse) {}
+}

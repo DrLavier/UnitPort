@@ -1,0 +1,22 @@
+{
+    "schema_id": "builtin.break",
+    "display_name": "Break",
+    "node_type": "break",
+    "kind": "break",
+    "ports": [
+        {"name": "flow_in", "direction": "input", "data_type": "void"},
+        {"name": "break_out", "direction": "output", "data_type": "void"}
+    ],
+    "parameters": [
+        {
+            "name": "break_level",
+            "param_type": "int",
+            "default": 1,
+            "constraints": {"minimum": 1},
+            "description": "Loop break depth (1 = nearest enclosing loop)"
+        }
+    ],
+    "code_template": "break",
+    "robot_compat": [],
+    "version": "1.0"
+}

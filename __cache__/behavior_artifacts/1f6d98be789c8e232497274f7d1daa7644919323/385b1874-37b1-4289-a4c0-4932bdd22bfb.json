@@ -1,0 +1,24 @@
+{
+  "artifact_id": "385b1874-37b1-4289-a4c0-4932bdd22bfb",
+  "behavior_ref": "crash3",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [
+      {
+        "id": "n0",
+        "schema_id": "fail_node",
+        "kind": "action",
+        "params": {}
+      }
+    ],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [],
+  "trace_id": "ebbb8282-0b40-45f1-beb0-4d27c6a89bad",
+  "compiled_at": "2026-02-27T07:46:03.304017+00:00",
+  "source_hash": null
+}

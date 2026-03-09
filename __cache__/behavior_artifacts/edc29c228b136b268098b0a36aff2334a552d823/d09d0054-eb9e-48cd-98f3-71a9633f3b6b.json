@@ -1,0 +1,27 @@
+{
+  "artifact_id": "d09d0054-eb9e-48cd-98f3-71a9633f3b6b",
+  "behavior_ref": "crouch2",
+  "behavior_ir": {
+    "ir_version": "1.0",
+    "name": "",
+    "robot_type": "go2",
+    "brand": "unitree",
+    "nodes": [
+      {
+        "id": "s0",
+        "schema_id": "sub_action",
+        "kind": "action",
+        "params": {}
+      }
+    ],
+    "edges": [],
+    "variables": []
+  },
+  "diagnostics": [],
+  "trace_id": "b86b1acf-171c-4109-88cd-23f1b8fe5fac",
+  "compiled_at": "2026-03-02T14:35:42.875651+00:00",
+  "source_hash": null,
+  "heartbeat_ir": null,
+  "heartbeat_policy": null,
+  "heartbeat_script": null
+}

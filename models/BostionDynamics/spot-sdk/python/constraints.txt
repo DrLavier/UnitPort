@@ -1,0 +1,7 @@
+grpcio-tools==1.46.3
+
+# These versions allow interoperability with protobufs before C++11 features were required.
+# It's a little earlier than strictly necessary.
+protobuf==3.5.2.post1; sys_platform == 'win32' and python_version < '3.0'
+
+protobuf==3.7.1; sys_platform != 'win32' or python_version >= '3.0'
