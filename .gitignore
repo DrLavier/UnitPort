@@ -4,6 +4,7 @@ venv/
 
 # Byte-compiled / cache
 __pycache__/
+__cache__/
 *.py[cod]
 *.pyo
 
