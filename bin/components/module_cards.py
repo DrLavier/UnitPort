@@ -8,15 +8,36 @@ import json
 from typing import Dict, Any, Optional
 
 from PySide6.QtCore import Qt, QMimeData, Signal
-from PySide6.QtGui import QDrag
+from PySide6.QtGui import QBrush, QColor, QDrag, QFont
 from PySide6.QtWidgets import (
     QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel,
-    QTreeWidget, QTreeWidgetItem
+    QStyledItemDelegate, QTreeWidget, QTreeWidgetItem
 )
 
 from bin.core.logger import log_debug
 from bin.core.localisation import tr
 from bin.core.theme_manager import get_color, get_font_size
+
+GROUP_ITEM_ROLE = Qt.UserRole + 1
+
+
+class NodeTreeDelegate(QStyledItemDelegate):
+    """Paint group rows with a dedicated theme color."""
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if not index.data(GROUP_ITEM_ROLE):
+            return
+
+        text_primary = get_color("text_primary", "#e5e7eb")
+        sidebar_rail_bg = get_color("sidebar_rail_bg", "#2d2d2d")
+        option.backgroundBrush = QBrush(QColor(sidebar_rail_bg))
+        option.palette.setColor(option.palette.ColorRole.Text, QColor(text_primary))
+        option.palette.setColor(option.palette.ColorRole.HighlightedText, QColor(text_primary))
+        option.state &= ~option.state.State_Selected
+        option.state &= ~option.state.State_MouseOver
+
+
 class NodeTree(QTreeWidget):
     """Draggable node tree"""
 
@@ -25,9 +46,12 @@ class NodeTree(QTreeWidget):
         self.setHeaderHidden(True)
         self.setUniformRowHeights(True)
         self.setIndentation(12)
+        self.setViewportMargins(0, 8, 0, 0)
         self.setFocusPolicy(Qt.NoFocus)
+        self.setMouseTracking(True)
         self.setDragEnabled(True)
         self.setDragDropMode(QTreeWidget.DragOnly)
+        self.setItemDelegate(NodeTreeDelegate(self))
         self.refresh_style()
 
     def refresh_style(self):
@@ -63,6 +87,16 @@ class NodeTree(QTreeWidget):
             """
         )
 
+    def mouseMoveEvent(self, event):
+        self.viewport().setCursor(
+            Qt.PointingHandCursor if self.itemAt(event.position().toPoint()) else Qt.ArrowCursor
+        )
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event):
+        self.viewport().setCursor(Qt.ArrowCursor)
+        super().leaveEvent(event)
+
     def startDrag(self, supportedActions):
         item = self.currentItem()
         if not item:
@@ -89,6 +123,7 @@ class ModulePalette(QWidget):
         super().__init__(parent)
         self.setMinimumWidth(200)
         self.setMaximumWidth(280)
+        self._embedded_mode = False
         self._init_ui()
 
     def _init_ui(self):
@@ -142,24 +177,56 @@ class ModulePalette(QWidget):
         title_size = get_font_size("size_large", 16)
         subtitle_size = get_font_size("size_small", 12)
 
-        self.panel.setStyleSheet(
-            f"""
-            #panel {{
-                background: {panel_bg};
-                border-radius: 14px;
-                border: 1px solid {panel_border};
-            }}
-            QLabel#panelTitle {{
-                color: {title_color};
-                font-weight: 700;
-                font-size: {title_size}px;
-            }}
-            QLabel#panelSubtitle {{
-                color: {subtitle_color};
-                font-size: {subtitle_size}px;
-            }}
-            """
-        )
+        if self._embedded_mode:
+            self.layout().setContentsMargins(0, 0, 0, 0)
+            self.layout().setSpacing(10)
+            self.panel.layout().setContentsMargins(0, 0, 0, 0)
+            self.panel.layout().setSpacing(10)
+            self.title.setVisible(False)
+            self.subtitle.setVisible(False)
+            self.panel.setStyleSheet(
+                f"""
+                #panel {{
+                    background: transparent;
+                    border-radius: 0px;
+                    border: none;
+                }}
+                QLabel#panelTitle {{
+                    color: {title_color};
+                    font-weight: 700;
+                    font-size: {title_size}px;
+                }}
+                QLabel#panelSubtitle {{
+                    color: {subtitle_color};
+                    font-size: {subtitle_size}px;
+                }}
+                """
+            )
+        else:
+            self.layout().setContentsMargins(12, 12, 12, 12)
+            self.layout().setSpacing(12)
+            self.panel.layout().setContentsMargins(16, 16, 16, 16)
+            self.panel.layout().setSpacing(12)
+            self.title.setVisible(True)
+            self.subtitle.setVisible(False)
+            self.panel.setStyleSheet(
+                f"""
+                #panel {{
+                    background: {panel_bg};
+                    border-radius: 14px;
+                    border: 1px solid {panel_border};
+                }}
+                QLabel#panelTitle {{
+                    color: {title_color};
+                    font-weight: 700;
+                    font-size: {title_size}px;
+                }}
+                QLabel#panelSubtitle {{
+                    color: {subtitle_color};
+                    font-size: {subtitle_size}px;
+                }}
+                """
+            )
 
         self.status_label.setStyleSheet(
             f"""
@@ -178,11 +245,14 @@ class ModulePalette(QWidget):
         """Refresh theme styles"""
         self.title.setText(tr("modules.panel_title", "Node Library"))
         self.subtitle.setText("")
-        self.subtitle.setVisible(False)
         self.status_label.setText(tr("modules.status_ready", "Graph editor ready"))
         self._apply_style()
         self.tree.refresh_style()
         self._populate_tree()
+
+    def set_embedded_mode(self, embedded: bool):
+        self._embedded_mode = bool(embedded)
+        self._apply_style()
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem):
         payload = item.data(0, Qt.UserRole)
@@ -194,6 +264,7 @@ class ModulePalette(QWidget):
         self.tree.clear()
 
         root = QTreeWidgetItem([tr("modules.system_nodes", "System Nodes")])
+        self._style_group_item(root, is_root=True)
         root.setExpanded(True)
         self.tree.addTopLevelItem(root)
 
@@ -236,6 +307,7 @@ class ModulePalette(QWidget):
 
         for group_name, node_titles in groups:
             group = QTreeWidgetItem([group_name])
+            self._style_group_item(group)
             root.addChild(group)
             for title in node_titles:
                 self._add_node_item(group, title, {
@@ -253,6 +325,17 @@ class ModulePalette(QWidget):
             data["draggable"] = True
         item.setData(0, Qt.UserRole, data)
         parent.addChild(item)
+
+    def _style_group_item(self, item: QTreeWidgetItem, is_root: bool = False):
+        item.setData(0, GROUP_ITEM_ROLE, True)
+        item.setFlags(item.flags() | Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+        item.setBackground(0, QBrush(QColor(get_color("sidebar_rail_bg", "#2d2d2d"))))
+        item.setForeground(0, QBrush(QColor(get_color("text_primary", "#e5e7eb"))))
+        font = QFont(self.tree.font())
+        font.setBold(True)
+        if is_root:
+            font.setPointSize(max(font.pointSize(), get_font_size("size_small", 12)))
+        item.setFont(0, font)
 
 
 NodePalette = ModulePalette

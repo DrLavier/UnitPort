@@ -1,0 +1,32 @@
+﻿{
+    "manifest_version":  "1",
+    "python_version":  "3.11.9",
+    "python_source":  "embeddable-amd64",
+    "cyclonedds_version":  "0.10.2",
+    "cyclonedds_present":  true,
+    "build_timestamp":  "",
+    "compatibility_notes":  "Python 3.11 embeddable + CycloneDDS 0.10.2 (Windows x64)",
+    "unitport_version":  "phase2",
+    "wheel_packages":  [
+                           "absl_py-2.4.0-py3-none-any.whl",
+                           "colorama-0.4.6-py2.py3-none-any.whl",
+                           "etils-1.14.0-py3-none-any.whl",
+                           "fsspec-2026.2.0-py3-none-any.whl",
+                           "glfw-2.10.0-py2.py27.py3.py30.py31.py32.py33.py34.py35.py36.py37.py38.py39.py310.py311.py312.py313.py314-none-win_amd64.whl",
+                           "iniconfig-2.3.0-py3-none-any.whl",
+                           "mujoco-3.6.0-cp311-cp311-win_amd64.whl",
+                           "numpy-2.4.3-cp311-cp311-win_amd64.whl",
+                           "packaging-26.0-py3-none-any.whl",
+                           "pluggy-1.6.0-py3-none-any.whl",
+                           "pygments-2.19.2-py3-none-any.whl",
+                           "pyopengl-3.1.10-py3-none-any.whl",
+                           "pyside6_addons-6.10.2-cp39-abi3-win_amd64.whl",
+                           "pyside6_essentials-6.10.2-cp39-abi3-win_amd64.whl",
+                           "pyside6-6.10.2-cp39-abi3-win_amd64.whl",
+                           "pytest-9.0.2-py3-none-any.whl",
+                           "shiboken6-6.10.2-cp39-abi3-win_amd64.whl",
+                           "typing_extensions-4.15.0-py3-none-any.whl",
+                           "zipp-3.23.0-py3-none-any.whl"
+                       ],
+    "wheels_count":  19
+}

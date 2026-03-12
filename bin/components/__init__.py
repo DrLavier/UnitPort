@@ -8,10 +8,12 @@ from .code_editor import CodeEditor
 from .graph_scene import GraphScene
 from .graph_view import GraphView
 from .module_cards import ModulePalette
+from .sidebar_dock import SidebarDock
 
 __all__ = [
     'CodeEditor',
     'GraphScene',
     'GraphView',
     'ModulePalette',
+    'SidebarDock',
 ]

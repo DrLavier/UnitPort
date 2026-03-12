@@ -107,6 +107,23 @@ class TestAnalyzerResultShape(unittest.TestCase):
         self.assertFalse(r["compat_used"])
         self.assertEqual(r["outputs"], [{"name": "speed", "data_type": "float"}])
 
+    def test_init_signature_inputs_are_extracted(self):
+        code = (
+            "def init(\n"
+            "    speed,  # float\n"
+            "    mode,   # string\n"
+            "):\n"
+            "    return speed\n"
+        )
+        r = _run_analyze(code)
+        self.assertEqual(
+            r["inputs"],
+            [
+                {"name": "speed", "data_type": "float", "slot": None},
+                {"name": "mode", "data_type": "string", "slot": None},
+            ],
+        )
+
     def test_multiline_init_signature_with_type_comments(self):
         sig = _build_init_sig({
             "inputs": [
@@ -276,6 +293,57 @@ class TestSignalPayload(unittest.TestCase):
         r = captured[0]
         self.assertTrue(r["compat_used"])
         self.assertEqual(r["outputs"], [{"name": "result", "data_type": "any"}])
+
+    def test_init_signature_payload_includes_inputs(self):
+        try:
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance() or QApplication(sys.argv)
+            from bin.components.script_editor import ScriptEditor
+        except Exception:
+            self.skipTest("Qt not available")
+
+        captured = []
+        editor = ScriptEditor(node_id=5, script_name="node")
+        editor.compile_requested.connect(lambda nid, r: captured.append(r))
+        editor._editor.setPlainText(
+            "def init(\n"
+            "    speed,  # float\n"
+            "):\n"
+            "    return speed\n"
+        )
+        with patch("bin.components.script_editor.QMessageBox"):
+            editor.save_and_compile()
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(
+            captured[0]["inputs"],
+            [{"name": "speed", "data_type": "float", "slot": None}],
+        )
+
+    def test_compile_does_not_preserve_removed_inputs(self):
+        try:
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance() or QApplication(sys.argv)
+            from bin.components.script_editor import ScriptEditor
+        except Exception:
+            self.skipTest("Qt not available")
+
+        captured = []
+        editor = ScriptEditor(
+            node_id=6,
+            script_name="node",
+            io_spec={"inputs": [{"name": "stale", "data_type": "int", "slot": "script_in_stale"}], "outputs": []},
+        )
+        editor.compile_requested.connect(lambda nid, r: captured.append(r))
+        editor._editor.setPlainText(
+            "def init():\n"
+            "    return 1\n"
+        )
+        with patch("bin.components.script_editor.QMessageBox"):
+            editor.save_and_compile()
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0]["inputs"], [])
 
     def test_syntax_error_does_not_emit(self):
         try:

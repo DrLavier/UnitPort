@@ -165,10 +165,10 @@ _TYPE_ALIASES: Dict[str, str] = {
 
 _VALID_TYPE_HINT = "any, bool, int, float, str, list, dict, number, function, protocol"
 _VALID_GETINPUT_SIGNATURE = (
-    "getInput() / getInput(NAME='input_name', TYPE='str') / getInput('input_name')"
+    "getInput() / getInput('input_name', 3) / getInput(NAME='input_name', TYPE='str')"
 )
 _VALID_SETOUTPUT_SIGNATURE = (
-    "setOutput(data) / setOutput(data, NAME='output_name', TYPE='str')"
+    "setOutput(data) / setOutput(data, 3) / setOutput(data, NAME='output_name', TYPE='str')"
 )
 
 
@@ -209,11 +209,23 @@ def _resolve_str_literal(node) -> Tuple[Optional[str], bool]:
     return None, False
 
 
-def _resolve_type_literal(node) -> Tuple[Optional[str], bool]:
-    """Resolve TYPE='...' to canonical data_type string.
+def _resolve_int_type_literal(node) -> Tuple[Optional[str], bool]:
+    """Resolve a positional type argument — accepts integer indices only."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, int):
+        canonical = SCRIPT_DATA_TYPE_INDEX.get(node.value)
+        return (canonical, canonical is not None)
+    return None, False
 
+
+def _resolve_type_literal(node) -> Tuple[Optional[str], bool]:
+    """Resolve TYPE literal to canonical data_type string.
+
+    Accepts either the legacy integer index form or the newer string form.
     Returns (canonical_type, ok). ok=False when not a supported type literal.
     """
+    if isinstance(node, ast.Constant) and isinstance(node.value, int):
+        canonical = SCRIPT_DATA_TYPE_INDEX.get(node.value)
+        return (canonical, canonical is not None)
     raw, ok = _resolve_str_literal(node)
     if not ok:
         return None, False
@@ -336,11 +348,13 @@ def _process_setoutput(
     allowed = frozenset({"NAME", "TYPE"})
     unknown = sorted(k for k in kwargs_up if k not in allowed)
 
-    if len(args) != 1:
+    has_explicit_type = "TYPE" in kwargs_up
+    if not ((len(args) == 2) or (len(args) == 1 and has_explicit_type)):
         diagnostics.append(_make_diag(
             ScriptDiagCode.INVALID_SETOUTPUT_ARGS,
             "error",
-            "setOutput() requires exactly 1 positional argument (data). "
+            "setOutput() requires 2 positional arguments (data, TYPE_INDEX) or "
+            "1 positional argument with TYPE= keyword. "
             f"Got {len(args)} positional arg(s). "
             f"Valid usage: {_VALID_SETOUTPUT_SIGNATURE}.",
             lineno,
@@ -360,8 +374,20 @@ def _process_setoutput(
         return False
 
     data_node = args[0]
+    positional_type_node = args[1] if len(args) > 1 else None
     explicit_name_node = kwargs_up.get("NAME")
     explicit_type_node = kwargs_up.get("TYPE")
+
+    if positional_type_node is not None and explicit_type_node is not None:
+        diagnostics.append(_make_diag(
+            ScriptDiagCode.INVALID_SETOUTPUT_ARGS,
+            "error",
+            "setOutput() TYPE was provided both positionally and via TYPE=...; "
+            "use only one form. "
+            f"Valid usage: {_VALID_SETOUTPUT_SIGNATURE}.",
+            lineno,
+        ))
+        return False
 
     if explicit_name_node is not None:
         output_name, ok = _resolve_str_literal(explicit_name_node)
@@ -379,7 +405,19 @@ def _process_setoutput(
         output_name = _extract_name_from_expr(data_node, len(outputs))
 
     data_type = "any"
-    if explicit_type_node is not None:
+    if positional_type_node is not None:
+        resolved, ok = _resolve_int_type_literal(positional_type_node)
+        if not ok:
+            diagnostics.append(_make_diag(
+                ScriptDiagCode.INVALID_DATA_TYPE_INDEX,
+                "error",
+                "setOutput() positional TYPE must be an integer index (0-9). "
+                f"Supported indices: {list(SCRIPT_DATA_TYPE_INDEX.keys())}.",
+                lineno,
+            ))
+            return False
+        data_type = resolved
+    elif explicit_type_node is not None:
         resolved, ok = _resolve_type_literal(explicit_type_node)
         if not ok:
             diagnostics.append(_make_diag(
@@ -417,14 +455,14 @@ def _process_getinput(
     kwargs_raw = {kw.arg: kw.value for kw in kw_pairs}
     kwargs_up = {k.upper(): v for k, v in kwargs_raw.items()}
     star_kwargs = [kw for kw in call_node.keywords if kw.arg is None]
-    allowed = frozenset({"NAME", "TYPE"})
+    allowed = frozenset({"NAME", "TYPE", "DATA_TYPE_INDEX"})
     unknown = sorted(k for k in kwargs_up if k not in allowed)
 
-    # At most one positional arg: explicit name string.
-    if len(args) > 1:
+    # Positional forms: getInput(), getInput('name'), getInput('name', TYPE)
+    if len(args) > 2:
         diagnostics.append(_make_diag(
             ScriptDiagCode.INVALID_GETINPUT_ARGS, "error",
-            "getInput() takes at most 1 positional argument (NAME string). "
+            "getInput() takes at most 2 positional arguments (NAME[, TYPE]). "
             f"Got {len(args)} positional arg(s). "
             f"Valid usage: {_VALID_GETINPUT_SIGNATURE}.",
             lineno,
@@ -445,11 +483,22 @@ def _process_getinput(
     # Resolve NAME priority: kw NAME > positional > assignment inference.
     explicit_name_node = kwargs_up.get("NAME")
     pos_name_node = args[0] if args else None
+    positional_type_node = args[1] if len(args) > 1 else None
     if explicit_name_node is not None and pos_name_node is not None:
         diagnostics.append(_make_diag(
             ScriptDiagCode.INVALID_GETINPUT_ARGS,
             "error",
             "getInput() NAME was provided both positionally and via NAME=...; "
+            "use only one form. "
+            f"Valid usage: {_VALID_GETINPUT_SIGNATURE}.",
+            lineno,
+        ))
+        return False
+    if positional_type_node is not None and kwargs_up.get("TYPE") is not None:
+        diagnostics.append(_make_diag(
+            ScriptDiagCode.INVALID_GETINPUT_ARGS,
+            "error",
+            "getInput() TYPE was provided both positionally and via TYPE=...; "
             "use only one form. "
             f"Valid usage: {_VALID_GETINPUT_SIGNATURE}.",
             lineno,
@@ -469,26 +518,24 @@ def _process_getinput(
             ))
             return False
         name_val = name_val.strip()
+        if not name_val:
+            diagnostics.append(_make_diag(
+                ScriptDiagCode.GETINPUT_EMPTY_NAME, "error",
+                "getInput() NAME must not be empty or whitespace-only.",
+                lineno,
+            ))
+            return False
     else:
         name_val = (inferred_name or "").strip()
-
-    if not name_val:
-        diagnostics.append(_make_diag(
-            ScriptDiagCode.GETINPUT_MISSING_NAME, "error",
-            "getInput() could not infer NAME automatically. "
-            "Assign it to a variable (e.g. speed = getInput()) or pass NAME='speed'. "
-            f"Valid usage: {_VALID_GETINPUT_SIGNATURE}.",
-            lineno,
-        ))
-        return False
-
-    if not str(name_val).strip():
-        diagnostics.append(_make_diag(
-            ScriptDiagCode.GETINPUT_EMPTY_NAME, "error",
-            "getInput() NAME must not be empty or whitespace-only.",
-            lineno,
-        ))
-        return False
+        if not name_val:
+            diagnostics.append(_make_diag(
+                ScriptDiagCode.GETINPUT_MISSING_NAME, "error",
+                "getInput() could not infer NAME automatically. "
+                "Assign it to a variable (e.g. speed = getInput()) or pass NAME='speed'. "
+                f"Valid usage: {_VALID_GETINPUT_SIGNATURE}.",
+                lineno,
+            ))
+            return False
 
     if name_val in seen_names:
         diagnostics.append(_make_diag(
@@ -501,7 +548,11 @@ def _process_getinput(
         return False
 
     data_type = "any"
-    type_node = kwargs_up.get("TYPE")
+    type_node = (
+        kwargs_up.get("TYPE")
+        or kwargs_up.get("DATA_TYPE_INDEX")
+        or positional_type_node
+    )
     if type_node is not None:
         resolved, ok = _resolve_type_literal(type_node)
         if not ok:
@@ -521,13 +572,20 @@ def _process_getinput(
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+_NON_ENTRY_NAMES: frozenset = frozenset({
+    "helper", "helpers", "util", "utils", "utility",
+    "internal", "private", "setup", "teardown",
+})
+
+
 def _select_entry_function(tree: ast.AST) -> Tuple[Optional[ast.FunctionDef], Optional[str]]:
     """Select script entry function.
 
     Priority:
       1) top-level ``def init(...)`` (new preferred contract)
       2) top-level ``def run(...)``  (legacy compatibility)
-      3) exactly one top-level function with any name (custom entry)
+      3) exactly one top-level function whose name is not in the known
+         non-entry set (custom entry)
     """
     top_level_funcs = [
         n for n in getattr(tree, "body", [])
@@ -539,9 +597,67 @@ def _select_entry_function(tree: ast.AST) -> Tuple[Optional[ast.FunctionDef], Op
     for fn in top_level_funcs:
         if fn.name == "run":
             return fn, "run"
-    if len(top_level_funcs) == 1:
+    if len(top_level_funcs) == 1 and top_level_funcs[0].name not in _NON_ENTRY_NAMES:
         return top_level_funcs[0], "custom"
     return None, None
+
+
+def _extract_signature_inputs(code: str, entry_func: ast.FunctionDef) -> List[Dict]:
+    """Extract input declarations from the selected entry function signature.
+
+    Supports the editor-generated multiline form::
+
+        def init(
+            speed,   # float
+            mode,    # string
+        ):
+
+    If no type comment is present, the input defaults to ``any``.
+    """
+    if entry_func is None:
+        return []
+
+    positional_args = list(getattr(entry_func.args, "posonlyargs", []) or [])
+    positional_args.extend(list(getattr(entry_func.args, "args", []) or []))
+    if positional_args and getattr(positional_args[0], "arg", None) == "self":
+        positional_args = positional_args[1:]
+
+    if not positional_args:
+        return []
+
+    lines = code.splitlines()
+    sig_start = max((getattr(entry_func, "lineno", 1) or 1) - 1, 0)
+    body_start = max((entry_func.body[0].lineno - 1), sig_start) if getattr(entry_func, "body", None) else sig_start
+    sig_lines = lines[sig_start:body_start]
+    type_by_name: Dict[str, str] = {}
+    for raw_line in sig_lines:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("def "):
+            continue
+        name_part, sep, comment_part = raw_line.partition("#")
+        name_token = name_part.strip().rstrip(",")
+        if not name_token or name_token == "):":
+            continue
+        data_type = "any"
+        if sep:
+            comment_type = comment_part.strip().rstrip(",:")
+            if comment_type:
+                data_type = comment_type
+        type_by_name[name_token] = data_type
+
+    inputs: List[Dict] = []
+    seen_names = set()
+    for arg in positional_args:
+        name = str(getattr(arg, "arg", "") or "").strip()
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        inputs.append({
+            "name": name,
+            "data_type": type_by_name.get(name, "any"),
+            "slot": None,
+        })
+    return inputs
 
 
 def analyze_script(code: str) -> Dict:
@@ -575,7 +691,7 @@ def analyze_script(code: str) -> Dict:
         }
 
     # ── 2. Locate entry function ──────────────────────────────────────────────
-    entry_func, _entry_kind = _select_entry_function(tree)
+    entry_func, entry_kind = _select_entry_function(tree)
     if entry_func is None:
         return {
             "inputs": [],
@@ -589,23 +705,21 @@ def analyze_script(code: str) -> Dict:
             "entry_function": None,
         }
 
-    # ── 3. Collect API calls in source order ──────────────────────────────────
-    # Walk each top-level function body so helper functions can declare APIs.
-    # Nested defs/lambdas remain excluded by visitor policy.
-    visitor = _APICallVisitor()
-    top_level_funcs = [
-        n for n in getattr(tree, "body", [])
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    ]
-    for fn in top_level_funcs:
-        for stmt in fn.body:
-            visitor.visit(stmt)
+    # ── 3. Collect input declarations from entry signature ────────────────────
+    inputs: List[Dict] = _extract_signature_inputs(code, entry_func)
+    seen_input_names: Dict[str, Optional[int]] = {
+        inp["name"]: None for inp in inputs if inp.get("name")
+    }
 
-    # ── 4. Process calls ──────────────────────────────────────────────────────
-    inputs: List[Dict] = []
+    # ── 4. Collect API calls in source order ──────────────────────────────────
+    # Walk only the entry function body; nested defs/lambdas excluded by visitor.
+    visitor = _APICallVisitor()
+    for stmt in entry_func.body:
+        visitor.visit(stmt)
+
+    # ── 5. Process calls ──────────────────────────────────────────────────────
     outputs: List[Dict] = []
     diagnostics: List[Dict] = []
-    seen_input_names: Dict[str, Optional[int]] = {}
 
     for func_name, call_node, inferred_name in visitor.calls:
         if func_name == "setOutput":
@@ -615,7 +729,7 @@ def analyze_script(code: str) -> Dict:
                 call_node, inputs, diagnostics, seen_input_names, inferred_name
             )
 
-    # ── 5. Compat check ───────────────────────────────────────────────────────
+    # ── 6. Compat check ───────────────────────────────────────────────────────
     compat_used = len(outputs) == 0
     if compat_used:
         diagnostics.append(_make_diag(

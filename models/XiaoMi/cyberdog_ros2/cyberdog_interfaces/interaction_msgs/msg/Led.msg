@@ -1,4 +1,0 @@
-# Owner Messages
-#
-Owner isowner
-#

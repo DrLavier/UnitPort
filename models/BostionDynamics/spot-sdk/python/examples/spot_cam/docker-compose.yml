@@ -1,7 +1,0 @@
-services:
-  app:
-    image: "spotcam_video:latest"
-    network_mode: "host"
-    volumes:
-      - "/opt/payload_credentials:/creds"
-    restart: always

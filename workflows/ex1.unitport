@@ -7,8 +7,8 @@
       "id": 6,
       "display_name": "Start",
       "position": {
-        "x": -43.4,
-        "y": 32.9
+        "x": -190.6,
+        "y": 100.4
       },
       "width": 198.0,
       "height": 92.0,
@@ -21,8 +21,8 @@
       "id": 5,
       "display_name": "End",
       "position": {
-        "x": 568.6,
-        "y": 185.3
+        "x": 522.6,
+        "y": 262.0
       },
       "width": 100.0,
       "height": 80.0,
@@ -32,14 +32,14 @@
       "id": 4,
       "display_name": "Loop",
       "position": {
-        "x": 181.7,
-        "y": 64.4
+        "x": 63.8,
+        "y": 92.2
       },
-      "width": 172.0,
+      "width": 130.0,
       "height": 128.0,
       "node_type": "while_loop",
-      "ui_selection": "Script Box.script_out_1",
-      "condition_expr": "Script Box.script_out_1",
+      "ui_selection": "Script Box.script_out_0",
+      "condition_expr": "Script Box.script_out_0",
       "loop_type": "While",
       "for_start": "",
       "for_end": "",
@@ -49,8 +49,8 @@
       "id": 3,
       "display_name": "Behavior",
       "position": {
-        "x": 395.9,
-        "y": 77.5
+        "x": 236.5,
+        "y": 109.6
       },
       "width": 159.0,
       "height": 80.0,
@@ -63,8 +63,8 @@
       "id": 2,
       "display_name": "Behavior",
       "position": {
-        "x": 382.6,
-        "y": 184.7
+        "x": 234.3,
+        "y": 267.0
       },
       "width": 159.0,
       "height": 80.0,
@@ -77,8 +77,8 @@
       "id": 1,
       "display_name": "Sensor",
       "position": {
-        "x": -78.3,
-        "y": -187.6
+        "x": 73.0,
+        "y": -176.3
       },
       "width": 181.0,
       "height": 94.0,
@@ -91,11 +91,11 @@
       "id": 0,
       "display_name": "Script Box",
       "position": {
-        "x": 151.1,
-        "y": -204.5
+        "x": 54.1,
+        "y": -69.2
       },
       "width": 438.0,
-      "height": 139.0,
+      "height": 136.0,
       "node_type": "opaque_code",
       "external_kind": "script",
       "script_ref": "distance_check",
@@ -105,22 +105,12 @@
             "slot": "script_in_0",
             "name": "sonic_dict",
             "data_type": "dict"
-          },
-          {
-            "slot": "script_in_1",
-            "name": "in_1",
-            "data_type": "any"
           }
         ],
         "outputs": [
           {
             "slot": "script_out_0",
-            "name": "result",
-            "data_type": "any"
-          },
-          {
-            "slot": "script_out_1",
-            "name": "green_flag",
+            "name": "flag",
             "data_type": "bool"
           }
         ]
@@ -130,6 +120,12 @@
     }
   ],
   "connections": [
+    {
+      "from_node": 0,
+      "from_port": "script_out_0",
+      "to_node": 4,
+      "to_port": "condition"
+    },
     {
       "from_node": 6,
       "from_port": "flow_out",
@@ -161,10 +157,16 @@
       "to_port": "script_in_0"
     },
     {
-      "from_node": 0,
-      "from_port": "script_out_1",
-      "to_node": 4,
-      "to_port": "condition"
+      "from_node": 4,
+      "from_port": "loop_body",
+      "to_node": 1,
+      "to_port": "flow_in"
+    },
+    {
+      "from_node": 1,
+      "from_port": "flow_out",
+      "to_node": 0,
+      "to_port": "flow_in"
     }
   ],
   "groups": [],
@@ -198,6 +200,6 @@
   "package_metadata": {},
   "schema_version": "1.4",
   "unitport_version": "cycle3",
-  "saved_at": "2026-03-08T12:52:49.164914Z",
+  "saved_at": "2026-03-09T15:18:30.104016Z",
   "source": "mission_editor_ui"
 }

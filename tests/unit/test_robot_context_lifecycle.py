@@ -48,6 +48,10 @@ class _FakeBrandRegistry:
                 "b2": "unitree", "h1": "unitree"}
     def get_brand_model_map(self):
         return {"unitree": ["go2", "a1", "b1", "b2", "h1"]}
+    def discover(self):
+        pass
+    def get_brands(self):
+        return ["Unitree"]
 
 class _FakeBaseRobotModel:
     is_available = True
@@ -59,16 +63,6 @@ class _FakeBaseRobotModel:
 class _FakeUnitreeModel(_FakeBaseRobotModel):
     def __init__(self, robot_type="go2"):
         self.robot_type = robot_type
-
-sys.modules["models.brand_registry"] = _make_mod(
-    "models.brand_registry", BrandRegistry=_FakeBrandRegistry
-)
-sys.modules["models.base"] = _make_mod(
-    "models.base", BaseRobotModel=_FakeBaseRobotModel
-)
-sys.modules["models.Unitree"] = _make_mod(
-    "models.Unitree", UnitreeModel=_FakeUnitreeModel
-)
 
 # ── Imports under test ─────────────────────────────────────────────────────
 from system.service.lifecycle import LifecyclePolicy, LifecycleReason, LifecycleResult  # noqa: E402
@@ -573,6 +567,35 @@ class TestRunScopedPolicy(_RobotContextTestBase):
         RobotContext.set_run_scoped_policy(LifecyclePolicy(run_preflight=True))
         RobotContext.reset()
         self.assertIsNone(RobotContext.get_run_scoped_policy())
+
+
+def setup_module(module):
+    """Install model stubs into sys.modules for the duration of this test module."""
+    sys.modules["models.brand_registry"] = _make_mod(
+        "models.brand_registry", BrandRegistry=_FakeBrandRegistry
+    )
+    sys.modules["models.base"] = _make_mod(
+        "models.base", BaseRobotModel=_FakeBaseRobotModel
+    )
+    sys.modules["models.Unitree"] = _make_mod(
+        "models.Unitree", UnitreeModel=_FakeUnitreeModel
+    )
+
+
+def teardown_module(module):
+    """Restore stubbed sys.modules entries after this test module so that
+    subsequent test modules can import the real models package cleanly."""
+    import sys as _sys
+    for key in ("models.brand_registry", "models.base", "models.Unitree", "models"):
+        _sys.modules.pop(key, None)
+    for key in list(_sys.modules.keys()):
+        if key.startswith("models."):
+            _sys.modules.pop(key, None)
+    # Also evict system.brand_packages.unitree modules imported while the fake
+    # models.base stub was active so subsequent tests get the real classes.
+    for key in list(_sys.modules.keys()):
+        if key.startswith("system.brand_packages.unitree"):
+            _sys.modules.pop(key, None)
 
 
 if __name__ == "__main__":

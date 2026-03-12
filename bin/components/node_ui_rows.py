@@ -496,6 +496,8 @@ class ComboSetting(QWidget):
             f"QComboBox {{ background: {combo_bg_color}; color: {text_color}; "
             f"border: 1px solid {border_color}; border-left: 0px; border-right: {right_border}; "
             f"border-radius: 0px; padding: 1px 6px; font-size: 10px; }} "
+            f"QComboBox::item {{ color: {text_color}; background: {combo_bg_color}; }} "
+            f"QComboBox::item:selected {{ background: {border_color}; color: {text_color}; }} "
             f"QComboBox QAbstractItemView {{ color: {text_color}; }}"
         )
         row.addWidget(self.combo, 1)
@@ -596,6 +598,8 @@ class BehaviorSetting(QWidget):
             f"QComboBox {{ background: {combo_bg_color}; color: {text_color}; "
             f"border: 1px solid {border_color}; border-left: {left_border}; border-right: {right_border}; "
             f"border-radius: 0px; padding: 1px 6px; font-size: 10px; }} "
+            f"QComboBox::item {{ color: {text_color}; background: {combo_bg_color}; }} "
+            f"QComboBox::item:selected {{ background: {border_color}; color: {text_color}; }} "
             f"QComboBox QAbstractItemView {{ color: {text_color}; }}"
         )
         row.addWidget(self.combo, 1)
@@ -668,6 +672,8 @@ class BehaviorSetting(QWidget):
             f"QComboBox {{ background: {self._combo_bg_color}; color: {self._text_color}; "
             f"border: 1px solid {self._border_color}; border-left: {left_border}; border-right: {right_border}; "
             f"border-radius: 0px; padding: 1px 6px; font-size: 10px; }} "
+            f"QComboBox::item {{ color: {self._text_color}; background: {self._combo_bg_color}; }} "
+            f"QComboBox::item:selected {{ background: {self._border_color}; color: {self._text_color}; }} "
             f"QComboBox QAbstractItemView {{ color: {self._text_color}; }}"
             f"QComboBox QLineEdit {{ background: {self._combo_bg_color}; color: {self._text_color}; "
             f"border: 0px; padding: 0px; }}"
@@ -787,6 +793,16 @@ class ScriptInAndOut(QWidget):
         root.addWidget(self.output_box, 1)
         self.refresh_style()
 
+    def notify_content_changed(self) -> None:
+        """Invalidate layout/geometry caches after row add/remove."""
+        for layout in (self.layout(), self.input_layout, self.output_layout):
+            if layout is not None:
+                layout.invalidate()
+                layout.activate()
+        for widget in (self.input_box, self.output_box, self):
+            if widget is not None:
+                widget.updateGeometry()
+
     def add_input_row(self, data_type: str = "any", var_name: str = "") -> Dict[str, QWidget]:
         row = QWidget()
         row.setFixedHeight(self._h)
@@ -840,6 +856,7 @@ class ScriptInAndOut(QWidget):
             "name_box": name_box,
         }
         self.input_rows.append(entry)
+        self.notify_content_changed()
         return entry
 
     def add_output_row(self, var_name: str = "", data_type: str = "any") -> Dict[str, QWidget]:
@@ -895,6 +912,7 @@ class ScriptInAndOut(QWidget):
             "right_box": right_box,
         }
         self.output_rows.append(entry)
+        self.notify_content_changed()
         return entry
 
     def clear_input_rows(self):
@@ -904,6 +922,7 @@ class ScriptInAndOut(QWidget):
                 row.setParent(None)
                 row.deleteLater()
         self.input_rows.clear()
+        self.notify_content_changed()
 
     def clear_output_rows(self):
         for entry in self.output_rows:
@@ -912,6 +931,7 @@ class ScriptInAndOut(QWidget):
                 row.setParent(None)
                 row.deleteLater()
         self.output_rows.clear()
+        self.notify_content_changed()
 
     def refresh_style(self):
         """Re-apply Script Box dedicated colors after theme/load mutations."""
@@ -995,20 +1015,15 @@ class ScriptInAndOut(QWidget):
         Uses both deterministic row math and real Qt size hints to avoid
         clipping when fonts/styles differ after load/theme changes.
         """
+        self.notify_content_changed()
         title_h = max(self.input_title.sizeHint().height(), self.output_title.sizeHint().height(), 14)
         row_count = max(len(self.input_rows), len(self.output_rows), 1)
         # top+bottom margins (4+4) + title + spacing below title (2) + rows + inter-row spacing.
         rows_h = row_count * self._h + max(0, row_count - 1) * 2
         computed = int(8 + title_h + 2 + rows_h)
-
-        # Activate layout so sizeHint reflects latest child additions/removals.
-        layout = self.layout()
-        if layout is not None:
-            layout.activate()
-        hint_h = int(self.sizeHint().height())
-        in_h = int(self.input_box.sizeHint().height()) if self.input_box is not None else 0
-        out_h = int(self.output_box.sizeHint().height()) if self.output_box is not None else 0
-        return max(computed, hint_h, in_h, out_h) + 4
+        in_h = int(self.input_box.minimumSizeHint().height()) if self.input_box is not None else 0
+        out_h = int(self.output_box.minimumSizeHint().height()) if self.output_box is not None else 0
+        return max(computed, in_h, out_h) + 4
 
 class MainPicker(QWidget):
     """Picker chip: [combo(without native arrow)] [square trigger with '▼']."""

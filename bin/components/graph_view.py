@@ -43,6 +43,7 @@ class GraphView(QGraphicsView):
         # Panning state
         self._is_panning = False
         self._pan_start_pos = None
+        self._pan_button = Qt.NoButton
 
         # Connection state used to disable rubber-band while wiring
         self._is_connecting = False
@@ -113,10 +114,11 @@ class GraphView(QGraphicsView):
                 self.setDragMode(QGraphicsView.NoDrag)
                 log_debug("Connection start detected, rubber-band selection disabled")
 
-        # Middle button panning
-        if event.button() == Qt.MiddleButton:
+        # Middle/right button panning
+        if event.button() in (Qt.MiddleButton, Qt.RightButton):
             self._is_panning = True
             self._pan_start_pos = event.pos()
+            self._pan_button = event.button()
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
@@ -144,8 +146,9 @@ class GraphView(QGraphicsView):
             self.setDragMode(QGraphicsView.RubberBandDrag)
             log_debug("Connection finished, rubber-band selection restored")
 
-        if self._is_panning:
+        if self._is_panning and event.button() == self._pan_button:
             self._is_panning = False
+            self._pan_button = Qt.NoButton
             self.setCursor(Qt.ArrowCursor)
             event.accept()
             return
@@ -154,7 +157,8 @@ class GraphView(QGraphicsView):
 
     def leaveEvent(self, event):
         """Reset cursor/hover state when mouse leaves canvas."""
-        self.setCursor(Qt.ArrowCursor)
+        if not self._is_panning:
+            self.setCursor(Qt.ArrowCursor)
         scene = self.scene()
         if isinstance(scene, GraphScene):
             scene._clear_port_hover()

@@ -1,4 +1,0 @@
-bosdyn-client>=3.3.0
-keras-retinanet
-opencv-python
-tensorflow

@@ -1,5 +1,0 @@
--f ../../../prebuilt
-bosdyn-client >= 3.1
-
-distro ; platform_system != "Windows"
-XInput-Python ; platform_system == "Windows"

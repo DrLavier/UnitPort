@@ -1,7 +1,0 @@
--f ../../../prebuilt
-bosdyn-client >= 3.0
-
-matplotlib
-numpy
-opencv-python
-requests

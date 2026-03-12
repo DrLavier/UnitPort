@@ -9,6 +9,8 @@ import configparser
 from pathlib import Path
 from typing import Optional, Any
 
+from models.sdk_manager import SdkManager
+
 
 class ConfigManager:
     """配置管理器"""
@@ -36,12 +38,25 @@ class ConfigManager:
 
     def _default_path_values(self) -> dict:
         """Return default PATH entries relative to project root."""
+        sdk_manager = SdkManager()
+        unitree_sdk = sdk_manager.resolve_path(
+            'unitree_sdk',
+            self.project_root / 'models' / 'Unitree' / 'unitree_sdk2_python',
+        )
+        unitree_mujoco = sdk_manager.resolve_path(
+            'unitree_mujoco',
+            self.project_root / 'models' / 'Unitree' / 'unitree_mujoco',
+        )
+        unitree_robots = sdk_manager.resolve_path(
+            'unitree_robots',
+            self.project_root / 'models' / 'Unitree' / 'unitree_mujoco' / 'unitree_robots',
+        )
         return {
             'project_root': str(self.project_root),
             'models_root': './models',
-            'unitree_sdk': './models/Unitree/unitree_sdk2_python',
-            'unitree_mujoco': './models/Unitree/unitree_mujoco',
-            'unitree_robots': './models/Unitree/unitree_mujoco/unitree_robots',
+            'unitree_sdk': self._to_config_path(unitree_sdk),
+            'unitree_mujoco': self._to_config_path(unitree_mujoco),
+            'unitree_robots': self._to_config_path(unitree_robots),
             'log_dir': './logs',
         }
 
@@ -107,6 +122,13 @@ class ConfigManager:
             'graph_editor_width': '820',
             'code_editor_width': '460',
             'module_palette_width': '320',
+            'icon_acc': 'assets/icon/icon_acc.svg',
+            'icon_acc_dark': 'assets/icon/icon_acc_w.svg',
+            'icon_prj': 'assets/icon/icon_prj.svg',
+            'icon_prj_dark': 'assets/icon/icon_prj_w.svg',
+            'icon_nod': 'assets/icon/icon_nod.svg',
+            'icon_nod_dark': 'assets/icon/icon_nod_w.svg',
+            'icon_theme_toggle': 'assets/icon/icon_L&D.svg',
             'icon_play': 'assets/icon/icon_play.svg',
             'icon_pause': 'assets/icon/icon_pause.svg',
             'icon_stop': 'assets/icon/icon_stop.svg',
@@ -235,6 +257,10 @@ class ConfigManager:
             Path对象
         """
         defaults = self._default_path_values()
+        sdk_override = SdkManager().resolve_path(path_key)
+        if sdk_override is not None:
+            return sdk_override
+
         path_str = self.get('PATH', path_key, fallback=defaults.get(path_key, ''))
 
         if not path_str:
@@ -247,6 +273,13 @@ class ConfigManager:
             path = self.project_root / path
         
         return path
+
+    def _to_config_path(self, path: Path) -> str:
+        """Persist project-local paths as relative strings when possible."""
+        try:
+            return f"./{path.relative_to(self.project_root).as_posix()}"
+        except ValueError:
+            return str(path)
     
     def get_available_robots(self) -> list:
         """获取可用机器人列表"""

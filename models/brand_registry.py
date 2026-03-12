@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Brand Registry — auto-discovers brand/model mappings from models/ subdirectories.
+Brand Registry — auto-discovers brand/model mappings from stable brand packages.
 
-Each brand package (e.g. models/Unitree/__init__.py) should export:
+Each brand package (e.g. system/brand_packages/unitree/__init__.py) should export:
     SUPPORTED_MODELS: list[str]   e.g. ["go2", "a1", "b1", "b2", "h1"]
 
 Discovery reads SUPPORTED_MODELS via AST parsing (no module import) to avoid
@@ -12,7 +12,10 @@ circular-import and case-sensitivity issues on Windows.
 
 import ast
 import os
+from pathlib import Path
 from typing import Dict, List
+
+from .sdk_manager import SdkManager
 
 
 class _BrandInfo:
@@ -46,34 +49,28 @@ class BrandRegistry:
             self.discover()
 
     def discover(self):
-        """Scan models/ subdirectories and populate the registry."""
-        models_dir = os.path.dirname(os.path.abspath(__file__))
+        """Scan stable brand packages and populate the registry."""
         self._brands.clear()
+        package_root = Path(__file__).resolve().parent.parent / "system" / "brand_packages"
 
-        for entry in sorted(os.listdir(models_dir)):
-            subdir = os.path.join(models_dir, entry)
-            if not os.path.isdir(subdir):
-                continue
-            if entry.startswith("_") or entry.startswith("."):
-                continue
-
-            init_path = os.path.join(subdir, "__init__.py")
-            has_init = os.path.isfile(init_path)
+        for brand_name in SdkManager().get_registered_brand_names():
+            key = _normalize_brand_key(brand_name)
+            init_path = package_root / key / "__init__.py"
+            has_init = init_path.is_file()
 
             supported_models: List[str] = []
             has_adapter = False
 
             if has_init:
-                supported_models = self._parse_supported_models(init_path)
+                supported_models = self._parse_supported_models(str(init_path))
                 has_adapter = bool(supported_models)
 
             if not supported_models:
                 supported_models = ["(no models)"]
                 has_adapter = False
 
-            key = entry.lower()
             self._brands[key] = _BrandInfo(
-                display_name=entry,
+                display_name=brand_name,
                 models=supported_models,
                 has_adapter=has_adapter,
             )
@@ -134,3 +131,7 @@ def _eval_list_literal(node) -> List[str]:
                 result.append(elt.value)
         return result
     return []
+
+
+def _normalize_brand_key(value: str) -> str:
+    return value.strip().lower().replace("-", "").replace("_", "")

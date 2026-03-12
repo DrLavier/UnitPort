@@ -1,7 +1,0 @@
--f ../../../prebuilt
-bosdyn-client >= 3.1
-
-numpy
-opencv-python
-simple_pid
-

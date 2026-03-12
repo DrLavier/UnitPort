@@ -1,2 +1,0 @@
--f ../../../prebuilt
-bosdyn-orbit>=4.1

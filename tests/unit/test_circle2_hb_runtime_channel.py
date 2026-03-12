@@ -596,5 +596,11 @@ class TestHBRuntimeChannelWithRealBridge(unittest.TestCase):
         self.assertIsInstance(resp.ok, bool)
 
 
+def teardown_module(module):
+    """Remove the nodes stub so subsequent test modules get the real registry."""
+    import sys as _sys
+    _sys.modules.pop("nodes", None)
+
+
 if __name__ == "__main__":
     unittest.main()

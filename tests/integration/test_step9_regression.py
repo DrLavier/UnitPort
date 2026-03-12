@@ -118,6 +118,36 @@ class TestScriptUpdateIORouting(unittest.TestCase):
         self.gs.script_update_io(node_id, result)   # must not raise
 
 
+class TestScriptInAndOutHeightRegression(unittest.TestCase):
+    def setUp(self):
+        app = _get_app()
+        if app is None:
+            self.skipTest("Qt not available")
+        try:
+            from bin.components.node_ui_rows import ScriptInAndOut
+            self.widget = ScriptInAndOut(
+                "#111111", "#222222", "#333333", "#eeeeee", "#101010"
+            )
+        except Exception:
+            self.skipTest("ScriptInAndOut not available")
+
+    def test_preferred_height_shrinks_after_row_removal(self):
+        base_h = self.widget.preferred_height()
+        self.widget.add_input_row("float", "speed")
+        self.widget.add_input_row("int", "mode")
+        grown_h = self.widget.preferred_height()
+        self.assertGreater(grown_h, base_h)
+
+        first = self.widget.input_rows[0]["row"]
+        first.setParent(None)
+        first.deleteLater()
+        self.widget.input_rows.pop(0)
+        self.widget.notify_content_changed()
+        shrunk_h = self.widget.preferred_height()
+
+        self.assertLess(shrunk_h, grown_h)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. _compute_smart_indent — end-to-end pattern coverage
 # ─────────────────────────────────────────────────────────────────────────────

@@ -163,13 +163,11 @@ class MainZonePanel(QWidget):
         canvas_header_layout.addWidget(self.canvas_toggle_btn)
         canvas_zone_layout.addWidget(self.canvas_header)
 
-        # canvas splitter (module_palette | graph_view)
+        # canvas splitter (graph_view only; node library now lives in sidebar)
         self.canvas_splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.canvas_splitter.addWidget(self.module_palette)
         self.canvas_splitter.addWidget(self.graph_view)
-        self.canvas_splitter.setSizes([240, 760])
-        self.canvas_splitter.setStretchFactor(0, 0)
-        self.canvas_splitter.setStretchFactor(1, 1)
+        self.canvas_splitter.setSizes([1000])
+        self.canvas_splitter.setStretchFactor(0, 1)
 
         # mission_zone = canvas content area (parent for floating mission control)
         self.mission_zone = QWidget()
@@ -191,16 +189,22 @@ class MainZonePanel(QWidget):
         self.behavior_panel = BehaviorPanel()
         self.behavior_panel.back_requested.connect(self.open_mission_tab)
 
-        # Settings/Capabilities surface (Capabilities merged below Settings)
+        # Settings/Capabilities surface — two separate workspace tabs
         self.settings_panel = SettingsPanel("unitree", {})
         self.capability_inspector = CapabilityInspector({})
+        # Wrapper kept for backward compat with _ensure_workspace_tab("settings")
         self.settings_workspace = QWidget()
         settings_workspace_layout = QVBoxLayout(self.settings_workspace)
         settings_workspace_layout.setContentsMargins(0, 0, 0, 0)
         settings_workspace_layout.setSpacing(6)
         settings_workspace_layout.addWidget(self.settings_panel)
-        settings_workspace_layout.addWidget(self.capability_inspector)
         settings_workspace_layout.addStretch(1)
+
+        # Add Settings and Capabilities as permanent workspace tabs
+        self.workspace_tabs.addTab(self.settings_workspace, "Settings")
+        self.workspace_tabs.addTab(self.capability_inspector, "Capabilities")
+        # Switch back to mission tab (index 0)
+        self.workspace_tabs.setCurrentIndex(0)
 
         self.capability_inspector.focus_setting.connect(self._on_capability_focus_setting)
 
@@ -509,9 +513,10 @@ class MainZonePanel(QWidget):
         self._sync_zone_toggle_buttons()
 
     def _refresh_workspace_tab_close_buttons(self) -> None:
+        _permanent = {self.mission_zone, self.settings_workspace, self.capability_inspector}
         tab_bar = self.workspace_tabs.tabBar()
         for i in range(self.workspace_tabs.count()):
-            if self.workspace_tabs.widget(i) is self.mission_zone:
+            if self.workspace_tabs.widget(i) in _permanent:
                 tab_bar.setTabButton(i, tab_bar.ButtonPosition.RightSide, None)
 
     def _find_workspace_tab_index(self, page: QWidget) -> int:
@@ -521,9 +526,12 @@ class MainZonePanel(QWidget):
         if tab_id == "behavior":
             page = self.behavior_panel
             title = title_override.strip() or "Behavior"
-        elif tab_id in ("settings", "capabilities"):
+        elif tab_id == "settings":
             page = self.settings_workspace
             title = "Settings"
+        elif tab_id == "capabilities":
+            page = self.capability_inspector
+            title = "Capabilities"
         else:
             return -1
 
@@ -549,7 +557,8 @@ class MainZonePanel(QWidget):
 
     def _on_workspace_tab_close_requested(self, index: int) -> None:
         page = self.workspace_tabs.widget(index)
-        if page is self.mission_zone:
+        _permanent = {self.mission_zone, self.settings_workspace, self.capability_inspector}
+        if page in _permanent:
             return
         self.workspace_tabs.removeTab(index)
         self.open_mission_tab()
@@ -656,8 +665,9 @@ class MainZonePanel(QWidget):
             self.workspace_tabs.setCurrentIndex(idx)
 
     def open_capabilities_tab(self) -> None:
-        # Capabilities are merged into Settings workspace.
-        self.open_settings_tab()
+        idx = self._ensure_workspace_tab("capabilities")
+        if idx >= 0:
+            self.workspace_tabs.setCurrentIndex(idx)
 
     def _init_workspace_tab_shortcuts(self):
         """Bind workspace tab-switch shortcuts from user.ini [SHORTCUTS]."""

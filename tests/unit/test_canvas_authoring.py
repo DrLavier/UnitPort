@@ -313,6 +313,14 @@ class TestKeyboardShortcutWiring(unittest.TestCase):
         self.assertIn("group_selected_nodes", source)
         self.assertIn("ungroup_selected_groups", source)
 
+    def test_backspace_is_not_wired_to_delete_nodes(self):
+        """Backspace must not delete canvas nodes; only Delete should."""
+        import inspect
+        from bin.components.graph_scene import GraphScene
+        source = inspect.getsource(GraphScene.keyPressEvent)
+        self.assertIn("Key_Delete", source)
+        self.assertNotIn("Key_Backspace", source)
+
     def test_group_selected_nodes_method_exists(self):
         """GraphScene exposes group_selected_nodes."""
         from bin.components.graph_scene import GraphScene

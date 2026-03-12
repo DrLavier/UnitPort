@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Robot Model Registry
-Hot-pluggable robot model management
-"""
+"""Robot model registry with dynamic brand loading."""
 
+import importlib
 from typing import Dict, Type, Optional
+
 from .base import BaseRobotModel
+from .brand_registry import BrandRegistry
 
 # Global model registry
 REGISTERED_MODELS: Dict[str, Type[BaseRobotModel]] = {}
@@ -20,7 +20,7 @@ def register_model(name: str, model_class: Type[BaseRobotModel]):
         name: Model name (e.g., 'unitree')
         model_class: Model class
     """
-    REGISTERED_MODELS[name] = model_class
+    REGISTERED_MODELS[name.lower()] = model_class
 
 
 def get_model(name: str) -> Optional[Type[BaseRobotModel]]:
@@ -33,7 +33,12 @@ def get_model(name: str) -> Optional[Type[BaseRobotModel]]:
     Returns:
         Model class, or None if not found
     """
-    return REGISTERED_MODELS.get(name)
+    key = name.lower()
+    if not REGISTERED_MODELS:
+        refresh_models()
+    if key not in REGISTERED_MODELS:
+        _autoload_model(key)
+    return REGISTERED_MODELS.get(key)
 
 
 def list_models() -> list:
@@ -46,21 +51,59 @@ def list_models() -> list:
     return list(REGISTERED_MODELS.keys())
 
 
-# ========== Auto-register All Models ==========
+def refresh_models() -> None:
+    """Attempt to import and register all discoverable brands."""
+    try:
+        _registry_mod = importlib.import_module("models.brand_registry")
+        _BrandReg = getattr(_registry_mod, "BrandRegistry", BrandRegistry)
+    except Exception:
+        _BrandReg = BrandRegistry
+    registry = _BrandReg()
+    registry.discover()
+    for brand in registry.get_brands():
+        _autoload_model(brand.lower())
 
-# Register Unitree model
-try:
-    from .Unitree import UnitreeModel
-    register_model("unitree", UnitreeModel)
-except ImportError:
-    pass
 
-# Register other models (example)
-# try:
-#     from .other_robot import OtherRobotModel
-#     register_model("other", OtherRobotModel)
-# except ImportError:
-#     pass
+def _autoload_model(name: str) -> None:
+    """Import the brand package on demand and register its model class if exported."""
+    try:
+        _registry_mod = importlib.import_module("models.brand_registry")
+        _BrandReg = getattr(_registry_mod, "BrandRegistry", BrandRegistry)
+    except Exception:
+        _BrandReg = BrandRegistry
+    registry = _BrandReg()
+    registry.discover()
+    brand_map = {brand.lower(): _module_key(brand) for brand in registry.get_brands()}
+    module_name = brand_map.get(name)
+    if module_name is None:
+        return
+
+    try:
+        module = importlib.import_module(f"system.brand_packages.{module_name}")
+    except Exception:
+        return
+
+    # Import BaseRobotModel fresh to avoid stale stub bindings from test isolation.
+    try:
+        _base_mod = importlib.import_module("models.base")
+        _BaseModel = getattr(_base_mod, "BaseRobotModel", BaseRobotModel)
+    except Exception:
+        _BaseModel = BaseRobotModel
+
+    for attr_name in dir(module):
+        attr = getattr(module, attr_name, None)
+        if (
+            isinstance(attr, type)
+            and issubclass(attr, _BaseModel)
+            and attr is not _BaseModel
+        ):
+            register_model(name, attr)
+            break
+
+
+def _module_key(brand_name: str) -> str:
+    return brand_name.strip().lower().replace("-", "").replace("_", "")
+
 
 __all__ = [
     'BaseRobotModel',

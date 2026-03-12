@@ -118,7 +118,9 @@ class RobotContext:
     def _get_robot_brand_map(cls) -> Dict[str, str]:
         """Dynamic robot->brand map from BrandRegistry with fallback."""
         try:
-            mapping = cls._get_brand_registry().get_robot_brand_map()
+            registry = cls._get_brand_registry()
+            registry.discover()
+            mapping = registry.get_robot_brand_map()
             if mapping:
                 return mapping
         except Exception:
@@ -129,7 +131,9 @@ class RobotContext:
     def _get_brand_robots(cls) -> Dict[str, list]:
         """Dynamic brand->robots map from BrandRegistry with fallback."""
         try:
-            mapping = cls._get_brand_registry().get_brand_model_map()
+            registry = cls._get_brand_registry()
+            registry.discover()
+            mapping = registry.get_brand_model_map()
             if mapping:
                 return mapping
         except Exception:

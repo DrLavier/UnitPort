@@ -1,0 +1,6 @@
+Place pre-downloaded Python wheels here for offline installation.
+Expected contents:
+  *.whl files matching requirements.txt
+
+Built by: scripts/build_runtime.bat (maintainer/CI only)
+install.bat installs from this directory first (no network required).

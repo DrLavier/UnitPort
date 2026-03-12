@@ -1,6 +1,0 @@
--f ../../../prebuilt
-bosdyn-client >= 3.1
-bosdyn-mission >= 3.1
-
-google-cloud-storage
-boto3

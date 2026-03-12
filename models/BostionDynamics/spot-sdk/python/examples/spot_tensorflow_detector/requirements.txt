@@ -1,7 +1,0 @@
--f ../../../prebuilt
-bosdyn-client >= 3.1
-
-opencv-python
-Pillow
-scipy
-tensorflow ~= 2.0.4

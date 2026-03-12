@@ -847,6 +847,14 @@ class GraphScene(QGraphicsScene):
                 color: {input_text};
                 selection-background-color: {popup_sel};
             }}
+            QComboBox::item {{
+                color: {input_text};
+                background: {popup_bg};
+            }}
+            QComboBox::item:selected {{
+                background: {popup_sel};
+                color: {input_text};
+            }}
         """
         self._input_style = f"""
             QLineEdit {{
@@ -1154,7 +1162,7 @@ class GraphScene(QGraphicsScene):
 
     def keyPressEvent(self, event):
         """Keyboard press event"""
-        if event.key() == Qt.Key_Delete or event.key() == Qt.Key_Backspace:
+        if event.key() == Qt.Key_Delete:
             focused = QApplication.focusWidget()
             if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
                 super().keyPressEvent(event)
@@ -5426,6 +5434,8 @@ class GraphScene(QGraphicsScene):
         if entry in entries:
             entries.remove(entry)
         node_item._script_input_rows = entries
+        if io_widget is not None and isValid(io_widget) and hasattr(io_widget, "notify_content_changed"):
+            io_widget.notify_content_changed()
 
     def _script_remove_output_entry(self, node_item, entry: Dict[str, Any]):
         """Remove one output row entry: detach connections, remove port, remove widget."""
@@ -5452,16 +5462,16 @@ class GraphScene(QGraphicsScene):
         if entry in entries:
             entries.remove(entry)
         node_item._script_output_rows = entries
+        if io_widget is not None and isValid(io_widget) and hasattr(io_widget, "notify_content_changed"):
+            io_widget.notify_content_changed()
 
     def script_update_io(self, node_id: int, compile_result: dict):
         """Update Script Box input AND output ports from a compile_result dict.
 
-        Called by ScriptEditor on Save & Compile (Step 4+). Uses name-stable
-        merge semantics so existing interfaces are preserved by default:
+        Called by ScriptEditor on Save & Compile (Step 4+). The compile result
+        is authoritative:
         - names present in compile_result are added or type-updated
-        - names absent from compile_result are NOT removed
-        This keeps external wiring stable while allowing script-declared
-        getInput()/setOutput() to add interfaces incrementally.
+        - names absent from compile_result are removed with connection cleanup
 
         compile_result keys (from analyze_script):
             inputs  : [{"name": str, "data_type": str, "slot": str|None}, ...]
@@ -5484,9 +5494,26 @@ class GraphScene(QGraphicsScene):
         current_in_by_name: Dict[str, Any] = {
             self._script_entry_name(e): e for e in current_input_entries
         }
-        # Add new / update existing in declaration order (no removals)
+        new_input_names = {
+            str(inp.get("name") or "").strip() for inp in new_inputs if str(inp.get("name") or "").strip()
+        }
+        for name, entry in list(current_in_by_name.items()):
+            if name in new_input_names:
+                continue
+            port = entry.get("port")
+            connection_count = len(list(port.data(2) or [])) if port and isValid(port) else 0
+            if connection_count:
+                log_warning(
+                    f"[GraphScene] Removing Script Box input '{name}' with "
+                    f"{connection_count} existing connection(s) after compile sync."
+                )
+            self._script_remove_input_entry(node_item, entry)
+
+        # Add new / update existing in declaration order
         for inp in new_inputs:
-            name = inp["name"]
+            name = str(inp.get("name") or "").strip()
+            if not name:
+                continue
             data_type = inp.get("data_type", "any")
             if name in current_in_by_name:
                 entry = current_in_by_name[name]
@@ -5506,9 +5533,26 @@ class GraphScene(QGraphicsScene):
         current_out_by_name: Dict[str, Any] = {
             self._script_entry_name(e): e for e in current_output_entries
         }
-        # Add new / update existing in declaration order (no removals)
+        new_output_names = {
+            str(out.get("name") or "").strip() for out in new_outputs if str(out.get("name") or "").strip()
+        }
+        for name, entry in list(current_out_by_name.items()):
+            if name in new_output_names:
+                continue
+            port = entry.get("port")
+            connection_count = len(list(port.data(2) or [])) if port and isValid(port) else 0
+            if connection_count:
+                log_warning(
+                    f"[GraphScene] Removing Script Box output '{name}' with "
+                    f"{connection_count} existing connection(s) after compile sync."
+                )
+            self._script_remove_output_entry(node_item, entry)
+
+        # Add new / update existing in declaration order
         for out in new_outputs:
-            name = out["name"]
+            name = str(out.get("name") or "").strip()
+            if not name:
+                continue
             data_type = out.get("data_type", "any")
             if name in current_out_by_name:
                 entry = current_out_by_name[name]

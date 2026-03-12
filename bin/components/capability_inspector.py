@@ -95,6 +95,11 @@ class CapabilityInspector(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        # Persistent header label (compatibility handle expected by tests)
+        self._header_label = QLabel("")
+        self._header_label.setObjectName("capHeaderLabel")
+        root.addWidget(self._header_label)
+
         # Scrollable content
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
@@ -118,6 +123,8 @@ class CapabilityInspector(QWidget):
         layout.setSpacing(10)
 
         if not isinstance(self._cap, dict) or not self._cap:
+            # Empty cap — show placeholder but do NOT clear _header_label so
+            # callers that want to preserve the last-known brand info can do so.
             lbl = QLabel("No capability data available.")
             lbl.setStyleSheet(_STYLE_UNAVAILABLE)
             layout.addWidget(lbl)
@@ -129,6 +136,8 @@ class CapabilityInspector(QWidget):
         brand   = self._cap.get("brand",   "")
         adapter = self._cap.get("adapter", "")
         if brand or adapter:
+            header_text = f"Brand: {brand or '—'}  |  Adapter: {adapter or '—'}"
+            self._header_label.setText(header_text)
             id_label = QLabel(
                 f"<b>Brand:</b> {brand or '—'}  &nbsp; "
                 f"<b>Adapter:</b> {adapter or '—'}"

@@ -5,11 +5,12 @@ Main UI Module
 Contains MainWindow and main UI components
 """
 
-from PySide6.QtCore import Qt, QEvent, QTimer
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QStatusBar, QLabel, QComboBox, QMessageBox, QPushButton, QSizePolicy,
+    QStatusBar, QLabel, QComboBox, QMessageBox,
     QFileDialog,
 )
 import json
@@ -17,6 +18,8 @@ import os
 from pathlib import Path
 
 from bin.layout import MainZonePanel
+from bin.components import SidebarDock
+from bin.components.sidebar_dock import ProjectFilesPanel
 from bin.scenario import ScenarioPanelState
 from system.runtime import RuntimeEngine
 from bin.core.simulation_thread import SimulationThread
@@ -44,6 +47,7 @@ class MainWindow(QMainWindow):
         self._last_exec_graph: dict = {}
         self.runtime_engine = RuntimeEngine()
         self.scenario_state = ScenarioPanelState()
+        self.project_files_panel = None
 
         # Circle 2: shared BehaviorCompilerBridge — owned here, injected into
         # both the RuntimeEngine (for mission-time behavior dispatch) and the
@@ -105,52 +109,22 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         root_layout.addLayout(main_layout, 1)
 
-        # Left: user zone (collapsed by default, expands on hover)
-        self._user_zone_collapsed_width = 56
-        self._user_zone_expanded_width = 180
-        self.user_zone = QWidget()
-        self.user_zone.setObjectName("userZone")
-        self.user_zone.setFixedWidth(self._user_zone_collapsed_width)
-        self.user_zone.installEventFilter(self)
-        user_layout = QVBoxLayout(self.user_zone)
-        user_layout.setContentsMargins(8, 10, 8, 10)
-        user_layout.setSpacing(8)
-
-        self._user_zone_buttons = []
-        placeholders = [
-            ("U", "User"),
-            ("P", "Projects"),
-            ("A", "Assets"),
-            ("S", "Settings"),
-        ]
-        for short_text, full_text in placeholders:
-            btn = QPushButton(short_text)
-            btn.setProperty("short_text", short_text)
-            btn.setProperty("full_text", full_text)
-            btn.setObjectName("userZoneButton")
-            btn.setToolTip(full_text)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn.installEventFilter(self)
-            btn.clicked.connect(lambda _, t=full_text: log_info(f"user_zone placeholder clicked: {t}"))
-            user_layout.addWidget(btn)
-            self._user_zone_buttons.append(btn)
-        user_layout.addStretch()
-
-        # Bottom controls: theme + language buttons only (no title text).
-        self.theme_button = QPushButton()
-        self.theme_button.setObjectName("userZoneButton")
-        self.theme_button.setCursor(Qt.PointingHandCursor)
-        self.theme_button.clicked.connect(self._on_theme_toggle)
-        user_layout.addWidget(self.theme_button)
-
-        self.language_button = QPushButton("EN")
-        self.language_button.setObjectName("userZoneButton")
-        self.language_button.setCursor(Qt.PointingHandCursor)
-        self.language_button.clicked.connect(self._on_language_button_clicked)
-        user_layout.addWidget(self.language_button)
+        # Left: fixed sidebar rail + contextual slide-out content panel
+        self.sidebar = SidebarDock(
+            nav_items=[
+                ("user", "User", "icon_acc", "assets/icon/icon_acc.svg"),
+                ("projects", "Project Files", "icon_prj", "assets/icon/icon_prj.svg"),
+                ("nodes", "Nodes", "icon_nod", "assets/icon/icon_nod.svg"),
+            ],
+            config=self.config,
+        )
+        self.sidebar.panel_requested.connect(self._on_sidebar_panel_requested)
+        self.sidebar.theme_toggle_requested.connect(self._on_theme_toggle)
+        self.sidebar.language_toggle_requested.connect(self._on_language_button_clicked)
+        self.theme_button = self.sidebar.theme_button
+        self.language_button = self.sidebar.language_button
         self._sync_theme_button()
-        main_layout.addWidget(self.user_zone)
+        main_layout.addWidget(self.sidebar)
 
         # Main and right-zone splitter
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -171,6 +145,12 @@ class MainWindow(QMainWindow):
         self.graph_scene = self.main_zone.graph_scene
         self.graph_view = self.main_zone.graph_view
         self.code_editor = self.main_zone.code_editor
+        self.module_palette.set_embedded_mode(True)
+        self.project_files_panel = ProjectFilesPanel(self._workflows_root())
+        self.project_files_panel.file_activated.connect(self._open_workflow_from_path)
+        self.project_files_panel.open_folder_requested.connect(self._open_workflows_folder)
+        self.sidebar.set_panel_widget("projects", self.project_files_panel, "Project Files")
+        self.sidebar.set_panel_widget("nodes", self.module_palette, "Node Library")
         self.graph_scene.set_subgraph_opener(self._open_nested_editor)
         self.graph_scene.set_script_tab_closer(self.main_zone.close_script_tab)
         self.graph_scene.set_script_tab_renamer(self.main_zone.rename_script_tab)
@@ -216,6 +196,13 @@ class MainWindow(QMainWindow):
             text_primary = get_color('text_primary', '#ffffff')
             text_secondary = get_color('text_secondary', '#cccccc')
             hover_bg = get_color('hover_bg', '#3d3d3d')
+            sidebar_rail_bg = get_color('sidebar_rail_bg', card_bg)
+            sidebar_panel_bg = get_color('sidebar_panel_bg', bg)
+            sidebar_button_hover_bg = get_color('sidebar_button_hover_bg', hover_bg)
+            sidebar_button_checked_bg = get_color('sidebar_button_checked_bg', sidebar_button_hover_bg)
+            sidebar_tooltip_bg = get_color('sidebar_tooltip_bg', card_bg)
+            sidebar_tooltip_text = get_color('sidebar_tooltip_text', text_primary)
+            sidebar_tooltip_border = get_color('sidebar_tooltip_border', border)
             tab_bg = get_color('tab_bg', '#252525')
             tab_bg_hover = get_color('tab_bg_hover', '#3d3d3d')
             tab_bg_checked = get_color('tab_bg_checked', '#4CAF50')
@@ -230,6 +217,13 @@ class MainWindow(QMainWindow):
             text_primary = '#ffffff'
             text_secondary = '#cccccc'
             hover_bg = '#3d3d3d'
+            sidebar_rail_bg = card_bg
+            sidebar_panel_bg = bg
+            sidebar_button_hover_bg = hover_bg
+            sidebar_button_checked_bg = hover_bg
+            sidebar_tooltip_bg = card_bg
+            sidebar_tooltip_text = text_primary
+            sidebar_tooltip_border = border
             tab_bg = '#252525'
             tab_bg_hover = '#3d3d3d'
             tab_bg_checked = '#4CAF50'
@@ -249,8 +243,8 @@ class MainWindow(QMainWindow):
                 border-radius: 12px;
                 padding: 2px;
             }}
-            #userZone {{
-                background-color: {card_bg};
+            #sidebarRail {{
+                background-color: {sidebar_rail_bg};
                 border-right: 1px solid {border};
             }}
             #mainZone {{
@@ -300,17 +294,78 @@ class MainWindow(QMainWindow):
             QPushButton:hover {{
                 background-color: {hover_bg};
             }}
-            #userZoneButton {{
-                background-color: rgba(34, 34, 34, 0.22);
+            #sidebarNavButton, #sidebarUtilityButton {{
+                background-color: {sidebar_rail_bg};
                 color: {text_primary};
-                border: 1px solid rgba(20, 20, 20, 0.20);
+                border: none;
                 border-radius: 8px;
-                padding: 6px 8px;
-                text-align: left;
+                padding: 0px;
+                text-align: center;
                 font-weight: 600;
             }}
-            #userZoneButton:hover {{
-                background-color: rgba(34, 34, 34, 0.34);
+            #sidebarNavButton:hover, #sidebarUtilityButton:hover {{
+                background-color: {sidebar_button_hover_bg};
+            }}
+            #sidebarNavButton:checked {{
+                background-color: {sidebar_button_checked_bg};
+                border: 1px solid {border};
+            }}
+            #sidebarContentPanel {{
+                background-color: {sidebar_panel_bg};
+                border-left: none;
+            }}
+            #sidebarHoverTooltip {{
+                background-color: {sidebar_tooltip_bg};
+                color: {sidebar_tooltip_text};
+                border: 1px solid {sidebar_tooltip_border};
+                border-radius: 8px;
+                padding: 0px 10px;
+                font-weight: 600;
+            }}
+            #sidebarContentTitle {{
+                background-color: transparent;
+                border-radius: 0px;
+                padding: 0px;
+                font-weight: 700;
+            }}
+            #sidebarContentStack, #sidebarPlaceholderPage {{
+                background-color: transparent;
+                border: none;
+            }}
+            #projectFilesPanel {{
+                background-color: transparent;
+            }}
+            #projectFilesSearchInput {{
+                background-color: {card_bg};
+                color: {text_primary};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 6px 10px;
+            }}
+            #projectFilesList {{
+                background-color: transparent;
+                color: {text_primary};
+                border: none;
+                border-radius: 0px;
+                padding: 0px;
+            }}
+            #projectFilesList::item {{
+                padding: 6px 8px;
+                border-radius: 6px;
+            }}
+            #projectFilesList::item:hover {{
+                background-color: {hover_bg};
+                border: 1px solid {border};
+            }}
+            #projectFilesList::item:selected {{
+                background-color: {sidebar_button_checked_bg};
+                color: {text_primary};
+            }}
+            #sidebarPlaceholderLabel {{
+                background-color: transparent;
+                border-radius: 0px;
+                padding: 0px;
+                color: {text_secondary};
             }}
             #zoneToggleButton {{
                 min-width: 28px;
@@ -334,6 +389,14 @@ class MainWindow(QMainWindow):
                 border-radius: 6px;
                 padding: 2px 6px;
                 min-height: 20px;
+            }}
+            QComboBox::item {{
+                color: {text_primary};
+                background-color: {card_bg};
+            }}
+            QComboBox::item:selected {{
+                background-color: {hover_bg};
+                color: {text_primary};
             }}
             QComboBox QAbstractItemView {{
                 background-color: {card_bg};
@@ -422,29 +485,11 @@ class MainWindow(QMainWindow):
             }}
         """)
 
-    def eventFilter(self, obj, event):
-        """Handle hover behavior for collapsible user zone."""
-        if hasattr(self, "user_zone"):
-            if obj is self.user_zone:
-                if event.type() == QEvent.Type.Leave:
-                    QTimer.singleShot(60, self._collapse_user_zone_if_needed)
-            elif obj in getattr(self, "_user_zone_buttons", []):
-                if event.type() == QEvent.Type.Enter:
-                    self._set_user_zone_expanded(True)
-                elif event.type() == QEvent.Type.Leave:
-                    QTimer.singleShot(60, self._collapse_user_zone_if_needed)
-        return super().eventFilter(obj, event)
-
-    def _collapse_user_zone_if_needed(self):
-        if not self.user_zone.underMouse():
-            self._set_user_zone_expanded(False)
-
-    def _set_user_zone_expanded(self, expanded: bool):
-        width = self._user_zone_expanded_width if expanded else self._user_zone_collapsed_width
-        if self.user_zone.width() != width:
-            self.user_zone.setFixedWidth(width)
-        for btn in self._user_zone_buttons:
-            btn.setText(btn.property("full_text") if expanded else btn.property("short_text"))
+    def _on_sidebar_panel_requested(self, panel_key: str):
+        panel_name = panel_key.replace("_", " ").title()
+        if panel_key == "projects" and self.project_files_panel is not None:
+            self.project_files_panel.refresh_files()
+        log_info(f"sidebar panel requested: {panel_name}")
 
     def _toggle_cmd_zone(self):
         if self._cmd_collapsed:
@@ -574,6 +619,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "main_zone"):
             self.main_zone.set_workflow_tab_title(title or "[New File]")
             self.main_zone.set_compiler_main_tab_title(compiler_title)
+        if self.project_files_panel is not None:
+            self.project_files_panel.refresh_files()
 
     def _build_workflow_payload(self) -> dict:
         from bin.core.mission_persistence import inject_snapshot_metadata
@@ -653,24 +700,17 @@ class MainWindow(QMainWindow):
         )
         return True
 
-    def _on_open(self):
-        """Open project — shows file dialog and loads a mission file."""
+    def _load_workflow_from_path(self, path: str) -> bool:
+        """Load a workflow file from disk into the current canvas."""
         # Stage 4: unified unsaved guard (settings + behavior) before navigation.
         if not self._handle_unsaved_settings_guard(
             tr("messages.before_open", "before opening a file")
         ):
-            return
+            return False
 
         from bin.core.mission_persistence import validate_mission_schema
-
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            tr("toolbar.open", "Open Mission"),
-            self._workflows_root(),
-            "Mission Files (*.unitport);;JSON Files (*.json);;All Files (*)",
-        )
         if not path:
-            return
+            return False
 
         try:
             with open(path, "r", encoding="utf-8") as fh:
@@ -682,7 +722,7 @@ class MainWindow(QMainWindow):
                 tr("messages.error", "Error"),
                 tr("messages.open_read_error", "Could not read file: {error}", error=str(exc)),
             )
-            return
+            return False
 
         ok, reason = validate_mission_schema(data)
         if not ok:
@@ -696,11 +736,11 @@ class MainWindow(QMainWindow):
                     reason=reason,
                 ),
             )
-            return
+            return False
 
         if not hasattr(self, "graph_scene"):
             log_error("Graph scene not available")
-            return
+            return False
 
         # Step 5 — emit migration warnings for pre-1.4 files before loading.
         try:
@@ -801,6 +841,36 @@ class MainWindow(QMainWindow):
             tr("status.opened", "Opened: {path}", path=path), 3000
         )
         self._refresh_capability_inspector()
+        if self.project_files_panel is not None:
+            self.project_files_panel.refresh_files()
+        return True
+
+    def _open_workflow_from_path(self, path: str):
+        self._load_workflow_from_path(path)
+
+    def _on_open(self):
+        """Open project — shows file dialog and loads a mission file."""
+        if not self._handle_unsaved_settings_guard(tr("toolbar.open", "Open")):
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("toolbar.open", "Open Mission"),
+            self._workflows_root(),
+            "Mission Files (*.unitport);;JSON Files (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        self._load_workflow_from_path(path)
+
+    def _open_workflows_folder(self):
+        workflows_root = self._workflows_root()
+        if os.name == "nt":
+            try:
+                os.startfile(workflows_root)
+                return
+            except OSError:
+                pass
+        QDesktopServices.openUrl(QUrl.fromLocalFile(workflows_root))
 
     def _on_save(self):
         """Save current workflow to current path; fallback to Save As for new files."""
@@ -1551,25 +1621,21 @@ class MainWindow(QMainWindow):
             robot_type = RobotContext.get_robot_type()
             adapter    = RobotContext._create_adapter_for_brand(brand, robot_type)
             if adapter is None:
-                # Cycle 3 STAGE-06: clear inspector when no adapter is available
-                # so stale capability data from a prior brand is not shown.
+                # Adapter unavailable — clear inspector content while keeping
+                # header label unchanged (last-known state preserved for operator).
                 self.main_zone.set_adapter_capabilities({}, [])
                 self._update_hb_catalog({})
                 self._update_hb_channel(adapter=None)  # Circle 2: fallback to mock
-                # Step 1.7: audit must fire on every model-switch path, including
-                # adapter=None (empty catalog → clean report clears compat bar).
                 self._run_compat_audit(brand, robot_type)
                 return
             cap_dict: dict = adapter.capabilities()
         except Exception as exc:
             log_warning(f"capability_inspector: adapter fetch failed — {exc}")
-            # Cycle 3 STAGE-06: degrade gracefully — clear inspector on error
-            # rather than leaving stale capability data from a previous run.
+            # Degrade gracefully — clear inspector content, keep header unchanged.
             try:
                 self.main_zone.set_adapter_capabilities({}, [])
                 self._update_hb_catalog({})
                 self._update_hb_channel(adapter=None)  # Circle 2: fallback to mock
-                # Step 1.7: audit on exception path too (empty catalog).
                 self._run_compat_audit(brand, robot_type)
             except Exception:
                 pass
@@ -1710,10 +1776,7 @@ class MainWindow(QMainWindow):
         """Sync theme toggle button label"""
         if not hasattr(self, "theme_button"):
             return
-        if self._theme == "dark":
-            self.theme_button.setText("🌙")
-        else:
-            self.theme_button.setText("☀️")
+        self.theme_button.setText("")
         self.theme_button.setToolTip(tr("toolbar.theme_toggle", "Toggle theme"))
 
     def _refresh_theme(self):
@@ -1721,6 +1784,8 @@ class MainWindow(QMainWindow):
         # Reload ui.ini color table so startup and runtime refresh paths are consistent.
         get_color_slot().reload()
         self._apply_stylesheet()
+        if hasattr(self, "sidebar"):
+            self.sidebar.refresh_icons(self._theme)
         if hasattr(self, "cmd_log"):
             self.cmd_log.refresh_style()
         if hasattr(self, "module_palette"):

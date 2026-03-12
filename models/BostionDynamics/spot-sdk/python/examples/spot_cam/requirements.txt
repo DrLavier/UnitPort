@@ -1,8 +1,0 @@
--f ../../../prebuilt
-bosdyn-client >= 3.1
-
-aiortc
-numpy
-opencv-python
-Pillow
-requests

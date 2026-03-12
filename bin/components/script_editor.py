@@ -944,7 +944,7 @@ class ScriptEditor(QWidget):
         accent = get_color("accent", "#3b82f6")
         accent_hover = get_color("accent_hover", "#2563eb")
         accent_text = get_color("accent_text", get_color("text_on_accent", "#ffffff"))
-        warning_bg = get_color("editor_warning_bg", "#7c2d12")
+        warning_bg = get_color("editor_stale_warning_bg", "#7c2d12")
         warning_text = get_color("editor_warning_text", "#fde68a")
         size_normal = get_font_size("size_normal", 12)
         size_small = get_font_size("size_small", 11)
@@ -1104,25 +1104,6 @@ class ScriptEditor(QWidget):
                 f"{len(result['outputs'])} output(s), "
                 f"{len(result['inputs'])} input(s)"
             )
-
-        # Preserve existing canvas-declared inputs when script does not declare
-        # getInput() calls; this prevents accidental input edge drops on save.
-        if not (result.get("inputs") or []):
-            preserved_inputs = []
-            for inp in list(self._io_spec.get("inputs") or []):
-                if not isinstance(inp, dict):
-                    continue
-                name = str(inp.get("name") or "").strip()
-                if not name:
-                    continue
-                preserved_inputs.append(
-                    {
-                        "name": name,
-                        "data_type": str(inp.get("data_type") or "any"),
-                        "slot": inp.get("slot"),
-                    }
-                )
-            result = dict(result, inputs=preserved_inputs)
 
         # 5. Intercept API argument errors before mutating UI ports.
         error_diags = [

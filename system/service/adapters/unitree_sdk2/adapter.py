@@ -12,11 +12,11 @@ get_model) is preserved unchanged and continues to work without modification.
 
 from __future__ import annotations
 
+import importlib
 from typing import Any, Dict, Optional
 
 from system.service.adapters.base_adapter import BaseAdapter
 from system.service.lifecycle import LifecycleReason, LifecycleResult
-from models.Unitree import UnitreeModel
 from .mapper import ACTION_MAP, map_action
 
 # Phase 4 reason codes (Unitree-specific, stable constants)
@@ -42,7 +42,7 @@ class UnitreeAdapter(BaseAdapter):
 
     def __init__(self, robot_type: str = "go2"):
         self.robot_type = (robot_type or "go2").lower()
-        self._model: Optional[UnitreeModel] = None
+        self._model: Optional[Any] = None
 
     # ── Legacy interface (Phase 1 contract — never removed) ───────────────
 
@@ -57,10 +57,29 @@ class UnitreeAdapter(BaseAdapter):
             if getattr(self._model, "robot_type", "").lower() == self.robot_type:
                 return True
 
-        self._model = UnitreeModel(self.robot_type)
+        model = self._create_model_instance(self.robot_type)
+        if model is None:
+            raise RuntimeError("Unitree model package is unavailable")
+        self._model = model
         return True
 
-    def get_model(self) -> Optional[UnitreeModel]:
+    def _create_model_instance(self, robot_type: str) -> Any:
+        """Try each module in order; return the first successfully instantiated model."""
+        module_names = [
+            "system.brand_packages.unitree",
+            "models.Unitree",  # legacy/test fallback
+        ]
+        for module_name in module_names:
+            try:
+                module = importlib.import_module(module_name)
+                model_class = getattr(module, "UnitreeModel", None)
+                if model_class is not None:
+                    return model_class(robot_type)
+            except Exception:
+                continue
+        return None
+
+    def get_model(self) -> Optional[Any]:
         """Compatibility helper for legacy callers that still need model instance."""
         if self._model is None:
             self.connect()
@@ -298,3 +317,20 @@ class UnitreeAdapter(BaseAdapter):
                 "mode_switch_policy",
             ],
         }
+
+    @staticmethod
+    def _load_model_class():
+        module_names = [
+            "system.brand_packages.unitree",
+            "models.Unitree",  # legacy/test fallback
+        ]
+        for module_name in module_names:
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:
+                continue
+            model_class = getattr(module, "UnitreeModel", None)
+            if model_class is not None:
+                return model_class
+        return None
+

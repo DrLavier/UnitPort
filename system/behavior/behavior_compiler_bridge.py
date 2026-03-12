@@ -147,6 +147,7 @@ class BehaviorCompilerBridge:
             if cache_dir is not None
             else Path(__file__).resolve().parents[2] / "__cache__" / "behavior_artifacts"
         )
+        self._resolved_cache_dir: Optional[Path] = None
 
     # ------------------------------------------------------------------
     # Legacy API — preserved unchanged for backward compatibility
@@ -417,7 +418,45 @@ class BehaviorCompilerBridge:
         return hashlib.sha1(behavior_ref.encode("utf-8")).hexdigest()
 
     def _ref_cache_dir(self, behavior_ref: str) -> Path:
-        return self._cache_dir / self._behavior_ref_hash(behavior_ref)
+        return self._get_persistence_root() / self._behavior_ref_hash(behavior_ref)
+
+    def _get_persistence_root(self) -> Path:
+        """Return a writable cache root for artifact persistence.
+
+        Some restricted environments expose a temp/cache path that exists but
+        is not writable for nested files or directories. When that happens,
+        fall back to a deterministic project-local cache path derived from the
+        requested cache_dir so multiple bridge instances still share artifacts.
+        """
+        if self._resolved_cache_dir is not None:
+            return self._resolved_cache_dir
+
+        requested = self._cache_dir
+        if self._is_writable_dir(requested):
+            self._resolved_cache_dir = requested
+            return requested
+
+        fallback_root = Path(__file__).resolve().parents[2] / "__cache__" / "behavior_artifacts_fallback"
+        fallback_root.mkdir(parents=True, exist_ok=True)
+        fallback_dir = fallback_root / self._behavior_ref_hash(str(requested))
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        self._resolved_cache_dir = fallback_dir
+        log_warning(
+            f"BehaviorCompilerBridge: cache_dir '{requested}' is not writable; "
+            f"using fallback cache '{fallback_dir}'"
+        )
+        return fallback_dir
+
+    @staticmethod
+    def _is_writable_dir(path: Path) -> bool:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            probe = path / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return True
+        except Exception:
+            return False
 
     @staticmethod
     def _artifact_to_record(artifact: BehaviorArtifact) -> Dict[str, object]:

@@ -1,8 +1,7 @@
 ﻿# UnitPort - Unified Robot Programming Framework
 
 [![Website](https://img.shields.io/badge/Website-uniport.ai-blue)](https://uniport.ai)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](#license)
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.11.9-blue.svg)](https://www.python.org/downloads/)
 
 > [!WARNING]
 > **WIP (Work In Progress)**  
@@ -24,33 +23,69 @@ A cross-platform visual robot programming framework that unifies **task orchestr
 
 ## Quick Start
 
-```bash
-# Clone repository
-git clone https://github.com/your-org/unitport.git
-cd unitport
+UnitPort currently uses a project-local, built-in virtual environment: `.venv311`
+(Python `3.11.9`).
 
-# Install dependencies
-pip install -r requirements.txt
+If the environment is missing or needs to be rebuilt, use the platform-native
+install script for your OS.
 
-# Run application
-python main.py
+Windows:
+
+```bat
+REM Clone repository
+git clone https://github.com/DrLavier/UnitPort.git
+cd UnitPort
+
+REM Optional: rebuild/update the local environment
+install.bat
+
+REM Run application
+.venv311\Scripts\python.exe main.py
 ```
 
-## Test Commands
+Linux:
 
 ```bash
-# Run all tests
-python -m unittest discover -s tests -p "test_*.py"
+git clone https://github.com/DrLavier/UnitPort.git
+cd UnitPort
 
-# Unit tests only
-python -m unittest discover -s tests/unit -p "test_*.py"
-
-# Integration tests only
-python -m unittest discover -s tests/integration -p "test_*.py"
-
-# Regression tests only
-python -m unittest discover -s tests/regression -p "test_*.py"
+chmod +x install.sh start.sh
+./install.sh
+./start.sh
 ```
+
+## Environment Model
+
+### Current Strategy: project-local `.venv311` (Python 3.11.9)
+
+- The repository currently uses the built-in `.venv311\` virtual environment.
+- `.venv311\pyvenv.cfg` identifies the environment version as Python `3.11.9`.
+- On Windows, `install.bat` recreates or repairs `.venv311\` and installs
+  dependencies there. It does not install project packages into the global
+  Python environment.
+- On Linux, `install.sh` creates or repairs `.venv311/` and launches through
+  `start.sh`, which also sets Linux-specific runtime environment variables.
+- Launch on Windows with `.venv311\Scripts\python.exe main.py`.
+- Launch on Linux with `./start.sh`.
+- If `runtime\python\python.exe` or `runtime/python/python` is present
+  (packaged runtime, see below), the platform install/start scripts prefer it
+  automatically over `.venv311`.
+
+### Runtime requirements
+
+| Component | Required | Notes |
+|---|---|---|
+| Python 3.11 | Only when rebuilding env | Used by `install.bat` or `install.sh` if `.venv311` must be recreated |
+| `.venv311\` | Yes | Project-local Python 3.11.9 environment used to run the app |
+| `runtime\cyclonedds\` | Optional | Needed for Unitree SDK hardware integration |
+
+### Packaged runtime (future / maintainers)
+
+Run `scripts\build_runtime.bat` to download a self-contained Python 3.11 embeddable
+runtime and CycloneDDS into `runtime\`. Once present, the platform install/start flow
+uses it instead of the system Python — no global Python required at all.
+
+See `scripts\README.txt` for the full maintainer build pipeline.
 
 ---
 
@@ -267,7 +302,7 @@ See [models/README.md](models/README.md) for robot integration instructions.
 - **GUI Framework**: PySide6
 - **Simulation**: MuJoCo 3.0+
 - **Robot SDKs**: Unitree SDK 2, (extensible to others)
-- **Language**: Python 3.8+
+- **Language**: Python 3.11.9
 
 ---
 
@@ -299,20 +334,14 @@ See [models/README.md](models/README.md) for robot integration instructions.
 ## Community & Support
 
 - **Website**: [uniport.ai](https://uniport.ai)
-- **Issues**: [GitHub Issues](https://github.com/your-org/unitport/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/unitport/discussions)
+- **Repository**: [DrLavier/UnitPort](https://github.com/DrLavier/UnitPort)
+- **Issues**: [GitHub Issues](https://github.com/DrLavier/UnitPort/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/DrLavier/UnitPort/discussions)
 
 ---
 
 ## License
 
-Top-level `LICENSE` is not present in this workspace snapshot. Check repository policy before redistribution.
-
----
-
-## Acknowledgments
-
-Built with ❤️ by the UnitPort team and community contributors.
-
-**Make robot programming accessible to everyone.**
+No top-level `LICENSE` file is present in this workspace snapshot. Add an explicit
+license file before publishing redistribution terms in this README.
 

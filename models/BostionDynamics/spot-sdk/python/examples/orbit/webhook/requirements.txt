@@ -1,4 +1,0 @@
--f ../../../prebuilt
-bosdyn-orbit>=4.0
-
-flask

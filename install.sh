@@ -1,0 +1,199 @@
+#!/bin/bash
+# ==============================================================================
+# UnitPort install.sh
+# Strategy: project-local .venv311 (Python 3.11)
+#
+# Creates a project-local virtual environment at .venv311/
+# and installs all dependencies into it.
+# Never installs packages into global Python.
+#
+# Usage: ./install.sh
+# ==============================================================================
+
+set -e  # Exit on error
+
+# Get script directory (resolve symlinks)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "[install] UnitPort environment setup"
+echo "[install] Project root: $SCRIPT_DIR"
+
+# ------------------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------------------
+RUNTIME_PYTHON="$SCRIPT_DIR/runtime/python/python"
+VENV_DIR="$SCRIPT_DIR/.venv311"
+VENV_PYTHON="$VENV_DIR/bin/python"
+WHEELS_DIR="$SCRIPT_DIR/runtime/wheels"
+REQUIREMENTS="$SCRIPT_DIR/requirements.txt"
+ENV_DIR="$SCRIPT_DIR/runtime/env"
+INSTALL_STATE="$ENV_DIR/install_state.json"
+
+# ------------------------------------------------------------------------------
+# Step 1: Resolve Python 3.11 for env creation
+# ------------------------------------------------------------------------------
+BASE_PYTHON=""
+
+# Prefer packaged runtime if present
+if [ -x "$RUNTIME_PYTHON" ]; then
+    BASE_PYTHON="$RUNTIME_PYTHON"
+    INSTALL_MODE="packaged"
+    echo "[install] Mode: packaged runtime"
+elif command -v python3.11 &> /dev/null; then
+    BASE_PYTHON="python3.11"
+    INSTALL_MODE="system"
+    echo "[install] Mode: system Python 3.11"
+elif command -v python3 &> /dev/null; then
+    # Check if python3 is version 3.11
+    PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    if [ "$PY_VERSION" = "3.11" ]; then
+        BASE_PYTHON="python3"
+        INSTALL_MODE="system"
+        echo "[install] Mode: system Python 3.11"
+    else
+        echo "[ERROR] Python 3.11 not found. Current version: $PY_VERSION"
+        echo "[ERROR] Install Python 3.11 or use the packaged runtime if available."
+        echo "[ERROR] to provision the packaged runtime."
+        exit 1
+    fi
+elif command -v python &> /dev/null; then
+    PY_VERSION=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "unknown")
+    if [ "$PY_VERSION" = "3.11" ]; then
+        BASE_PYTHON="python"
+        INSTALL_MODE="system"
+        echo "[install] Mode: system Python 3.11"
+    else
+        echo "[ERROR] Python 3.11 not found. Current version: $PY_VERSION"
+        echo "[ERROR] Install Python 3.11 or use the packaged runtime if available."
+        exit 1
+    fi
+else
+    echo "[ERROR] Python not found."
+    echo "[ERROR] Install Python 3.11 or use the packaged runtime if available."
+    exit 1
+fi
+
+# Get Python version
+PY_VER=$($BASE_PYTHON --version 2>&1 | awk '{print $2}')
+echo "[install] Base Python: $PY_VER"
+
+# ------------------------------------------------------------------------------
+# Step 2: Create or verify .venv311
+# ------------------------------------------------------------------------------
+if [ "$INSTALL_MODE" = "packaged" ]; then
+    TARGET_PYTHON="$RUNTIME_PYTHON"
+else
+    if [ -d "$VENV_DIR" ]; then
+        if [ -x "$VENV_PYTHON" ]; then
+            VENV_VER=$($VENV_PYTHON --version 2>&1 | awk '{print $2}')
+            echo "[install] Existing .venv311: $VENV_VER"
+        fi
+    else
+        echo "[install] Creating .venv311 ..."
+        $BASE_PYTHON -m venv "$VENV_DIR"
+        if [ $? -ne 0 ]; then
+            echo "[ERROR] Failed to create .venv311"
+            exit 1
+        fi
+        echo "[install] .venv311 created."
+    fi
+    TARGET_PYTHON="$VENV_PYTHON"
+fi
+
+# Verify target Python exists
+if [ ! -x "$TARGET_PYTHON" ]; then
+    echo "[ERROR] Target Python not found: $TARGET_PYTHON"
+    exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Step 3: Upgrade pip
+# ------------------------------------------------------------------------------
+echo "[install] Upgrading pip ..."
+$TARGET_PYTHON -m pip install --upgrade pip setuptools wheel --quiet 2>/dev/null || {
+    echo "[WARNING] pip upgrade failed. Continuing with existing version."
+}
+
+# ------------------------------------------------------------------------------
+# Step 4: Install packages
+# ------------------------------------------------------------------------------
+if [ ! -f "$REQUIREMENTS" ]; then
+    echo "[ERROR] requirements.txt not found: $REQUIREMENTS"
+    exit 1
+fi
+
+# Count available wheels
+WHEEL_COUNT=0
+if [ -d "$WHEELS_DIR" ]; then
+    WHEEL_COUNT=$(find "$WHEELS_DIR" -maxdepth 1 -name "*.whl" 2>/dev/null | wc -l)
+fi
+
+if [ "$WHEEL_COUNT" -gt 0 ]; then
+    echo "[install] Installing from local wheelhouse ($WHEEL_COUNT wheels) ..."
+    $TARGET_PYTHON -m pip install --no-index --find-links="$WHEELS_DIR" -r "$REQUIREMENTS" 2>/dev/null || {
+        echo "[install] Offline install incomplete, retrying with network ..."
+        $TARGET_PYTHON -m pip install -r "$REQUIREMENTS"
+    }
+else
+    echo "[install] Installing from network (no local wheels found) ..."
+    $TARGET_PYTHON -m pip install -r "$REQUIREMENTS"
+fi
+
+if [ $? -ne 0 ]; then
+    echo "[ERROR] Package install failed"
+    exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Step 5: Verify critical imports
+# ------------------------------------------------------------------------------
+echo "[install] Verifying imports ..."
+
+PYSIDE6_OK=$($TARGET_PYTHON -c "import PySide6; print(PySide6.__version__)" 2>/dev/null && echo "ok" || echo "failed")
+if [ "$PYSIDE6_OK" != "ok" ]; then
+    echo "[WARNING] PySide6 import failed."
+else
+    echo "[install] PySide6 OK: $PYSIDE6_OK"
+fi
+
+MUJOCO_OK=$($TARGET_PYTHON -c "import mujoco; print(mujoco.__version__)" 2>/dev/null && echo "ok" || echo "failed")
+if [ "$MUJOCO_OK" != "ok" ]; then
+    echo "[WARNING] MuJoCo import failed (optional)."
+else
+    echo "[install] MuJoCo OK: $MUJOCO_OK"
+fi
+
+# ------------------------------------------------------------------------------
+# Step 6: Write install_state.json
+# ------------------------------------------------------------------------------
+mkdir -p "$ENV_DIR"
+
+INSTALL_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+WHEELS_BOOL="false"
+if [ "$WHEEL_COUNT" -gt 0 ]; then
+    WHEELS_BOOL="true"
+fi
+
+cat > "$INSTALL_STATE" << EOF
+{
+  "installed": true,
+  "install_timestamp": "$INSTALL_TIMESTAMP",
+  "install_mode": "$INSTALL_MODE",
+  "python_version": "$PY_VER",
+  "runtime_python_verified": true,
+  "cyclonedds_verified": false,
+  "wheels_installed": $WHEELS_BOOL,
+  "notes": "Written by install.sh"
+}
+EOF
+echo "[install] install_state.json written."
+
+# ------------------------------------------------------------------------------
+# Summary
+# ------------------------------------------------------------------------------
+echo ""
+echo "[install] Installation complete."
+echo "[install] Mode   : $INSTALL_MODE"
+echo "[install] Python : $TARGET_PYTHON"
+echo "[install] Launch : ./start.sh"

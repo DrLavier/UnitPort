@@ -1,5 +1,0 @@
--f ../../../prebuilt
-bosdyn-api >= 3.1.2.1
-bosdyn-mission >= 3.1.2.1
-
-requests

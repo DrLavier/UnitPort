@@ -1,4 +1,0 @@
--f ../../../prebuilt
-bosdyn-client >= 4.0
-
-numpy
