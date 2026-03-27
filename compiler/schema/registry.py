@@ -5,6 +5,7 @@ Schema Registry - singleton registry for all node schemas.
 """
 
 import json
+import importlib.util
 from pathlib import Path
 from typing import Dict, Optional, List
 
@@ -74,7 +75,63 @@ class SchemaRegistry:
             except Exception as e:
                 print(f"Warning: Failed to load schema {json_file}: {e}")
 
+        cls._sync_dynamic_action_execution_schema()
         cls._loaded = True
+
+    @classmethod
+    def _sync_dynamic_action_execution_schema(cls):
+        """Synchronize action_execution parameter choices from the IR registry."""
+        schema = cls._schemas.get("builtin.action_execution")
+        if schema is None:
+            return
+
+        action_param = schema.get_parameter("action")
+        if action_param is None:
+            return
+
+        registered_raw_actions = cls._get_registered_action_raw_actions()
+        if not registered_raw_actions:
+            return
+
+        if action_param.constraints is None:
+            from compiler.schema.node_schema import ParamConstraint
+            action_param.constraints = ParamConstraint()
+
+        action_param.constraints.choices = list(registered_raw_actions)
+        if action_param.default not in action_param.constraints.choices:
+            action_param.default = action_param.constraints.choices[0]
+
+    @classmethod
+    def _get_registered_action_raw_actions(cls) -> List[str]:
+        """Load IR action raw_action values without importing the full system package."""
+        module_path = (
+            Path(__file__).resolve().parents[2]
+            / "system"
+            / "behavior"
+            / "ir_action_registry.py"
+        )
+        if not module_path.exists():
+            return []
+
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "_unitport_ir_action_registry",
+                str(module_path),
+            )
+            if spec is None or spec.loader is None:
+                return []
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            list_ir_actions = getattr(module, "list_ir_actions", None)
+            if not callable(list_ir_actions):
+                return []
+            return [
+                str(desc.raw_action or "").strip()
+                for desc in list_ir_actions()
+                if str(desc.raw_action or "").strip()
+            ]
+        except Exception:
+            return []
 
     @classmethod
     def _ensure_loaded(cls):

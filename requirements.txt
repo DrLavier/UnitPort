@@ -5,6 +5,11 @@
 PySide6>=6.5.0
 mujoco>=3.0.0
 numpy>=1.24.0
+PyYAML>=6.0
+onnxruntime>=1.17
+torch>=2.0.0
+huggingface_hub==1.7.1
+psutil>=5.9
 
 # Optional: test/development
 pytest>=7.4.0

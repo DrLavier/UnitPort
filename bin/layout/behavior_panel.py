@@ -1,11 +1,14 @@
-﻿"""Behavior workspace with timeline-oriented sequence editing."""
+"""Behavior workspace with timeline-oriented sequence editing."""
 
 from __future__ import annotations
 
 import re
 import uuid as _uuid
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from system.behavior.timeline_view_model import TimelineSelection, SelectionLevel
 
 from PySide6.QtCore import Qt, QThread, QTimer, Signal, QPointF, QRectF, QEvent
 from PySide6.QtGui import QBrush, QColor, QFont, QPen
@@ -54,11 +57,13 @@ from system.behavior.action_profile import (
     MotorSegment,
     MotorTrackDef,
     UNITREE_ACTION_PROFILES,
-    UNITREE_MOTOR_TRACK_MAP,
     build_timeline_from_modules,
     validate_timeline,
 )
 from system.behavior.behavior_compiler_bridge import BehaviorCompilerBridge
+from system.behavior.timeline_migration import migrate_timeline
+from system.behavior.action_registry import get_semantic_actions
+from system.behavior.semantic_action import ActionAvailability, SemanticActionDescriptor
 from system.behavior.hb_channel import (
     HBCompileRequest,
     HBDiagnosticsSnapshot,
@@ -68,7 +73,11 @@ from system.behavior.hb_channel import (
     IHBChannel,
 )
 from system.behavior.hb_node_catalog import HBNodeAvailability, HBNodeCatalog
-from system.behavior.hb_compat_audit import HBCompatReport, audit_catalog_compatibility
+from system.behavior.hb_compat_audit import (
+    HBCompatReport,
+    audit_catalog_compatibility,
+    audit_action_compatibility,
+)
 from system.behavior.hb_display_state import (
     badge_for_event_state,
     badge_for_io_status,
@@ -84,7 +93,7 @@ from system.behavior.motor_param_source import (                         # Step 
     get_param_source,
 )
 
-# Color token → hex string map for status badges (Step 1.5)
+# Color token 閳?hex string map for status badges (Step 1.5)
 _BADGE_COLOR_MAP: Dict[str, str] = {
     "success": "#4caf50",
     "error":   "#f44336",
@@ -203,9 +212,11 @@ class TimelineView(QGraphicsView):
 
     module_selected = Signal(int)
     motor_segment_selected = Signal(str, str)  # (motor_id, track_name), empty strings = none
+    body_part_selected = Signal(str, str)      # (action_id, limb_id); "" = deselected/none
     module_reordered = Signal(int, int)
     delete_requested = Signal()
     timeline_edited = Signal()  # Fix 6: emitted after any motor seg mutation or track toggle
+    playhead_moved = Signal(float)             # emitted when playhead position changes (seconds)
     _ZOOM_TICK_STEPS: ClassVar[List[float]] = [0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005]
 
     def __init__(self, parent=None):
@@ -237,8 +248,15 @@ class TimelineView(QGraphicsView):
         # Multi-track timeline state (Phase 1 redesign)
         self._behavior_timeline: Optional["BehaviorTimeline"] = None
         self._motor_track_names: List[str] = []   # ordered active motor tracks
-        self._motor_track_expanded: Dict[str, bool] = {}  # track_name → expanded
+        self._motor_track_expanded: Dict[str, bool] = {}  # track_name 閳?expanded
         self._motor_track_rows: Dict[str, Tuple[float, float, bool]] = {}
+        # Step 5: body-part grouping state
+        self._timeline_vm: Optional[Any] = None          # TimelineViewModel
+        self._available_tracks: Dict[str, Any] = {}      # track_name 閳?MotorTrackDef
+        self._body_part_expanded: Dict[str, bool] = {}   # limb_id 閳?expanded
+        self._body_part_rows: Dict[str, Tuple[float, float]] = {}  # limb_id 閳?(y, h)
+        # Selection state is now owned by _timeline_vm.selection (TimelineSelection).
+        # Local _selected_* fields removed; all highlight reads go through the VM.
 
         # Fix 2: motor segment drag state
         self._motor_press_id: Optional[str] = None
@@ -246,8 +264,6 @@ class TimelineView(QGraphicsView):
         self._motor_drag_started: bool = False
         self._motor_press_scene_x: float = 0.0
         self._motor_orig_start: float = 0.0
-        self._selected_motor_id: Optional[str] = None
-        self._selected_motor_track: Optional[str] = None
 
         # Timeline density baseline.
         self._base_scale_px_per_sec = 180.0
@@ -267,6 +283,9 @@ class TimelineView(QGraphicsView):
 
         self._main_track_bg = get_color("behavior_timeline_main_track_bg", "#1f1f1f")
         self._secondary_track_bg = get_color("behavior_timeline_secondary_track_bg", "#1b1b1b")
+
+        # Playhead state
+        self._playhead_time: float = 0.0
 
         self.horizontalScrollBar().valueChanged.connect(self._ensure_infinite_width)
         self._redraw()
@@ -305,6 +324,10 @@ class TimelineView(QGraphicsView):
         self,
         timeline: "BehaviorTimeline",
         selected_index: int = -1,
+        brand: str = "",
+        robot_type: str = "",
+        available_tracks: Optional[Dict[str, Any]] = None,
+        selection: Optional[Any] = None,
     ) -> None:
         """Load a structured BehaviorTimeline for multi-track rendering.
 
@@ -314,12 +337,16 @@ class TimelineView(QGraphicsView):
 
         Parameters
         ----------
-        timeline        : BehaviorTimeline containing action_segments and
-                          motor_overlays.
-        selected_index  : Index of the selected ActionSegment (-1 for none).
+        timeline         : BehaviorTimeline containing action_segments and
+                           motor_overlays.
+        selected_index   : Index of the selected ActionSegment (-1 for none).
+        brand            : Robot brand 閳?used to resolve canonical topology.
+        robot_type       : Robot type 閳?used to resolve canonical topology.
+        available_tracks : Full motor track catalog for label/color resolution.
         """
         self._behavior_timeline = timeline
         self._selected_index = selected_index
+        self._available_tracks = available_tracks or {}
 
         # Sync legacy _modules from ActionSegments for backward-compat
         self._modules = [
@@ -342,6 +369,23 @@ class TimelineView(QGraphicsView):
             if tname not in self._motor_track_expanded:
                 self._motor_track_expanded[tname] = True  # expanded by default
 
+        # Step 5: build canonical body-part view model when brand/robot_type known
+        self._timeline_vm = None
+        if brand or robot_type:
+            try:
+                from system.behavior.timeline_view_model import build_timeline_view_model
+                self._timeline_vm = build_timeline_view_model(
+                    timeline, brand=brand, robot_type=robot_type,
+                    available_tracks=self._available_tracks,
+                )
+            except Exception:
+                self._timeline_vm = None
+
+        # Restore the caller-provided selection into the freshly-built VM so
+        # that highlight state survives a full timeline refresh.
+        if self._timeline_vm is not None and selection is not None:
+            self._timeline_vm.selection = selection
+
         total_dur = timeline.total_duration() if not timeline.is_empty() else 0.0
         needed = max(24000.0, total_dur * self._scale_px_per_sec + 1600.0)
         if needed > self._scene_width:
@@ -354,19 +398,79 @@ class TimelineView(QGraphicsView):
         self._motor_track_expanded[track_name] = not current
         self._redraw()
 
+    def toggle_body_part(self, limb_id: str) -> None:
+        """Expand or collapse a body-part group.  UI-only state; no model mutation."""
+        current = self._body_part_expanded.get(limb_id, True)
+        self._body_part_expanded[limb_id] = not current
+        self._redraw()
+
+    def _action_id_for_index(self, idx: int) -> str:
+        """Return the action_id for the given action segment index.
+
+        Falls back to the first action's id when idx < 0.  Used to attach
+        action context to body-part selection events so the single selection
+        model carries full ``(action_id, limb_id)`` semantics.
+        """
+        segs = []
+        if self._behavior_timeline is not None:
+            segs = getattr(self._behavior_timeline, "action_segments", []) or []
+        if 0 <= idx < len(segs):
+            return getattr(segs[idx], "action_id", "") or ""
+        if segs:
+            return getattr(segs[0], "action_id", "") or ""
+        return ""
+
     def mousePressEvent(self, event):
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
         scene_pos = self.mapToScene(event.position().toPoint())
 
+        # Click in ruler area → set playhead
+        if scene_pos.y() <= self._ruler_h:
+            label_w = self._label_lane_w if self._behavior_timeline is not None else 0
+            raw_x = scene_pos.x() - label_w
+            if raw_x >= 0 and self._scale_px_per_sec > 0:
+                self.set_playhead(raw_x / self._scale_px_per_sec)
+            event.accept()
+            return
+
         if self._behavior_timeline is not None:
             items = self._scene.items(scene_pos)
             for item in items:
-                if item.data(1) == "track_toggle":
-                    track_name = str(item.data(2) or "")
-                    if track_name:
-                        self.toggle_motor_track(track_name)
+                if item.data(1) == "body_part_toggle":
+                    limb_id = str(item.data(2) or "")
+                    if limb_id:
+                        self.toggle_body_part(limb_id)
+                    event.accept()
+                    return
+                if item.data(1) == "body_part_module":
+                    limb_id = str(item.data(2) or "")
+                    action_id = str(item.data(3) or "")
+                    self._selected_index = -1
+                    if self._timeline_vm is not None:
+                        from system.behavior.timeline_view_model import TimelineSelection
+                        self._timeline_vm.selection = (
+                            TimelineSelection.body_part(action_id, limb_id)
+                            if limb_id else TimelineSelection.none()
+                        )
+                    self.body_part_selected.emit(action_id, limb_id)
+                    self._redraw()
+                    event.accept()
+                    return
+                if item.data(1) == "body_part_select":
+                    limb_id = str(item.data(2) or "")
+                    # Capture action context BEFORE clearing _selected_index.
+                    action_id = self._action_id_for_index(self._selected_index)
+                    self._selected_index = -1
+                    if self._timeline_vm is not None:
+                        from system.behavior.timeline_view_model import TimelineSelection
+                        self._timeline_vm.selection = (
+                            TimelineSelection.body_part(action_id, limb_id)
+                            if limb_id else TimelineSelection.none()
+                        )
+                    self.body_part_selected.emit(action_id, limb_id)
+                    self._redraw()
                     event.accept()
                     return
             # Collapsed tracks stay visible but shield content interactions.
@@ -381,19 +485,36 @@ class TimelineView(QGraphicsView):
                     self.setFocus()
                     event.accept()
                     return
+                # Collapsed body-part group 閳?click selects without toggling
+                limb_id = self._body_part_limb_at_y(float(scene_pos.y()), only_collapsed=True)
+                if limb_id:
+                    action_id = self._action_id_for_index(self._selected_index)
+                    if self._timeline_vm is not None:
+                        from system.behavior.timeline_view_model import TimelineSelection
+                        self._timeline_vm.selection = (
+                            TimelineSelection.body_part(action_id, limb_id)
+                            if limb_id else TimelineSelection.none()
+                        )
+                    self.body_part_selected.emit(action_id, limb_id)
+                    self._redraw()
+                    event.accept()
+                    return
 
             # Fix 2: check for motor segment hit first (motor tracks are below main track)
             for item in items:
                 if item.data(1) == "motor":
                     motor_id = item.data(0)
                     track_name = item.data(2)
-                    self._selected_motor_id = str(motor_id or "")
-                    self._selected_motor_track = str(track_name or "")
+                    motor_id_str = str(motor_id or "")
+                    track_name_str = str(track_name or "")
                     self._selected_index = -1
-                    self.motor_segment_selected.emit(
-                        self._selected_motor_id,
-                        self._selected_motor_track,
-                    )
+                    if self._timeline_vm is not None:
+                        from system.behavior.timeline_view_model import TimelineSelection
+                        self._timeline_vm.selection = TimelineSelection.motor(
+                            action_id="", limb_id="",
+                            track_name=track_name_str, motor_id=motor_id_str,
+                        )
+                    self.motor_segment_selected.emit(motor_id_str, track_name_str)
                     self._motor_press_id = motor_id
                     self._motor_press_track = track_name
                     self._motor_drag_started = False
@@ -479,7 +600,7 @@ class TimelineView(QGraphicsView):
                 track_name = item.data(2)
                 seg = self._find_motor_seg(motor_id, track_name)
                 if seg is not None:
-                    track_def = UNITREE_MOTOR_TRACK_MAP.get(track_name)
+                    track_def = self._available_tracks.get(track_name)
                     dlg = _MotorParamEditDialog(seg, track_def, parent=self)
                     if dlg.exec() == QDialog.DialogCode.Accepted:
                         self._redraw()
@@ -674,180 +795,281 @@ class TimelineView(QGraphicsView):
         self._draw_ruler()
         self._draw_modules(self._modules, y=self._main_y, selected=self._selected_index, track="main")
         self._draw_modules(self._secondary, y=self._secondary_y, selected=-1, track="secondary")
+        self._draw_playhead(label_offset=0)
 
         # No track titles by design.
 
-    # Label lane width — recomputed each redraw to fit the widest label text.
+    def set_playhead(self, t: float) -> None:
+        """Set the playhead to time *t* (seconds) and redraw."""
+        self._playhead_time = max(0.0, t)
+        self._redraw()
+        self.playhead_moved.emit(self._playhead_time)
+
+    def _draw_playhead(self, label_offset: int = 0) -> None:
+        """Draw a vertical playhead line at the current playhead time."""
+        x = self._playhead_time * self._scale_px_per_sec + label_offset
+        pen = QPen(QColor("#ff4444"))
+        pen.setWidth(2)
+        line = self._scene.addLine(x, 0.0, x, float(self._content_height), pen)
+        line.setZValue(10)  # always on top
+
+    # Label lane width 閳?recomputed each redraw to fit the widest label text.
     # Stored as instance variable so mouse-event coordinate translation stays consistent.
     _label_lane_w: int = 80  # initial default; overwritten by _redraw_multi_track()
     _motor_track_h: int = 36
     _motor_track_collapsed_h: int = 14
 
+    # Body-part header row height constants
+    _body_part_h: int = 22
+    _body_part_indent: int = 8  # motor-row label indent when under a body-part header
+
     def _redraw_multi_track(self) -> None:
-        """Render main Action Track + motor sub-tracks from BehaviorTimeline."""
+        """Render Action + body-part sub-tracks from BehaviorTimeline."""
         timeline = self._behavior_timeline
         if timeline is None:
             return
 
         self._scene.clear()
+        self._motor_track_rows = {}
+        self._body_part_rows = {}
 
-        # Compute motor track labels first (needed for label width calculation)
-        motor_track_labels = {
-            t: UNITREE_MOTOR_TRACK_MAP[t].label if t in UNITREE_MOTOR_TRACK_MAP else t
-            for t in self._motor_track_names
-        }
+        vm = self._timeline_vm
+        use_canonical = (
+            vm is not None and not vm.is_degraded and len(vm.actions) > 0
+        )
 
-        # Dynamically size the label lane to fit the widest label text.
-        # Reserve space for fold chevrons and add extra safety padding so titles
-        # do not clip on scaled displays.
+        if use_canonical:
+            render_groups = list(vm.layout_body_parts)
+        else:
+            render_groups = []
+            track_labels = {
+                t: (self._available_tracks[t].label if t in self._available_tracks else t)
+                for t in self._motor_track_names
+            }
+
         from PySide6.QtGui import QFontMetrics
         _fm = QFontMetrics(self.font())
-        _all_label_texts = ["Action"] + [f"▼ {txt}" for txt in motor_track_labels.values()]
-        _max_text_px = max((_fm.horizontalAdvance(s) for s in _all_label_texts), default=40)
-        chevron_reserve_px = 10
-        extra_redundancy_px = 18
-        label_w = max(_max_text_px + 16 + chevron_reserve_px + extra_redundancy_px, 48)
-        self._label_lane_w = label_w  # keep in sync for mouse-event coordinate translation
+        all_texts = ["Action"]
+        if use_canonical:
+            for bp in render_groups:
+                all_texts.append(bp.limb_label)
+        else:
+            for lbl in track_labels.values():
+                all_texts.append(lbl)
+        _max_text_px = max((_fm.horizontalAdvance(s) for s in all_texts), default=40)
+        label_w = max(_max_text_px + 24, 72)
+        self._label_lane_w = label_w
 
-        # Calculate total height: ruler + action track + one row per motor track.
-        total_motor_h = 0
-        for tname in self._motor_track_names:
-            expanded = self._motor_track_expanded.get(tname, True)
-            total_motor_h += self._motor_track_h if expanded else self._motor_track_collapsed_h
-            total_motor_h += 2
-        total_h = self._ruler_h + self._track_h + total_motor_h + 8
+        total_body_h = 0
+        if use_canonical:
+            total_body_h = len(render_groups) * (self._motor_track_h + 2)
+        else:
+            if vm is not None and vm.is_degraded:
+                total_body_h += 22
+            total_body_h += len(self._motor_track_names) * (self._motor_track_h + 2)
+        total_h = self._ruler_h + self._track_h + total_body_h + 8
         self._content_height = total_h
         self.setSceneRect(0.0, 0.0, self._scene_width, float(total_h))
-        self._motor_track_rows = {}
 
-        # Ruler: full-width background, then a dark placeholder over the label lane,
-        # then ticks/labels starting at x=label_w so they align with track content.
-        self._scene.addRect(0, 0, self._scene_width, self._ruler_h,
-                            QPen(QColor("#454545")), QBrush(QColor("#272727")))
-        self._scene.addRect(0, 0, label_w, self._ruler_h,
-                            QPen(QColor("#3a3a3a")), QBrush(QColor("#1a1a1a")))
+        self._scene.addRect(
+            0, 0, self._scene_width, self._ruler_h,
+            QPen(QColor("#454545")), QBrush(QColor("#272727")),
+        )
+        self._scene.addRect(
+            0, 0, label_w, self._ruler_h,
+            QPen(QColor("#3a3a3a")), QBrush(QColor("#1a1a1a")),
+        )
         self._draw_ruler(label_offset=label_w)
 
-        # Action Track: label lane + content region
         action_y = float(self._ruler_h)
-        # Label lane background
-        self._scene.addRect(0, action_y, label_w, self._track_h,
-                            QPen(QColor("#4a4a4a")), QBrush(QColor("#1a1a1a")))
+        self._scene.addRect(
+            0, action_y, label_w, self._track_h,
+            QPen(QColor("#4a4a4a")), QBrush(QColor("#1a1a1a")),
+        )
         lbl = self._scene.addSimpleText("Action")
         lbl.setBrush(QBrush(QColor("#888888")))
         lbl.setPos(4, action_y + 4)
-        # Content region background (offset by label_w)
-        self._scene.addRect(label_w, action_y, self._scene_width - label_w, self._track_h,
-                            QPen(QColor("#4f4f4f")), QBrush(QColor(self._main_track_bg)))
-
-        # Draw ActionSegments on the main track (x offset by label_w)
+        self._scene.addRect(
+            label_w, action_y, self._scene_width - label_w, self._track_h,
+            QPen(QColor("#4f4f4f")), QBrush(QColor(self._main_track_bg)),
+        )
         for i, seg in enumerate(timeline.action_segments):
             x = seg.start_time * self._scale_px_per_sec + label_w
             w = self._duration_to_width(seg.duration)
             selected = (i == self._selected_index)
             self._draw_action_segment(seg, i, x, action_y, w, selected)
 
-        # Motor sub-tracks
-        motor_y = action_y + self._track_h + 2
-        motor_track_colors = {
-            t: UNITREE_MOTOR_TRACK_MAP[t].color if t in UNITREE_MOTOR_TRACK_MAP else "#5f7fbf"
-            for t in self._motor_track_names
-        }
-        # motor_track_labels already computed above for label-width calculation
+        row_y = action_y + self._track_h + 2
+        total_dur = timeline.total_duration() if not timeline.is_empty() else 0.0
 
-        for tname in self._motor_track_names:
-            expanded = self._motor_track_expanded.get(tname, True)
-            row_h = self._motor_track_h if expanded else self._motor_track_collapsed_h
-            self._motor_track_rows[tname] = (motor_y, float(row_h), expanded)
-            track_color = motor_track_colors.get(tname, "#5f7fbf")
-            track_label = motor_track_labels.get(tname, tname)
-
-            # Label lane background (click-to-toggle control).
-            label_bg = self._scene.addRect(
-                0,
-                motor_y,
-                label_w,
-                row_h,
-                QPen(QColor("#3a3a3a")),
-                QBrush(QColor("#1a1a1a")),
-            )
-            label_bg.setData(1, "track_toggle")
-            label_bg.setData(2, tname)
-            chevron = "▼" if expanded else "▶"
-            track_lbl = self._scene.addSimpleText(f"{chevron} {track_label}")
-            track_lbl.setBrush(QBrush(QColor("#aaaaaa")))
-            track_lbl.setPos(4, motor_y + max(0, (row_h - 14) // 2))
-            track_lbl.setData(1, "track_toggle")
-            track_lbl.setData(2, tname)
-
-            # Content region background (offset by label_w)
-            bg_color = QColor(track_color)
-            bg_color.setAlpha(40)
-            self._scene.addRect(
-                label_w,
-                motor_y,
-                self._scene_width - label_w,
-                row_h,
-                QPen(QColor("#3f3f3f")),
-                QBrush(bg_color),
-            )
-
-            if not expanded:
-                # Collapsed rows remain visible: dark mask + no interactive motor nodes.
-                self._scene.addRect(
-                    label_w,
-                    motor_y,
-                    self._scene_width - label_w,
-                    row_h,
-                    QPen(Qt.PenStyle.NoPen),
-                    QBrush(QColor(8, 8, 8, 180)),
+        if use_canonical:
+            _sel = vm.selection if vm is not None else None
+            for bp in render_groups:
+                row_h = self._motor_track_h
+                self._body_part_rows[bp.limb_id] = (row_y, float(row_h))
+                is_selected_bp = (
+                    _sel is not None and _sel.limb_id == bp.limb_id
+                    and _sel.level.value in ("body_part", "motor")
                 )
-                motor_y += row_h + 2
+                row_pen = QPen(QColor("#6b7280"), 1.2) if is_selected_bp else QPen(QColor("#3a3a3a"))
+                self._scene.addRect(
+                    0, row_y, label_w, row_h,
+                    row_pen, QBrush(QColor("#141414")),
+                ).setData(1, "body_part_select")
+                label_item = self._scene.addSimpleText(bp.limb_label)
+                label_item.setBrush(QBrush(QColor("#e2e8f0" if is_selected_bp else "#a8b0ba")))
+                label_item.setPos(8, row_y + max(0, (row_h - 14) // 2))
+                label_item.setData(1, "body_part_select")
+                label_item.setData(2, bp.limb_id)
+                label_rect = self._scene.items(label_item.boundingRect().translated(label_item.pos()))
+                self._scene.addRect(
+                    label_w, row_y, self._scene_width - label_w, row_h,
+                    row_pen, QBrush(QColor(self._secondary_track_bg)),
+                )
+                # Click-anywhere selection lane on the row.
+                lane = self._scene.addRect(
+                    0, row_y, self._scene_width, row_h,
+                    QPen(Qt.PenStyle.NoPen), QBrush(Qt.BrushStyle.NoBrush),
+                )
+                lane.setData(1, "body_part_select")
+                lane.setData(2, bp.limb_id)
+                self._render_body_part_track_content(bp, row_y, row_h, label_w, total_dur, timeline)
+                row_y += row_h + 2
+        else:
+            if vm is not None and vm.is_degraded:
+                notice_h = 20
+                reason = vm.degraded_reason or "Topology unavailable - showing flat track view"
+                notice_bg = self._scene.addRect(
+                    0, row_y, self._scene_width, notice_h,
+                    QPen(QColor("#5a4a00")), QBrush(QColor("#2a2000")),
+                )
+                notice_bg.setData(1, "degraded_notice")
+                notice_bg.setData(2, reason)
+                notice_lbl = self._scene.addSimpleText(f"~ {reason}")
+                notice_lbl.setBrush(QBrush(QColor("#c8a030")))
+                notice_lbl.setPos(4, row_y + 3)
+                notice_lbl.setData(1, "degraded_notice_text")
+                row_y += notice_h + 2
+
+            for tname in self._motor_track_names:
+                row_h = self._motor_track_h
+                self._motor_track_rows[tname] = (row_y, float(row_h), True)
+                track_label = track_labels.get(tname, tname)
+                self._scene.addRect(
+                    0, row_y, label_w, row_h,
+                    QPen(QColor("#3a3a3a")), QBrush(QColor("#1a1a1a")),
+                )
+                track_lbl = self._scene.addSimpleText(track_label)
+                track_lbl.setBrush(QBrush(QColor("#aaaaaa")))
+                track_lbl.setPos(4, row_y + max(0, (row_h - 14) // 2))
+                self._scene.addRect(
+                    label_w, row_y, self._scene_width - label_w, row_h,
+                    QPen(QColor("#3a3a3a")), QBrush(QColor(self._secondary_track_bg)),
+                )
+                self._render_motor_track_content(
+                    tname, tname, "#5f7fbf", row_y, row_h, label_w, total_dur, timeline
+                )
+                row_y += row_h + 2
+
+    def _render_body_part_track_content(
+        self,
+        body_part: Any,
+        row_y: float,
+        row_h: int,
+        label_w: int,
+        total_dur: float,
+        timeline: Any,
+    ) -> None:
+        track_names = {
+            mr.track_name for mr in getattr(body_part, "motors", [])
+        }
+        track_names.update(
+            getattr(mr, "lookup_track_name", "") or ""
+            for mr in getattr(body_part, "motors", [])
+        )
+        track_names.discard("")
+        if not track_names:
+            return
+
+        for action_seg in getattr(timeline, "action_segments", []) or []:
+            overlay = timeline.get_overlay_for_action(getattr(action_seg, "action_id", ""))
+            if overlay is None:
                 continue
+            matched = [
+                seg for seg in getattr(overlay, "motor_segments", []) or []
+                if getattr(seg, "track_name", "") in track_names
+            ]
+            if not matched:
+                continue
+            start_time = min(float(seg.start_time) for seg in matched)
+            end_time = max(float(seg.start_time) + float(seg.duration) for seg in matched)
+            x = start_time * self._scale_px_per_sec + label_w
+            w = max(18.0, (end_time - start_time) * self._scale_px_per_sec)
+            selected = (
+                self._timeline_vm is not None
+                and self._timeline_vm.selection.matches_body_part(action_seg.action_id, body_part.limb_id)
+            )
+            self._draw_body_part_segment(
+                limb_id=body_part.limb_id,
+                action_id=action_seg.action_id,
+                action_name=action_seg.name,
+                x=x,
+                y=row_y,
+                width=w,
+                height=row_h,
+                selected=selected,
+            )
 
-            # Render motor segments for this track (x offset by label_w)
-            motor_segs = timeline.get_motor_segments_for_track(tname)
-            total_dur = timeline.total_duration() if not timeline.is_empty() else 0.0
+        self._draw_playhead(label_offset=self._label_lane_w)
 
-            # Collect covered ranges for empty-zone hatch
-            covered_ranges = []
-            for mseg in motor_segs:
-                mx = mseg.start_time * self._scale_px_per_sec + label_w
-                mw = max(float(row_h), mseg.duration * self._scale_px_per_sec)
-                self._draw_motor_segment(mseg, mx, motor_y, mw, row_h, track_color, tname)
-                covered_ranges.append((mx - label_w, mx - label_w + mw))
+    def _draw_body_part_segment(
+        self,
+        limb_id: str,
+        action_id: str,
+        action_name: str,
+        x: float,
+        y: float,
+        width: float,
+        height: float,
+        selected: bool,
+    ) -> None:
+        fill = QColor("#4d84c4")
+        fill.setAlpha(185)
+        pen = QPen(QColor("#f4d03f"), 2) if selected else QPen(QColor("#7f8ea3"), 1)
+        rect = self._scene.addRect(x, y + 3, width, height - 6, pen, QBrush(fill))
+        rect.setData(1, "body_part_module")
+        rect.setData(2, limb_id)
+        rect.setData(3, action_id)
+        display_name = self._action_display_name(action_name)
+        rect.setToolTip(f"{display_name} | {limb_id}")
+        if width > 42:
+            title = self._scene.addSimpleText(display_name)
+            title.setBrush(QBrush(QColor("#ffffff")))
+            title.setPos(x + 6, y + 6)
+            title.setToolTip(f"{display_name} | {limb_id}")
+            title.setData(1, "body_part_module")
+            title.setData(2, limb_id)
+            title.setData(3, action_id)
 
-            # Diagonal hatch for uncovered zones within total_duration
-            if total_dur > 0:
-                total_px = total_dur * self._scale_px_per_sec
-                covered_ranges.sort()
-                gaps: List[Tuple[float, float]] = []
-                cursor_px = 0.0
-                for (seg_start, seg_end) in covered_ranges:
-                    if seg_start > cursor_px:
-                        gaps.append((cursor_px, seg_start))
-                    cursor_px = max(cursor_px, seg_end)
-                if cursor_px < total_px:
-                    gaps.append((cursor_px, total_px))
-                # Empty zones: light-gray base + diagonal hatch overlay so
-                # uncovered ranges remain visible without overpowering segments.
-                base_brush = QBrush(QColor("#d9d9d9"))
-                base_pen = QPen(QColor("#bcbcbc"), 0.6)
-                hatch_brush = QBrush(QColor("#a7a7a7"), Qt.BrushStyle.BDiagPattern)
-                for (gap_start, gap_end) in gaps:
-                    gx = gap_start + label_w
-                    gw = gap_end - gap_start
-                    if gw > 0:
-                        self._scene.addRect(
-                            gx, motor_y + 2, gw, row_h - 4,
-                            base_pen, base_brush,
-                        )
-                        self._scene.addRect(
-                            gx, motor_y + 2, gw, row_h - 4,
-                            QPen(Qt.PenStyle.NoPen), hatch_brush,
-                        )
-
-            motor_y += row_h + 2
+    def _render_motor_track_content(
+        self,
+        row_track_name: str,
+        lookup_track_name: str,
+        track_color: str,
+        motor_y: float,
+        row_h: int,
+        label_w: int,
+        total_dur: float,
+        timeline: Any,
+    ) -> None:
+        """Render motor segments for degraded fallback rows only."""
+        motor_segs = timeline.get_motor_segments_for_track(lookup_track_name)
+        for mseg in motor_segs:
+            mx = mseg.start_time * self._scale_px_per_sec + label_w
+            mw = max(float(row_h), mseg.duration * self._scale_px_per_sec)
+            self._draw_motor_segment(
+                mseg, mx, motor_y, mw, row_h, track_color, row_track_name, lookup_track_name
+            )
 
     def _motor_track_name_at_y(self, scene_y: float, only_collapsed: bool = False) -> Optional[str]:
         for tname, (top, height, expanded) in self._motor_track_rows.items():
@@ -856,6 +1078,16 @@ class TimelineView(QGraphicsView):
             if only_collapsed and expanded:
                 continue
             return tname
+        return None
+
+    def _body_part_limb_at_y(self, scene_y: float, only_collapsed: bool = False) -> Optional[str]:
+        """Return limb_id if scene_y falls within a body-part header row."""
+        for limb_id, (top, height) in self._body_part_rows.items():
+            if not (top <= scene_y <= (top + height)):
+                continue
+            if only_collapsed and self._body_part_expanded.get(limb_id, True):
+                continue
+            return limb_id
         return None
 
     def _draw_action_segment(
@@ -890,8 +1122,6 @@ class TimelineView(QGraphicsView):
         profile = UNITREE_ACTION_PROFILES.get(action_id)
         if profile is not None and str(profile.label or "").strip():
             label = str(profile.label).strip()
-            # For package-expanded labels like "Lift Right Leg / Prepare",
-            # keep only the actionable phase text on the axis.
             if "/" in label:
                 tail = label.split("/")[-1].strip()
                 if tail:
@@ -911,21 +1141,25 @@ class TimelineView(QGraphicsView):
         height: float,
         track_color: str,
         track_name: str = "",
+        lookup_track_name: str = "",
     ) -> None:
         fill = QColor(track_color)
         fill.setAlpha(160)
+        _vm_sel = self._timeline_vm.selection if self._timeline_vm is not None else None
         selected = (
-            self._selected_motor_id == seg.motor_id
-            and self._selected_motor_track == (track_name or seg.track_name)
+            _vm_sel is not None
+            and _vm_sel.level.value == "motor"
+            and _vm_sel.motor_id == seg.motor_id
+            and _vm_sel.track_name == (track_name or seg.track_name)
         )
         pen = QPen(QColor("#f4d03f"), 2) if selected else QPen(QColor(track_color), 1)
         rect = self._scene.addRect(x, y + 2, width, height - 4, pen, QBrush(fill))
-        # Fix 2: tag segment for interaction
         rect.setData(0, seg.motor_id)
         rect.setData(1, "motor")
         rect.setData(2, track_name or seg.track_name)
+        rect.setData(3, lookup_track_name or seg.track_name)
         display_name = self._motor_segment_display_name(seg)
-        tooltip = f"{display_name} ({seg.motor_id})\nduration={seg.duration:.2f}s"
+        tooltip = f"{display_name} ({seg.motor_id})`nduration={seg.duration:.2f}s"
         rect.setToolTip(tooltip)
         if width > 20:
             title_txt = self._scene.addSimpleText(display_name)
@@ -934,14 +1168,18 @@ class TimelineView(QGraphicsView):
             title_txt.setToolTip(tooltip)
         if width > 26:
             dur_txt = self._scene.addSimpleText(f"{seg.duration:.2f}s")
-            dur_txt.setBrush(QBrush(QColor("#ffffff")))
-            dur_txt.setPos(x + 4, y + 16)
+            dur_txt.setBrush(QBrush(QColor("#f0f0f0")))
+            dur_txt.setPos(x + 4, y + height - 16)
             dur_txt.setToolTip(tooltip)
 
     def _clear_motor_selection(self, notify: bool = False) -> None:
-        had_sel = self._selected_motor_id is not None or self._selected_motor_track is not None
-        self._selected_motor_id = None
-        self._selected_motor_track = None
+        had_sel = (
+            self._timeline_vm is not None
+            and self._timeline_vm.selection.level.value == "motor"
+        )
+        if self._timeline_vm is not None:
+            from system.behavior.timeline_view_model import TimelineSelection
+            self._timeline_vm.selection = TimelineSelection.none()
         if notify and had_sel:
             self.motor_segment_selected.emit("", "")
 
@@ -952,7 +1190,7 @@ class TimelineView(QGraphicsView):
             for action in tl.action_segments:
                 if action.action_id == seg.parent_action_id:
                     return self._action_display_name(action.name)
-        track_def = UNITREE_MOTOR_TRACK_MAP.get(seg.track_name)
+        track_def = self._available_tracks.get(seg.track_name)
         if track_def is not None:
             return track_def.label
         return "Segment"
@@ -1197,7 +1435,7 @@ def _default_core_source_for_behavior_ref(behavior_ref: str) -> str:
     """Return initial editor text seeded from the selected behavior/action ref."""
     legacy_default = (
         "stand(duration=2.0)\n"
-        "walk(speed=0.3, duration=4.0)\n"
+        "forward(speed=0.3, duration=4.0)\n"
         "wait(duration=1.0)\n"
         "sit()"
     )
@@ -1206,15 +1444,96 @@ def _default_core_source_for_behavior_ref(behavior_ref: str) -> str:
         return legacy_default
     if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", ref):
         return legacy_default
-    if ref == "walk":
-        return "walk(speed=0.3, duration=4.0)"
+    if ref in {"walk", "forward"}:
+        return "forward(speed=0.3, duration=4.0)"
     if ref == "wait":
         return "wait(duration=1.0)"
     return f"{ref}()"
 
 
+def _semantic_descriptor_for_behavior(
+    intent_id: str,
+    display_name: str = "",
+    brand: str = "",
+    robot_type: str = "",
+) -> Optional[SemanticActionDescriptor]:
+    """Resolve the authored IR descriptor for a Behavior node selection.
+    
+    Args:
+        intent_id: The semantic intent ID to look up.
+        display_name: Fallback display name for matching.
+        brand: Robot brand for filtering (e.g., "unitree").
+        robot_type: Robot type for filtering (e.g., "go2").
+    """
+    wanted_intent = str(intent_id or "").strip()
+    wanted_label = str(display_name or "").strip().lower()
+    try:
+        # Circle 4 Step 4.1: Pass brand/robot_type for机型-specific filtering
+        descriptors = get_semantic_actions(brand, robot_type)
+    except Exception:
+        return None
+
+    for desc in descriptors:
+        if wanted_intent and str(getattr(desc, "intent_id", "") or "").strip() == wanted_intent:
+            return desc
+    for desc in descriptors:
+        label = str(getattr(desc, "display_name", "") or "").strip().lower()
+        raw = str(getattr(desc, "raw_action", "") or "").strip().lower()
+        if wanted_label and wanted_label in {label, raw}:
+            return desc
+    return None
+
+
+def _default_core_source_for_behavior_selection(
+    intent_id: str,
+    display_name: str = "",
+    brand: str = "",
+    robot_type: str = "",
+) -> str:
+    """Seed editor source from semantic intent rather than behavior_ref."""
+    descriptor = _semantic_descriptor_for_behavior(intent_id, display_name, brand, robot_type)
+    if descriptor is None:
+        return _default_core_source_for_behavior_ref(display_name or intent_id)
+
+    raw_action = str(getattr(descriptor, "raw_action", "") or "").strip()
+    if not raw_action:
+        return _default_core_source_for_behavior_ref(display_name or intent_id)
+
+    arg_parts: List[str] = []
+    for key, meta in (getattr(descriptor, "parameters", {}) or {}).items():
+        if "default" in meta:
+            arg_parts.append(f"{key}={meta['default']}")
+    return f"{raw_action}({', '.join(arg_parts)})" if arg_parts else f"{raw_action}()"
+
+
+def _default_timeline_for_behavior_selection(
+    intent_id: str,
+    display_name: str = "",
+    brand: str = "",
+    robot_type: str = "",
+) -> BehaviorTimeline:
+    """Build a default timeline that preserves semantic intent metadata."""
+    descriptor = _semantic_descriptor_for_behavior(intent_id, display_name, brand, robot_type)
+    if descriptor is None:
+        return BehaviorTimeline()
+
+    raw_action = str(getattr(descriptor, "raw_action", "") or "").strip()
+    if not raw_action:
+        return BehaviorTimeline()
+
+    arg_parts: List[str] = []
+    for key, meta in (getattr(descriptor, "parameters", {}) or {}).items():
+        if "default" in meta:
+            arg_parts.append(f"{key}={meta['default']}")
+    timeline = build_timeline_from_modules(
+        [SequenceModule(kind="movement", name=raw_action, args=", ".join(arg_parts), duration=1.0)],
+        robot_type=robot_type or "go2",
+        auto_decompose=True,
+    )
+    return timeline or BehaviorTimeline()
+
 # =============================================================================
-# Heartbeat Canvas — data model (pure Python, no Qt dependency)
+# Heartbeat Canvas 閳?data model (pure Python, no Qt dependency)
 # =============================================================================
 
 class HBNodeKind:
@@ -1257,7 +1576,7 @@ _HB_CATALOG_TOOLTIP: Dict[str, str] = {
     HBNodeAvailability.AVAILABLE:          "Supported by current robot profile",
     HBNodeAvailability.LIMITED:            "Limited support",
     HBNodeAvailability.UNSUPPORTED:        "Not supported",
-    HBNodeAvailability.UNKNOWN_CAPABILITY: "Capability unknown — load a capability profile to resolve",
+    HBNodeAvailability.UNKNOWN_CAPABILITY: "Capability unknown 閳?load a capability profile to resolve",
 }
 
 
@@ -1363,7 +1682,7 @@ class HBGraphData:
 
 @dataclass
 class HBEventStateEntry:
-    """One row in the Event State panel — readable by non-technical users."""
+    """One row in the Event State panel 閳?readable by non-technical users."""
     event_name: str
     state: str       # "active" | "inactive" | "pending" | "error"
     source: str
@@ -1454,7 +1773,7 @@ class HBPolicyDraft:
 
 @dataclass
 class HBDraftPayload:
-    """Canonical heartbeat draft payload — one per mission node context.
+    """Canonical heartbeat draft payload 閳?one per mission node context.
 
     Covers all authoring state: script, canvas graph, policy, IO bindings,
     event schema, and which authoring mode (canvas/script) was last active.
@@ -1499,7 +1818,7 @@ class HBDraftPayload:
 
 
 # =============================================================================
-# Heartbeat Canvas — Qt graphics items
+# Heartbeat Canvas 閳?Qt graphics items
 # =============================================================================
 
 class HBNodeItem(QGraphicsRectItem):
@@ -1739,14 +2058,101 @@ class HeartbeatCanvas(QGraphicsView):
         self.graph_changed.emit()
 
 
+class LimbDiagramView(QGraphicsView):
+    """Placeholder canvas for the robot limb diagram.
+
+    Displays a simple schematic of the active robot type using circles and
+    rectangles.  Accepts ``update_time(float)`` to animate limb state as
+    the timeline playhead moves.  Full kinematic animation is deferred to a
+    future cycle; this class establishes the signal interface so the wiring
+    is in place.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._scene = QGraphicsScene(self)
+        self.setScene(self._scene)
+        self.setRenderHint(self.renderHints())  # keep Qt default
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setBackgroundBrush(QBrush(QColor("#1a1f2e")))
+        self._robot_type: str = "go2"
+        self._current_time: float = 0.0
+        self._draw_placeholder()
+
+    def set_robot_type(self, robot_type: str) -> None:
+        self._robot_type = robot_type
+        self._draw_placeholder()
+
+    def update_time(self, t: float) -> None:
+        """Slot: called by playback timer with current playhead time (seconds)."""
+        self._current_time = t
+        # Full animation deferred; redraw placeholder to show time is received.
+        self._draw_placeholder()
+
+    def _draw_placeholder(self) -> None:
+        self._scene.clear()
+        w, h = 260.0, 180.0
+        self._scene.setSceneRect(0, 0, w, h)
+
+        # Central body rectangle
+        body_pen = QPen(QColor("#4a90d9"))
+        body_pen.setWidth(2)
+        body_brush = QBrush(QColor("#1e2d45"))
+        body = self._scene.addRect(QRectF(w / 2 - 30, h / 2 - 40, 60, 80), body_pen, body_brush)
+
+        # Head circle
+        head_pen = QPen(QColor("#7ec8e3"))
+        head_pen.setWidth(2)
+        head_brush = QBrush(QColor("#1e2d45"))
+        self._scene.addEllipse(QRectF(w / 2 - 16, h / 2 - 68, 32, 28), head_pen, head_brush)
+
+        # Four legs as lines (simplified for go2 / quadruped)
+        leg_pen = QPen(QColor("#4a90d9"))
+        leg_pen.setWidth(3)
+        leg_coords = [
+            (w / 2 - 30, h / 2 - 20, w / 2 - 50, h / 2 + 50),
+            (w / 2 + 30, h / 2 - 20, w / 2 + 50, h / 2 + 50),
+            (w / 2 - 30, h / 2 + 30, w / 2 - 50, h / 2 + 90),
+            (w / 2 + 30, h / 2 + 30, w / 2 + 50, h / 2 + 90),
+        ]
+        for x1, y1, x2, y2 in leg_coords:
+            self._scene.addLine(x1, y1, x2, y2, leg_pen)
+            # Foot circle
+            foot_brush = QBrush(QColor("#4a90d9"))
+            self._scene.addEllipse(QRectF(x2 - 5, y2 - 5, 10, 10), leg_pen, foot_brush)
+
+        # Time indicator
+        time_item = self._scene.addText(f"t = {self._current_time:.2f} s")
+        time_item.setDefaultTextColor(QColor("#6b7280"))
+        time_item.setPos(4, 4)
+
+        # Robot type label
+        type_item = self._scene.addText(self._robot_type)
+        type_item.setDefaultTextColor(QColor("#4a90d9"))
+        type_item.setPos(4, h - 22)
+
+        self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._scene.sceneRect().isValid():
+            self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+
 class BehaviorPanel(QWidget):
     """Behavior tab with timeline-focused sequence authoring."""
 
     back_requested = Signal()
+    action_parameters_changed = Signal(int)
+    playback_time_changed = Signal(float)  # emitted on every playback tick (seconds)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._node_name = ""
+        self._behavior_ref = ""
+        self._intent_id = ""
         self._node_id = -1
         self._bridge = BehaviorCompilerBridge()
         self._compile_worker = None
@@ -1760,28 +2166,34 @@ class BehaviorPanel(QWidget):
         self._init_snapshot: Optional[Dict[str, Any]] = None
 
         self._movement_registry: List[str] = []
+        self._movement_descriptors: List[SemanticActionDescriptor] = []  # Circle 5
         self._behavior_registry: List[str] = []
         self._modules: List[SequenceModule] = []
-        self._selected_module_index: int = -1
-        self._selected_motor_segment_id: Optional[str] = None
-        self._selected_motor_track: Optional[str] = None
+        self._selected_module_index: int = -1  # for module ops (remove/reorder); not selection display
         self._movement_track_groups_expanded: Dict[str, bool] = {}
         self._movement_group_header_rows: Dict[int, str] = {}
+        # Single authoritative selection state 閳?always kept in sync with _timeline_vm.selection.
+        # Replaces the previous scattered _selected_limb_id / _selected_body_part_action_id /
+        # _selected_motor_segment_id / _selected_motor_track fields.
+        from system.behavior.timeline_view_model import TimelineSelection, SelectionLevel
+        self._panel_selection: "TimelineSelection" = TimelineSelection.none()
+        self._SelectionLevel = SelectionLevel  # cached for use without re-import
 
         # Phase 1 redesign: structured timeline per node (None until first sync)
-        # _behavior_timeline  — active structured model for the current node
-        # _timelines_by_node  — persisted per-node timelines (key format same as _drafts_by_node)
+        # _behavior_timeline  閳?active structured model for the current node
+        # _timelines_by_node  閳?persisted per-node timelines (key format same as _drafts_by_node)
         self._behavior_timeline: Optional[BehaviorTimeline] = None
         self._timelines_by_node: Dict[str, Dict[str, Any]] = {}
 
         # Fix 1: robot type and simulation mode (updated by set_capability_profile /
         # set_simulation_mode from bin/ui.py scenario settings wiring).
+        self._brand: str = ""
         self._robot_type: str = "go2"
         self._is_simulation: bool = False
 
-        # Runtime/compile snapshot state — separate from draft
+        # Runtime/compile snapshot state 閳?separate from draft
         self._hb_compiled_snapshot: Optional[Dict[str, Any]] = None
-        # Event state and IO mapping panels — populated by external callers or draft restore
+        # Event state and IO mapping panels 閳?populated by external callers or draft restore
         self._hb_event_states: List[HBEventStateEntry] = []
         self._hb_io_mappings: List[HBIOMapping] = []
         # Dual-mode authoring state (Step 1.2)
@@ -1790,45 +2202,55 @@ class BehaviorPanel(QWidget):
         # Keep a dict slot only so old draft payloads with "canvas_graph" round-trip.
         self._hb_legacy_canvas_graph: Dict[str, Any] = HBGraphData.default_template().to_dict()
         self._hb_policy_draft: HBPolicyDraft = HBPolicyDraft.default()
-        # Execution chain channel — mock by default; swapped via set_hb_channel() (Step 1.3)
+        # Execution chain channel 閳?mock by default; swapped via set_hb_channel() (Step 1.3)
         self._hb_channel: IHBChannel = HBMockChannel()
-        # Step 1.4: Node catalog — model-aware availability; starts as unknown
+        # Step 1.4: Node catalog 閳?model-aware availability; starts as unknown
         self._hb_catalog: HBNodeCatalog = HBNodeCatalog.unknown()
 
+        # Playback state (timeline preview playback)
+        self._playback_time: float = 0.0
+        self._is_playing: bool = False
+
         self._init_ui()
-        # Diagnostics poll timer — started on first set_node_context() call (Step 1.3)
+        # Diagnostics poll timer 閳?started on first set_node_context() call (Step 1.3)
         self._hb_diag_timer = QTimer(self)
         self._hb_diag_timer.setInterval(2000)
         self._hb_diag_timer.timeout.connect(self._poll_hb_diagnostics)
+        # Playback timer — 50 ms tick → ~20 fps scrub rate
+        self._play_timer = QTimer(self)
+        self._play_timer.setInterval(50)
+        self._play_timer.timeout.connect(self._on_play_tick)
         self._refresh_registries()
         self._refresh_module_library()
         self._refresh_hb_library()
         self._refresh_timeline()
+        self._refresh_navigator()
         self._refresh_movement_settings()
         self._refresh_event_state()
         self._refresh_movement_io_mapping()
         self.refresh_texts()
 
-    def set_node_context(self, node_name: str, node_id: int) -> None:
+    def set_node_context(
+        self,
+        node_name: str,
+        node_id: int,
+        behavior_ref: str = "",
+        intent_id: str = "",
+    ) -> None:
         # Save current node's full canonical draft before switching
         if self._node_id >= 0:
-            prev_key = self._draft_slot_key(self._node_id, self._node_name)
-            self._drafts_by_node[prev_key] = {
-                "core": self._core_editor.toPlainText(),
-                "hb": self._collect_hb_draft().to_dict(),
-            }
-            # Save structured timeline for the outgoing node
-            if self._behavior_timeline is not None:
-                self._timelines_by_node[prev_key] = self._behavior_timeline.to_dict()
+            self._persist_current_behavior_draft()
 
         self._node_name = node_name
+        self._behavior_ref = str(behavior_ref or "").strip() or node_name
+        self._intent_id = str(intent_id or "").strip()
         self._node_id = node_id
         self._refresh_breadcrumb()
         self._ctx_node.setText(node_name)
         self._ctx_node_id.setText(str(node_id))
-        self._ctx_ref.setText(node_name)
+        self._ctx_ref.setText(self._behavior_ref)
 
-        slot_key = self._draft_slot_key(node_id, node_name)
+        slot_key = self._draft_slot_key(node_id, self._behavior_ref)
         saved = self._drafts_by_node.get(slot_key, {})
         if not saved:
             # Backward compat: migrate legacy node-id-only drafts to the
@@ -1840,7 +2262,10 @@ class BehaviorPanel(QWidget):
                 self._drafts_by_node[slot_key] = saved
                 self._drafts_by_node.pop(str(node_id), None)
                 self._drafts_by_node.pop(node_id, None)  # type: ignore[arg-type]
-        core = saved.get("core", _default_core_source_for_behavior_ref(node_name))
+        core = saved.get(
+            "core",
+            _default_core_source_for_behavior_selection(self._intent_id, node_name, self._brand, self._robot_type),
+        )
         hb_dict = saved.get("hb")
 
         self._set_core_source(core, mark_dirty=False)
@@ -1852,26 +2277,34 @@ class BehaviorPanel(QWidget):
                 self._apply_hb_draft(HBDraftPayload.default())
         else:
             self._apply_hb_draft(HBDraftPayload.default())
-        self._hb_status_label.setText("Draft — uncompiled")
+        self._hb_status_label.setText("Draft 閳?uncompiled")
         self._hb_compiled_snapshot = None
         self._hb_diag_indicator.setText("")
         # _hb_event_states / _hb_io_mappings / mode already reset by _apply_hb_draft
 
-        # Restore structured timeline for this node (Phase 1)
-        timeline_dict = self._timelines_by_node.get(slot_key)
+        # Restore structured timeline for this node using the draft as the
+        # single persisted behavior state. Legacy external timeline registries are
+        # only consulted as a migration fallback.
+        timeline_dict = self._timeline_dict_for_slot(slot_key)
         if timeline_dict is not None:
-            try:
-                self._behavior_timeline = BehaviorTimeline.from_dict(timeline_dict)
-            except Exception:
+            self._behavior_timeline = self._load_timeline_with_migration(timeline_dict)
+            if self._behavior_timeline.is_empty() and not timeline_dict.get("action_segments"):
                 self._behavior_timeline = None
         else:
-            self._behavior_timeline = None
+            self._behavior_timeline = _default_timeline_for_behavior_selection(
+                self._intent_id,
+                node_name,
+                self._brand,
+                self._robot_type,
+            )
 
-        self._sync_modules_from_source()
+        self._sync_views_from_timeline(mark_dirty=False)
         self._refresh_registries()
         self._refresh_module_library()
+        self._refresh_timeline()
+        self._refresh_navigator()
 
-        # Record init snapshot for Reset — captures state right after load.
+        # Record init snapshot for Reset 閳?captures state right after load.
         self._init_snapshot = {
             "core": self._core_editor.toPlainText(),
             "hb": self._collect_hb_draft().to_dict(),
@@ -1886,6 +2319,42 @@ class BehaviorPanel(QWidget):
     @staticmethod
     def _draft_slot_key(node_id: int, node_name: str) -> str:
         return f"{int(node_id)}::{str(node_name or '').strip()}"
+
+    def ensure_behavior_artifact(
+        self,
+        *,
+        node_name: str,
+        node_id: int,
+        behavior_ref: str,
+        intent_id: str,
+        brand: str,
+        robot_type: str,
+        is_simulation: bool,
+    ):
+        """Compile/register the artifact for one Behavior node using semantic defaults."""
+        ref = str(behavior_ref or "").strip() or str(node_name or "").strip()
+        slot_key = self._draft_slot_key(node_id, ref)
+        saved = self._drafts_by_node.get(slot_key, {})
+
+        source = str(
+            saved.get("core")
+            or _default_core_source_for_behavior_selection(intent_id, node_name, brand, robot_type)
+        )
+
+        timeline_raw = self._timeline_dict_for_slot(slot_key)
+        if isinstance(timeline_raw, dict):
+            timeline = self._load_timeline_with_migration(timeline_raw)
+        else:
+            timeline = _default_timeline_for_behavior_selection(intent_id, node_name, brand, robot_type)
+
+        return self._bridge.compile(
+            source=source,
+            behavior_ref=ref,
+            robot_type=robot_type or "go2",
+            timeline=timeline,
+            is_simulation=bool(is_simulation),
+        )
+
 
     def has_unsaved_changes(self) -> bool:
         return bool(self._dirty_nodes)
@@ -1935,7 +2404,7 @@ class BehaviorPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # ── Context region ────────────────────────────────────────────────
+        # 閳光偓閳光偓 Context region 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
         self._context_title = _plain_title(layout, "")
         self._ctx_node_key, self._ctx_node = _kv_row(layout, "", "-")
         self._ctx_node_id_key, self._ctx_node_id = _kv_row(layout, "", "-")
@@ -1944,9 +2413,15 @@ class BehaviorPanel(QWidget):
         self._ctx_compile_time_key, self._ctx_compile_time = _kv_row(layout, "", "-")
         self._ctx_diag_key, self._ctx_diag = _kv_row(layout, "", "-")
 
-        layout.addSpacing(12)
+        layout.addSpacing(14)
+        self._context_core_divider = QFrame()
+        self._context_core_divider.setFrameShape(QFrame.Shape.HLine)
+        self._context_core_divider.setFrameShadow(QFrame.Shadow.Plain)
+        self._context_core_divider.setStyleSheet("color: #303030; background: #303030; min-height: 1px; max-height: 1px;")
+        layout.addWidget(self._context_core_divider)
+        layout.addSpacing(14)
 
-        # ── Core Library region (movements + behavior refs) ───────────────
+        # 閳光偓閳光偓 Core Library region (movements + behavior refs) 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
         self._core_library_title = _plain_title(layout, "")
         self._module_library_tree = QTreeWidget()
         self._module_library_tree.setHeaderHidden(True)
@@ -1964,7 +2439,7 @@ class BehaviorPanel(QWidget):
 
         layout.addSpacing(4)
 
-        # ── HeartBeat Library region — hidden in product UI (not part of main flow) ──
+        # 閳光偓閳光偓 HeartBeat Library region 閳?hidden in product UI (not part of main flow) 閳光偓閳光偓
         self._hb_library_title = _plain_title(layout, "")
         self._hb_library_tree = QTreeWidget()
         self._hb_library_tree.setHeaderHidden(True)
@@ -1977,7 +2452,7 @@ class BehaviorPanel(QWidget):
         self._hb_library_title.hide()
         self._hb_library_tree.hide()
 
-        # Compatibility alert bar — Step 1.7 (hidden until issues detected)
+        # Compatibility alert bar 閳?Step 1.7 (hidden until issues detected)
         self._compat_summary_label = QLabel("")
         self._compat_summary_label.setObjectName("hbCompatSummaryLabel")
         self._compat_summary_label.setWordWrap(True)
@@ -2002,43 +2477,68 @@ class BehaviorPanel(QWidget):
         wrapper = QWidget()
         root = QVBoxLayout(wrapper)
         root.setContentsMargins(6, 6, 6, 6)
-        root.setSpacing(6)
+        root.setSpacing(0)
 
-        heartbeat = self._build_heartbeat_section()
+        # Vertical splitter: top = Limb Diagram (user-resizable), bottom = rest.
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(6)
+
+        limb_diagram = self._build_limb_diagram_section()
+        splitter.addWidget(limb_diagram)
+
+        # Lower pane: timeline + bottom tabs stacked vertically.
+        lower = QWidget()
+        lower_layout = QVBoxLayout(lower)
+        lower_layout.setContentsMargins(0, 6, 0, 0)
+        lower_layout.setSpacing(6)
+
         timeline = self._build_timeline_section()
-        root.addWidget(heartbeat, 3)   # Navigator — smaller stretch after cleanup
-        root.addWidget(timeline, 0)
+        lower_layout.addWidget(timeline, 0)
 
-        # Bottom region: only Movement IO is shown in product UI.
-        # Event State (tab 1) and Source/Diagnostics (tab 2) are built for compat
-        # but hidden; tab bar is hidden since only one tab remains.
+        # Bottom region: Movement Settings+IO (tab 0) + hidden compat tabs.
         self._bottom_tabs = QTabWidget()
         self._bottom_tabs.addTab(self._build_movement_io_tab(), "")   # tab 0
         self._bottom_tabs.addTab(self._build_event_state_tab(), "")   # tab 1 (hidden)
         self._bottom_tabs.addTab(self._build_source_diag_section(), "")  # tab 2 (hidden)
         self._bottom_tabs.setTabVisible(1, False)
         self._bottom_tabs.setTabVisible(2, False)
-        self._bottom_tabs.tabBar().hide()  # Single visible tab — no bar needed
-        root.addWidget(self._bottom_tabs, 2)
+        self._bottom_tabs.tabBar().hide()  # Single visible tab – no bar needed
+        lower_layout.addWidget(self._bottom_tabs, 2)
+
+        splitter.addWidget(lower)
+        # Initial size ratio: Limb diagram ~30%, lower area ~70%.
+        splitter.setSizes([200, 400])
+
+        root.addWidget(splitter, 1)
         return wrapper
 
     def _build_movement_io_tab(self) -> QWidget:
-        """Tab 0: movement settings (left) + IO signal mapping (right), side by side."""
+        """Tab 0: left = tabbed settings (Parameters / IO Mappings), right = Navigator."""
         pane = QWidget()
         layout = QHBoxLayout(pane)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        movement_settings = self._build_movement_settings_section()
-        io_mapping = self._build_io_mapping_section()
-        movement_settings.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        io_mapping.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        # Keep both panes with equal weight.
-        layout.addWidget(movement_settings, 1)
-        layout.addWidget(io_mapping, 1)
+
+        # Left side: QTabWidget with Parameters and IO Mappings tabs
+        self._movement_settings_tabs = QTabWidget()
+        self._movement_settings_tabs.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        params_tab = self._build_movement_settings_section()
+        io_tab = self._build_io_mapping_section()
+        self._movement_settings_tabs.addTab(params_tab, "Parameters")
+        self._movement_settings_tabs.addTab(io_tab, "IO Mappings")
+        layout.addWidget(self._movement_settings_tabs, 2)
+
+        # Right side: Navigator (heartbeat section)
+        heartbeat = self._build_heartbeat_section()
+        heartbeat.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        layout.addWidget(heartbeat, 1)
         return pane
 
     def _build_event_state_tab(self) -> QFrame:
-        """Tab 1: event state panel — event name, state, source, timestamp, reason."""
+        """Tab 1: event state panel 閳?event name, state, source, timestamp, reason."""
         pane = QFrame()
         layout = QVBoxLayout(pane)
         layout.setContentsMargins(8, 8, 8, 8)
@@ -2098,7 +2598,7 @@ class BehaviorPanel(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers)
         layout.addWidget(self._io_mapping_table, 1)
 
-        # Conflict / warning hint label — hidden until conflicts exist (Step 1.5)
+        # Conflict / warning hint label 閳?hidden until conflicts exist (Step 1.5)
         self._io_conflict_label = QLabel("")
         self._io_conflict_label.setObjectName("hbIOConflictLabel")
         self._io_conflict_label.setStyleSheet(
@@ -2122,34 +2622,16 @@ class BehaviorPanel(QWidget):
         self._hb_canvas_btn.setChecked(False)
         self._hb_compiler_btn = QPushButton("")
         self._hb_compiler_btn.setCheckable(True)
-        self._hb_nav_btn = QPushButton("Navigator")  # Step 2
-        self._hb_nav_btn.setCheckable(True)
-        self._hb_nav_btn.setFixedHeight(28)
-
-        self._compile_btn = QPushButton("")
-        self._compile_btn.setObjectName("behaviorSaveBtn")
-        self._compile_btn.setFixedHeight(28)
-        self._compile_btn.setEnabled(False)
-        self._compile_btn.clicked.connect(self._run_compile)
-
-        self._save_as_btn = QPushButton("")
-        self._save_as_btn.setObjectName("behaviorSaveAsBtn")
-        self._save_as_btn.setFixedHeight(28)
-        self._save_as_btn.clicked.connect(self._on_save_as)
-
         self._reset_btn = QPushButton("")
         self._reset_btn.setObjectName("behaviorResetBtn")
         self._reset_btn.setFixedHeight(28)
         self._reset_btn.setEnabled(False)
         self._reset_btn.clicked.connect(self._on_reset)
 
-        # Legacy canvas and compiler toggles hidden in product UI; only Navigator shown.
+        # Legacy canvas/compiler/navigator toggles hidden in product UI.
         row.addWidget(self._hb_canvas_btn)
         row.addWidget(self._hb_compiler_btn)
-        row.addWidget(self._hb_nav_btn)
         row.addStretch()
-        row.addWidget(self._compile_btn)
-        row.addWidget(self._save_as_btn)
         row.addWidget(self._reset_btn)
         layout.addLayout(row)
         self._hb_canvas_btn.hide()
@@ -2157,7 +2639,7 @@ class BehaviorPanel(QWidget):
 
         # Execution chain buttons, status label, and policy row are retained as attributes
         # for backend compat (compile/dryrun/run logic still works internally) but are not
-        # shown in the product UI — Behavior panel is now "Navigator + Timeline + Settings".
+        # shown in the product UI 閳?Behavior panel is now "Navigator + Timeline + Settings".
         _hidden_ctrl = QWidget()
         _hidden_ctrl.hide()
         _hidden_layout = QVBoxLayout(_hidden_ctrl)
@@ -2185,13 +2667,13 @@ class BehaviorPanel(QWidget):
         exec_row.addWidget(self._hb_diag_indicator)
         _hidden_layout.addLayout(exec_row)
 
-        self._hb_status_label = QLabel("Draft — uncompiled")
+        self._hb_status_label = QLabel("Draft 閳?uncompiled")
         self._hb_status_label.setStyleSheet(
             "color: #9ca3af; font-size: 11px; background: transparent;"
         )
         _hidden_layout.addWidget(self._hb_status_label)
 
-        # Policy row — tick_ms, timeout_ms, fail_policy (retained for persistence compat)
+        # Policy row 閳?tick_ms, timeout_ms, fail_policy (retained for persistence compat)
         _lbl_style = "color: #9ca3af; font-size: 11px; background: transparent;"
         policy_row = QHBoxLayout()
         policy_row.setSpacing(4)
@@ -2241,7 +2723,7 @@ class BehaviorPanel(QWidget):
         self._heartbeat_editor.textChanged.connect(self._on_editor_changed)
         self._hb_stack.addWidget(self._heartbeat_editor)
 
-        # Step 2: Motor Weight Navigator — read-only inspection mode (index 2)
+        # Step 2: Motor Weight Navigator 閳?read-only inspection mode (index 2)
         self._motor_weight_navigator = MotorWeightNavigator()
         self._hb_stack.addWidget(self._motor_weight_navigator)
 
@@ -2249,9 +2731,31 @@ class BehaviorPanel(QWidget):
 
         self._hb_canvas_btn.clicked.connect(lambda: self._set_hb_mode(0))
         self._hb_compiler_btn.clicked.connect(lambda: self._set_hb_mode(1))
-        self._hb_nav_btn.clicked.connect(lambda: self._set_hb_mode(2))  # Step 2
-        # Product default: quick navigator replaces legacy placeholder canvas.
+        # Product default: navigator is the only visible mode.
         self._set_hb_mode(2)
+        return pane
+
+    def _build_limb_diagram_section(self) -> QFrame:
+        """Top panel: robot limb schematic that animates with the timeline playhead."""
+        pane = QFrame()
+        pane.setObjectName("limbDiagramSection")
+        pane.setStyleSheet("#limbDiagramSection { border: 1px solid #2d3748; border-radius: 4px; }")
+        layout = QVBoxLayout(pane)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(2)
+
+        header = QHBoxLayout()
+        lbl = QLabel("Limb Diagram")
+        lbl.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 600;")
+        header.addWidget(lbl)
+        header.addStretch()
+        layout.addLayout(header)
+
+        self._limb_diagram_view = LimbDiagramView()
+        self._limb_diagram_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        layout.addWidget(self._limb_diagram_view, 1)
         return pane
 
     def _build_timeline_section(self) -> QFrame:
@@ -2267,14 +2771,51 @@ class BehaviorPanel(QWidget):
         top.addStretch()
         layout.addLayout(top)
 
+        self._timeline_status_label = QLabel("")
+        self._timeline_status_label.setWordWrap(True)
+        self._timeline_status_label.setStyleSheet(
+            "color: #94a3b8; font-size: 11px; padding: 0 2px 4px 2px;"
+        )
+        layout.addWidget(self._timeline_status_label)
+
+        # Playback controls row — video-editor style
+        ctrl_row = QHBoxLayout()
+        ctrl_row.setSpacing(4)
+        ctrl_row.setContentsMargins(4, 0, 4, 2)
+
+        self._play_btn = QPushButton("▶")
+        self._play_btn.setFixedSize(28, 24)
+        self._play_btn.setToolTip("Play / Pause")
+        self._play_btn.clicked.connect(self._play_cmd_toggle)
+        ctrl_row.addWidget(self._play_btn)
+
+        self._stop_btn = QPushButton("■")
+        self._stop_btn.setFixedSize(28, 24)
+        self._stop_btn.setToolTip("Stop and rewind")
+        self._stop_btn.clicked.connect(self._play_cmd_stop)
+        ctrl_row.addWidget(self._stop_btn)
+
+        ctrl_row.addSpacing(6)
+        self._play_time_label = QLabel("0.00 s")
+        self._play_time_label.setStyleSheet(
+            "color: #94a3b8; font-size: 11px; font-family: monospace; background: transparent;"
+        )
+        ctrl_row.addWidget(self._play_time_label)
+        ctrl_row.addStretch()
+        layout.addLayout(ctrl_row)
+
         self._timeline = TimelineView()
         self._timeline.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        # self._timeline.setMinimumHeight(300)
         self._timeline.module_selected.connect(self._on_timeline_module_selected)
         self._timeline.motor_segment_selected.connect(self._on_timeline_motor_segment_selected)
         self._timeline.module_reordered.connect(self._on_timeline_module_reordered)
         self._timeline.delete_requested.connect(self._remove_selected_module)
         self._timeline.timeline_edited.connect(self._on_timeline_edited)
+        self._timeline.body_part_selected.connect(self._on_timeline_body_part_selected)
+        # Update time label when user scrubs playhead directly on ruler
+        self._timeline.playhead_moved.connect(
+            lambda t: self._play_time_label.setText(f"{t:.2f} s")
+        )
         layout.addWidget(self._timeline, 1)
 
         return pane
@@ -2287,6 +2828,10 @@ class BehaviorPanel(QWidget):
 
         self._movement_settings_title = _plain_title(layout, "")
         self._movement_selected_label = QLabel("")
+        self._movement_selected_label.setWordWrap(True)
+        self._movement_selected_label.setStyleSheet(
+            "color: #e2e8f0; font-weight: 600; padding: 0 0 2px 0;"
+        )
         layout.addWidget(self._movement_selected_label)
 
         self._movement_params_table = QTableWidget(0, 3)   # Step 3: Parameter/Source/Value
@@ -2303,6 +2848,9 @@ class BehaviorPanel(QWidget):
 
         self._movement_hint = QLabel("")
         self._movement_hint.setWordWrap(True)
+        self._movement_hint.setStyleSheet(
+            "color: #94a3b8; font-size: 11px; padding: 2px 0 0 0;"
+        )
         layout.addWidget(self._movement_hint)
         return pane
 
@@ -2330,7 +2878,6 @@ class BehaviorPanel(QWidget):
         self._hb_stack.setCurrentIndex(idx)
         self._hb_canvas_btn.setChecked(idx == 0)
         self._hb_compiler_btn.setChecked(idx == 1)
-        self._hb_nav_btn.setChecked(idx == 2)          # Step 2
         if idx == 0:
             self._hb_authoring_mode = "canvas"
         elif idx == 1:
@@ -2346,14 +2893,11 @@ class BehaviorPanel(QWidget):
         except Exception:
             self._behavior_registry = []
 
-        try:
-            from bin.core.robot_context import RobotContext
-            self._movement_registry = sorted(set(RobotContext.get_available_actions() or []))
-        except Exception:
-            self._movement_registry = []
-
-        if not self._movement_registry:
-            self._movement_registry = ["stand", "walk", "sit", "wait", "stop"]
+        # Circle 5 STEP 5.1: source Movement library from central semantic registry.
+        # brand="" / robot_type="" returns the brand-independent base catalog 閳?
+        # no hardcoded fallback string list needed.
+        self._movement_descriptors = [d for d in get_semantic_actions(self._brand, self._robot_type) if d.availability == ActionAvailability.AVAILABLE]
+        self._movement_registry = [d.raw_action for d in self._movement_descriptors]
 
     def _refresh_module_library(self) -> None:
         self._module_library_tree.clear()
@@ -2362,9 +2906,15 @@ class BehaviorPanel(QWidget):
         movement_root.setFlags(Qt.ItemFlag.ItemIsEnabled)
         movement_root.setExpanded(True)
         self._module_library_tree.addTopLevelItem(movement_root)
-        for name in self._movement_registry:
-            item = QTreeWidgetItem([f"movement.{name}()"])
-            item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "movement", "name": name, "args": ""})
+        for desc in self._movement_descriptors:
+            label = desc.display_name or desc.raw_action
+            item = QTreeWidgetItem([label])
+            item.setData(0, Qt.ItemDataRole.UserRole, {
+                "kind": "movement",
+                "name": desc.raw_action,
+                "intent_id": desc.intent_id,
+                "availability": desc.availability,
+            })
             item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             movement_root.addChild(item)
 
@@ -2437,7 +2987,7 @@ class BehaviorPanel(QWidget):
     def _refresh_hb_library(self) -> None:
         """Refresh the HeartBeat Library region with model-aware availability states.
 
-        All catalog entries are always shown — nodes are never silently hidden.
+        All catalog entries are always shown 閳?nodes are never silently hidden.
         The availability state (available / limited / unsupported / unknown) is
         conveyed via a text badge and tooltip on each item (Step 1.4).
         """
@@ -2454,7 +3004,7 @@ class BehaviorPanel(QWidget):
             item.setData(0, Qt.ItemDataRole.UserRole, {"kind": entry.kind, "label": entry.label})
             item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
 
-            # Build tooltip — always explicit, never silent
+            # Build tooltip 閳?always explicit, never silent
             prefix = _HB_CATALOG_TOOLTIP.get(entry.availability, "Capability unknown")
             tooltip = (prefix + ": " + entry.reason) if entry.reason else prefix
             item.setToolTip(0, tooltip)
@@ -2505,7 +3055,7 @@ class BehaviorPanel(QWidget):
             state_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._event_state_table.setItem(row, 1, state_item)
 
-            # Col 2–4: source, timestamp, reason (plain)
+            # Col 2閳?: source, timestamp, reason (plain)
             self._event_state_table.setItem(row, 2, QTableWidgetItem(entry.source))
             self._event_state_table.setItem(row, 3, QTableWidgetItem(entry.timestamp))
             self._event_state_table.setItem(row, 4, QTableWidgetItem(entry.reason))
@@ -2514,12 +3064,15 @@ class BehaviorPanel(QWidget):
         """Step 2: Rebuild MotorWeightNavigator from current timeline + IO mappings."""
         try:
             from system.behavior.action_profile import get_motor_track_map
-            robot_type = getattr(self._behavior_timeline, "robot_type", "") or ""
-            available_tracks = get_motor_track_map(robot_type)
+            robot_type = self._robot_type or ""
+            brand = self._brand or ""
+            available_tracks = get_motor_track_map(robot_type, brand=brand)
             self._motor_weight_navigator.refresh_from_timeline_and_io(
                 self._behavior_timeline,
                 self._hb_io_mappings,
                 available_tracks=available_tracks,
+                brand=brand,
+                robot_type=robot_type,
             )
         except Exception:
             pass  # Never crash the panel
@@ -2539,7 +3092,7 @@ class BehaviorPanel(QWidget):
             self._io_conflict_label.hide()
             return
 
-        # Conflict detection — update hint label
+        # Conflict detection 閳?update hint label
         conflicts = detect_io_conflicts(self._hb_io_mappings)
         if conflicts:
             msgs = [f"{h.signal}: {h.reason}" for h in conflicts]
@@ -2558,7 +3111,7 @@ class BehaviorPanel(QWidget):
             # Col 1: target_param (plain)
             self._io_mapping_table.setItem(row, 1, QTableWidgetItem(mapping.target_param))
 
-            # Col 2: direction badge (colored foreground, ↓ In / ↑ Out)
+            # Col 2: direction badge (colored foreground, 閳?In / 閳?Out)
             if mapping.direction == "inbound":
                 dir_label = "\u2193 In"
                 dir_color = QColor("#2196f3")
@@ -2611,19 +3164,7 @@ class BehaviorPanel(QWidget):
         """
         # Flush current node so it is included in the snapshot
         if self._node_id >= 0:
-            cur_key = self._draft_slot_key(self._node_id, self._node_name)
-            entry: Dict[str, Any] = {
-                "core": self._core_editor.toPlainText(),
-                "hb": self._collect_hb_draft().to_dict(),
-            }
-            if self._behavior_timeline is not None:
-                entry["timeline"] = self._behavior_timeline.to_dict()
-            # Fix 6: persist expand/collapse state
-            entry["motor_track_expanded"] = dict(self._timeline._motor_track_expanded)
-            self._drafts_by_node[cur_key] = entry
-            # Also flush timeline to the timelines registry
-            if self._behavior_timeline is not None:
-                self._timelines_by_node[cur_key] = self._behavior_timeline.to_dict()
+            self._persist_current_behavior_draft()
         return {str(k): dict(v) for k, v in self._drafts_by_node.items()}
 
     def set_behavior_drafts_state(self, drafts: Dict[str, Any]) -> None:
@@ -2643,14 +3184,13 @@ class BehaviorPanel(QWidget):
             if not key:
                 continue
             self._drafts_by_node[key] = dict(v)
-            # Extract timeline sub-key if present
             timeline_raw = v.get("timeline")
             if isinstance(timeline_raw, dict):
-                self._timelines_by_node[key] = dict(timeline_raw)
+                self._drafts_by_node[key]["timeline"] = dict(timeline_raw)
 
         # Re-apply the current node's draft if the panel already has a node context
         if self._node_id >= 0:
-            cur_key = self._draft_slot_key(self._node_id, self._node_name)
+            cur_key = self._draft_slot_key(self._node_id, self._behavior_ref or self._node_name)
             saved = self._drafts_by_node.get(cur_key)
             if saved is None:
                 # One-time compatibility path for old "<node_id>" keys.
@@ -2669,15 +3209,15 @@ class BehaviorPanel(QWidget):
                 self._apply_hb_draft(payload)
             except Exception:  # noqa: BLE001
                 self._apply_hb_draft(HBDraftPayload.default())
-            # Restore timeline (Phase 1)
-            timeline_raw = saved.get("timeline") or self._timelines_by_node.get(cur_key)
+            # Restore timeline (Phase 1) 閳?run Circle 4 migration on load
+            timeline_raw = self._timeline_dict_for_slot(cur_key)
             if isinstance(timeline_raw, dict):
-                try:
-                    self._behavior_timeline = BehaviorTimeline.from_dict(timeline_raw)
-                except Exception:  # noqa: BLE001
+                self._behavior_timeline = self._load_timeline_with_migration(timeline_raw)
+                if self._behavior_timeline.is_empty() and not timeline_raw.get("action_segments"):
                     self._behavior_timeline = None
             else:
                 self._behavior_timeline = None
+            self._sync_views_from_timeline(mark_dirty=False)
             # Fix 6: restore expand/collapse state
             expanded_raw = saved.get("motor_track_expanded")
             if isinstance(expanded_raw, dict):
@@ -2691,31 +3231,66 @@ class BehaviorPanel(QWidget):
 
         Flushes the current node's timeline before returning.
         """
-        if self._node_id >= 0 and self._behavior_timeline is not None:
-            cur_key = self._draft_slot_key(self._node_id, self._node_name)
-            self._timelines_by_node[cur_key] = self._behavior_timeline.to_dict()
-        return {str(k): dict(v) for k, v in self._timelines_by_node.items()}
+        out: Dict[str, Any] = {}
+        if self._node_id >= 0:
+            self._persist_current_behavior_draft()
+        for key, entry in self._drafts_by_node.items():
+            tl = entry.get("timeline")
+            if isinstance(tl, dict):
+                out[str(key)] = dict(tl)
+        return out
+
+    def _load_timeline_with_migration(
+        self, timeline_dict: Dict[str, Any]
+    ) -> "BehaviorTimeline":
+        """Load a BehaviorTimeline dict and automatically run Circle 4 migration.
+
+        Deserialises via ``BehaviorTimeline.from_dict`` then passes the result
+        through ``migrate_timeline`` so legacy segments that store raw action
+        names (no intent_id) are resolved to semantic intent IDs before the
+        timeline is used.  Warnings from ambiguous or unavailable mappings are
+        emitted to the output log but never raise.
+
+        Args:
+            timeline_dict: Raw dict from a saved draft or mission file.
+
+        Returns:
+            Migrated ``BehaviorTimeline`` with intent_id populated where
+            possible.  Falls back to an empty timeline on any exception.
+        """
+        try:
+            tl = BehaviorTimeline.from_dict(timeline_dict)
+            report = migrate_timeline(tl, brand=self._brand,
+                                      robot_type=self._robot_type)
+            for warning in report.warnings:
+                if hasattr(self, "_output"):
+                    self._output.append(f"[timeline migration] {warning}")
+            return report.timeline
+        except Exception:  # noqa: BLE001
+            return BehaviorTimeline()
 
     def set_behavior_timelines_state(self, timelines: Dict[str, Any]) -> None:
         """Restore per-node BehaviorTimeline dicts from a mission file.
 
         Silently skips malformed entries.
         """
-        self._timelines_by_node = {}
         for k, v in timelines.items():
             if not isinstance(v, dict):
                 continue
             key = str(k).strip()
             if not key:
                 continue
-            self._timelines_by_node[key] = dict(v)
+            entry = dict(self._drafts_by_node.get(key, {}))
+            entry["timeline"] = dict(v)
+            self._drafts_by_node[key] = entry
         # Apply to current node if context is already set
         if self._node_id >= 0:
-            cur_key = self._draft_slot_key(self._node_id, self._node_name)
-            tl_raw = self._timelines_by_node.get(cur_key)
+            cur_key = self._draft_slot_key(self._node_id, self._behavior_ref or self._node_name)
+            tl_raw = self._timeline_dict_for_slot(cur_key)
             if tl_raw is not None:
                 try:
-                    self._behavior_timeline = BehaviorTimeline.from_dict(tl_raw)
+                    self._behavior_timeline = self._load_timeline_with_migration(tl_raw)
+                    self._sync_views_from_timeline(mark_dirty=False)
                     self._refresh_timeline()
                 except Exception:  # noqa: BLE001
                     pass
@@ -2741,16 +3316,65 @@ class BehaviorPanel(QWidget):
               dict to reset to unknown-capability state.  Non-dict input is
               treated as an empty dict.
         """
+        prev_brand = self._brand
+        prev_robot_type = self._robot_type
         if isinstance(cap, dict):
-            self._robot_type = cap.get("robot_type", "go2") or "go2"
+            self._brand = cap.get("brand", prev_brand) or prev_brand or ""
+            # robot_type may be at top-level (preferred) or nested inside "flags"
+            # (some adapter versions put it there).  Check both for robustness.
+            _flags = cap.get("flags") or {}
+            self._robot_type = (
+                cap.get("robot_type")
+                or _flags.get("robot_type")
+                or prev_robot_type
+                or "go2"
+            )
         else:
-            self._robot_type = "go2"
+            self._brand = prev_brand or ""
+            self._robot_type = prev_robot_type or "go2"
         self._hb_catalog = HBNodeCatalog.from_capability_dict(cap)
         self._refresh_hb_library()
-        # Rebuild timeline with updated robot_type (Fix 5)
-        if self._modules:
-            self._behavior_timeline = self._build_or_update_timeline(self._modules)
+        # Circle 5 STEP 5.2: refresh Movement library immediately on brand/model switch.
+        self._refresh_registries()
+        self._refresh_module_library()
+        # Update limb diagram robot type
+        if hasattr(self, "_limb_diagram_view"):
+            self._limb_diagram_view.set_robot_type(self._robot_type)
+        # Step 8: model-switch migration 閳?diagnose stale MotorSegment tracks
+        # explicitly before rebuilding the timeline.  The timeline is preserved
+        # (no silent drops); warnings surface in the output log so the user
+        # knows which motor tracks may not render correctly in the new model.
+        model_switched = (
+            self._brand != prev_brand or self._robot_type != prev_robot_type
+        )
+        if model_switched and self._behavior_timeline is not None:
+            try:
+                from system.behavior.timeline_migration import (
+                    migrate_timeline_on_model_switch,
+                )
+                switch_report = migrate_timeline_on_model_switch(
+                    self._behavior_timeline,
+                    new_brand=self._brand,
+                    new_robot_type=self._robot_type,
+                )
+                for warning in switch_report.warnings:
+                    if hasattr(self, "_output"):
+                        self._output.append(f"[model switch] {warning}")
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Rebuild timeline only when the robot model actually changed (Fix 5 / bug-fix).
+        # Unconditional rebuild was wiping user-edited action_seg.params on every
+        # capability refresh (e.g. settings_changed 250 ms timer) even when the brand
+        # and robot_type were identical.
+        if self._behavior_timeline is not None and model_switched:
+            self._sync_views_from_timeline(mark_dirty=False)
+            self._behavior_timeline = self._build_or_update_timeline(self._modules, preserve_action_edits=False)
+            self._sync_views_from_timeline(mark_dirty=False)
             self._refresh_timeline()
+        # Always refresh navigator on model switch 閳?it must show the correct
+        # body-part hierarchy for the new model even when no modules are authored.
+        self._refresh_navigator()
 
     # ------------------------------------------------------------------ Step 1.7
     def run_compat_audit(self, brand: str = "", robot_type: str = "") -> HBCompatReport:
@@ -2769,7 +3393,25 @@ class BehaviorPanel(QWidget):
         -------
         :class:`HBCompatReport`
         """
-        report = audit_catalog_compatibility(self._hb_catalog, brand, robot_type)
+        # HB node catalog audit (Step 1.7)
+        hb_report = audit_catalog_compatibility(self._hb_catalog, brand, robot_type)
+
+        # Circle 6 Step 6.1: semantic action compatibility audit
+        try:
+            action_issues, action_report = audit_action_compatibility(
+                self._behavior_timeline, brand, robot_type
+            )
+        except Exception:
+            action_issues, action_report = [], None
+
+        # Merge both into a single report
+        merged_issues = list(hb_report.issues) + action_issues
+        report = HBCompatReport(
+            brand=brand,
+            robot_type=robot_type,
+            issues=merged_issues,
+            action_report=action_report,
+        )
         self._apply_compat_report(report)
         return report
 
@@ -2790,7 +3432,7 @@ class BehaviorPanel(QWidget):
             f" color: {color}; border: 1px solid {color};"
         )
         self._compat_summary_label.setText(
-            f"\u26a0 {report.summary_text()} — click item to highlight node"
+            f"\u26a0 {report.summary_text()} 閳?click item to highlight node"
         )
         self._compat_summary_label.show()
 
@@ -2798,7 +3440,16 @@ class BehaviorPanel(QWidget):
         self._compat_issues_list.clear()
         for issue in report.issues:
             prefix = "[ERR]" if issue.severity == "error" else "[WARN]"
-            text = f"{prefix} {issue.node_label}: {issue.reason}"
+            if issue.intent_id is not None:
+                # Circle 6 Step 6.2: action-level 閳?show intent + raw action context
+                raw_info = ""
+                if issue.source_raw_action and issue.target_raw_action:
+                    raw_info = f" ({issue.source_raw_action!r} -> {issue.target_raw_action!r})"
+                elif issue.source_raw_action:
+                    raw_info = f" (src={issue.source_raw_action!r})"
+                text = f"{prefix} [action] {issue.intent_id}{raw_info}: {issue.reason}"
+            else:
+                text = f"{prefix} {issue.node_label}: {issue.reason}"
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, issue.node_kind)
             if issue.severity == "error":
@@ -2809,7 +3460,7 @@ class BehaviorPanel(QWidget):
         self._compat_issues_list.show()
 
     def _on_compat_issue_clicked(self, item: QListWidgetItem) -> None:
-        """Click on a compat issue → highlight matching node in HB library tree."""
+        """Click on a compat issue 閳?highlight matching node in HB library tree."""
         node_kind = item.data(Qt.ItemDataRole.UserRole)
         if node_kind:
             self._select_hb_library_item(node_kind)
@@ -2838,7 +3489,7 @@ class BehaviorPanel(QWidget):
         _ = kind
 
     # ------------------------------------------------------------------
-    # Step 1.2 — Canonical draft model and dual-mode authoring contract
+    # Step 1.2 閳?Canonical draft model and dual-mode authoring contract
     # ------------------------------------------------------------------
 
     def _on_policy_changed(self, _value=None) -> None:
@@ -2923,8 +3574,14 @@ class BehaviorPanel(QWidget):
         """
         self._hb_channel = channel
 
+    def set_bridge(self, bridge: BehaviorCompilerBridge) -> None:
+        """Inject the canonical compiler bridge owned by the host runtime."""
+        if bridge is None:
+            return
+        self._bridge = bridge
+
     # ------------------------------------------------------------------
-    # Step 1.3 — Execution chain handlers
+    # Step 1.3 閳?Execution chain handlers
     # ------------------------------------------------------------------
 
     def _on_hb_compile(self) -> None:
@@ -2933,7 +3590,7 @@ class BehaviorPanel(QWidget):
             self._output.append("[HB Compile] No behavior node selected.")
             return
         draft = self._collect_hb_draft()
-        req = HBCompileRequest(behavior_ref=self._node_name, draft_payload=draft)
+        req = HBCompileRequest(behavior_ref=self._behavior_ref or self._node_name, draft_payload=draft)
         self._hb_compile_btn.setEnabled(False)
         try:
             resp = self._hb_channel.compile(req)
@@ -2947,7 +3604,7 @@ class BehaviorPanel(QWidget):
 
         if resp.ok:
             self._hb_status_label.setText(
-                f"HB compiled OK — artifact {resp.artifact_id[:12]}... "
+                f"HB compiled OK 閳?artifact {resp.artifact_id[:12]}... "
                 f"{resp.warning_count} warning(s)"
             )
             self._hb_compiled_snapshot = {
@@ -2959,7 +3616,7 @@ class BehaviorPanel(QWidget):
             }
         else:
             self._hb_status_label.setText(
-                f"HB compile failed — {resp.error_count} error(s)"
+                f"HB compile failed 閳?{resp.error_count} error(s)"
             )
         self._output.append(f"[HB Compile] {resp.message}")
         for diag in resp.diagnostics:
@@ -2973,7 +3630,7 @@ class BehaviorPanel(QWidget):
         draft = self._collect_hb_draft()
         tick_count = max(1, draft.policy.tick_ms and 5)  # default 5 ticks
         req = HBDryRunRequest(
-            behavior_ref=self._node_name,
+            behavior_ref=self._behavior_ref or self._node_name,
             draft_payload=draft,
             tick_count=tick_count,
         )
@@ -2990,7 +3647,7 @@ class BehaviorPanel(QWidget):
         self._output.append(f"[Simulate] {resp.message}")
         if resp.ok:
             self._hb_status_label.setText(
-                f"Simulated {resp.simulated_ticks} tick(s) — "
+                f"Simulated {resp.simulated_ticks} tick(s) 閳?"
                 f"{len(resp.event_updates)} event(s)"
             )
             # Populate event state panel from simulation
@@ -3014,7 +3671,7 @@ class BehaviorPanel(QWidget):
             self._output.append("[Run HB] No behavior node selected.")
             return
         draft = self._collect_hb_draft()
-        req = HBRunRequest(behavior_ref=self._node_name, draft_payload=draft)
+        req = HBRunRequest(behavior_ref=self._behavior_ref or self._node_name, draft_payload=draft)
         self._hb_run_btn.setEnabled(False)
         try:
             resp = self._hb_channel.run(req)
@@ -3028,10 +3685,72 @@ class BehaviorPanel(QWidget):
         self._output.append(f"[Run HB] {resp.message}")
         if resp.ok:
             self._hb_status_label.setText(
-                f"HB {resp.status} — heartbeat: {resp.heartbeat_status}"
+                f"HB {resp.status} 閳?heartbeat: {resp.heartbeat_status}"
             )
             if not self._hb_diag_timer.isActive():
                 self._hb_diag_timer.start()
+
+    # ------------------------------------------------------------------
+    # Playback controls (timeline preview)
+    # ------------------------------------------------------------------
+
+    def _play_cmd_play(self) -> None:
+        """Start or resume playback."""
+        if self._is_playing:
+            return
+        self._is_playing = True
+        self._play_btn.setText("⏸")
+        self._play_timer.start()
+
+    def _play_cmd_pause(self) -> None:
+        """Pause playback (keeps current position)."""
+        self._is_playing = False
+        self._play_btn.setText("▶")
+        self._play_timer.stop()
+
+    def _play_cmd_stop(self) -> None:
+        """Stop playback and rewind to start."""
+        self._is_playing = False
+        self._play_btn.setText("▶")
+        self._play_timer.stop()
+        self._playback_time = 0.0
+        self._timeline.set_playhead(0.0)
+        self._play_time_label.setText("0.00 s")
+        self.playback_time_changed.emit(0.0)
+        if hasattr(self, "_limb_diagram_view"):
+            self._limb_diagram_view.update_time(0.0)
+
+    def _play_cmd_toggle(self) -> None:
+        """Toggle play/pause."""
+        if self._is_playing:
+            self._play_cmd_pause()
+        else:
+            self._play_cmd_play()
+
+    def _on_play_tick(self) -> None:
+        """50 ms playback tick — advance playhead and update display."""
+        if not self._is_playing:
+            return
+        # Determine total duration from active timeline
+        total_duration = 0.0
+        if self._behavior_timeline is not None:
+            for seg in self._behavior_timeline.action_segments:
+                end = seg.start_time + seg.duration
+                if end > total_duration:
+                    total_duration = end
+        if total_duration <= 0.0:
+            total_duration = 10.0  # fallback for empty/unloaded timeline
+
+        self._playback_time += 0.05  # 50 ms step
+        if self._playback_time >= total_duration:
+            self._playback_time = total_duration
+            self._play_cmd_stop()
+        else:
+            self._timeline.set_playhead(self._playback_time)
+            self._play_time_label.setText(f"{self._playback_time:.2f} s")
+            self.playback_time_changed.emit(self._playback_time)
+            if hasattr(self, "_limb_diagram_view"):
+                self._limb_diagram_view.update_time(self._playback_time)
 
     def _poll_hb_diagnostics(self) -> None:
         """Timer callback: poll channel diagnostics and refresh status display."""
@@ -3039,14 +3758,14 @@ class BehaviorPanel(QWidget):
             return
         try:
             snap: HBDiagnosticsSnapshot = self._hb_channel.poll_diagnostics(
-                self._node_name
+                self._behavior_ref or self._node_name
             )
         except Exception:
             return
         # Update indicator label with live status
         if snap.status == "running":
             self._hb_diag_indicator.setText(
-                f"HB active — tick #{snap.tick_count}"
+                f"HB active 閳?tick #{snap.tick_count}"
             )
         elif snap.status == "idle":
             self._hb_diag_indicator.setText("HB idle")
@@ -3106,71 +3825,147 @@ class BehaviorPanel(QWidget):
             return
 
         name = str(data.get("name") or "")
+        self._ensure_behavior_timeline()
         module = SequenceModule(kind=kind, name=name, args="duration=1.0", duration=1.0)
-        self._modules.append(module)
-        self._selected_module_index = len(self._modules) - 1
-        self._sync_source_from_modules()
-        self._refresh_timeline()
-        self._refresh_movement_settings()
-        self._mark_dirty()
+        new_seg = self._build_or_update_timeline([module], preserve_action_edits=False).action_segments[0]
+        self._behavior_timeline.action_segments.append(new_seg)
+        self._selected_module_index = len(self._behavior_timeline.action_segments) - 1
+        self._rebuild_timeline_from_action_segments(mark_dirty=True)
 
     def _remove_selected_module(self) -> None:
-        if self._selected_module_index < 0 or self._selected_module_index >= len(self._modules):
+        self._ensure_behavior_timeline()
+        segs = self._behavior_timeline.action_segments
+        if self._selected_module_index < 0 or self._selected_module_index >= len(segs):
             return
-        self._modules.pop(self._selected_module_index)
-        if self._selected_module_index >= len(self._modules):
-            self._selected_module_index = len(self._modules) - 1
-        self._sync_source_from_modules()
-        self._refresh_timeline()
-        self._refresh_movement_settings()
-        self._mark_dirty()
+        segs.pop(self._selected_module_index)
+        if self._selected_module_index >= len(segs):
+            self._selected_module_index = len(segs) - 1
+        self._rebuild_timeline_from_action_segments(mark_dirty=True)
 
     def _move_selected_module(self, delta: int) -> None:
+        self._ensure_behavior_timeline()
+        segs = self._behavior_timeline.action_segments
         i = self._selected_module_index
-        if i < 0 or i >= len(self._modules):
+        if i < 0 or i >= len(segs):
             return
         j = i + delta
-        if j < 0 or j >= len(self._modules):
+        if j < 0 or j >= len(segs):
             return
-        self._modules[i], self._modules[j] = self._modules[j], self._modules[i]
+        segs[i], segs[j] = segs[j], segs[i]
+        cursor = 0.0
+        for seg in segs:
+            seg.start_time = cursor
+            cursor += max(0.01, float(seg.duration))
         self._selected_module_index = j
-        self._sync_source_from_modules()
-        self._refresh_timeline()
-        self._refresh_movement_settings()
-        self._mark_dirty()
+        self._rebuild_timeline_from_action_segments(mark_dirty=True)
+
+    # ------------------------------------------------------------------ selection model
+
+    def _apply_selection(self, sel: "TimelineSelection") -> None:
+        """Set the authoritative selection state.
+
+        Writes to ``_panel_selection`` and keeps the widget's
+        ``_timeline_vm.selection`` in sync.  All selection changes must flow
+        through this method so that there is exactly one source of truth for
+        what is currently selected.
+        """
+        self._panel_selection = sel
+        _vm = getattr(self._timeline, "_timeline_vm", None)
+        if _vm is not None:
+            _vm.selection = sel
+
+    def _action_id_from_module_index(self, idx: int) -> str:
+        """Return the action_id for the action segment at *idx*."""
+        if self._behavior_timeline is None:
+            return ""
+        segs = getattr(self._behavior_timeline, "action_segments", []) or []
+        if 0 <= idx < len(segs):
+            return getattr(segs[idx], "action_id", "") or ""
+        return ""
+
+    def _resolve_motor_context(self, motor_id: str, track_name: str) -> "Tuple[str, str]":
+        """Return ``(action_id, limb_id)`` for the motor segment identified by *motor_id*.
+
+        Looks up the overlay that owns *motor_id* (gives ``action_id``), then
+        queries the current VM body-part rows for the limb that owns *track_name*
+        (gives ``limb_id``).  Returns empty strings when context is unavailable.
+        """
+        action_id = ""
+        if self._behavior_timeline is not None:
+            for overlay in self._behavior_timeline.motor_overlays:
+                for seg in getattr(overlay, "motor_segments", []):
+                    if getattr(seg, "motor_id", "") == motor_id:
+                        action_id = getattr(overlay, "action_id", "") or ""
+                        break
+                if action_id:
+                    break
+
+        limb_id = ""
+        _vm = getattr(self._timeline, "_timeline_vm", None)
+        if _vm is not None:
+            for bp in _vm.layout_body_parts:
+                if any(mr.track_name == track_name for mr in bp.motors):
+                    limb_id = bp.limb_id
+                    break
+
+        return action_id, limb_id
 
     def _on_timeline_module_selected(self, index: int) -> None:
         self._selected_module_index = index
-        self._selected_motor_segment_id = None
-        self._selected_motor_track = None
+        action_id = self._action_id_from_module_index(index)
+        from system.behavior.timeline_view_model import TimelineSelection
+        self._apply_selection(
+            TimelineSelection.action(action_id) if action_id else TimelineSelection.none()
+        )
         self._refresh_timeline()
         self._refresh_movement_settings()
 
     def _on_timeline_motor_segment_selected(self, motor_id: str, track_name: str) -> None:
+        from system.behavior.timeline_view_model import TimelineSelection
         if motor_id and track_name:
-            self._selected_motor_segment_id = motor_id
-            self._selected_motor_track = track_name
+            action_id, limb_id = self._resolve_motor_context(motor_id, track_name)
+            self._apply_selection(
+                TimelineSelection.motor(
+                    action_id=action_id,
+                    limb_id=limb_id,
+                    track_name=track_name,
+                    motor_id=motor_id,
+                )
+            )
             self._selected_module_index = -1
         else:
-            self._selected_motor_segment_id = None
-            self._selected_motor_track = None
+            self._apply_selection(TimelineSelection.none())
+        self._refresh_timeline()
+        self._refresh_movement_settings()
+
+    def _on_timeline_body_part_selected(self, action_id: str, limb_id: str) -> None:
+        """Called when user clicks a body-part header row in the timeline."""
+        from system.behavior.timeline_view_model import TimelineSelection
+        self._apply_selection(
+            TimelineSelection.body_part(action_id, limb_id) if limb_id
+            else TimelineSelection.none()
+        )
+        self._selected_module_index = -1
         self._refresh_timeline()
         self._refresh_movement_settings()
 
     def _on_timeline_module_reordered(self, from_index: int, to_index: int) -> None:
         if from_index < 0 or to_index < 0:
             return
-        if from_index >= len(self._modules) or to_index >= len(self._modules):
+        self._ensure_behavior_timeline()
+        segs = self._behavior_timeline.action_segments
+        if from_index >= len(segs) or to_index >= len(segs):
             return
         if from_index == to_index:
             return
-        module = self._modules.pop(from_index)
-        self._modules.insert(to_index, module)
+        seg = segs.pop(from_index)
+        segs.insert(to_index, seg)
+        cursor = 0.0
+        for action_seg in segs:
+            action_seg.start_time = cursor
+            cursor += max(0.01, float(action_seg.duration))
         self._selected_module_index = to_index
-        self._sync_source_from_modules()
-        self._refresh_timeline()
-        self._refresh_movement_settings()
-        self._mark_dirty()
+        self._rebuild_timeline_from_action_segments(mark_dirty=True)
 
     def _on_timeline_edited(self) -> None:
         """Called when the timeline emits timeline_edited (Fix 6)."""
@@ -3181,10 +3976,20 @@ class BehaviorPanel(QWidget):
     def _refresh_timeline(self) -> None:
         # Phase 1: use multi-track timeline when structured model is available
         if self._behavior_timeline is not None and not self._behavior_timeline.is_empty():
+            try:
+                from system.behavior.action_profile import get_motor_track_map
+                available_tracks = get_motor_track_map(self._robot_type, brand=self._brand)
+            except Exception:
+                available_tracks = {}
             self._timeline.set_multi_track_timeline(
                 timeline=self._behavior_timeline,
                 selected_index=self._selected_module_index,
+                brand=self._brand,
+                robot_type=self._robot_type,
+                available_tracks=available_tracks,
+                selection=self._panel_selection,
             )
+            self._refresh_timeline_status()
             return
 
         # Legacy single-track path
@@ -3203,11 +4008,12 @@ class BehaviorPanel(QWidget):
             selected_index=self._selected_module_index,
             secondary_source_name=secondary_name,
         )
+        self._refresh_timeline_status()
 
-    # ── Step 3: IO mutation helpers for source-switch ────────────────────────
+    # 閳光偓閳光偓 Step 3: IO mutation helpers for source-switch 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
 
     def _io_upsert_external(self, track_name: str, param_key: str, signal: str) -> None:
-        """Add or update an inbound HBIOMapping for track_name.param_key → signal."""
+        """Add or update an inbound HBIOMapping for track_name.param_key 閳?signal."""
         target = f"{track_name}.{param_key}"
         for m in self._hb_io_mappings:
             if m.target_param == target and m.direction == "inbound":
@@ -3257,9 +4063,9 @@ class BehaviorPanel(QWidget):
         is_structural = key in STRUCTURAL_KEYS
         src_info = get_param_source(track_name, key, self._hb_io_mappings)
 
-        # ── Column 1: Source indicator ───────────────────────────────────────
+        # 閳光偓閳光偓 Column 1: Source indicator 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
         if is_structural:
-            # Structural params always Constant — show a read-only label
+            # Structural params always Constant 閳?show a read-only label
             src_label = QLabel("Constant")
             src_label.setStyleSheet("color: #9e9e9e; font-size: 11px; padding: 0 4px;")
             self._movement_params_table.setCellWidget(row, 1, src_label)
@@ -3276,7 +4082,7 @@ class BehaviorPanel(QWidget):
             )
             self._movement_params_table.setCellWidget(row, 1, src_combo)
 
-        # ── Column 2: Value editor (depends on source) ───────────────────────
+        # 閳光偓閳光偓 Column 2: Value editor (depends on source) 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
         if src_info.source == "external":
             sig_edit = QLineEdit(src_info.signal)
             sig_edit.setPlaceholderText("signal key (e.g. imu.pitch)")
@@ -3287,7 +4093,7 @@ class BehaviorPanel(QWidget):
             )
             self._movement_params_table.setCellWidget(row, 2, sig_edit)
         else:
-            # Constant path — reuse high-precision editor
+            # Constant path 閳?reuse high-precision editor
             num_val = self._try_float(value)
             if num_val is None:
                 editor = QLineEdit(str(value) if value is not None else "")
@@ -3296,8 +4102,8 @@ class BehaviorPanel(QWidget):
                 )
             else:
                 editor = QDoubleSpinBox()
-                editor.setDecimals(6)
-                editor.setSingleStep(0.0005)
+                editor.setDecimals(2)
+                editor.setSingleStep(0.01)
                 editor.setRange(-1_000_000.0, 1_000_000.0)
                 editor.setValue(num_val)
                 editor.editingFinished.connect(
@@ -3305,24 +4111,363 @@ class BehaviorPanel(QWidget):
                 )
             self._movement_params_table.setCellWidget(row, 2, editor)
 
-    # ── Step 3 end ───────────────────────────────────────────────────────────
+    # 閳光偓閳光偓 Step 3 end 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
+
+    # Circle 5 STEP 5.3 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
+    def _get_descriptor_for_segment(
+        self, action_seg: ActionSegment
+    ) -> Optional[SemanticActionDescriptor]:
+        """Return the semantic descriptor for an ActionSegment.
+
+        Lookup order:
+        1. Match by ``intent_id`` (exact semantic match).
+        2. Fall back to matching by ``raw_action`` == segment name.
+        Returns ``None`` when no descriptor is found.
+        """
+        descriptors = get_semantic_actions(self._brand, self._robot_type)
+        if action_seg.intent_id:
+            for d in descriptors:
+                if d.intent_id == action_seg.intent_id:
+                    return d
+        for d in descriptors:
+            if d.raw_action == action_seg.name:
+                return d
+        return None
+
+    def _descriptor_param_rows(
+        self,
+        descriptor: SemanticActionDescriptor,
+        live_params: Optional[Dict[str, Any]],
+        parsed_args: Optional[List[Tuple[str, Any]]] = None,
+    ) -> List[Tuple[str, Any]]:
+        """Build ``(key, current_value)`` rows from descriptor.parameters.
+
+        Resolution priority for each declared key:
+        1. ``live_params`` dict (ActionSegment.params or equivalent).
+        2. ``parsed_args`` list of (key, value) pairs (legacy flat-module path).
+        3. Descriptor ``default`` value.
+
+        Args:
+            descriptor:  The resolved semantic descriptor for this action.
+            live_params: Live parameter dict (may be None or empty).
+            parsed_args: Fallback ``[(key, value)]`` from ``_parse_args``
+                         (used only when ``live_params`` is absent/empty).
+        Returns:
+            Ordered ``[(key, value)]`` list matching declaration order in
+            ``descriptor.parameters``.
+        """
+        args_map: Dict[str, Any] = dict(parsed_args) if parsed_args else {}
+        params_map: Dict[str, Any] = live_params if live_params else {}
+        rows: List[Tuple[str, Any]] = []
+        for key, meta in descriptor.parameters.items():
+            if key in params_map:
+                val = params_map[key]
+            elif key in args_map:
+                val = args_map[key]
+            else:
+                val = meta.get("default")
+            rows.append((key, val))
+        return rows
+
+    def _commit_action_seg_param(
+        self, action_seg: ActionSegment, key: str, value: Any
+    ) -> None:
+        """Persist a parameter edit back into an ActionSegment.
+
+        Structural fields such as ``start_time`` and ``duration`` must update the
+        ActionSegment itself so timeline geometry stays in sync with the editor.
+        """
+        changed = False
+        if key == "start_time":
+            v = self._try_float(value)
+            if v is not None:
+                new_val = max(0.0, v)
+                changed = abs(float(action_seg.start_time) - float(new_val)) > 1e-9
+                if changed:
+                    action_seg.start_time = new_val
+                    action_seg.params.pop("start_time", None)
+        elif key == "duration":
+            v = self._try_float(value)
+            if v is not None:
+                new_val = max(0.01, v)
+                changed = abs(float(action_seg.duration) - float(new_val)) > 1e-9
+                if changed:
+                    action_seg.duration = new_val
+                    action_seg.params.pop("duration", None)
+        else:
+            new_val = self._coerce_param_value(value)
+            old_val = action_seg.params.get(key)
+            if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
+                changed = abs(float(old_val) - float(new_val)) > 1e-9
+            else:
+                changed = old_val != new_val
+            if changed:
+                action_seg.params[key] = new_val
+        if not changed:
+            return
+        self._persist_current_timeline_draft()
+        self._refresh_timeline()
+        self._refresh_movement_settings()
+        if self._node_id >= 0:
+            self.action_parameters_changed.emit(int(self._node_id))
+        self._mark_dirty()
+
+    def _timeline_slot_key(self, node_id: int, behavior_ref: str, node_name: str = "") -> str:
+        ref = str(behavior_ref or "").strip() or str(node_name or "").strip() or f"behavior_node_{int(node_id)}"
+        return self._draft_slot_key(node_id, ref)
+
+    def _timeline_for_node(
+        self,
+        *,
+        node_id: int,
+        behavior_ref: str,
+        intent_id: str = "",
+        display_name: str = "",
+        robot_type: str = "",
+    ) -> BehaviorTimeline:
+        slot_key = self._timeline_slot_key(node_id, behavior_ref, display_name)
+        current_key = self._timeline_slot_key(
+            self._node_id,
+            self._behavior_ref or self._node_name,
+            self._node_name,
+        )
+        if self._behavior_timeline is not None and self._node_id >= 0 and slot_key == current_key:
+            return self._behavior_timeline
+
+        saved = self._drafts_by_node.get(slot_key, {})
+        timeline_raw = self._timeline_dict_for_slot(slot_key)
+        if isinstance(timeline_raw, dict):
+            return self._load_timeline_with_migration(timeline_raw)
+        return _default_timeline_for_behavior_selection(
+            intent_id,
+            display_name,
+            self._brand,
+            robot_type or self._robot_type,
+        )
+
+    @staticmethod
+    def _coerce_param_value(raw_value: Any) -> Any:
+        text = str(raw_value if raw_value is not None else "").strip()
+        if not text:
+            return ""
+        lowered = text.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+        try:
+            num = float(text)
+        except ValueError:
+            return text
+        if abs(num - int(num)) <= 1e-9:
+            return int(num)
+        return num
+
+    def _display_name_for_action_segment(self, action_seg: ActionSegment) -> str:
+        descriptor = self._get_descriptor_for_segment(action_seg)
+        if descriptor is not None and str(descriptor.display_name or "").strip():
+            return str(descriptor.display_name).strip()
+        action_name = str(getattr(action_seg, "name", "") or "").strip()
+        pretty = action_name.replace("_", " ").strip()
+        return pretty.title() if pretty else "Action"
+
+    def _resolve_node_action_segment(
+        self,
+        timeline: BehaviorTimeline,
+        *,
+        intent_id: str = "",
+        display_name: str = "",
+    ) -> Optional[ActionSegment]:
+        segments = getattr(timeline, "action_segments", []) or []
+        if not segments:
+            return None
+        wanted_intent = str(intent_id or "").strip()
+        wanted_name = str(display_name or "").strip().lower()
+        if wanted_intent:
+            for seg in segments:
+                if str(getattr(seg, "intent_id", "") or "").strip() == wanted_intent:
+                    return seg
+        if wanted_name:
+            for seg in segments:
+                seg_name = str(getattr(seg, "name", "") or "").strip().lower()
+                disp_name = self._display_name_for_action_segment(seg).strip().lower()
+                if wanted_name in {seg_name, disp_name}:
+                    return seg
+        return segments[0]
+
+    def get_node_exposed_action_parameters(
+        self,
+        *,
+        node_id: int,
+        behavior_ref: str,
+        intent_id: str = "",
+        display_name: str = "",
+        robot_type: str = "",
+    ) -> List[Dict[str, Any]]:
+        timeline = self._timeline_for_node(
+            node_id=node_id,
+            behavior_ref=behavior_ref,
+            intent_id=intent_id,
+            display_name=display_name,
+            robot_type=robot_type,
+        )
+        action_seg = self._resolve_node_action_segment(
+            timeline,
+            intent_id=intent_id,
+            display_name=display_name,
+        )
+        if action_seg is None:
+            return []
+        descriptor = self._get_descriptor_for_segment(action_seg)
+        if descriptor is not None and descriptor.parameters:
+            rows = self._descriptor_param_rows(
+                descriptor,
+                live_params={
+                    **dict(action_seg.params),
+                    "start_time": action_seg.start_time,
+                    "duration": action_seg.duration,
+                },
+            )
+        else:
+            rows = sorted((dict(action_seg.params) or {}).items(), key=lambda kv: str(kv[0]))
+        row_keys = {str(key) for key, _value in rows}
+        if "duration" not in row_keys:
+            rows = [("duration", action_seg.duration)] + rows
+        return [
+            {
+                "key": str(key),
+                "label": str(key),
+                "value": "" if value is None else str(value),
+            }
+            for key, value in rows
+        ]
+
+    def update_node_exposed_action_parameter(
+        self,
+        *,
+        node_id: int,
+        behavior_ref: str,
+        intent_id: str = "",
+        display_name: str = "",
+        robot_type: str = "",
+        key: str,
+        value: Any,
+    ) -> bool:
+        slot_key = self._timeline_slot_key(node_id, behavior_ref, display_name)
+        timeline = self._timeline_for_node(
+            node_id=node_id,
+            behavior_ref=behavior_ref,
+            intent_id=intent_id,
+            display_name=display_name,
+            robot_type=robot_type,
+        )
+        action_seg = self._resolve_node_action_segment(
+            timeline,
+            intent_id=intent_id,
+            display_name=display_name,
+        )
+        if action_seg is None:
+            return False
+
+        key_name = str(key)
+        changed = False
+        if key_name == "start_time":
+            v = self._try_float(value)
+            if v is not None:
+                new_val = max(0.0, v)
+                changed = abs(float(action_seg.start_time) - float(new_val)) > 1e-9
+                if changed:
+                    action_seg.start_time = new_val
+                    action_seg.params.pop("start_time", None)
+        elif key_name == "duration":
+            v = self._try_float(value)
+            if v is not None:
+                new_val = max(0.01, v)
+                changed = abs(float(action_seg.duration) - float(new_val)) > 1e-9
+                if changed:
+                    action_seg.duration = new_val
+                    action_seg.params.pop("duration", None)
+        else:
+            new_val = self._coerce_param_value(value)
+            old_val = action_seg.params.get(key_name)
+            if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
+                changed = abs(float(old_val) - float(new_val)) > 1e-9
+            else:
+                changed = old_val != new_val
+            if changed:
+                action_seg.params[key_name] = new_val
+        if not changed:
+            return True
+
+        entry = dict(self._drafts_by_node.get(slot_key, {}))
+        entry["timeline"] = timeline.to_dict()
+        self._drafts_by_node[slot_key] = entry
+
+        is_current_context = self._node_id >= 0 and int(self._node_id) == int(node_id)
+        if is_current_context:
+            self._behavior_timeline = timeline
+            self._refresh_timeline()
+            self._refresh_movement_settings()
+            self._mark_dirty()
+
+        self.action_parameters_changed.emit(int(node_id))
+        return True
+
+    def _render_descriptor_param_table(
+        self,
+        rows: List[Tuple[str, Any]],
+        descriptor: SemanticActionDescriptor,
+        commit_fn,
+    ) -> None:
+        """Populate ``_movement_params_table`` from descriptor-derived rows.
+
+        Args:
+            rows:       ``[(key, value)]`` from ``_descriptor_param_rows``.
+            descriptor: The resolved descriptor (used for min/max metadata).
+            commit_fn:  Callable ``(key, value) -> None`` invoked on edit.
+        """
+        self._movement_params_table.setRowCount(len(rows))
+        for r, (k, v) in enumerate(rows):
+            self._movement_params_table.setItem(r, 0, QTableWidgetItem(k))
+            src_label = QLabel("Semantic")
+            src_label.setStyleSheet("color: #2196f3; font-size: 11px; padding: 0 4px;")
+            self._movement_params_table.setCellWidget(r, 1, src_label)
+            num_val = self._try_float(v)
+            if num_val is None:
+                editor = QLineEdit(str(v) if v is not None else "")
+                editor.editingFinished.connect(
+                    lambda e=editor, key_name=k: commit_fn(key_name, e.text())
+                )
+            else:
+                meta = descriptor.parameters.get(k, {})
+                editor = QDoubleSpinBox()
+                editor.setDecimals(2)
+                editor.setSingleStep(0.01)
+                editor.setRange(
+                    float(meta.get("min", -1_000_000.0)),
+                    float(meta.get("max",  1_000_000.0)),
+                )
+                editor.setValue(num_val)
+                editor.editingFinished.connect(
+                    lambda e=editor, key_name=k: commit_fn(key_name, e.value())
+                )
+            self._movement_params_table.setCellWidget(r, 2, editor)
 
     def _refresh_movement_settings(self) -> None:
         self._movement_params_table.setRowCount(0)
         self._movement_params_table.clearContents()
         self._movement_params_table.clearSpans()
         self._movement_group_header_rows = {}
+        self._refresh_timeline_status()
         # Priority: when a motor sub-track segment is selected, edit it directly.
         seg = self._get_selected_motor_segment()
         if seg is not None:
             self._movement_selected_label.setText(
-                f"Selected Node: motor.{seg.track_name}.{seg.motor_id[:8]}"
+                f"Selected Limb Module: {self._get_active_track_label(seg.track_name)}"
             )
             self._movement_hint.setText(
-                "Fine-tune selected motor segment parameters. Changes apply immediately."
+                "This panel is editing the selected timeline module directly. Changes apply immediately."
             )
             rows: List[Tuple[str, Any]] = [("start_time", seg.start_time), ("duration", seg.duration)]
-            track_def = UNITREE_MOTOR_TRACK_MAP.get(seg.track_name)
+            track_def = self._get_active_track_def(seg.track_name)
             if track_def and track_def.param_key in seg.params:
                 rows.append((track_def.param_key, seg.params.get(track_def.param_key)))
             for k, v in seg.params.items():
@@ -3340,6 +4485,12 @@ class BehaviorPanel(QWidget):
                 )
             return
 
+        # Step 6: body-part selected path 閳?highest priority after motor-segment.
+        sel = self._panel_selection
+        if sel.level.value == "body_part" and sel.limb_id and self._behavior_timeline is not None:
+            self._render_body_part_settings(sel.limb_id, action_id=sel.action_id)
+            return
+
         # Multi-track mode: timeline widget emits indices into action_segments, NOT
         # panel._modules (which tracks the high-level module sequence and has fewer
         # entries when a package action expands into multiple phases).
@@ -3347,37 +4498,84 @@ class BehaviorPanel(QWidget):
             n_actions = len(self._behavior_timeline.action_segments)
             if 0 <= self._selected_module_index < n_actions:
                 action_seg = self._behavior_timeline.action_segments[self._selected_module_index]
+                # Circle 5 STEP 5.3: resolve semantic descriptor for display name + availability.
+                descriptor = self._get_descriptor_for_segment(action_seg)
+                display_name = (
+                    descriptor.display_name if descriptor is not None else action_seg.name
+                )
                 self._movement_selected_label.setText(
-                    tr("behavior.movement.selected_format", "Selected Node: {node}").format(
-                        node=action_seg.name
+                    tr("behavior.movement.selected_format", "Selected Action: {node}").format(
+                        node=display_name
                     )
                 )
+                # Surface degraded / unsupported state before showing parameters.
+                if descriptor is not None:
+                    avail = descriptor.availability
+                    if avail == ActionAvailability.UNSUPPORTED:
+                        self._movement_hint.setText(tr(
+                            "behavior.movement.unsupported",
+                            "Action '{action}' is not supported on {brand}/{model}.",
+                        ).format(
+                            action=display_name,
+                            brand=self._brand or "?",
+                            model=self._robot_type or "?",
+                        ))
+                    elif avail == ActionAvailability.DEGRADED:
+                        self._movement_hint.setText(tr(
+                            "behavior.movement.degraded",
+                            "Action '{action}' has limited support on {brand}/{model}.",
+                        ).format(
+                            action=display_name,
+                            brand=self._brand or "?",
+                            model=self._robot_type or "?",
+                        ))
+                # STEP 5.3: descriptor parameters are primary; motor overlay is fallback.
+                if descriptor is not None and descriptor.parameters:
+                    rows = self._descriptor_param_rows(
+                        descriptor,
+                        live_params={
+                            **dict(action_seg.params),
+                            "start_time": action_seg.start_time,
+                            "duration": action_seg.duration,
+                        },
+                    )
+                    # Clear hint only when AVAILABLE (don't overwrite avail warning).
+                    if descriptor.availability == ActionAvailability.AVAILABLE:
+                        self._movement_hint.setText("")
+                    self._render_descriptor_param_table(
+                        rows,
+                        descriptor,
+                        commit_fn=lambda k, v, seg=action_seg: self._commit_action_seg_param(seg, k, v),
+                    )
+                    return
+                # Fallback: motor overlay (for actions without descriptor params).
                 if self._refresh_movement_settings_for_action_overlay(self._selected_module_index):
                     return
-                self._movement_hint.setText(tr(
-                    "behavior.movement.no_motor_params",
-                    "No motor parameters for this action.",
-                ))
+                if descriptor is None or descriptor.availability == ActionAvailability.AVAILABLE:
+                    self._movement_hint.setText(tr(
+                        "behavior.movement.no_motor_params",
+                        "No motor parameters for this action.",
+                    ))
             else:
-                self._movement_selected_label.setText(tr("behavior.movement.selected_none", "Selected Node: None"))
+                self._movement_selected_label.setText(tr("behavior.movement.selected_none", "Selected: None"))
                 self._movement_hint.setText(tr(
                     "behavior.movement.select_hint",
-                    "Select a movement module in the main track to inspect its parameters.",
+                    "Select an Action block or a limb module in the timeline to inspect its parameters.",
                 ))
             return
 
         # Legacy flat-module path (no structured timeline).
         if self._selected_module_index < 0 or self._selected_module_index >= len(self._modules):
-            self._movement_selected_label.setText(tr("behavior.movement.selected_none", "Selected Node: None"))
+            self._movement_selected_label.setText(tr("behavior.movement.selected_none", "Selected: None"))
             self._movement_hint.setText(tr(
                 "behavior.movement.select_hint",
-                "Select a movement module in the main track to inspect its parameters.",
+                "Select an Action block or a limb module in the timeline to inspect its parameters.",
             ))
             return
 
         module = self._modules[self._selected_module_index]
         self._movement_selected_label.setText(
-            tr("behavior.movement.selected_format", "Selected Node: {node}").format(
+            tr("behavior.movement.selected_format", "Selected Action: {node}").format(
                 node=f"{module.kind}.{module.name}"
             )
         )
@@ -3393,7 +4591,32 @@ class BehaviorPanel(QWidget):
             return
 
         self._movement_hint.setText("")
+        # STEP 5.3: resolve descriptor for this module (by raw_action name) and
+        # use descriptor.parameters as primary; fall back to parsed args when absent.
+        _temp_seg = ActionSegment(
+            action_id="",
+            name=module.name,
+            start_time=0.0,
+            duration=module.duration,
+            intent_id="",
+        )
+        module_descriptor = self._get_descriptor_for_segment(_temp_seg)
         parsed = self._parse_args(module.args)
+        if module_descriptor is not None and module_descriptor.parameters:
+            rows = self._descriptor_param_rows(
+                module_descriptor,
+                live_params={**dict(parsed), "duration": module.duration},
+                parsed_args=parsed,
+            )
+            idx = self._selected_module_index
+            self._render_descriptor_param_table(
+                rows,
+                module_descriptor,
+                commit_fn=lambda k, v, i=idx: self._commit_module_param(i, k, v),
+            )
+            return
+
+        # Legacy fallback: derive rows from duration + parsed args.
         rows: List[Tuple[str, Any]] = [("duration", module.duration)]
         for (k, v) in parsed:
             if k == "duration":
@@ -3403,7 +4626,7 @@ class BehaviorPanel(QWidget):
         self._movement_params_table.setRowCount(len(rows))
         for r, (k, v) in enumerate(rows):
             self._movement_params_table.setItem(r, 0, QTableWidgetItem(k))
-            # Step 3: action-module params have no track context → always constant, col 1 = label, col 2 = editor
+            # Step 3: action-module params have no track context 閳?always constant, col 1 = label, col 2 = editor
             src_label = QLabel("Constant")
             src_label.setStyleSheet("color: #9e9e9e; font-size: 11px; padding: 0 4px;")
             self._movement_params_table.setCellWidget(r, 1, src_label)
@@ -3415,14 +4638,213 @@ class BehaviorPanel(QWidget):
                 )
             else:
                 editor = QDoubleSpinBox()
-                editor.setDecimals(6)
-                editor.setSingleStep(0.0005)
+                editor.setDecimals(2)
+                editor.setSingleStep(0.01)
                 editor.setRange(-1_000_000.0, 1_000_000.0)
                 editor.setValue(num_val)
                 editor.editingFinished.connect(
                     lambda e=editor, key_name=k, idx=self._selected_module_index: self._commit_module_param(idx, key_name, e.value())
                 )
             self._movement_params_table.setCellWidget(r, 2, editor)
+
+    def _get_active_track_def(self, track_name: str) -> Optional[MotorTrackDef]:
+        """Return the model-aware MotorTrackDef for track_name, or None.
+
+        Never falls back to UNITREE_MOTOR_TRACK_MAP 閳?using Unitree metadata
+        for a non-Unitree model would produce wrong labels and param keys.
+        Returns None when the active model has no entry for this track.
+        """
+        from system.behavior.action_profile import get_motor_track_map
+        try:
+            tmap = get_motor_track_map(self._robot_type, brand=self._brand) or {}
+            return tmap.get(track_name)
+        except Exception:
+            return None
+
+    def _get_active_track_label(self, track_name: str) -> str:
+        """Return a model-aware display label for track_name (falls back to track_name)."""
+        td = self._get_active_track_def(track_name)
+        return td.label if td is not None else track_name
+
+    def _selected_action_segment(self) -> Optional[ActionSegment]:
+        if self._behavior_timeline is not None and not self._behavior_timeline.is_empty():
+            segs = getattr(self._behavior_timeline, "action_segments", []) or []
+            if 0 <= self._selected_module_index < len(segs):
+                return segs[self._selected_module_index]
+        if 0 <= self._selected_module_index < len(self._modules):
+            module = self._modules[self._selected_module_index]
+            return ActionSegment(
+                action_id="",
+                name=module.name,
+                start_time=0.0,
+                duration=module.duration,
+                intent_id="",
+            )
+        return None
+
+    def _refresh_timeline_status(self) -> None:
+        if not hasattr(self, "_timeline_status_label"):
+            return
+        sel = self._panel_selection
+        text = "Flow: Action timeline -> limb modules -> Movement Settings"
+        if sel.level == self._SelectionLevel.MOTOR and sel.track_name:
+            text = f"Selected limb module: {self._get_active_track_label(sel.track_name)}"
+        elif sel.level == self._SelectionLevel.BODY_PART and sel.limb_id:
+            text = f"Selected body part: {sel.limb_id}"
+        elif sel.level == self._SelectionLevel.ACTION:
+            seg = self._selected_action_segment()
+            if seg is not None:
+                descriptor = self._get_descriptor_for_segment(seg)
+                text = (
+                    f"Selected action: {descriptor.display_name}"
+                    if descriptor is not None and descriptor.display_name
+                    else f"Selected action: {seg.name}"
+                )
+        elif self._behavior_timeline is None or self._behavior_timeline.is_empty():
+            text = "Add or select an action package to author limb behavior over time."
+        self._timeline_status_label.setText(text)
+
+    def _render_body_part_settings(self, limb_id: str, action_id: Optional[str] = None) -> None:
+        """Step 6: render Movement Settings for the selected body-part.
+
+        Layout:
+          [Body Part: <limb_label>]           閳?spanning header
+            [Motor: <joint_name> (<track>)]   閳?per-motor header (collapsible)
+              start_time | Constant | editor
+              duration   | Constant | editor
+              <param_key>| Constant | editor
+              ...
+          [Motor not yet authored]            閳?when no segment found
+        """
+        from system.behavior.motor_topology import resolve_topology
+
+        table = self._movement_params_table
+        table.setRowCount(0)
+        table.clearContents()
+        table.clearSpans()
+        self._movement_group_header_rows = {}
+
+        # 閳光偓閳光偓 1. Resolve canonical topology for the active model 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
+        topology = resolve_topology(self._brand, self._robot_type)
+        limb: Optional[Any] = None
+        for l in topology.all_limbs:
+            if l.limb_id == limb_id:
+                limb = l
+                break
+
+        if topology.is_degraded or limb is None:
+            reason = topology.degraded_reason or "No canonical topology available"
+            self._movement_selected_label.setText(
+                f"Body Part: {limb_id}"
+            )
+            self._movement_hint.setText(
+                f"Degraded: {reason}. Canonical motor detail is unavailable."
+            )
+            return
+
+        self._movement_selected_label.setText(
+            f"Selected Body Part: {limb.label}"
+        )
+        self._movement_hint.setText(
+            "Showing authored limb modules for this body part. Edits update the timeline directly."
+        )
+
+        # 閳光偓閳光偓 2. Build track 閳?motor segments map (scoped to action when known) 閳光偓
+        timeline = self._behavior_timeline
+        track_to_segs: Dict[str, List[Any]] = {}
+        if timeline is not None:
+            overlays = timeline.motor_overlays
+            if action_id:
+                overlays = [o for o in overlays if getattr(o, "action_id", "") == action_id]
+            for overlay in overlays:
+                for seg in overlay.motor_segments:
+                    track_to_segs.setdefault(seg.track_name, []).append(seg)
+
+        # 閳光偓閳光偓 3. Render body-part header spanning all 3 columns 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
+        row = 0
+        body_header = QTableWidgetItem(f"Body Part: {limb.label}")
+        body_header.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        body_header.setBackground(QColor(get_color("behavior_movement_group_header_bg", "#243447")))
+        body_header.setForeground(QColor(get_color("behavior_movement_group_header_text", "#dbe7f5")))
+        table.insertRow(row)
+        table.setItem(row, 0, body_header)
+        table.setSpan(row, 0, 1, 3)
+        row += 1
+
+        # 閳光偓閳光偓 4. Render each motor in the limb 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
+        for motor in limb.motors:
+            tname = motor.track_name
+            joint_label = motor.joint_name or motor.track_name
+            segs = track_to_segs.get(tname, [])
+            expanded = self._movement_track_groups_expanded.get(
+                f"bp:{limb_id}:{tname}", True
+            )
+
+            # Motor header row (collapsible)
+            authored_note = f"  ({len(segs)} segment{'s' if len(segs) != 1 else ''})" if segs else "  [not yet authored]"
+            chevron = "▼" if expanded else "▶"
+            motor_header = QTableWidgetItem(f"  {chevron} {joint_label}  ({tname}){authored_note}")
+            motor_header.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            motor_header.setBackground(QColor("#1e293b"))
+            motor_header.setForeground(QColor("#94a3b8"))
+            table.insertRow(row)
+            table.setItem(row, 0, motor_header)
+            table.setSpan(row, 0, 1, 3)
+            # Store collapse key so _on_movement_param_cell_clicked can toggle
+            self._movement_group_header_rows[row] = f"bp:{limb_id}:{tname}"
+            row += 1
+
+            if not expanded:
+                continue
+
+            if not segs:
+                # Motor exists in topology but nothing authored yet
+                note_item = QTableWidgetItem("    (no segments authored for this motor)")
+                note_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                note_item.setForeground(QColor("#6b7280"))
+                table.insertRow(row)
+                table.setItem(row, 0, note_item)
+                table.setSpan(row, 0, 1, 3)
+                row += 1
+                continue
+
+            multiple_segs = len(segs) > 1
+            for seg in segs:
+                if multiple_segs:
+                    seg_label = QTableWidgetItem(f"    Segment {seg.motor_id[:8]}")
+                    seg_label.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                    seg_label.setForeground(QColor("#64748b"))
+                    table.insertRow(row)
+                    table.setItem(row, 0, seg_label)
+                    table.setSpan(row, 0, 1, 3)
+                    row += 1
+
+                # Param rows: start_time, duration, primary param_key, extras
+                param_rows: List[Tuple[str, Any]] = [
+                    ("start_time", seg.start_time),
+                    ("duration", seg.duration),
+                ]
+                # Canonical param_key from topology
+                if motor.param_key and motor.param_key in seg.params:
+                    param_rows.append((motor.param_key, seg.params[motor.param_key]))
+                # Remaining params not already listed
+                already = {k for k, _ in param_rows}
+                for k, v in seg.params.items():
+                    if k not in already:
+                        param_rows.append((k, v))
+
+                for k, v in param_rows:
+                    table.insertRow(row)
+                    key_label = f"    {k}" if not multiple_segs else f"    {seg.motor_id[:6]}.{k}"
+                    table.setItem(row, 0, QTableWidgetItem(key_label))
+                    self._set_param_editor_3col(
+                        row=row,
+                        track_name=tname,
+                        key=str(k),
+                        value=v,
+                        on_commit_constant=lambda key_name, val, s=seg: self._commit_motor_param(s, key_name, val),
+                    )
+                    row += 1
 
     def _refresh_movement_settings_for_action_overlay(self, action_index: int) -> bool:
         timeline = self._behavior_timeline
@@ -3464,7 +4886,7 @@ class BehaviorPanel(QWidget):
             track_segments = segments_by_track.get(track_name, [])
             if not track_segments:
                 continue
-            track_label = UNITREE_MOTOR_TRACK_MAP.get(track_name).label if track_name in UNITREE_MOTOR_TRACK_MAP else track_name
+            track_label = self._get_active_track_label(track_name)
             expanded = self._movement_track_groups_expanded.get(track_name, True)
 
             self._movement_params_table.insertRow(row)
@@ -3492,7 +4914,7 @@ class BehaviorPanel(QWidget):
                     row += 1
 
                 rows: List[Tuple[str, Any]] = [("start_time", seg.start_time), ("duration", seg.duration)]
-                track_def = UNITREE_MOTOR_TRACK_MAP.get(seg.track_name)
+                track_def = self._get_active_track_def(seg.track_name)
                 if track_def and track_def.param_key in seg.params:
                     rows.append((track_def.param_key, seg.params.get(track_def.param_key)))
                 for k, v in seg.params.items():
@@ -3525,14 +4947,12 @@ class BehaviorPanel(QWidget):
     def _get_selected_motor_segment(self) -> Optional[MotorSegment]:
         if self._behavior_timeline is None:
             return None
-        if not self._selected_motor_segment_id or not self._selected_motor_track:
+        sel = self._panel_selection
+        if sel.level.value != "motor" or not sel.motor_id or not sel.track_name:
             return None
         for overlay in self._behavior_timeline.motor_overlays:
             for seg in overlay.motor_segments:
-                if (
-                    seg.motor_id == self._selected_motor_segment_id
-                    and seg.track_name == self._selected_motor_track
-                ):
+                if seg.motor_id == sel.motor_id and seg.track_name == sel.track_name:
                     return seg
         return None
 
@@ -3551,8 +4971,8 @@ class BehaviorPanel(QWidget):
             )
         else:
             editor = QDoubleSpinBox()
-            editor.setDecimals(6)
-            editor.setSingleStep(0.0005)
+            editor.setDecimals(2)
+            editor.setSingleStep(0.01)
             editor.setRange(-1_000_000.0, 1_000_000.0)
             editor.setValue(num_val)
             editor.editingFinished.connect(
@@ -3572,7 +4992,7 @@ class BehaviorPanel(QWidget):
         elif key == "duration":
             v = self._try_float(value)
             if v is not None:
-                new_val = max(0.005, v)
+                new_val = max(0.01, v)
                 changed = abs(float(seg.duration) - float(new_val)) > 1e-9
                 if changed:
                     seg.duration = new_val
@@ -3588,47 +5008,38 @@ class BehaviorPanel(QWidget):
                 seg.params[key] = new_val
         if not changed:
             return
+        self._persist_current_timeline_draft()
         self._refresh_timeline()
+        self._refresh_movement_settings()
         self._mark_dirty()
 
     def _commit_module_param(self, index: int, key: str, value: Any) -> None:
-        if index < 0 or index >= len(self._modules):
+        self._ensure_behavior_timeline()
+        segs = self._behavior_timeline.action_segments
+        if index < 0 or index >= len(segs):
             return
-        module = self._modules[index]
-        old_args = module.args
-        old_duration = module.duration
-        pairs = [(k, v) for (k, v) in self._parse_args(module.args) if k]
-
-        def _upsert(p_key: str, p_val: str) -> None:
-            for i, (k, _v) in enumerate(pairs):
-                if k == p_key:
-                    pairs[i] = (k, p_val)
-                    break
-            else:
-                pairs.append((p_key, p_val))
-
+        seg = segs[index]
+        changed = False
         if key == "duration":
             f = self._try_float(value)
             if f is not None:
-                module.duration = max(0.005, f)
-                _upsert("duration", f"{module.duration:.6f}".rstrip("0").rstrip("."))
+                new_val = max(0.01, f)
+                changed = abs(float(seg.duration) - float(new_val)) > 1e-9
+                if changed:
+                    seg.duration = new_val
+                    seg.params.pop("duration", None)
         else:
-            f = self._try_float(value)
-            val_txt = (
-                f"{f:.6f}".rstrip("0").rstrip(".")
-                if f is not None
-                else str(value)
-            )
-            _upsert(key, val_txt)
-            if key == "duration":
-                module.duration = max(0.005, f or module.duration)
-
-        module.args = ", ".join([f"{k}={v}" if v != "" else k for (k, v) in pairs])
-        if module.args == old_args and abs(float(module.duration) - float(old_duration)) <= 1e-9:
+            new_val = self._coerce_param_value(value)
+            old_val = seg.params.get(key)
+            if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
+                changed = abs(float(old_val) - float(new_val)) > 1e-9
+            else:
+                changed = old_val != new_val
+            if changed:
+                seg.params[key] = new_val
+        if not changed:
             return
-        self._sync_source_from_modules()
-        self._refresh_timeline()
-        self._mark_dirty()
+        self._rebuild_timeline_from_action_segments(mark_dirty=True)
 
     @staticmethod
     def _try_float(v: Any) -> Optional[float]:
@@ -3642,36 +5053,33 @@ class BehaviorPanel(QWidget):
     def _sync_modules_from_source(self) -> None:
         source = self._core_editor.toPlainText()
         parsed = self._parse_modules(source)
-        self._modules = parsed
         self._selected_module_index = -1
-        # Phase 1: build/rebuild structured timeline from parsed modules.
-        # If a saved timeline exists (restored from draft/file), only rebuild
-        # when the source has changed (different action names or count).
-        self._behavior_timeline = self._build_or_update_timeline(parsed)
+        self._behavior_timeline = self._build_or_update_timeline(
+            parsed, preserve_action_edits=False
+        )
+        self._sync_views_from_timeline(mark_dirty=False)
         self._refresh_timeline()
         self._refresh_movement_settings()
-        # Keep navigator in sync with the latest timeline build, especially
-        # during first open where _apply_hb_draft() may have refreshed before
-        # timeline restoration/rebuild completed.
         self._refresh_navigator()
 
     def _build_or_update_timeline(
-        self, modules: List[SequenceModule]
+        self,
+        modules: List[SequenceModule],
+        preserve_action_edits: bool = True,
     ) -> Optional[BehaviorTimeline]:
         """Build a BehaviorTimeline from the current SequenceModule list.
 
-        If a saved timeline already has the same action sequence (names +
-        order), preserve its motor overlay data.  Otherwise, build fresh
-        from Unitree profiles.
+        Preserve authored motor overlays only when the rebuilt timeline stays in
+        the same authored track space. A model switch can change track keys from
+        abstract limb tracks to joint-level tracks, and carrying old overlays
+        across that boundary would leave visible rows with no matching segments.
         """
-        if not modules:
-            return None
-        robot_type = self._robot_type or ""
         new_timeline = build_timeline_from_modules(
-            modules, robot_type=robot_type, auto_decompose=(robot_type != "")
+            modules,
+            robot_type=self._robot_type or "go2",
+            auto_decompose=True,
         )
-        if self._behavior_timeline is not None:
-            # Try to preserve existing motor overlays if the action list matches
+        if self._behavior_timeline is not None and preserve_action_edits:
             existing = self._behavior_timeline
             same = (
                 len(existing.action_segments) == len(new_timeline.action_segments)
@@ -3681,33 +5089,153 @@ class BehaviorPanel(QWidget):
                 )
             )
             if same:
-                # Rebind preserved overlays to the newly generated action_ids so
-                # action-click lookup stays correct after source sync/rebuild.
+                # Carry forward user-edited ActionSegment fields from the existing
+                # timeline so a rebuild never silently resets authored values back
+                # to descriptor/module defaults.
+                for old_seg, new_seg in zip(
+                    existing.action_segments, new_timeline.action_segments
+                ):
+                    new_seg.start_time = float(old_seg.start_time)
+                    new_seg.duration = float(old_seg.duration)
+                    if old_seg.params:
+                        new_seg.params = dict(old_seg.params)
+                compatible_track_space = (
+                    (existing.robot_type or "") == (new_timeline.robot_type or "")
+                    and list(existing.active_motor_tracks or []) == list(new_timeline.active_motor_tracks or [])
+                )
                 rebound_overlays: List[ActionMotorOverlay] = []
                 for idx, new_action in enumerate(new_timeline.action_segments):
-                    if idx >= len(existing.motor_overlays):
-                        break
-                    old_overlay = existing.motor_overlays[idx]
-                    rebound_segments: List[MotorSegment] = []
-                    for old_seg in old_overlay.motor_segments:
-                        seg_copy = MotorSegment.from_dict(old_seg.to_dict())
-                        seg_copy.parent_action_id = new_action.action_id
-                        rebound_segments.append(seg_copy)
-                    rebound_overlays.append(ActionMotorOverlay(
-                        action_id=new_action.action_id,
-                        motor_segments=rebound_segments,
-                        expanded=old_overlay.expanded,
-                    ))
+                    if compatible_track_space and idx < len(existing.motor_overlays):
+                        old_overlay = existing.motor_overlays[idx]
+                        if old_overlay.motor_segments:
+                            rebound_segments: List[MotorSegment] = []
+                            for old_seg in old_overlay.motor_segments:
+                                seg_copy = MotorSegment.from_dict(old_seg.to_dict())
+                                seg_copy.parent_action_id = new_action.action_id
+                                rebound_segments.append(seg_copy)
+                            rebound_overlays.append(ActionMotorOverlay(
+                                action_id=new_action.action_id,
+                                motor_segments=rebound_segments,
+                                expanded=old_overlay.expanded,
+                            ))
+                            continue
+                    if idx < len(new_timeline.motor_overlays):
+                        fresh = new_timeline.motor_overlays[idx]
+                        rebound_overlays.append(ActionMotorOverlay(
+                            action_id=new_action.action_id,
+                            motor_segments=list(fresh.motor_segments),
+                        ))
+                    else:
+                        rebound_overlays.append(
+                            ActionMotorOverlay(action_id=new_action.action_id)
+                        )
                 new_timeline.motor_overlays = rebound_overlays
-                new_timeline.active_motor_tracks = existing.active_motor_tracks
+                if compatible_track_space and existing.active_motor_tracks:
+                    new_timeline.active_motor_tracks = existing.active_motor_tracks
         return new_timeline
 
-    def _sync_source_from_modules(self) -> None:
+    def _timeline_dict_for_slot(self, slot_key: str) -> Optional[Dict[str, Any]]:
+        entry = self._drafts_by_node.get(slot_key, {})
+        timeline_raw = entry.get("timeline")
+        if isinstance(timeline_raw, dict):
+            return dict(timeline_raw)
+        legacy = self._timelines_by_node.get(slot_key)
+        if isinstance(legacy, dict):
+            return dict(legacy)
+        return None
+
+    @staticmethod
+    def _format_module_arg_value(value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float):
+            return f"{value:.2f}".rstrip("0").rstrip(".")
+        return str(value)
+
+    def _module_from_action_segment(self, seg: ActionSegment) -> SequenceModule:
+        pairs: List[Tuple[str, str]] = [
+            ("duration", self._format_module_arg_value(float(seg.duration)))
+        ]
+        for key, value in dict(seg.params).items():
+            if key in STRUCTURAL_KEYS:
+                continue
+            pairs.append((str(key), self._format_module_arg_value(value)))
+        args = ", ".join(f"{k}={v}" if v != "" else k for k, v in pairs)
+        return SequenceModule(
+            kind=str(getattr(seg, "kind", "movement") or "movement"),
+            name=str(getattr(seg, "name", "") or ""),
+            args=args,
+            duration=float(getattr(seg, "duration", 1.0) or 1.0),
+        )
+
+    def _ensure_behavior_timeline(self) -> None:
+        if self._behavior_timeline is None:
+            self._behavior_timeline = _default_timeline_for_behavior_selection(
+                self._intent_id,
+                self._node_name,
+                self._brand,
+                self._robot_type,
+            )
+
+    def _sync_views_from_timeline(self, mark_dirty: bool = False) -> None:
+        if self._behavior_timeline is None:
+            self._modules = []
+            self._set_core_source("", mark_dirty=mark_dirty)
+            return
+        self._modules = [
+            self._module_from_action_segment(seg)
+            for seg in self._behavior_timeline.action_segments
+        ]
         lines = []
-        for m in self._modules:
-            args = m.args.strip()
-            lines.append(f"{m.name}({args})" if args else f"{m.name}()")
-        self._set_core_source("\n".join(lines), mark_dirty=True)
+        for mod in self._modules:
+            args = mod.args.strip()
+            lines.append(f"{mod.name}({args})" if args else f"{mod.name}()")
+        self._set_core_source("\n".join(lines), mark_dirty=mark_dirty)
+
+    def _persist_current_behavior_draft(self) -> None:
+        if self._node_id < 0:
+            return
+        slot_key = self._draft_slot_key(
+            self._node_id, self._behavior_ref or self._node_name
+        )
+        self._sync_views_from_timeline(mark_dirty=False)
+        hb_payload = (
+            self._collect_hb_draft().to_dict()
+            if hasattr(self, "_heartbeat_editor")
+            else HBDraftPayload.default().to_dict()
+        )
+        entry: Dict[str, Any] = {
+            "core": self._core_editor.toPlainText(),
+            "hb": hb_payload,
+            "motor_track_expanded": dict(getattr(self._timeline, "_motor_track_expanded", {})),
+        }
+        if self._behavior_timeline is not None:
+            entry["timeline"] = self._behavior_timeline.to_dict()
+        self._drafts_by_node[slot_key] = entry
+
+    def _persist_current_timeline_draft(self) -> None:
+        """Persist the active structured timeline into the current node draft."""
+        if self._node_id < 0 or self._behavior_timeline is None:
+            return
+        self._persist_current_behavior_draft()
+
+    def _rebuild_timeline_from_action_segments(self, mark_dirty: bool = True) -> None:
+        self._sync_views_from_timeline(mark_dirty=mark_dirty)
+        self._behavior_timeline = self._build_or_update_timeline(
+            self._modules, preserve_action_edits=True
+        )
+        self._persist_current_timeline_draft()
+        self._refresh_timeline()
+        self._refresh_movement_settings()
+        if mark_dirty:
+            self._mark_dirty()
+
+    def _sync_source_from_modules(self) -> None:
+        self._behavior_timeline = self._build_or_update_timeline(
+            list(self._modules), preserve_action_edits=False
+        )
+        self._sync_views_from_timeline(mark_dirty=True)
+        self._persist_current_timeline_draft()
 
     def _on_reset(self) -> None:
         """Restore the panel to the snapshot taken at init (set_node_context time)."""
@@ -3725,19 +5253,21 @@ class BehaviorPanel(QWidget):
                 self._apply_hb_draft(HBDraftPayload.default())
         else:
             self._apply_hb_draft(HBDraftPayload.default())
-        # Restore structured timeline
+        # Restore structured timeline 閳?run Circle 4 migration on load
         tl_dict = snap.get("timeline")
         if tl_dict is not None:
-            try:
-                self._behavior_timeline = BehaviorTimeline.from_dict(tl_dict)
-            except Exception:
+            self._behavior_timeline = self._load_timeline_with_migration(tl_dict)
+            if self._behavior_timeline.is_empty() and not tl_dict.get("action_segments"):
                 self._behavior_timeline = None
         else:
             self._behavior_timeline = None
         # Clear dirty state for this node
         if self._node_id >= 0:
             self._dirty_nodes.discard(self._node_id)
-        self._sync_modules_from_source()
+        self._sync_views_from_timeline(mark_dirty=False)
+        self._refresh_timeline()
+        self._refresh_movement_settings()
+        self._refresh_navigator()
         self._refresh_registries()
         self._refresh_module_library()
         self._refresh_save_button_state()
@@ -3771,10 +5301,11 @@ class BehaviorPanel(QWidget):
                 tr("behavior.save_as.busy_msg", "A compile is already in progress. Please wait."),
             )
             return
-        self._sync_source_from_modules()
+        self._sync_views_from_timeline(mark_dirty=False)
         source = self._core_editor.toPlainText()
         self._output.append(f"[Save As] behavior_ref='{new_ref}' source_len={len(source)} chars")
-        self._save_as_btn.setEnabled(False)
+        if hasattr(self, "_save_as_btn"):
+            self._save_as_btn.setEnabled(False)
         robot_type = self._robot_type or "go2"
         self._compile_worker = BehaviorCompileWorker(
             bridge=self._bridge,
@@ -3790,7 +5321,8 @@ class BehaviorPanel(QWidget):
         self._compile_worker.start()
 
     def _on_save_as_finished(self) -> None:
-        self._save_as_btn.setEnabled(True)
+        if hasattr(self, "_save_as_btn"):
+            self._save_as_btn.setEnabled(True)
         self._compile_worker = None
         self._refresh_save_button_state()
 
@@ -3819,13 +5351,14 @@ class BehaviorPanel(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        self._sync_source_from_modules()
-        behavior_ref = self._node_name
+        self._sync_views_from_timeline(mark_dirty=False)
+        behavior_ref = self._behavior_ref or self._node_name
         source = self._core_editor.toPlainText()
         self._output.append(f"[Compiling] behavior_ref='{behavior_ref}' source_len={len(source)} chars")
 
-        self._compile_btn.setEnabled(False)
-        self._compile_btn.setText(tr("behavior.header.saving", "Saving..."))
+        if hasattr(self, "_compile_btn"):
+            self._compile_btn.setEnabled(False)
+            self._compile_btn.setText(tr("behavior.header.saving", "Saving..."))
 
         robot_type = self._robot_type or "go2"
         self._compile_worker = BehaviorCompileWorker(
@@ -3848,11 +5381,11 @@ class BehaviorPanel(QWidget):
         self._ctx_diag.setText(f"{artifact.error_count} error(s), {artifact.warning_count} warning(s)")
         if artifact.is_valid:
             self._hb_status_label.setText(
-                f"Core compiled OK — 0 errors, {artifact.warning_count} warning(s)"
+                f"Core compiled OK 閳?0 errors, {artifact.warning_count} warning(s)"
             )
         else:
             self._hb_status_label.setText(
-                f"Core compiled — {artifact.error_count} error(s), {artifact.warning_count} warning(s)"
+                f"Core compiled 閳?{artifact.error_count} error(s), {artifact.warning_count} warning(s)"
             )
         # Store compiled snapshot (separate from transient draft state)
         self._hb_compiled_snapshot = artifact.to_dict()
@@ -3864,7 +5397,6 @@ class BehaviorPanel(QWidget):
             self._dirty_nodes.discard(self._node_id)
 
     def _on_compile_finished(self) -> None:
-        self._compile_btn.setText(tr("behavior.header.save", "Save"))
         self._refresh_save_button_state()
         self._compile_worker = None
 
@@ -3877,19 +5409,25 @@ class BehaviorPanel(QWidget):
     def apply_theme(self) -> None:
         self._timeline.apply_theme()
         self._apply_module_library_tree_style()
-        self._apply_save_button_style()
+        self._apply_button_styles()
 
-    def _apply_save_button_style(self) -> None:
-        bg = get_color("behavior_save_button_bg", get_color("button_bg", "#111827"))
-        text = get_color("behavior_save_button_text", get_color("button_text", "#e5e7eb"))
-        border = get_color("behavior_save_button_border", get_color("button_border", "#4b5563"))
-        disabled_bg = get_color("behavior_save_button_disabled_bg", "#3a3a3a")
-        disabled_text = get_color("behavior_save_button_disabled_text", "#8a8a8a")
-        disabled_border = get_color("behavior_save_button_disabled_border", "#565656")
-        hover_bg = get_color("behavior_save_button_hover_bg", bg)
-        self._compile_btn.setStyleSheet(
+    def _apply_action_button_style(
+        self,
+        button: QPushButton,
+        *,
+        bg: str,
+        text: str,
+        border: str,
+        hover_bg: str,
+        pressed_bg: str,
+        disabled_bg: str,
+        disabled_text: str,
+        disabled_border: str,
+    ) -> None:
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setStyleSheet(
             f"""
-            QPushButton#behaviorSaveBtn {{
+            QPushButton#{button.objectName()} {{
                 background: {bg};
                 color: {text};
                 border: 1px solid {border};
@@ -3897,16 +5435,54 @@ class BehaviorPanel(QWidget):
                 padding: 0 12px;
                 text-align: left;
             }}
-            QPushButton#behaviorSaveBtn:hover:!disabled {{
+            QPushButton#{button.objectName()}:hover:!disabled {{
                 background: {hover_bg};
             }}
-            QPushButton#behaviorSaveBtn:disabled {{
+            QPushButton#{button.objectName()}:pressed:!disabled {{
+                background: {pressed_bg};
+            }}
+            QPushButton#{button.objectName()}:disabled {{
                 background: {disabled_bg};
                 color: {disabled_text};
                 border: 1px solid {disabled_border};
             }}
             """
         )
+
+    def _apply_button_styles(self) -> None:
+        base_bg = get_color("button_bg", "#111827")
+        base_text = get_color("button_text", "#e5e7eb")
+        base_border = get_color("button_border", "#4b5563")
+        hover_bg = get_color("button_hover_bg", get_color("hover_bg", "#1f2937"))
+        pressed_bg = get_color("button_pressed_bg", "#0f172a")
+        disabled_bg = get_color("button_disabled_bg", "#2f2f2f")
+        disabled_text = get_color("button_disabled_text", "#8a8a8a")
+        disabled_border = get_color("button_disabled_border", "#4b5563")
+
+        buttons = [
+            self._back_btn,
+            self._hb_canvas_btn,
+            self._hb_compiler_btn,
+            self._reset_btn,
+            self._hb_compile_btn,
+            self._hb_simulate_btn,
+            self._hb_run_btn,
+        ]
+        for button in buttons:
+            if not button.objectName():
+                button.setObjectName(f"behaviorBtn_{id(button)}")
+            self._apply_action_button_style(
+                button,
+                bg=base_bg,
+                text=base_text,
+                border=base_border,
+                hover_bg=hover_bg,
+                pressed_bg=pressed_bg,
+                disabled_bg=disabled_bg,
+                disabled_text=disabled_text,
+                disabled_border=disabled_border,
+            )
+
 
     def _apply_module_library_tree_style(self) -> None:
         text_primary = get_color("text_primary", "#e5e7eb")
@@ -3940,8 +5516,6 @@ class BehaviorPanel(QWidget):
 
     def refresh_texts(self) -> None:
         self._refresh_breadcrumb()
-        self._compile_btn.setText(tr("behavior.header.save", "Save"))
-        self._save_as_btn.setText(tr("behavior.header.save_as", "Save as"))
         self._reset_btn.setText(tr("behavior.header.reset", "Reset"))
         self._back_btn.setText(tr("behavior.header.back_mission", "<- Mission"))
 
@@ -3957,7 +5531,6 @@ class BehaviorPanel(QWidget):
 
         self._hb_canvas_btn.setText(tr("behavior.heartbeat.canvas", "Canvas"))
         self._hb_compiler_btn.setText(tr("behavior.heartbeat.compiler", "Compiler"))
-        self._hb_nav_btn.setText(tr("behavior.heartbeat.navigator", "Navigator"))
         self._heartbeat_editor.setPlaceholderText(tr("behavior.heartbeat.script_placeholder", "# HeartBeat scripts"))
         self._hb_compile_btn.setText(tr("behavior.heartbeat.hb_compile", "HB Compile"))
         self._hb_simulate_btn.setText(tr("behavior.heartbeat.simulate", "Simulate"))
@@ -4000,6 +5573,7 @@ class BehaviorPanel(QWidget):
         self._refresh_module_library()
         self._refresh_hb_library()
         self._refresh_movement_settings()
+        self._refresh_timeline_status()
         # Re-render panels so placeholder / summary text uses updated locale (Step 1.5)
         self._refresh_event_state()
         self._refresh_movement_io_mapping()
@@ -4035,11 +5609,7 @@ class BehaviorPanel(QWidget):
         self._refresh_save_button_state()
 
     def _refresh_save_button_state(self) -> None:
-        if not hasattr(self, "_compile_btn"):
-            return
         running = self._compile_worker is not None and self._compile_worker.isRunning()
-        can_save = (self._node_id >= 0) and (self._node_id in self._dirty_nodes) and (not running)
-        self._compile_btn.setEnabled(can_save)
         if hasattr(self, "_reset_btn"):
             self._reset_btn.setEnabled((self._node_id >= 0) and (self._init_snapshot is not None) and (not running))
 
@@ -4142,12 +5712,33 @@ def _plain_title(layout, text: str) -> QLabel:
 
 def _kv_row(layout, key: str, value: str) -> Tuple[QLabel, QLabel]:
     row = QHBoxLayout()
+    row.setSpacing(8)
     k = QLabel(f"{key}:")
     k.setObjectName("behaviorDetailKey")
+    k.setStyleSheet("background: transparent; padding: 0; margin: 0;")
     v = QLabel(value)
     v.setObjectName("behaviorDetailVal")
     v.setWordWrap(True)
+    v.setStyleSheet(
+        "background: rgba(255, 255, 255, 0.04); border-radius: 4px; padding: 2px 6px;"
+    )
     row.addWidget(k)
     row.addWidget(v, 1)
     layout.addLayout(row)
     return k, v
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -15,6 +15,8 @@ except (ImportError, AttributeError):
     def log_warning(*a, **k): pass # type: ignore[misc]
     def log_error(*a, **k): pass   # type: ignore[misc]
 
+from .result_inspector import is_failure_result
+
 
 @dataclass
 class WorkflowRunner:
@@ -96,12 +98,13 @@ class WorkflowRunner:
             if node_status_callback is not None:
                 node_status_callback(node_id, "running")
 
-            # Circle 1 Step 1.3: explicit behavior node detection in exec_graph path.
-            # behavior_call nodes cannot execute in WorkflowRunner (no behavior bridge);
-            # return a deterministic "skipped" result with a clear reason code and log
-            # a warning so operators know the WorkflowIR path is required.
+            # Circle 1 Step 1.3: explicit behavior_call detection in exec_graph path.
+            # behavior_call nodes (old Circle 6 subgraph invoker) cannot execute in
+            # WorkflowRunner (no behavior bridge); skip with a clear reason code.
+            # Phase F: the new "behavior" node type (BehaviorNode) is NOT skipped
+            # here — it executes normally via the registry lookup path.
             _is_behavior_node = (
-                node_type in ("behavior_call", "behavior")
+                node_type == "behavior_call"
                 or node_data.get("external_kind") == "behavior"
             )
             if _is_behavior_node:
@@ -149,6 +152,13 @@ class WorkflowRunner:
                 return
 
             if logic_node:
+                if node_type == "start" and robot_model is not None:
+                    current_robot_type = getattr(robot_model, "robot_type", "")
+                    if current_robot_type:
+                        try:
+                            logic_node.set_parameter("robot_type", current_robot_type)
+                        except Exception:
+                            pass
                 if node_type in ("action_execution", "sensor_input", "stop"):
                     logic_node.set_parameter("robot_model", robot_model)
 
@@ -188,11 +198,20 @@ class WorkflowRunner:
                         log_error(f"Action execution failed: {exc}")
                         results[node_id] = {"error": str(exc)}
 
+            cancel_reason = self._consume_runtime_cancel_reason(robot_model)
+            if cancel_reason == "viewer_closed":
+                _node_result = results.get(node_id, {})
+                if self._is_failure_result(_node_result):
+                    results[node_id] = {"status": "cancelled", "reason": cancel_reason}
+                cancelled = True
+
             # Fire completion callback for regular nodes (logic + action branches).
             if node_status_callback is not None:
                 _r = results.get(node_id, {})
                 _s = "failed" if self._is_failure_result(_r) else "success"
                 node_status_callback(node_id, _s)
+            if cancelled:
+                return
             _node_result = results.get(node_id, {})
             if self._is_failure_result(_node_result):
                 failed = True
@@ -341,16 +360,21 @@ class WorkflowRunner:
         return {"result": {"value": False}}
 
     @staticmethod
+    def _consume_runtime_cancel_reason(robot_model: Any) -> str:
+        """Best-effort read of a cooperative runtime-cancel reason from robot_model."""
+        consume = getattr(robot_model, "consume_runtime_cancel_reason", None)
+        if not callable(consume):
+            return ""
+        try:
+            return str(consume() or "")
+        except Exception as exc:
+            log_warning(f"WorkflowRunner: consume_runtime_cancel_reason failed: {exc}")
+            return ""
+
+    @staticmethod
     def _is_failure_result(result: Any) -> bool:
         """Return True when a node result payload encodes a failure state."""
-        if not isinstance(result, dict):
-            return False
-        if "error" in result or result.get("status") in {"failed", "error"}:
-            return True
-        flow_out = result.get("flow_out")
-        if isinstance(flow_out, dict) and flow_out.get("status") in {"failed", "error"}:
-            return True
-        return False
+        return is_failure_result(result)
 
     @staticmethod
     def _safe_eval_condition(expr: str, results: Dict[str, Any]) -> bool:

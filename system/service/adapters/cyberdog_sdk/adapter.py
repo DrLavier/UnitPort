@@ -38,6 +38,7 @@ from typing import Any, Dict, Optional
 from system.service.adapters.base_adapter import BaseAdapter
 from system.service.lifecycle import LifecycleReason, LifecycleResult
 from .mapper import ACTION_MAP, MOTION_ID, TOPIC_CMD_VEL, TOPIC_MOTION_CMD, map_action
+from .semantic_actions import get_cyberdog_semantic_actions
 
 _log = _logging.getLogger("unitport.service.adapter.cyberdog")
 
@@ -96,6 +97,7 @@ class CyberDogAdapter(BaseAdapter):
         namespace: str = "cyberdog",
         node_name: str = "unitport_cyberdog",
     ):
+        self.robot_type = "cyberdog"
         self.namespace = namespace
         self.node_name = node_name
 
@@ -118,6 +120,8 @@ class CyberDogAdapter(BaseAdapter):
             self.namespace = str(kwargs["namespace"])
         if kwargs.get("node_name"):
             self.node_name = str(kwargs["node_name"])
+        if kwargs.get("robot_type"):
+            self.robot_type = str(kwargs["robot_type"]).strip().lower() or "cyberdog"
         return True
 
     def run_action(self, action: str, **params: Any) -> Any:
@@ -417,6 +421,7 @@ class CyberDogAdapter(BaseAdapter):
         """
         return {
             "brand":   "xiaomi",
+            "robot_type": str(getattr(self, "robot_type", "cyberdog") or "cyberdog"),
             "adapter": "cyberdog_sdk",
             "actions": list(ACTION_MAP.keys()),
             "sensors": ["battery", "imu", "odometry"],
@@ -432,6 +437,10 @@ class CyberDogAdapter(BaseAdapter):
                 "stop_policy", "safety_enabled",
                 "ros_domain_id", "rmw_impl", "namespace",
                 "action_endpoints", "timestamp_policy",
+            ],
+            "semantic_actions": [
+                d.to_dict()
+                for d in get_cyberdog_semantic_actions(getattr(self, "robot_type", "cyberdog"))
             ],
         }
 

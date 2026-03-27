@@ -12,6 +12,7 @@ import math
 from models.base import BaseRobotModel
 from bin.core.logger import log_info, log_error, log_debug, log_warning
 from bin.core.config_manager import ConfigManager
+from system.mujoco_asset_registry import resolve_mujoco_asset
 
 # Unitree / MuJoCo import bootstrap.
 UNITREE_AVAILABLE = False
@@ -63,20 +64,24 @@ try:
         if sdk_spec is None:
             log_warning("unitree_sdk2py module not found")
         else:
-            from unitree_sdk2py.core.channel import ChannelPublisher, ChannelFactoryInitialize
+            # Use importlib to avoid Pylance static analysis issues
+            channel_module = importlib.import_module("unitree_sdk2py.core.channel")
+            ChannelPublisher = channel_module.ChannelPublisher
+            ChannelFactoryInitialize = channel_module.ChannelFactoryInitialize
             log_info("Unitree SDK imported successfully")
             UNITREE_AVAILABLE = True
     except ImportError as e:
         log_warning(f"Failed to import Unitree SDK: {e}")
+    except AttributeError as e:
+        log_warning(f"Unitree SDK module incomplete: {e}")
 
 except Exception as e:
     log_error(f"Error occurred during import: {e}")
     UNITREE_AVAILABLE = False
     MUJOCO_AVAILABLE = False
 
-# If MuJoCo is available, keep simulation path available.
-if MUJOCO_AVAILABLE:
-    UNITREE_AVAILABLE = True
+# If MuJoCo is available, simulation path is available (but SDK may still be unavailable)
+# Note: UNITREE_AVAILABLE tracks the real SDK, MUJOCO_AVAILABLE tracks simulation
 
 if not UNITREE_AVAILABLE:
     log_warning("Unitree/MuJoCo import failed; simulation mode enabled")
@@ -111,12 +116,15 @@ class UnitreeModel(BaseRobotModel):
         self.running = False
         self.stop_requested = False
         self.pause_requested = False
+        self._runtime_cancel_reason = ""
 
         # 注册可用动作
         self._register_actions()
 
         # SDK clients (lazy init)
         self._sport_client = None
+        self._loco_client = None
+        self._loco_client_kind = ""
         self._sdk_channel_inited = False
 
         log_info(f"UnitreeModel initialized: robot_type={robot_type}, available={self.is_available}")
@@ -214,58 +222,22 @@ class UnitreeModel(BaseRobotModel):
             return False
     
     def _find_model_file(self) -> Optional[Path]:
-        """查找机器人模型文件"""
-        unitree_robots_path = self.config.get_path('unitree_robots')
+        """Find MuJoCo model file through the global asset registry."""
+        location = resolve_mujoco_asset("unitree", self.robot_type)
+        if location is not None:
+            log_info(f"Model file found via {location.source}: {location.scene_path}")
+            return location.scene_path
+
         project_root = self.config.get_path('project_root')
-
-        # Robust fallbacks in case PATH.unitree_robots is missing/misconfigured.
-        # Include multiple models/<brand> layouts used by historical builds.
         candidate_roots = [
-            unitree_robots_path,
-            project_root / "models" / "Unitree",
-            project_root / "models" / "unitree",
-            project_root / "models" / "Unitree" / "unitree_robots",
-            project_root / "models" / "unitree" / "unitree_robots",
-            project_root / "models" / "Unitree" / "unitree_mujoco" / "unitree_robots",
-            project_root / "models" / "unitree" / "unitree_mujoco" / "unitree_robots",
+            self.config.get_path('unitree_robots'),
+            project_root / "brands_sdk" / "Unitree",
+            project_root / "brands_sdk" / "unitree",
+            project_root / "models" / "mujoco_menagerie",
         ]
-
-        possible_paths = []
-        for root in candidate_roots:
-            possible_paths.append(root / self.robot_type / "scene.xml")
-            possible_paths.append(root / "data" / self.robot_type / "scene.xml")
-            possible_paths.append(root / "unitree_robots" / self.robot_type / "scene.xml")
-            possible_paths.append(root / "unitree_robots" / "data" / self.robot_type / "scene.xml")
-            possible_paths.append(root / f"{self.robot_type}.xml")
-            possible_paths.append(root / self.robot_type / f"{self.robot_type}.xml")
-        
-        for path in possible_paths:
-            if path.exists():
-                log_info(f"Model file found: {path}")
-                return path
-
-        # Last-resort recursive search under known model roots.
-        search_roots = [
-            project_root / "models" / "Unitree",
-            project_root / "models" / "unitree",
-        ]
-        for root in search_roots:
-            if not root.exists():
-                continue
-            try:
-                for path in root.rglob("scene.xml"):
-                    path_str = str(path).replace("\\", "/").lower()
-                    token = f"/{self.robot_type}/"
-                    if token in path_str or f"{self.robot_type}.xml" in path_str:
-                        log_info(f"Model file found via recursive search: {path}")
-                        return path
-            except Exception as e:
-                log_warning(f"Recursive model search failed under {root}: {e}")
-        
-        # Debug fallback: list candidate directories for diagnostics.
         self._debug_directory_structure(candidate_roots)
         return None
-    
+
     def _debug_directory_structure(self, roots=None):
         """Debug helper: print directory structure for model discovery."""
         if roots is None:
@@ -303,6 +275,7 @@ class UnitreeModel(BaseRobotModel):
         # Reset control flags for a fresh action run.
         self.stop_requested = False
         self.pause_requested = False
+        self._runtime_cancel_reason = ""
         self.running = True
 
         try:
@@ -325,6 +298,322 @@ class UnitreeModel(BaseRobotModel):
         finally:
             self.running = False
     
+    def velocity_move(self, vx: float, vy: float, vyaw: float, duration: float) -> bool:
+        """First-class velocity move API via SDK SportClient (Step 7).
+
+        This is the primary execution path for the new binding/executor
+        architecture.  ``run_action("walk", ...)`` is preserved for backward
+        compatibility only and must not be used by new code.
+
+        Uses the same SportClient.Move(vx, vy, vyaw) channel as go2 and go2w;
+        no model-specific branching here.
+
+        When the SDK is unavailable (test / simulation-only environment) the
+        method logs a warning and returns True after a brief sleep so that
+        callers in a stub context do not block indefinitely.
+        """
+        if not self.is_available:
+            log_warning(
+                f"Unitree SDK unavailable; simulating velocity_move "
+                f"(vx={vx}, vy={vy}, vyaw={vyaw}, duration={duration})"
+            )
+            time.sleep(min(float(duration), 0.1))  # minimal stub delay
+            return True
+        if self.robot_type == "h1":
+            return self._walk_sdk_humanoid_loco(vx=vx, vy=vy, vyaw=vyaw, duration=duration, loco_kind="h1")
+        if self.robot_type == "g1":
+            return self._walk_sdk_humanoid_loco(vx=vx, vy=vy, vyaw=vyaw, duration=duration, loco_kind="g1")
+        return self._walk_sdk_go2(vx=vx, vy=vy, vyaw=vyaw, duration=duration)
+
+    def velocity_move_mujoco(self, vx: float, vy: float, vyaw: float, duration: float) -> bool:
+        """Velocity move via MuJoCo simulation.
+
+        Supports multiple robot types:
+        - go2, b2: quadruped trot gait (with type-specific parameters)
+        - g1, h1, h1_2: humanoid walking (independent walking semantics)
+
+        Per Decision 1: Humanoid robots use independent walking semantics (NOT trot gait).
+        Note: go2w MuJoCo support is not implemented.  The executor layer
+        (Go2MujocoExecutor) returns an explicit unsupported result for go2w
+        before this method is ever called.
+        """
+        if not self.mujoco_available:
+            log_warning("MuJoCo unavailable; simulating velocity_move_mujoco")
+            time.sleep(min(float(duration), 0.1))
+            return True
+
+        self.stop_requested = False
+        self._runtime_cancel_reason = ""
+        self.running = True
+        try:
+            if not self.ensure_viewer():
+                log_error("velocity_move_mujoco: failed to create MuJoCo viewer")
+                return False
+
+            viewer = self.viewer
+            robot_type = self.robot_type
+
+            # Route to appropriate walking implementation based on robot type
+            # Per Decision 1: Humanoid uses independent walking, NOT trot gait
+            if robot_type in ("g1", "h1", "h1_2"):
+                # Humanoid walking - use independent walking semantics
+                return self._walk_humanoid(viewer, vx=vx, vy=vy, vyaw=vyaw, duration=duration)
+            elif robot_type in ("go2w", "b2w"):
+                # Wheeled quadruped: legs hold stance, wheels drive forward
+                return self._velocity_move_wheeled(viewer, vx=vx, duration=duration)
+            else:
+                # Quadruped (go2, a1, b2) - use trot gait with model-specific params
+                return self._walk_trot_gait_quadruped(viewer, vx=vx, duration=duration)
+
+        except Exception as e:
+            log_error(f"velocity_move_mujoco failed: {e}")
+            return False
+        finally:
+            self.running = False
+
+    def _walk_trot_gait_quadruped(self, viewer, vx: float, duration: float) -> bool:
+        """Trot gait walking for quadruped robots (go2, a1, b2).
+
+        Parameters are adjusted based on robot type for optimal performance.
+        """
+        robot_type = self.robot_type
+
+        # Define robot-specific parameters
+        if robot_type == "b2":
+            # B2: heavier body, slightly slower, longer legs
+            gait_period = 0.6  # seconds per trot cycle (slower than go2)
+            max_vx = 1.2  # Source: B2 specs
+            thigh_swing_base = 0.28  # B2 has longer legs
+            stand_targets = None  # uses go2 targets (same joint layout)
+        elif robot_type == "a1":
+            # A1: similar to go2 but shorter legs; keyframe thigh=0.9, calf=-1.8
+            gait_period = 0.5
+            max_vx = 1.0
+            thigh_swing_base = 0.20
+            stand_targets = self._get_a1_stand_targets()
+        else:
+            # go2: default parameters
+            gait_period = 0.5  # seconds per trot cycle
+            max_vx = 1.5  # Source: go2 specs
+            thigh_swing_base = 0.22  # go2 default
+            stand_targets = None
+
+        cycles = max(1, int(float(duration) / gait_period))
+        # Scale thigh swing proportionally to forward speed
+        speed_frac = max(0.1, min(1.0, abs(float(vx)) / max_vx))
+        thigh_swing = thigh_swing_base * speed_frac
+
+        # a1 uses <position> actuators: ctrl = target angle, not torque
+        position_ctrl = (robot_type == "a1")
+        return self._walk_trot_gait_go2(
+            viewer, cycles=cycles, thigh_swing=thigh_swing,
+            stand_targets=stand_targets, position_ctrl=position_ctrl,
+        )
+
+    def _velocity_move_wheeled(self, viewer, vx: float, duration: float) -> bool:
+        """Wheel-drive forward motion for go2w / b2w.
+
+        Leg joints hold a standing pose via PD control.  All four wheel motors
+        receive torque proportional to vx.  Body displacement comes entirely
+        from wheel-ground contact forces through MuJoCo physics — no qpos is
+        written after initialisation.
+        """
+        robot_type = self.robot_type
+        if robot_type == "go2w":
+            stand_targets  = self._get_go2w_stand_targets()
+            wheel_torque_max = 12.0   # within ctrlrange [-15, 15]
+            max_vx = 1.5
+        else:  # b2w
+            stand_targets  = self._get_b2w_stand_targets()
+            wheel_torque_max = 16.0   # within ctrlrange [-20, 20]
+            max_vx = 1.2
+
+        speed_frac   = max(0.1, min(1.0, abs(float(vx)) / max_vx))
+        wheel_torque = speed_frac * wheel_torque_max
+        wheel_names  = ["FR_wheel", "FL_wheel", "RR_wheel", "RL_wheel"]
+        dt           = self.model.opt.timestep
+
+        def apply(wheel_tau: float):
+            self._apply_pd_control(stand_targets)
+            for wname in wheel_names:
+                try:
+                    aid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, wname)
+                    if aid < 0:
+                        continue
+                    ctrl_min, ctrl_max = self.model.actuator_ctrlrange[aid]
+                    self.data.ctrl[aid] = max(ctrl_min, min(ctrl_max, wheel_tau))
+                except Exception:
+                    continue
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(dt)
+
+        # Stabilise standing pose before engaging wheels
+        log_info(f"Stabilising {robot_type} standing pose...")
+        for _ in range(int(0.5 / dt)):
+            if self._should_stop(viewer):
+                return False
+            apply(0.0)
+
+        log_info(f"Driving {robot_type} wheels (torque={wheel_torque:.1f} Nm, duration={duration}s)...")
+        for _ in range(max(1, int(float(duration) / dt))):
+            if self._should_stop(viewer):
+                return False
+            apply(wheel_torque)
+
+        # Coast to stop
+        for _ in range(int(0.3 / dt)):
+            if self._should_stop(viewer):
+                return False
+            apply(0.0)
+
+        return True
+
+    def _walk_humanoid(self, viewer, vx: float, vy: float, vyaw: float, duration: float) -> bool:
+        """Humanoid bipedal walking via PD control.
+
+        Per Decision 1: Humanoid robots use independent walking (NOT quadruped trot gait).
+        Alternates left/right leg swing in a two-phase gait cycle:
+          Phase 1 — left leg swings forward, right leg supports.
+          Phase 2 — right leg swings forward, left leg supports.
+        Hip pitch, knee, and ankle joints are modulated via sinusoidal swing curves.
+        """
+        robot_type = self.robot_type
+
+        if robot_type == "g1":
+            max_vx, step_period, hip_swing, knee_lift = 1.0, 0.7, 0.34, 0.85
+            lateral_shift = 0.10
+            torso_comp = 0.14
+            torso_pitch = 0.08
+            step_push = 0.10
+            stance_knee = 0.12
+            support_ankle = 0.12
+            swing_power = 0.75
+            peak_hold_steps = 3
+        elif robot_type == "h1_2":
+            max_vx, step_period, hip_swing, knee_lift = 1.2, 0.6, 0.42, 1.00
+            lateral_shift = 0.12
+            torso_comp = 0.16
+            torso_pitch = 0.10
+            step_push = 0.12
+            stance_knee = 0.14
+            support_ankle = 0.14
+            swing_power = 0.70
+            peak_hold_steps = 4
+        else:  # h1
+            max_vx, step_period, hip_swing, knee_lift = 1.2, 0.6, 0.44, 1.10
+            lateral_shift = 0.14
+            torso_comp = 0.18
+            torso_pitch = 0.12
+            step_push = 0.14
+            stance_knee = 0.16
+            support_ankle = 0.16
+            swing_power = 0.65
+            peak_hold_steps = 5
+
+        speed_frac  = max(0.1, min(1.0, abs(float(vx)) / max_vx))
+        num_cycles  = max(1, int(float(duration) / step_period))
+        stand       = self._get_humanoid_stand_targets()
+        dt          = self.model.opt.timestep
+        half_cycle  = max(1, int(step_period / dt) // 2)
+        def apply(targets):
+            self._apply_pd_control_humanoid(targets)
+            mujoco.mj_step(self.model, self.data)
+            viewer.sync()
+            time.sleep(dt)
+
+        # ------------------------------------------------------------------
+        # Stabilise in standing pose before walking
+        # ------------------------------------------------------------------
+        log_info(f"Stabilising humanoid standing pose ({robot_type})...")
+        for _ in range(int(0.5 / dt)):
+            if self._should_stop(viewer):
+                return False
+            apply(stand)
+
+        log_info(f"Starting humanoid walk ({robot_type}, {num_cycles} cycles, speed={speed_frac:.2f})...")
+
+        # Helper: build swing targets for one phase.
+        # swing_side="left"  → left leg swings, right supports.
+        # swing_side="right" → right leg swings, left supports.
+        def _swing_targets(swing_side: str, swing: float) -> Dict[str, float]:
+            t = dict(stand)
+            sf = (swing ** swing_power) * speed_frac
+            if robot_type == "g1":
+                ankle_key = "ankle_pitch_joint"
+                roll_key = "hip_roll_joint"
+            elif robot_type == "h1":
+                ankle_key = "ankle_joint"
+                roll_key = "hip_roll_joint"
+            else:  # h1_2
+                ankle_key = "ankle_pitch_joint"
+                roll_key = "hip_roll_joint"
+
+            sw  = swing_side
+            sup = "right" if sw == "left" else "left"
+            shift_sign = -1.0 if sw == "left" else 1.0
+
+            # Swing leg: deliberately exaggerate lift so an MVP step is
+            # clearly visible in MuJoCo even if the gait is still unstable.
+            t[f"{sw}_hip_pitch_joint"]   = stand[f"{sw}_hip_pitch_joint"]  + hip_swing * sf
+            t[f"{sw}_knee_joint"]         = stand[f"{sw}_knee_joint"]        + knee_lift * sf
+            t[f"{sw}_{ankle_key}"]        = stand[f"{sw}_{ankle_key}"]       - 0.32 * sf
+            if f"{sw}_hip_yaw_joint" in t:
+                t[f"{sw}_hip_yaw_joint"] = stand.get(f"{sw}_hip_yaw_joint", 0.0) + 0.06 * shift_sign * sf
+
+            # Support leg: extension, push-off, and a small knee load to
+            # keep weight on the stance foot while the swing leg advances.
+            t[f"{sup}_hip_pitch_joint"]  = stand[f"{sup}_hip_pitch_joint"] - (0.40 * hip_swing + step_push) * sf
+            t[f"{sup}_knee_joint"]       = stand[f"{sup}_knee_joint"]      + stance_knee * sf
+            t[f"{sup}_{ankle_key}"]      = stand[f"{sup}_{ankle_key}"]     + support_ankle * sf
+            if f"{sup}_hip_yaw_joint" in t:
+                t[f"{sup}_hip_yaw_joint"] = stand.get(f"{sup}_hip_yaw_joint", 0.0) - 0.03 * shift_sign * sf
+
+            # Shift pelvis/torso toward the support leg so the humanoid does
+            # not attempt to swing a leg while the COM stays centered.
+            t[f"{sw}_{roll_key}"] = stand.get(f"{sw}_{roll_key}", 0.0) + lateral_shift * shift_sign * sf
+            t[f"{sup}_{roll_key}"] = stand.get(f"{sup}_{roll_key}", 0.0) + 0.45 * lateral_shift * shift_sign * sf
+            if "torso_joint" in t:
+                t["torso_joint"] = (
+                    stand.get("torso_joint", 0.0)
+                    - torso_comp * shift_sign * sf
+                    + torso_pitch * sf
+                )
+
+            return t
+
+        for _ in range(num_cycles):
+            # Phase 1: left swing
+            for step in range(half_cycle):
+                if self._should_stop(viewer):
+                    return False
+                swing = math.sin(step / half_cycle * math.pi)
+                apply(_swing_targets("left", swing))
+            for _ in range(peak_hold_steps):
+                if self._should_stop(viewer):
+                    return False
+                apply(_swing_targets("left", 1.0))
+
+            # Phase 2: right swing
+            for step in range(half_cycle):
+                if self._should_stop(viewer):
+                    return False
+                swing = math.sin(step / half_cycle * math.pi)
+                apply(_swing_targets("right", swing))
+            for _ in range(peak_hold_steps):
+                if self._should_stop(viewer):
+                    return False
+                apply(_swing_targets("right", 1.0))
+
+        # Return to standing
+        log_info("Returning to humanoid standing pose...")
+        for _ in range(int(0.3 / dt)):
+            if self._should_stop(viewer):
+                return False
+            apply(stand)
+
+        return True
+
     def get_available_actions(self) -> List[str]:
         """获取可用动作列表"""
         return list(self._actions.keys())
@@ -364,6 +653,12 @@ class UnitreeModel(BaseRobotModel):
         """RuntimeEngine-compatible cancel hook."""
         self.stop()
 
+    def consume_runtime_cancel_reason(self) -> str:
+        """Return and clear the last cooperative runtime-cancel reason."""
+        reason = self._runtime_cancel_reason
+        self._runtime_cancel_reason = ""
+        return reason
+
     def _should_stop(self, viewer=None) -> bool:
         """
         检查是否应该停止仿真
@@ -379,10 +674,12 @@ class UnitreeModel(BaseRobotModel):
                 try:
                     if not viewer.is_running():
                         self.stop_requested = True
+                        self._runtime_cancel_reason = "viewer_closed"
                         log_info("Viewer closed while paused, stopping simulation")
                         return True
                 except Exception:
                     self.stop_requested = True
+                    self._runtime_cancel_reason = "viewer_closed"
                     return True
             time.sleep(0.02)
         if self.stop_requested:
@@ -392,10 +689,12 @@ class UnitreeModel(BaseRobotModel):
             try:
                 if not viewer.is_running():
                     self.stop_requested = True
+                    self._runtime_cancel_reason = "viewer_closed"
                     log_info("Viewer closed, stopping simulation")
                     return True
             except Exception:
                 self.stop_requested = True
+                self._runtime_cancel_reason = "viewer_closed"
                 return True
         return False
 
@@ -486,21 +785,21 @@ class UnitreeModel(BaseRobotModel):
         except Exception:
             return False
 
-    def reset_simulation(self) -> bool:
-        """Reset MuJoCo state and ensure the viewer is ready."""
+    def reset_simulation(self, ensure_viewer: bool = True) -> bool:
+        """Reset MuJoCo state and optionally ensure the viewer is ready."""
         if not self.mujoco_available:
             return True
 
         # Reset stale control flags so a prior quit/stop does not block restart.
         self.stop_requested = False
         self.pause_requested = False
-        if not self.ensure_viewer():
+        if ensure_viewer and not self.ensure_viewer():
             return False
 
         try:
             self._set_initial_pose()
             mujoco.mj_forward(self.model, self.data)
-            if self.viewer:
+            if ensure_viewer and self.viewer:
                 self.viewer.sync()
             return True
         except Exception as e:
@@ -518,7 +817,7 @@ class UnitreeModel(BaseRobotModel):
         mujoco.mj_resetData(self.model, self.data)
         
         # 设置站立姿势
-        if "go2" in self.robot_type:
+        if self.robot_type == "go2":
             if self.model.nq >= 19:
                 # 身体位置和朝向
                 self.data.qpos[0] = 0.0  # x
@@ -571,10 +870,226 @@ class UnitreeModel(BaseRobotModel):
                     self.data.ctrl[11] = -1.3 # 左后膝
                     
                     log_info(f"Set Go2 default posture (nu={self.model.nu})")
-        
+
+        elif self.robot_type in ("go2w", "b2w"):
+            # Wheeled variants: same leg qpos layout as go2/b2 respectively.
+            # Wheel joints (qpos[19-22]) start at 0 from mj_resetData above.
+            is_b2w = (self.robot_type == "b2w")
+            z_height = 0.70 if is_b2w else 0.50
+            thigh = 0.72 if is_b2w else 0.67
+            calf  = -1.5 if is_b2w else -1.3
+            if self.model.nq >= 19:
+                self.data.qpos[2] = z_height
+                self.data.qpos[3] = 1.0
+                for base in (7, 10, 13, 16):
+                    self.data.qpos[base]     = 0.0
+                    self.data.qpos[base + 1] = thigh
+                    self.data.qpos[base + 2] = calf
+                if self.model.nu >= 12:
+                    for j in range(0, 12, 3):
+                        self.data.ctrl[j]     = 0.0
+                        self.data.ctrl[j + 1] = thigh
+                        self.data.ctrl[j + 2] = calf
+                    # Wheel motors: zero torque at rest
+                    for j in range(12, min(16, self.model.nu)):
+                        self.data.ctrl[j] = 0.0
+                    log_info(f"Set {self.robot_type} default posture")
+
+        elif self.robot_type == "a1":
+            # A1 uses <position> actuators; use the built-in "home" keyframe so that
+            # both qpos and ctrl (target angles) are set consistently by MuJoCo.
+            if self.model.nkey > 0:
+                key_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_KEY, "home")
+                if key_id >= 0:
+                    mujoco.mj_resetDataKeyframe(self.model, self.data, key_id)
+                    log_info("Set A1 default posture from keyframe")
+                    return
+
+        elif self.robot_type == "b2":
+            # B2 has same leg joint naming as go2 (FR/FL/RR/RL hip/thigh/calf)
+            # but taller body: calf length 0.35 m, range -2.82 to -0.43
+            if self.model.nq >= 19:
+                self.data.qpos[0] = 0.0
+                self.data.qpos[1] = 0.0
+                self.data.qpos[2] = 0.65   # z — b2 standing height with thigh=0.72, calf=-1.5
+                self.data.qpos[3] = 1.0    # quat w
+                self.data.qpos[4] = 0.0
+                self.data.qpos[5] = 0.0
+                self.data.qpos[6] = 0.0
+                if self.model.nu >= 12:
+                    for base in (7, 10, 13, 16):          # FR / FL / RR / RL
+                        self.data.qpos[base]     = 0.0    # hip abduction
+                        self.data.qpos[base + 1] = 0.72   # thigh
+                        self.data.qpos[base + 2] = -1.5   # calf
+                    for j in range(0, 12, 3):
+                        self.data.ctrl[j]     = 0.0
+                        self.data.ctrl[j + 1] = 0.72
+                        self.data.ctrl[j + 2] = -1.5
+                    log_info(f"Set B2 default posture (nu={self.model.nu})")
+
+        elif self.robot_type in ("g1", "h1", "h1_2"):
+            self._set_humanoid_initial_pose()
+
         # 应用初始状态
         mujoco.mj_forward(self.model, self.data)
     
+    def _set_humanoid_initial_pose(self):
+        """Set standing joint angles for g1/h1/h1_2 by joint name via mj_name2id.
+
+        Strategy:
+          - If the model has a keyframe (h1 has "home" keyframe at z=0.98), use
+            mj_resetDataKeyframe so pelvis height and joint angles are exactly right.
+          - Otherwise (g1, h1_2), set joint angles manually then auto-correct pelvis
+            height so the lowest collision geom sits at z≈0 (feet on ground).
+        """
+        robot_type = self.robot_type
+        joint_targets = self._get_humanoid_stand_targets()
+
+        if self.model.nkey > 0:
+            # h1 has a "home" keyframe — use it for an accurate starting pose.
+            mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
+            # Mirror stand targets to ctrl so PD starts at the correct demand.
+            for joint_name, target_q in joint_targets.items():
+                act_name = joint_name  # h1 actuator name == joint name
+                try:
+                    aid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, act_name)
+                    if aid >= 0:
+                        self.data.ctrl[aid] = target_q
+                except Exception:
+                    pass
+            log_info(f"Set {robot_type} humanoid pose from keyframe")
+            return
+
+        # g1 / h1_2: no keyframe — set joint angles then auto-correct pelvis height.
+        for joint_name, target_q in joint_targets.items():
+            try:
+                jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+                if jid < 0:
+                    continue
+                self.data.qpos[self.model.jnt_qposadr[jid]] = target_q
+            except Exception as e:
+                log_warning(f"_set_humanoid_initial_pose: {joint_name}: {e}")
+
+        # Auto-correct pelvis z: after bending the knees, the feet rise above
+        # the ground plane.  Run mj_forward, find the lowest collision geom,
+        # and lower the pelvis by that amount so feet rest on z=0.
+        mujoco.mj_forward(self.model, self.data)
+        try:
+            z_mins = [
+                float(self.data.geom_xpos[gid, 2])
+                for gid in range(self.model.ngeom)
+                if int(self.model.geom_contype[gid]) != 0
+            ]
+            if z_mins:
+                z_foot = min(z_mins)
+                if z_foot > 0.005:  # feet are above ground — lower pelvis
+                    self.data.qpos[2] -= z_foot
+        except Exception:
+            pass
+
+        # Mirror targets to ctrl so initial actuator demand matches qpos
+        for joint_name, target_q in joint_targets.items():
+            act_name = joint_name[:-6] if (robot_type == "g1" and joint_name.endswith("_joint")) else joint_name
+            try:
+                aid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, act_name)
+                if aid >= 0:
+                    self.data.ctrl[aid] = target_q
+            except Exception:
+                pass
+
+        log_info(f"Set {robot_type} humanoid default posture")
+
+    def _get_humanoid_stand_targets(self) -> Dict[str, float]:
+        """Standing joint targets (joint_name → angle) for g1/h1/h1_2."""
+        robot_type = self.robot_type
+        if robot_type == "g1":
+            return {
+                "left_hip_pitch_joint":   -0.28,
+                "left_hip_roll_joint":     0.0,
+                "left_hip_yaw_joint":      0.0,
+                "left_knee_joint":          0.65,
+                "left_ankle_pitch_joint":  -0.38,
+                "left_ankle_roll_joint":    0.0,
+                "right_hip_pitch_joint":  -0.28,
+                "right_hip_roll_joint":    0.0,
+                "right_hip_yaw_joint":     0.0,
+                "right_knee_joint":         0.65,
+                "right_ankle_pitch_joint": -0.38,
+                "right_ankle_roll_joint":   0.0,
+                "waist_yaw_joint":          0.0,
+            }
+        elif robot_type == "h1":
+            return {
+                "left_hip_yaw_joint":    0.0,
+                "left_hip_roll_joint":   0.0,
+                "left_hip_pitch_joint":  -0.30,
+                "left_knee_joint":        0.60,
+                "left_ankle_joint":      -0.30,
+                "right_hip_yaw_joint":   0.0,
+                "right_hip_roll_joint":  0.0,
+                "right_hip_pitch_joint": -0.30,
+                "right_knee_joint":       0.60,
+                "right_ankle_joint":     -0.30,
+                "torso_joint":            0.0,
+            }
+        else:  # h1_2
+            return {
+                "left_hip_yaw_joint":      0.0,
+                "left_hip_pitch_joint":    -0.28,
+                "left_hip_roll_joint":      0.0,
+                "left_knee_joint":           0.65,
+                "left_ankle_pitch_joint":   -0.38,
+                "left_ankle_roll_joint":     0.0,
+                "right_hip_yaw_joint":     0.0,
+                "right_hip_pitch_joint":   -0.28,
+                "right_hip_roll_joint":     0.0,
+                "right_knee_joint":          0.65,
+                "right_ankle_pitch_joint":  -0.38,
+                "right_ankle_roll_joint":    0.0,
+                "torso_joint":              0.0,
+            }
+
+    def _apply_pd_control_humanoid(self, targets: Dict[str, float]):
+        """PD control for humanoid robots (g1, h1, h1_2).
+
+        targets: {joint_name: target_angle}  — key always uses the *_joint suffix.
+
+        Actuator-name mapping:
+          g1:       actuator = joint_name[:-6]  (strip "_joint"; e.g. left_hip_pitch)
+          h1/h1_2:  actuator = joint_name       (actuator name IS the joint name)
+        """
+        robot_type = self.robot_type
+        for joint_name, target_q in targets.items():
+            try:
+                jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+                if jid < 0:
+                    continue
+                act_name = (joint_name[:-6] if joint_name.endswith("_joint") else joint_name
+                            ) if robot_type == "g1" else joint_name
+                aid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, act_name)
+                if aid < 0:
+                    continue
+
+                q  = self.data.qpos[self.model.jnt_qposadr[jid]]
+                qd = self.data.qvel[self.model.jnt_dofadr[jid]]
+
+                if "knee" in joint_name:
+                    kp, kd = 120.0, 5.0
+                elif "ankle" in joint_name:
+                    kp, kd = 40.0, 2.0
+                elif "hip_pitch" in joint_name or "hip_yaw" in joint_name:
+                    kp, kd = 100.0, 5.0
+                elif "hip_roll" in joint_name:
+                    kp, kd = 80.0, 4.0
+                else:
+                    kp, kd = 60.0, 3.0
+
+                tau = kp * (target_q - q) - kd * qd
+                ctrl_min, ctrl_max = self.model.actuator_ctrlrange[aid]
+                self.data.ctrl[aid] = max(ctrl_min, min(ctrl_max, tau))
+            except Exception:
+                continue
+
     def _lift_right_leg_action(self, **kwargs) -> bool:
         """抬起右前腿动作"""
         if not self.mujoco_available:
@@ -1038,6 +1553,33 @@ class UnitreeModel(BaseRobotModel):
         log_info("Left-leg action completed (Go2)")
         return True
 
+    def _get_a1_stand_targets(self) -> Dict[str, float]:
+        """A1 standing joint targets (from a1.xml home keyframe: thigh=0.9, calf=-1.8)."""
+        return {
+            "FR_hip_joint": 0.0, "FR_thigh_joint": 0.9, "FR_calf_joint": -1.8,
+            "FL_hip_joint": 0.0, "FL_thigh_joint": 0.9, "FL_calf_joint": -1.8,
+            "RR_hip_joint": 0.0, "RR_thigh_joint": 0.9, "RR_calf_joint": -1.8,
+            "RL_hip_joint": 0.0, "RL_thigh_joint": 0.9, "RL_calf_joint": -1.8,
+        }
+
+    def _get_go2w_stand_targets(self) -> Dict[str, float]:
+        """go2w leg standing targets (same joint layout as go2; wheels are separate)."""
+        return {
+            "FR_hip_joint": 0.0, "FR_thigh_joint": 0.67, "FR_calf_joint": -1.3,
+            "FL_hip_joint": 0.0, "FL_thigh_joint": 0.67, "FL_calf_joint": -1.3,
+            "RR_hip_joint": 0.0, "RR_thigh_joint": 0.67, "RR_calf_joint": -1.3,
+            "RL_hip_joint": 0.0, "RL_thigh_joint": 0.67, "RL_calf_joint": -1.3,
+        }
+
+    def _get_b2w_stand_targets(self) -> Dict[str, float]:
+        """b2w leg standing targets (same joint layout as b2; wheels are separate)."""
+        return {
+            "FR_hip_joint": 0.0, "FR_thigh_joint": 0.72, "FR_calf_joint": -1.5,
+            "FL_hip_joint": 0.0, "FL_thigh_joint": 0.72, "FL_calf_joint": -1.5,
+            "RR_hip_joint": 0.0, "RR_thigh_joint": 0.72, "RR_calf_joint": -1.5,
+            "RL_hip_joint": 0.0, "RL_thigh_joint": 0.72, "RL_calf_joint": -1.5,
+        }
+
     def _get_go2_stand_targets(self) -> Dict[str, float]:
         """Go2 站立目标角度"""
         return {
@@ -1092,6 +1634,35 @@ class UnitreeModel(BaseRobotModel):
         sinr_cosp = 2 * (qw * qx + qy * qz)
         cosr_cosp = 1 - 2 * (qx * qx + qy * qy)
         return math.atan2(sinr_cosp, cosr_cosp)
+
+    def _apply_position_control(self, targets: Dict[str, float]):
+        """Direct position control for <position> servo actuators (a1).
+
+        a1.xml uses <position kp="100"> actuators whose ctrl input is a target
+        angle (radians).  MuJoCo's built-in servo applies the internal PD force
+        to reach that angle — no external torque calculation is needed or wanted.
+        Calling _apply_pd_control() for these actuators would write a torque
+        value as a position target, which is physically meaningless.
+        """
+        actuator_names = [
+            "FR_hip", "FR_thigh", "FR_calf",
+            "FL_hip", "FL_thigh", "FL_calf",
+            "RR_hip", "RR_thigh", "RR_calf",
+            "RL_hip", "RL_thigh", "RL_calf",
+        ]
+        for act_name in actuator_names:
+            joint_name = f"{act_name}_joint"
+            if joint_name not in targets:
+                continue
+            try:
+                aid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, act_name)
+                if aid < 0:
+                    continue
+                ctrl_min, ctrl_max = self.model.actuator_ctrlrange[aid]
+                angle = float(targets[joint_name])
+                self.data.ctrl[aid] = max(ctrl_min, min(ctrl_max, angle))
+            except Exception:
+                continue
 
     def _apply_pd_control(self, targets: Dict[str, float], gain_scale: Optional[Dict[str, float]] = None):
         """基于关节目标角度的 PD 控制（用于 Go2）"""
@@ -1265,9 +1836,10 @@ class UnitreeModel(BaseRobotModel):
 
     def _walk_trot_gait_go2(self, viewer, **kwargs) -> bool:
         """
-        Go2 trot gait using joint order from unitree_sdk2_python.
+        Quadruped trot gait using joint order from unitree_sdk2_python.
         - hip: abduction/adduction (keep standing)
         - thigh/calf: fore-aft swing + foot lift
+        Supports go2, a1, b2 via stand_targets kwarg.
         """
         import math
 
@@ -1275,15 +1847,21 @@ class UnitreeModel(BaseRobotModel):
         gait_period = kwargs.get("gait_period", 0.5)
         thigh_swing = kwargs.get("thigh_swing", 0.22)
         calf_lift = kwargs.get("calf_lift", 0.35)
+        position_ctrl = kwargs.get("position_ctrl", False)
 
-        stand_targets = self._get_go2_stand_targets()
+        stand_targets = kwargs.get("stand_targets") or self._get_go2_stand_targets()
 
         dt = self.model.opt.timestep
         steps_per_cycle = max(2, int(gait_period / dt))
         half_cycle_steps = max(1, steps_per_cycle // 2)
 
         def apply_targets(targets, gain_scale=None):
-            self._apply_pd_control(targets, gain_scale=gain_scale)
+            if position_ctrl:
+                # a1: <position> servo — write target angle directly; physics handles force
+                self._apply_position_control(targets)
+            else:
+                # go2/b2: <motor> — compute and write torque
+                self._apply_pd_control(targets, gain_scale=gain_scale)
             mujoco.mj_step(self.model, self.data)
             viewer.sync()
             time.sleep(dt)
@@ -1355,8 +1933,12 @@ class UnitreeModel(BaseRobotModel):
         Reference: unitree_sdk2_python/example/go2/high_level/go2_sport_client.py
         """
         try:
-            from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-            from unitree_sdk2py.go2.sport.sport_client import SportClient
+            # Use importlib to avoid Pylance static analysis issues
+            import importlib
+            channel_module = importlib.import_module("unitree_sdk2py.core.channel")
+            sport_module = importlib.import_module("unitree_sdk2py.go2.sport.sport_client")
+            ChannelFactoryInitialize = channel_module.ChannelFactoryInitialize
+            SportClient = sport_module.SportClient
         except Exception as e:
             log_warning(f"SDK import failed: {e}")
             return False
@@ -1378,7 +1960,20 @@ class UnitreeModel(BaseRobotModel):
             self._sport_client.SetTimeout(5.0)
             self._sport_client.Init()
 
-        vx = kwargs.get("vx", 0.3)
+        # 处理speed参数：将其转换为vx速度
+        # speed范围0-1，映射到实际的前进速度(0 - 1.5 m/s)
+        speed = kwargs.get("speed")
+        if speed is not None:
+            try:
+                speed = float(speed)
+                # 根据机器人型号设置最大速度
+                max_speed = 1.5  # m/s
+                vx = speed * max_speed
+            except (ValueError, TypeError):
+                vx = kwargs.get("vx", 0.3)
+        else:
+            vx = kwargs.get("vx", 0.3)
+        
         vy = kwargs.get("vy", 0.0)
         vyaw = kwargs.get("vyaw", 0.0)
         duration = kwargs.get("duration", 2.0)
@@ -1392,6 +1987,66 @@ class UnitreeModel(BaseRobotModel):
             return True
         except Exception as e:
             log_error(f"SDK walk failed: {e}")
+            return False
+
+    def _walk_sdk_humanoid_loco(self, **kwargs) -> bool:
+        """Humanoid walk via official Unitree loco clients (H1/G1)."""
+        loco_kind = str(kwargs.get("loco_kind") or self.robot_type or "").strip().lower()
+        module_path = {
+            "h1": "unitree_sdk2py.h1.loco.h1_loco_client",
+            "g1": "unitree_sdk2py.g1.loco.g1_loco_client",
+        }.get(loco_kind)
+        if not module_path:
+            log_error(f"Unsupported humanoid loco client: {loco_kind}")
+            return False
+
+        try:
+            import importlib
+            channel_module = importlib.import_module("unitree_sdk2py.core.channel")
+            loco_module = importlib.import_module(module_path)
+            ChannelFactoryInitialize = channel_module.ChannelFactoryInitialize
+            LocoClient = loco_module.LocoClient
+        except Exception as e:
+            log_warning(f"Humanoid loco SDK import failed: {e}")
+            return False
+
+        iface = kwargs.get("iface") or kwargs.get("network_interface")
+        if not self._sdk_channel_inited:
+            try:
+                if iface:
+                    ChannelFactoryInitialize(0, iface)
+                else:
+                    ChannelFactoryInitialize(0)
+                self._sdk_channel_inited = True
+            except Exception as e:
+                log_error(f"SDK channel init failed: {e}")
+                return False
+
+        if self._loco_client is None or self._loco_client_kind != loco_kind:
+            self._loco_client = LocoClient()
+            self._loco_client.SetTimeout(5.0)
+            self._loco_client.Init()
+            self._loco_client_kind = loco_kind
+
+        vx = float(kwargs.get("vx", 0.3))
+        vy = float(kwargs.get("vy", 0.0))
+        vyaw = float(kwargs.get("vyaw", 0.0))
+        duration = max(0.0, float(kwargs.get("duration", 2.0)))
+
+        log_info(
+            f"Humanoid loco SDK walk ({loco_kind}): vx={vx}, vy={vy}, vyaw={vyaw}, duration={duration}s"
+        )
+
+        try:
+            if hasattr(self._loco_client, "Start"):
+                self._loco_client.Start()
+                time.sleep(0.2)
+            self._loco_client.Move(vx, vy, vyaw, continous_move=True)
+            time.sleep(duration)
+            self._loco_client.StopMove()
+            return True
+        except Exception as e:
+            log_error(f"Humanoid loco SDK walk failed: {e}")
             return False
 
     def _stop_action(self, **kwargs) -> bool:

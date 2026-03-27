@@ -37,6 +37,7 @@ from system.behavior.behavior_artifact import (
     BehaviorInvokeInput,
     BehaviorInvokeOutput,
 )
+from system.behavior.semantic_resolution import resolve_timeline_intents
 from system.behavior.behavior_compiler_bridge import BehaviorCompilerBridge
 from system.behavior.heartbeat_policy import validate_heartbeat_policy  # Circle 2 Step 2.3
 from system.behavior.motor_weight_protocol import (                      # Step 1
@@ -47,6 +48,31 @@ from system.behavior.protocol_apply_engine import (                      # Circl
     ProtocolApplyEngine,
     ProtocolApplyResult,
 )
+from system.binding.registry import default_registry                     # Step 8
+from system.binding.output import BACKEND_SDK, BACKEND_MUJOCO            # Step 8
+
+
+def _determine_execution_backend(scenario: dict, context: dict) -> str:
+    """Return the active execution backend from scenario/context.
+
+    Resolution order:
+    1. Explicit scenario["backend"] when valid.
+    2. scenario["target"] == "hardware"   -> "sdk"
+    3. scenario["target"] == "simulation" -> "mujoco"
+    4. Legacy context fallback: top-level robot_model present -> "sdk"
+    5. Default -> "mujoco"
+    """
+    backend = str(scenario.get("backend") or "").lower()
+    if backend in (BACKEND_SDK, BACKEND_MUJOCO):
+        return backend
+    target = str(scenario.get("target") or "").lower()
+    if target == "hardware":
+        return BACKEND_SDK
+    if target == "simulation":
+        return BACKEND_MUJOCO
+    if context.get("robot_model") is not None:
+        return BACKEND_SDK
+    return BACKEND_MUJOCO
 
 
 class BehaviorSubgraphInvoker:
@@ -175,6 +201,172 @@ class BehaviorSubgraphInvoker:
                 protocol_targets = _parsed_targets
 
         # ------------------------------------------------------------------
+        # Step 2d — Semantic intent resolution (Circle 7 Step 7.1)
+        # Resolve every intent_id in the artifact's timeline against the
+        # currently active brand/model.  This is late binding: the registry
+        # is queried now, not at authoring time, so a model switch between
+        # compile and execute is always detected.
+        #
+        # - No brand in context → skip (legacy / unknown model; no error).
+        # - All intents resolve → inject resolved_actions into sub_context.
+        # - Any unresolvable intent → blocked (deterministic failure with
+        #   per-intent error diagnostics).
+        # ------------------------------------------------------------------
+        _scenario = invoke_input.context.get("scenario") or {}
+        _brand     = str(_scenario.get("brand") or invoke_input.context.get("brand") or "")
+        _robot_type = str(_scenario.get("robot_type") or invoke_input.context.get("robot_type") or "")
+
+        resolution_result = resolve_timeline_intents(
+            artifact.timeline_data,
+            brand=_brand,
+            robot_type=_robot_type,
+            trace_id=trace_id,
+        )
+
+        if not resolution_result.is_clean:
+            # One or more intents are UNSUPPORTED on the active model.
+            # Block the invocation deterministically with structured diagnostics.
+            _res_diags = resolution_result.diagnostics
+            return BehaviorInvokeOutput.blocked(
+                trace_id=trace_id,
+                reason=BehaviorErrorCode.SEMANTIC_RESOLUTION_FAILED,
+                diagnostics=_res_diags,
+                resolution_diagnostics=_res_diags,
+            )
+
+        # ------------------------------------------------------------------
+        # Step 2e — Backend binding resolution (Step 8)
+        # For each semantically resolved intent:
+        #   1. Look up the ActionBinding in the default registry.
+        #   2. Extract ir_params from the first matching timeline segment.
+        #   3. Call binding.bind() to produce a BindingOutput.
+        #   4. Inject the BindingOutput into resolved_bindings.
+        # A missing binding is a warning, NOT a block — authoring and IR
+        # validation are unaffected; execution degrades gracefully.
+        # ------------------------------------------------------------------
+        _backend = _determine_execution_backend(_scenario, invoke_input.context)
+        _binding_diags: List[BehaviorDiagnostic] = []
+        _resolved_bindings: dict = {}  # Dict[intent_id, BindingOutput]
+
+        # Build intent_id → ir_params map from the first matching timeline segment.
+        # Params carried by the segment (speed, duration, or nested "params" dict)
+        # become the ir_params passed to binding.bind().  Default to {} when absent.
+        _segment_params: dict = {}
+        _segment_names: dict = {}
+        _tl_segments = (artifact.timeline_data or {}).get("action_segments") or []
+        for _seg in _tl_segments:
+            if not isinstance(_seg, dict):
+                continue
+            if _seg.get("kind", "movement") != "movement":
+                continue
+            _seg_iid = (_seg.get("intent_id") or "").strip()
+            if not _seg_iid or _seg_iid in _segment_params:
+                continue  # already have params for this intent, or no intent
+            _seg_ir: dict = {}
+            for _pk in ("speed", "vx", "duration"):
+                if _pk in _seg:
+                    _seg_ir[_pk] = _seg[_pk]
+            if "params" in _seg and isinstance(_seg["params"], dict):
+                _seg_ir.update(_seg["params"])
+            _segment_params[_seg_iid] = _seg_ir
+            _seg_name = str(_seg.get("name") or "").strip()
+            if _seg_name:
+                _segment_names[_seg_iid] = _seg_name
+
+        for _intent_id in resolution_result.resolved:
+            _binding = default_registry.resolve(
+                _intent_id, _brand, _robot_type, _backend
+            )
+            if _binding is None:
+                _binding_diags.append(
+                    BehaviorDiagnostic.warning(
+                        code=f"binding.no_binding.{_intent_id}",
+                        message=(
+                            f"No binding found for intent {_intent_id!r} "
+                            f"on {_brand}/{_robot_type} backend={_backend!r}"
+                        ),
+                        location=_intent_id,
+                        trace_id=trace_id or None,
+                    )
+                )
+                continue
+            _ir_params = _segment_params.get(_intent_id, {})
+            try:
+                _binding_output = _binding.bind(
+                    _intent_id, _ir_params, _brand, _robot_type, _backend
+                )
+                _resolved_bindings[_intent_id] = _binding_output
+                _source_action = _segment_names.get(_intent_id, "").strip()
+                if _source_action and _source_action not in _resolved_bindings:
+                    _resolved_bindings[_source_action] = _binding_output
+                _resolved_raw = str(resolution_result.resolved.get(_intent_id) or "").strip()
+                if _resolved_raw and _resolved_raw not in _resolved_bindings:
+                    _resolved_bindings[_resolved_raw] = _binding_output
+                _binding_diags.append(
+                    BehaviorDiagnostic.info(
+                        code=f"binding.selected.{_intent_id}",
+                        message=(
+                            f"intent={_intent_id!r} binding={type(_binding).__name__} "
+                            f"operation={_binding_output.operation!r} backend={_binding_output.backend!r}"
+                        ),
+                        location=_intent_id,
+                        trace_id=trace_id or None,
+                    )
+                )
+            except Exception as _bind_exc:
+                _binding_diags.append(
+                    BehaviorDiagnostic.warning(
+                        code=f"binding.bind_error.{_intent_id}",
+                        message=(
+                            f"binding.bind() raised for intent {_intent_id!r}: {_bind_exc}"
+                        ),
+                        location=_intent_id,
+                        trace_id=trace_id or None,
+                    )
+                )
+
+        # Merge semantic-resolution diagnostics with binding-resolution diagnostics
+        # so callers see the full picture in a single list.
+        _all_resolution_diags = list(resolution_result.diagnostics) + _binding_diags
+
+        # ------------------------------------------------------------------
+        # Step 2f — Runtime canonical-topology check (Step 10)
+        # Validates MotorSegment track_names in the artifact timeline against
+        # the active brand/robot_type topology.  Non-blocking: stale tracks
+        # emit warning-level diagnostics in topology_diagnostics so operators
+        # can diagnose model-switch regressions without silent data loss.
+        # ------------------------------------------------------------------
+        _topology_diags: List[BehaviorDiagnostic] = []
+        if artifact.timeline_data and _brand and _robot_type:
+            try:
+                from system.behavior.action_profile import BehaviorTimeline
+                from system.behavior.timeline_migration import validate_timeline_topology
+                _tl_obj = BehaviorTimeline.from_dict(artifact.timeline_data)
+                _topo_raw = validate_timeline_topology(
+                    _tl_obj, brand=_brand, robot_type=_robot_type
+                )
+                for _td in _topo_raw:
+                    # Remap compile-level codes to runtime-prefixed codes so
+                    # consumers can distinguish compile-time vs runtime findings.
+                    _rt_code = _td.code.replace("topology.", "runtime.topology.", 1)
+                    # Prefer canonical body-part label in location when available
+                    # (Step 10: "prefer canonical body-part / motor labels").
+                    if _td.limb_label and _td.track_name:
+                        _loc = f"{_td.limb_label} (track:{_td.track_name})"
+                    elif _td.track_name:
+                        _loc = f"track:{_td.track_name}"
+                    else:
+                        _loc = None
+                    _topology_diags.append(BehaviorDiagnostic.warning(
+                        code=_rt_code,
+                        message=_td.message,
+                        location=_loc,
+                        trace_id=trace_id or None,
+                    ))
+            except Exception:  # noqa: BLE001
+                pass  # Topology check is best-effort; never blocks execution.
+
+        # ------------------------------------------------------------------
         # Step 3 — Load behavior IR into the fresh sub-executor
         # ------------------------------------------------------------------
         behavior_ir = artifact.behavior_ir
@@ -200,11 +392,22 @@ class BehaviorSubgraphInvoker:
             **invoke_input.context,
             "trace_id": trace_id,
             "behavior_inputs": invoke_input.inputs,
+            "robot_model": _scenario.get("robot_model") or invoke_input.context.get("robot_model"),
             "sdk_settings": invoke_input.sdk_settings,      # Circle 2 Step 2.3
             "heartbeat_policy": heartbeat_policy,            # Circle 2 Step 2.3
             # Step 1: resolved protocol targets (None when no protocol payload)
             "protocol_targets": protocol_targets,
             "protocol_status": proto_status,
+            # Circle 7 Step 7.1: late-bound intent → raw_action map (empty when skipped)
+            "resolved_actions": resolution_result.resolved,
+            # Step 8: intent → ActionBinding map; nodes call binding.bind() with their params
+            "resolved_bindings": _resolved_bindings,
+            # Promote brand/robot_type to top-level so subgraph nodes can read them
+            # directly via context.get("brand") / context.get("robot_type") without
+            # having to reach into context["scenario"].  Mirrors how robot_model is
+            # promoted above; keeps the three runtime-identity keys symmetric.
+            "brand": _brand,
+            "robot_type": _robot_type,
         }
 
         try:
@@ -223,6 +426,8 @@ class BehaviorSubgraphInvoker:
                 heartbeat_diagnostics=heartbeat_diags,
                 protocol_status=proto_status,        # Step 1
                 protocol_diagnostics=proto_diags,    # Step 1
+                resolution_diagnostics=_all_resolution_diags,  # Circle 7 + Step 8
+                topology_diagnostics=_topology_diags,           # Step 10
             )
 
         # ------------------------------------------------------------------
@@ -246,6 +451,8 @@ class BehaviorSubgraphInvoker:
                 heartbeat_diagnostics=heartbeat_diags,
                 protocol_status=proto_status,        # Step 1
                 protocol_diagnostics=proto_diags,    # Step 1
+                resolution_diagnostics=_all_resolution_diags,  # Circle 7 + Step 8
+                topology_diagnostics=_topology_diags,           # Step 10
             )
 
         # Per-node execution failures.
@@ -270,6 +477,8 @@ class BehaviorSubgraphInvoker:
                 heartbeat_diagnostics=heartbeat_diags,
                 protocol_status=proto_status,        # Step 1
                 protocol_diagnostics=proto_diags,    # Step 1
+                resolution_diagnostics=_all_resolution_diags,  # Circle 7 + Step 8
+                topology_diagnostics=_topology_diags,           # Step 10
             )
 
         # ------------------------------------------------------------------
@@ -287,6 +496,30 @@ class BehaviorSubgraphInvoker:
             )
             proto_diags.extend(_apply_result.diagnostics)
 
+        # Surface executor-path detail as runtime diagnostics so operators can
+        # inspect the full chain: intent -> binding -> operation -> executor -> result.
+        _execution_diags: List[BehaviorDiagnostic] = []
+        for _node_id, _node_out in (node_results or {}).items():
+            if not isinstance(_node_out, dict):
+                continue
+            _flow = _node_out.get("flow_out") or {}
+            if not isinstance(_flow, dict) or not _flow.get("executor_path"):
+                continue
+            _execution_diags.append(
+                BehaviorDiagnostic.info(
+                    code=f"executor.dispatch.{_flow.get('operation') or 'unknown'}",
+                    message=(
+                        f"node={_node_id!r} intent={_flow.get('intent_id')!r} "
+                        f"binding={_flow.get('binding_name')!r} "
+                        f"operation={_flow.get('operation')!r} "
+                        f"executor={_flow.get('executor_name')!r} "
+                        f"result={_flow.get('status')!r}"
+                    ),
+                    location=str(_node_id),
+                    trace_id=trace_id or None,
+                )
+            )
+
         # ------------------------------------------------------------------
         # Step 7 — Success
         # ------------------------------------------------------------------
@@ -294,6 +527,7 @@ class BehaviorSubgraphInvoker:
             trace_id=trace_id,
             outputs=node_results,       # All subgraph node outputs as behavior outputs.
             node_results=node_results,  # Per-node detail for audit / diagnostics.
+            diagnostics=_execution_diags,
             heartbeat_policy=heartbeat_policy,       # Circle 2 Step 2.3
             heartbeat_diagnostics=heartbeat_diags,   # Circle 2 Step 2.3 (policy warnings if any)
             protocol_status=proto_status,            # Step 1
@@ -301,4 +535,6 @@ class BehaviorSubgraphInvoker:
             apply_success_count=_apply_result.apply_success_count,   # Circle 1 Step 2
             apply_skipped_count=_apply_result.apply_skipped_count,   # Circle 1 Step 2
             apply_failure_reasons=_apply_result.apply_failure_reasons, # Circle 1 Step 2
+            resolution_diagnostics=_all_resolution_diags,    # Circle 7 + Step 8
+            topology_diagnostics=_topology_diags,            # Step 10
         )

@@ -26,6 +26,8 @@ __cache__
 *.claude
 *.py[cod]
 *.pyo
+./claude
+*.claude
 
 # Build / packaging
 build/
@@ -50,7 +52,16 @@ logs/
 desktop.ini
 AGENTS.md
 
+# MuJoCo Menagerie — auto-downloaded at startup, not bundled in repo
+models/mujoco_menagerie/
+
 # Local config overrides
 config/user.ini
 config/*.local.ini
 config/local.ini
+
+# Policy weight binaries — do not commit large model files
+custom_weights/**/*.onnx
+custom_weights/**/*.pt
+custom_weights/**/*.safetensors
+custom_weights/**/*.bin

@@ -324,6 +324,10 @@ class IRToCode:
             lines.extend(self._gen_protocol_emit(node, indent))
             self._follow_flow(node_id, "flow_out", indent, lines)
 
+        elif node.kind == NodeKind.RUN_POLICY:
+            lines.extend(self._gen_run_policy(node, indent))
+            self._follow_flow(node_id, "flow_out", indent, lines)
+
         else:
             # Unknown node type - try to use schema code_template
             schema = SchemaRegistry.get(node.schema_id)
@@ -379,6 +383,30 @@ class IRToCode:
                 f"address={address!r}, max_age_ms={max_age_ms!r})"
             )
         return lines
+
+    def _gen_run_policy(self, node: "IRNode", indent: int) -> List[str]:
+        """Generate a run_policy command dict for a RUN_POLICY node.
+
+        Circle 6: emits a structured command payload carrying all lowered params.
+        Circle 7 will connect this dict to real runtime dispatch via
+        RobotContext.run_policy(**_run_policy_cmd) or an equivalent executor.
+        """
+        indent_str = "    " * indent
+        policy_id        = node.get_param_value("policy_id",        "")
+        max_steps        = node.get_param_value("max_steps",        1000)
+        velocity_command = node.get_param_value("velocity_command", [0.0, 0.0, 0.0])
+        render           = node.get_param_value("render",           False)
+
+        return [
+            f"{indent_str}# run_policy: policy_id={policy_id!r}",
+            f"{indent_str}_run_policy_cmd = {{",
+            f"{indent_str}    'kind': 'run_policy',",
+            f"{indent_str}    'policy_id': {policy_id!r},",
+            f"{indent_str}    'max_steps': {max_steps!r},",
+            f"{indent_str}    'velocity_command': {velocity_command!r},",
+            f"{indent_str}    'render': {render!r},",
+            f"{indent_str}}}",
+        ]
 
     def _follow_flow(self, node_id: str, port: str, indent: int,
                      lines: List[str]):

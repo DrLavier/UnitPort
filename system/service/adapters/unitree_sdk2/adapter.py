@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 from system.service.adapters.base_adapter import BaseAdapter
 from system.service.lifecycle import LifecycleReason, LifecycleResult
 from .mapper import ACTION_MAP, map_action
+from .semantic_actions import get_unitree_semantic_actions
 
 # Phase 4 reason codes (Unitree-specific, stable constants)
 _REASON_ACTION_IN_PROGRESS = "unitree_action_in_progress"
@@ -90,6 +91,24 @@ class UnitreeAdapter(BaseAdapter):
         if model is None:
             return False
         return model.run_action(map_action(action), **params)
+
+    def velocity_move(self, vx: float, vy: float, vyaw: float, duration: float) -> bool:
+        """First-class velocity move API (Step 7). Delegates to UnitreeModel.velocity_move().
+
+        This is the primary execution path for the new binding/executor
+        architecture.  ``run_action()`` is preserved for backward compat only.
+        """
+        model = self.get_model()
+        if model is None:
+            return False
+        return model.velocity_move(float(vx), float(vy), float(vyaw), float(duration))
+
+    def velocity_move_mujoco(self, vx: float, vy: float, vyaw: float, duration: float) -> bool:
+        """MuJoCo velocity move (Step 7). Delegates to UnitreeModel.velocity_move_mujoco()."""
+        model = self.get_model()
+        if model is None:
+            return False
+        return model.velocity_move_mujoco(float(vx), float(vy), float(vyaw), float(duration))
 
     def stop(self) -> None:
         model = self.get_model()
@@ -300,9 +319,10 @@ class UnitreeAdapter(BaseAdapter):
             mujoco_available = bool(getattr(self._model, "mujoco_available", False))
 
         return {
-            "brand":   "unitree",
-            "adapter": "unitree_sdk2",
-            "actions": list(ACTION_MAP.keys()),
+            "brand":      "unitree",
+            "robot_type": self.robot_type,   # top-level, mirrors "brand" position
+            "adapter":    "unitree_sdk2",
+            "actions":    list(ACTION_MAP.keys()),
             "sensors": ["battery", "imu", "foot_contact", "qpos", "qvel", "time"],
             "flags": {
                 "sdk_available":      sdk_available,
@@ -315,6 +335,10 @@ class UnitreeAdapter(BaseAdapter):
                 "stop_policy", "safety_enabled",
                 "dds_domain_id", "network_interface", "control_level",
                 "mode_switch_policy",
+            ],
+            "semantic_actions": [
+                d.to_dict()
+                for d in get_unitree_semantic_actions(self.robot_type)
             ],
         }
 

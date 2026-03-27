@@ -1,33 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """HeartBeat model-switch compatibility audit — Circle 1 Step 1.7.
+Extended with semantic action-level audit — Circle 6 Steps 6.1 & 6.2.
 
 Pure Python; no Qt, no SDK calls, no file I/O.
 
 Public surface
 --------------
-HBCompatIssue        — per-node incompatibility record
+HBCompatIssue        — per-issue incompatibility record (HB node or action)
 HBCompatReport       — aggregate audit result for a brand/robot_type switch
-audit_catalog_compatibility(catalog, brand, robot_type)
-    → HBCompatReport
+audit_catalog_compatibility(catalog, brand, robot_type) → HBCompatReport
+audit_action_compatibility(timeline, brand, robot_type) → List[HBCompatIssue]
+report_to_behavior_diagnostics(report)                  → List[BehaviorDiagnostic]
 
 Design
 ------
 - Severity mapping (fixed, deterministic):
-    UNSUPPORTED        → "error"   (node cannot function at all)
-    LIMITED            → "warning" (node may have degraded behaviour)
+    UNSUPPORTED        → "error"   (node/action cannot function at all)
+    LIMITED/DEGRADED   → "warning" (may have degraded behaviour)
     UNKNOWN_CAPABILITY → "warning" (capability data absent; assume degraded)
     AVAILABLE          → no issue
 - All public functions are pure — no mutation of input objects, never raise.
+- Circle 6: HBCompatIssue carries optional action-level context (intent_id,
+  source_raw_action, target_raw_action) for richer diagnostics display.
+- Circle 6: HBCompatReport carries an optional ActionProfileReport for
+  machine-readable programmatic access to the action comparison result.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from system.behavior.hb_node_catalog import HBNodeCatalog
+    from system.behavior.action_profile import BehaviorTimeline
+    from system.behavior.action_profile_report import ActionProfileReport
 
 from system.behavior.hb_node_catalog import HBNodeAvailability
 
@@ -38,16 +46,24 @@ from system.behavior.hb_node_catalog import HBNodeAvailability
 
 @dataclass
 class HBCompatIssue:
-    """A single node-level incompatibility record from a compatibility audit.
+    """A single incompatibility record from a compatibility audit.
+
+    Covers both HeartBeat node issues (Circle 1) and semantic action issues
+    (Circle 6).  Action-level issues populate the optional fields below.
 
     Attributes
     ----------
-    node_kind    : Canonical HBNodeKind string for the affected node.
-    node_label   : Human-readable display name of the affected node.
-    availability : The availability state that triggered this issue
-                   (``"limited"`` | ``"unsupported"`` | ``"unknown_capability"``).
-    reason       : Human-readable explanation of the incompatibility.
-    severity     : ``"error"`` (node unusable) or ``"warning"`` (degraded).
+    node_kind         : Canonical HBNodeKind or ``"action.<intent_id>"`` string.
+    node_label        : Human-readable display name of the affected node/action.
+    availability      : Availability state that triggered this issue.
+    reason            : Human-readable explanation.
+    severity          : ``"error"`` (unusable) or ``"warning"`` (degraded).
+    intent_id         : [Circle 6] Semantic intent ID when this is an
+                        action-level issue; ``None`` for HB node issues.
+    source_raw_action : [Circle 6] Raw backend action on the source model;
+                        ``None`` for HB node issues.
+    target_raw_action : [Circle 6] Raw backend action on the target model
+                        (``None`` when unsupported/absent or HB node issue).
     """
 
     node_kind: str
@@ -55,6 +71,10 @@ class HBCompatIssue:
     availability: str
     reason: str
     severity: str  # "error" | "warning"
+    # Circle 6: action-level context (None for HB node issues)
+    intent_id: Optional[str] = None
+    source_raw_action: Optional[str] = None
+    target_raw_action: Optional[str] = None
 
 
 @dataclass
@@ -63,14 +83,19 @@ class HBCompatReport:
 
     Attributes
     ----------
-    brand      : Robot brand string (e.g. ``"unitree"``).
-    robot_type : Robot type string (e.g. ``"go2"``).
-    issues     : List of :class:`HBCompatIssue` objects — empty when clean.
+    brand         : Robot brand string (e.g. ``"unitree"``).
+    robot_type    : Robot type string (e.g. ``"go2"``).
+    issues        : List of :class:`HBCompatIssue` objects — empty when clean.
+    action_report : [Circle 6] Full ``ActionProfileReport`` from semantic action
+                    comparison; ``None`` when no timeline was audited or the
+                    audit produced no action-level findings.
     """
 
     brand: str
     robot_type: str
     issues: List[HBCompatIssue] = field(default_factory=list)
+    # Circle 6: machine-readable action comparison result
+    action_report: "Optional[ActionProfileReport]" = field(default=None, repr=False)
 
     # ------------------------------------------------------------------ queries
 
@@ -97,6 +122,11 @@ class HBCompatReport:
     def warning_count(self) -> int:
         """Number of warning-severity issues."""
         return sum(1 for i in self.issues if i.severity == "warning")
+
+    @property
+    def action_issue_count(self) -> int:
+        """Number of issues that are action-level (have an ``intent_id``)."""
+        return sum(1 for i in self.issues if i.intent_id is not None)
 
     def summary_text(self) -> str:
         """Short human-readable summary suitable for a status bar or label.
@@ -196,6 +226,103 @@ def audit_catalog_compatibility(
     return HBCompatReport(brand=brand, robot_type=robot_type, issues=issues)
 
 
+def audit_action_compatibility(
+    timeline: "Optional[BehaviorTimeline]",
+    brand: str,
+    robot_type: str,
+) -> "Tuple[List[HBCompatIssue], Optional[ActionProfileReport]]":
+    """Audit authored behavior action intents against the target model's capabilities.
+
+    Extracts unique ``intent_id`` values from the timeline's movement segments,
+    builds a source profile from them, and compares against the target model's
+    semantic action profile using :func:`compare_action_profiles`.
+
+    Comparison is performed at the ``intent_id`` level — a raw-name difference
+    alone is **never** classified as incompatible (REMAPPED is transparent).
+
+    Parameters
+    ----------
+    timeline   : :class:`BehaviorTimeline` authored on the source model.
+                 ``None`` or empty timeline → returns ``([], None)`` safely.
+    brand      : Target robot brand (e.g. ``"unitree"``).
+    robot_type : Target robot type (e.g. ``"go2"``).
+
+    Returns
+    -------
+    Tuple of:
+        - ``List[HBCompatIssue]`` — only DEGRADED / UNSUPPORTED / AMBIGUOUS
+          entries are returned; PRESERVED and REMAPPED produce no issues.
+        - ``Optional[ActionProfileReport]`` — full comparison report for
+          machine-readable access; ``None`` when no segments were audited.
+    """
+    from system.behavior.action_profile_report import (
+        ActionProfileReport,
+        CompatStatus,
+        compare_action_profiles,
+    )
+    from system.behavior.semantic_action import ActionAvailability, SemanticActionDescriptor
+    from system.behavior.action_registry import get_semantic_actions
+
+    if timeline is None or timeline.is_empty():
+        return [], None
+
+    # Build source profile: one descriptor per unique intent_id in movement segments.
+    seen_intents: dict = {}
+    for seg in timeline.action_segments:
+        if seg.kind != "movement":
+            continue
+        intent_id = (seg.intent_id or "").strip()
+        if not intent_id or intent_id in seen_intents:
+            continue
+        # Use segment name as source raw_action (the action as originally authored).
+        seen_intents[intent_id] = SemanticActionDescriptor(
+            intent_id=intent_id,
+            display_name=intent_id,
+            category="",
+            raw_action=seg.name or intent_id,
+            brand="",
+            robot_type="",
+            parameters={},
+            availability=ActionAvailability.AVAILABLE,
+            tags=(),
+        )
+
+    if not seen_intents:
+        return [], None
+
+    source_profile = list(seen_intents.values())
+    target_profile = get_semantic_actions(brand, robot_type)
+
+    action_report = compare_action_profiles(source_profile, target_profile)
+
+    _STATUS_SEVERITY = {
+        CompatStatus.UNSUPPORTED: "error",
+        CompatStatus.DEGRADED:    "warning",
+        CompatStatus.AMBIGUOUS:   "warning",
+    }
+
+    issues: List[HBCompatIssue] = []
+    for entry in action_report.all_entries:
+        severity = _STATUS_SEVERITY.get(entry.status)
+        if severity is None:
+            continue  # PRESERVED / REMAPPED → compatible, no issue
+        reason = entry.reason or (
+            f"action {entry.intent_id!r} is {entry.status} on target model"
+        )
+        issues.append(HBCompatIssue(
+            node_kind=f"action.{entry.intent_id}",
+            node_label=entry.intent_id,
+            availability=entry.status,
+            reason=reason,
+            severity=severity,
+            intent_id=entry.intent_id,
+            source_raw_action=entry.source_raw_action or None,
+            target_raw_action=entry.target_raw_action,
+        ))
+
+    return issues, action_report
+
+
 def report_to_behavior_diagnostics(
     report: HBCompatReport,
 ) -> "List":
@@ -205,9 +332,14 @@ def report_to_behavior_diagnostics(
     compatibility audit results can flow through the IR semantic diagnostics
     pipeline (``DiagnosticsKey.COMPAT_DIAGNOSTICS``).
 
+    Circle 6 Step 6.2: action-level issues (``intent_id`` is not None) produce
+    richer ``code`` and ``message`` strings that include semantic intent,
+    source raw action, and target raw action for machine-readable diagnostics.
+
     Parameters
     ----------
-    report : :class:`HBCompatReport` from :func:`audit_catalog_compatibility`.
+    report : :class:`HBCompatReport` from :func:`audit_catalog_compatibility`
+             or a merged report that also includes action-level issues.
 
     Returns
     -------
@@ -217,8 +349,18 @@ def report_to_behavior_diagnostics(
 
     result: List = []
     for issue in report.issues:
-        code    = f"compat.{issue.availability}.{issue.node_kind}"
-        message = f"[{issue.node_label}] {issue.reason}"
+        if issue.intent_id is not None:
+            # Circle 6 Step 6.2: richer code + message for action-level issues.
+            code = f"compat.action.{issue.availability}.{issue.intent_id}"
+            parts = [f"[{issue.node_label}] {issue.reason}"]
+            if issue.source_raw_action:
+                parts.append(f"src={issue.source_raw_action!r}")
+            if issue.target_raw_action:
+                parts.append(f"tgt={issue.target_raw_action!r}")
+            message = " | ".join(parts)
+        else:
+            code    = f"compat.{issue.availability}.{issue.node_kind}"
+            message = f"[{issue.node_label}] {issue.reason}"
         diag = (
             BehaviorDiagnostic.error(code, message, location=issue.node_kind)
             if issue.severity == "error"

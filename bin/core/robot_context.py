@@ -7,26 +7,26 @@ This module provides a centralized way to manage the current robot type and
 model instance.  All action nodes should use this context to get the
 appropriate robot model based on the user's selection in the UI.
 
-Phase 3 additions (additive — all existing callers unchanged):
+Phase 3 additions (additive - all existing callers unchanged):
   - execute_with_lifecycle wired into run_action / get_sensor_data / stop
   - _lifecycle_route internal helper for structured lifecycle dispatch
   - set_lifecycle_policy / get_lifecycle_policy for policy management
   - BRAND_ADAPTER_MAP extended with Phase 4 placeholder entries
 
-Phase 4 additions (additive — all existing callers unchanged):
-  - BRAND_ADAPTER_MAP keys corrected to match BrandRegistry actual keys
+Phase 4 additions (additive - all existing callers unchanged):
+  - BRAND_ADAPTER_MAP keys corrected to match canonical brand ids
       "bostiondynamics" -> "spot_sdk"   (was "boston_dynamics")
       "xiaomi"          -> "cyberdog_sdk" (was "cyberdog")
   - _create_adapter_for_brand: factory creates SpotAdapter / CyberDogAdapter
   - _ensure_adapter: uses factory; no silent fallback to unitree_sdk2
   - get_robot_model: safe for adapters that have no get_model() method
 
-Phase 7 STAGE-04 (silent fallback removal — non-additive):
+Phase 7 STAGE-04 (silent fallback removal - non-additive):
   - _create_model_for_brand: removed (dead code; was silently returning UnitreeModel
     for unknown brands, masking misconfiguration)
-  - run_action: removed double-fallback; lifecycle error → False; exception → False
-  - get_sensor_data: removed double-fallback; lifecycle error → error dict; exception → error dict
-  - stop: removed double-fallback; lifecycle error → log_error only; exception → log_error only
+  - run_action: removed double-fallback; lifecycle error -> False; exception -> False
+  - get_sensor_data: removed double-fallback; lifecycle error -> error dict; exception -> error dict
+  - stop: removed double-fallback; lifecycle error -> log_error only; exception -> log_error only
 
 Design Pattern:
     - Singleton-like global state for robot configuration
@@ -52,7 +52,12 @@ from system.service.service_registry import ServiceRegistry
 from system.service.service_router import ServiceRouter, RouteOp
 from system.service.lifecycle import LifecyclePolicy
 from system.service.adapters.unitree_sdk2.adapter import UnitreeAdapter
-from models.brand_registry import BrandRegistry
+from system.model_registry import (
+    canonical_brand_ids,
+    get_adapter_key_for_brand,
+    get_brand_model_map,
+    get_robot_brand_map,
+)
 
 if TYPE_CHECKING:
     from models.base import BaseRobotModel
@@ -70,7 +75,7 @@ class RobotContext:
         - spot                       -> bostiondynamics (spot_sdk adapter)
         - cyberdog, cyberdog2        -> xiaomi          (cyberdog_sdk adapter)
 
-    Brand keys match BrandRegistry discovery: lowercase directory name under models/.
+    Brand keys match the canonical model registry.
         models/Unitree/       -> "unitree"
         models/BostionDynamics/ -> "bostiondynamics"
         models/XiaoMi/        -> "xiaomi"
@@ -88,70 +93,27 @@ class RobotContext:
 
     # Cycle 3 STAGE-03: thread-local run-scoped policy slot.
     # Each worker thread (e.g. MissionRunThread) can set a per-run policy that
-    # is invisible to other threads — no global mutation during mission execution.
+    # is invisible to other threads - no global mutation during mission execution.
     _run_policy_local: threading.local = threading.local()
-
-    # Fallback robot type to brand mapping (overridden by BrandRegistry at runtime).
-    # Keys use BrandRegistry-style lowercased directory names.
-    _FALLBACK_BRAND_MAP: Dict[str, str] = {
-        # Unitree
-        "go2": "unitree", "a1": "unitree", "b1": "unitree",
-        "b2": "unitree", "h1": "unitree",
-        # Boston Dynamics (BrandRegistry key: "bostiondynamics")
-        "spot": "bostiondynamics",
-        # XiaoMi CyberDog (BrandRegistry key: "xiaomi")
-        "cyberdog": "xiaomi", "cyberdog2": "xiaomi",
-    }
-
-    # Fallback brand -> robots (overridden by BrandRegistry at runtime)
-    _FALLBACK_BRAND_ROBOTS: Dict[str, list] = {
-        "unitree":          ["go2", "a1", "b1", "b2", "h1"],
-        "bostiondynamics":  ["spot"],
-        "xiaomi":           ["cyberdog", "cyberdog2"],
-    }
-
-    @classmethod
-    def _get_brand_registry(cls) -> BrandRegistry:
-        return BrandRegistry()
 
     @classmethod
     def _get_robot_brand_map(cls) -> Dict[str, str]:
-        """Dynamic robot->brand map from BrandRegistry with fallback."""
-        try:
-            registry = cls._get_brand_registry()
-            registry.discover()
-            mapping = registry.get_robot_brand_map()
-            if mapping:
-                return mapping
-        except Exception:
-            pass
-        return cls._FALLBACK_BRAND_MAP
+        """Canonical robot->brand map."""
+        return dict(get_robot_brand_map())
 
     @classmethod
     def _get_brand_robots(cls) -> Dict[str, list]:
-        """Dynamic brand->robots map from BrandRegistry with fallback."""
-        try:
-            registry = cls._get_brand_registry()
-            registry.discover()
-            mapping = registry.get_brand_model_map()
-            if mapping:
-                return mapping
-        except Exception:
-            pass
-        return cls._FALLBACK_BRAND_ROBOTS
+        """Canonical brand->robots map."""
+        return dict(get_brand_model_map(display_names=False))
 
-    # Brand → adapter name mapping.
-    # Keys MUST match BrandRegistry discovery keys (lowercased directory names):
-    #   models/Unitree/         -> "unitree"
-    #   models/BostionDynamics/ -> "bostiondynamics"
-    #   models/XiaoMi/          -> "xiaomi"
+    # Brand -> adapter name mapping retained as a compatibility view over the
+    # canonical model registry.
     BRAND_ADAPTER_MAP: Dict[str, str] = {
-        "unitree":          "unitree_sdk2",
-        "bostiondynamics":  "spot_sdk",      # Phase 4: SpotAdapter
-        "xiaomi":           "cyberdog_sdk",  # Phase 4: CyberDogAdapter
+        brand_id: get_adapter_key_for_brand(brand_id)
+        for brand_id in canonical_brand_ids()
     }
 
-    # ── Policy management (Phase 3) ────────────────────────────────────────
+    # -- Policy management (Phase 3) ----------------------------------------
 
     @classmethod
     def set_lifecycle_policy(cls, policy: LifecyclePolicy) -> None:
@@ -177,7 +139,7 @@ class RobotContext:
     ) -> LifecyclePolicy:
         """Create a per-run LifecyclePolicy with *session_config* bound.
 
-        Pure factory — does not mutate any class-level state.  All other
+        Pure factory - does not mutate any class-level state.  All other
         fields are inherited from *base_policy* (or the current class-level
         policy when *base_policy* is ``None``).
 
@@ -236,7 +198,7 @@ class RobotContext:
         """
         return getattr(cls._run_policy_local, "policy", None)
 
-    # ── Brand/model helpers (unchanged from Phase 2) ───────────────────────
+    # -- Brand/model helpers (unchanged from Phase 2) -----------------------
 
     @classmethod
     def set_robot_type(cls, robot_type: str) -> bool:
@@ -319,7 +281,7 @@ class RobotContext:
     def _create_adapter_for_brand(cls, brand: str, robot_type: str):
         """Factory: instantiate the right adapter for *brand*.
 
-        Returns None for unknown brands — no silent Unitree fallback for
+        Returns None for unknown brands - no silent Unitree fallback for
         Phase 4+ brands so callers can surface the error properly.
         """
         if brand == "unitree":
@@ -331,7 +293,7 @@ class RobotContext:
             from system.service.adapters.cyberdog_sdk.adapter import CyberDogAdapter
             return CyberDogAdapter()
         else:
-            log_warning(f"Unknown brand '{brand}': no adapter factory — routing unavailable")
+            log_warning(f"Unknown brand '{brand}': no adapter factory - routing unavailable")
             return None
 
     @classmethod
@@ -339,7 +301,7 @@ class RobotContext:
         """Ensure adapter is registered and bound to current robot type."""
         adapter_name = cls.BRAND_ADAPTER_MAP.get(brand)
         if adapter_name is None:
-            log_error(f"No adapter registered for brand '{brand}' — routing unavailable")
+            log_error(f"No adapter registered for brand '{brand}' - routing unavailable")
             return None
         adapter = cls._service_registry.get(adapter_name)
 
@@ -358,7 +320,7 @@ class RobotContext:
 
         return adapter
 
-    # ── Phase 3: lifecycle-aware routing ──────────────────────────────────
+    # -- Phase 3: lifecycle-aware routing ----------------------------------
 
     @classmethod
     def _lifecycle_route(
@@ -380,9 +342,9 @@ class RobotContext:
             ``(success: bool, payload: Any)``
         """
         # Resolution order (Cycle 3 STAGE-03):
-        #   1) explicit `policy` argument  — highest priority
+        #   1) explicit `policy` argument - highest priority
         #   2) thread-local run-scoped policy (set by MissionRunThread)
-        #   3) class-level _lifecycle_policy — fallback / legacy default
+        #   3) class-level _lifecycle_policy - fallback / legacy default
         resolved_policy = (
             policy
             or getattr(cls._run_policy_local, "policy", None)
@@ -396,7 +358,7 @@ class RobotContext:
         )
         return result["status"] == "ok", result["payload"]
 
-    # ── Public entry points (Phase 1 signatures preserved exactly) ────────
+    # -- Public entry points (Phase 1 signatures preserved exactly) --------
 
     @classmethod
     def run_action(cls, action_name: str, **kwargs) -> bool:
@@ -446,7 +408,7 @@ class RobotContext:
         brand        = cls.get_current_brand()
         adapter_name = cls.BRAND_ADAPTER_MAP.get(brand)
         if adapter_name is None:
-            log_error(f"get_sensor_data: unknown brand '{brand}' — routing unavailable")
+            log_error(f"get_sensor_data: unknown brand '{brand}' - routing unavailable")
             return {'error': f"Unknown brand '{brand}'"}
         adapter      = cls._ensure_adapter(brand, cls._current_robot_type)
         if adapter is None:
@@ -467,7 +429,7 @@ class RobotContext:
         brand        = cls.get_current_brand()
         adapter_name = cls.BRAND_ADAPTER_MAP.get(brand)
         if adapter_name is None:
-            log_warning(f"stop: unknown brand '{brand}' — no-op")
+            log_warning(f"stop: unknown brand '{brand}' - no-op")
             return
         adapter      = cls._ensure_adapter(brand, cls._current_robot_type)
         if adapter is None:
@@ -572,7 +534,7 @@ class RobotContext:
             log_error(f"Simulation reset failed: {e}")
             return False
 
-    # ── Additional helpers (unchanged from Phase 2) ────────────────────────
+    # -- Additional helpers (unchanged from Phase 2) ------------------------
 
     @classmethod
     def get_available_actions(cls) -> list:

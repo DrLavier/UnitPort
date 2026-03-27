@@ -13,8 +13,10 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QHBoxLayout, QPus
 from PySide6.QtCore import Qt, QObject, Signal, QThread
 from PySide6.QtGui import QColor, QTextCursor, QTextCharFormat
 
+from bin.core.config_manager import ConfigManager
 from bin.core.theme_manager import get_font_size, get_color
 from bin.core.localisation import tr
+from bin.components.misc import SwitchButton
 
 
 # ============================================================================
@@ -151,6 +153,9 @@ class TyperThread(QThread):
 class CmdLogWidget(QWidget):
     """Command line log display widget"""
 
+    _DEBUG_CONFIG_SECTION = "DEBUG"
+    _DEBUG_CONFIG_KEY = "show_debug_log"
+
     LOG_COLORS = {
         "debug": "#8B8B8B",
         "info": "#FFFFFF",
@@ -171,8 +176,11 @@ class CmdLogWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("cmdLogPanel")
 
+        self._config = ConfigManager()
         self._status_start_pos: Optional[int] = None
         self._typer_thread: Optional[TyperThread] = None
+        self._show_debug_logs = self._load_debug_log_preference()
+        self._log_entries = []
 
         self._init_ui()
         get_log_signal().log_message.connect(self._on_log)
@@ -187,9 +195,14 @@ class CmdLogWidget(QWidget):
         hl = QHBoxLayout(header)
         hl.setContentsMargins(10, 5, 10, 5)
 
-        tt = QLabel(tr("console.title", "Console"))
-        tt.setMaximumHeight(35)
-        hl.addWidget(tt)
+        debug_label = QLabel("Debug log:")
+        debug_label.setObjectName("cmdDebugLabel")
+        debug_label.setMaximumHeight(35)
+        hl.addWidget(debug_label)
+
+        self.debug_switch = SwitchButton(header, checked=self._show_debug_logs)
+        self.debug_switch.toggled.connect(self._on_debug_switch_toggled)
+        hl.addWidget(self.debug_switch)
         hl.addStretch()
 
         btn = QPushButton(tr("console.clear", "Clear"))
@@ -207,10 +220,67 @@ class CmdLogWidget(QWidget):
 
     def _on_log(self, text, log_type, wrap, typer):
         """Handle log message"""
+        text_str = str(text)
+        entry = {
+            "text": text_str,
+            "log_type": str(log_type),
+            "wrap": bool(wrap),
+            "typer": bool(typer),
+        }
+        self._log_entries.append(entry)
+        if not self._should_show_entry(entry):
+            return
         if typer:
-            self._start_typer(text, log_type, wrap)
+            self._start_typer(text_str, log_type, wrap)
         else:
-            self._append_log(text, log_type, wrap)
+            self._append_log(text_str, log_type, wrap)
+
+    def _on_debug_switch_toggled(self, checked: bool):
+        self._show_debug_logs = bool(checked)
+        self._save_debug_log_preference(self._show_debug_logs)
+        self._rerender_logs()
+
+    def _load_debug_log_preference(self) -> bool:
+        try:
+            return bool(
+                self._config.get_bool(
+                    self._DEBUG_CONFIG_SECTION,
+                    self._DEBUG_CONFIG_KEY,
+                    fallback=False,
+                    config_type="user",
+                )
+            )
+        except Exception:
+            return False
+
+    def _save_debug_log_preference(self, checked: bool) -> None:
+        try:
+            self._config.set(
+                self._DEBUG_CONFIG_SECTION,
+                self._DEBUG_CONFIG_KEY,
+                "true" if checked else "false",
+                config_type="user",
+            )
+            self._config.save_user_config()
+        except Exception:
+            pass
+
+    def _should_show_entry(self, entry) -> bool:
+        text_str = str(entry.get("text", ""))
+        log_type = str(entry.get("log_type", "")).strip().lower()
+        if not self._show_debug_logs and (log_type == "debug" or "[DEBUG]" in text_str):
+            return False
+        return True
+
+    def _rerender_logs(self):
+        if self._typer_thread and self._typer_thread.isRunning():
+            self._typer_thread.stop()
+            self._typer_thread.wait()
+        self.text_edit.clear()
+        self._status_start_pos = None
+        for entry in self._log_entries:
+            if self._should_show_entry(entry):
+                self._append_log(entry["text"], entry["log_type"], entry["wrap"])
 
     def _clear_status_line(self):
         """Clear status line"""
@@ -304,6 +374,7 @@ class CmdLogWidget(QWidget):
         """Clear log"""
         self.text_edit.clear()
         self._status_start_pos = None
+        self._log_entries.clear()
 
     def _apply_style(self):
         """Apply style"""
@@ -323,6 +394,15 @@ class CmdLogWidget(QWidget):
             #cmdLogPanel {{
                 background-color: {panel_bg};
                 border-left: 1px solid {border};
+            }}
+            #cmdDebugLabel {{
+                background-color: transparent;
+                color: {text_primary};
+                border: none;
+                border-radius: 0px;
+                padding: 0px;
+                font-family: Consolas, Monaco, monospace;
+                font-size: {size_normal}px;
             }}
             QTextEdit {{
                 background-color: {cmd_bg};
@@ -350,6 +430,8 @@ class CmdLogWidget(QWidget):
                 background-color: {hover_bg};
             }}
         """)
+        if hasattr(self, "debug_switch"):
+            self.debug_switch.refresh_style()
 
     def refresh_style(self):
         """Refresh style (called when theme changes)"""

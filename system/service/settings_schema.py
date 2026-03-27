@@ -1,4 +1,4 @@
-"""Settings schema data model — Phase 5 STAGE-04.
+"""Settings schema data model - Phase 5 STAGE-04.
 
 Defines per-brand settings schemas as plain Python dicts.  No external files,
 no INI dependency, no third-party libraries.
@@ -11,7 +11,7 @@ Public API:
         Raises ValueError for unknown brands.
 
 Each returned schema is a ``Dict[setting_key, entry_dict]`` where every
-entry_dict has exactly these fields (from README §8.2):
+entry_dict has exactly these fields (from README section 8.2):
 
     {
         "type":        type,           # Python type (str / int / float / bool / list)
@@ -26,15 +26,15 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from models.brand_registry import BrandRegistry
+from system.model_registry import canonical_brand_ids, get_model_ids
 
 
-# ── Known brands ────────────────────────────────────────────────────────────
+# -- Known brands -----------------------------------------------------------
 
-KNOWN_BRANDS: Tuple[str, ...] = ("unitree", "bostiondynamics", "xiaomi")
+KNOWN_BRANDS: Tuple[str, ...] = canonical_brand_ids()
 
 
-# ── Entry builder ───────────────────────────────────────────────────────────
+# -- Entry builder ----------------------------------------------------------
 
 def _entry(
     typ: type,
@@ -53,15 +53,15 @@ def _entry(
     }
 
 
-# ── Global settings (all brands) ────────────────────────────────────────────
+# -- Global settings (all brands) -------------------------------------------
 #
-# Sourced from README §8.3.
+# Sourced from README section 8.3.
 
 _GLOBAL_SCHEMA: Dict[str, Dict[str, Any]] = {
     "brand": _entry(
         str, True, None,
         "Robot brand identifier.",
-        choices=["unitree", "bostiondynamics", "xiaomi"],
+        choices=list(KNOWN_BRANDS),
     ),
     "robot_type": _entry(
         str, True, None,
@@ -89,14 +89,14 @@ _GLOBAL_SCHEMA: Dict[str, Dict[str, Any]] = {
 }
 
 
-# ── Unitree-specific settings ────────────────────────────────────────────────
+# -- Unitree-specific settings ----------------------------------------------
 #
-# Sourced from README §8.4 (brand = "unitree").
+# Sourced from README section 8.4 (brand = "unitree").
 
 _UNITREE_SCHEMA: Dict[str, Dict[str, Any]] = {
     "dds_domain_id": _entry(
         int, True, None,
-        "DDS domain ID for Unitree SDK2 communication channel (0–232).",
+        "DDS domain ID for Unitree SDK2 communication channel (0-32).",
     ),
     "network_interface": _entry(
         str, True, None,
@@ -115,9 +115,9 @@ _UNITREE_SCHEMA: Dict[str, Dict[str, Any]] = {
 }
 
 
-# ── Spot-specific settings ───────────────────────────────────────────────────
+# -- Spot-specific settings -------------------------------------------------
 #
-# Sourced from README §8.4 (brand = "bostiondynamics").
+# Sourced from README section 8.4 (brand = "bostiondynamics").
 
 _SPOT_SCHEMA: Dict[str, Dict[str, Any]] = {
     "hostname": _entry(
@@ -148,14 +148,14 @@ _SPOT_SCHEMA: Dict[str, Dict[str, Any]] = {
 }
 
 
-# ── CyberDog-specific settings ───────────────────────────────────────────────
+# -- CyberDog-specific settings ---------------------------------------------
 #
-# Sourced from README §8.4 (brand = "xiaomi").
+# Sourced from README section 8.4 (brand = "xiaomi").
 
 _CYBERDOG_SCHEMA: Dict[str, Dict[str, Any]] = {
     "ros_domain_id": _entry(
         int, True, None,
-        "ROS2 DDS domain ID for CyberDog topic discovery (0–232).",
+        "ROS2 DDS domain ID for CyberDog topic discovery (0-32).",
     ),
     "rmw_impl": _entry(
         str, True, None,
@@ -177,7 +177,7 @@ _CYBERDOG_SCHEMA: Dict[str, Dict[str, Any]] = {
 }
 
 
-# ── Brand → schema registry ──────────────────────────────────────────────────
+# -- Brand -> schema registry -----------------------------------------------
 
 _BRAND_SCHEMAS: Dict[str, Dict[str, Dict[str, Any]]] = {
     "unitree":         _UNITREE_SCHEMA,
@@ -185,28 +185,12 @@ _BRAND_SCHEMAS: Dict[str, Dict[str, Dict[str, Any]]] = {
     "xiaomi":          _CYBERDOG_SCHEMA,
 }
 
-
-_ROBOT_TYPE_FALLBACKS: Dict[str, List[str]] = {
-    "unitree": ["go2", "a1", "b1", "b2", "h1"],
-    "bostiondynamics": ["spot"],
-    "xiaomi": ["cyberdog", "cyberdog2"],
-}
-
-
 def _dynamic_robot_type_choices(brand: str) -> List[str]:
-    """Load robot_type choices for *brand* from BrandRegistry with fallback."""
-    try:
-        models = BrandRegistry().get_models(brand)
-    except Exception:
-        models = []
-
-    cleaned = [m for m in models if m and m != "(no models)"]
-    if cleaned:
-        return cleaned
-    return list(_ROBOT_TYPE_FALLBACKS.get(brand, []))
+    """Load robot_type choices for *brand* from the canonical model registry."""
+    return list(get_model_ids(brand))
 
 
-# ── Public API ───────────────────────────────────────────────────────────────
+# -- Public API -------------------------------------------------------------
 
 
 def get_settings_schema(brand: str) -> Dict[str, Dict[str, Any]]:
@@ -216,7 +200,7 @@ def get_settings_schema(brand: str) -> Dict[str, Dict[str, Any]]:
     Global keys always appear first; brand-specific keys follow.
 
     Args:
-        brand: Brand key string — one of ``KNOWN_BRANDS``
+        brand: Brand key string - one of ``KNOWN_BRANDS``
                (``"unitree"``, ``"bostiondynamics"``, ``"xiaomi"``).
 
     Returns:

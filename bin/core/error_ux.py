@@ -245,6 +245,17 @@ def classify_run_result(run_result: Dict[str, Any]) -> str:
     return ERROR_CATEGORY_RUNTIME
 
 
+def _unwrap_display_payload(node_result: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the most informative nested payload for UI diagnostics."""
+    payload = node_result if isinstance(node_result, dict) else {}
+    for key in ("result", "checkpoint", "flow_out"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            payload = nested
+            break
+    return payload
+
+
 def format_node_diagnostics(
     node_id: Any,
     node_result: Dict[str, Any],
@@ -265,12 +276,13 @@ def format_node_diagnostics(
     Localization contract: all values are raw Python strings — the display
     layer (DiagnosticsPanel) is responsible for any locale-specific labels.
     """
-    reason       = node_result.get("reason", node_result.get("error", ""))
-    stage        = node_result.get("stage", "execute")
-    status       = node_result.get("status", "failed" if "error" in node_result else "success")
-    message      = node_result.get("message", node_result.get("error", ""))
-    context      = node_result.get("context", node_result.get("diagnostics", {}))
-    adapter_name = node_result.get("adapter_name", "")
+    payload      = _unwrap_display_payload(node_result)
+    reason       = payload.get("reason", payload.get("termination_reason", payload.get("error", node_result.get("reason", node_result.get("error", "")))))
+    stage        = payload.get("stage", node_result.get("stage", "execute"))
+    status       = payload.get("status", node_result.get("status", "failed" if "error" in payload or "error" in node_result else "success"))
+    message      = payload.get("message", payload.get("termination_reason", payload.get("error", node_result.get("message", node_result.get("error", "")))))
+    context      = payload.get("context", node_result.get("context", node_result.get("diagnostics", {})))
+    adapter_name = payload.get("adapter_name", node_result.get("adapter_name", ""))
 
     # Retryability from REASON_MAP (best-effort; import may fail in test context)
     retryable = False

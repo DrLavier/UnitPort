@@ -4,6 +4,33 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, QEvent, QPoint, QTimer, QSize
 from PySide6.QtGui import QKeySequence, QShortcut, QIcon
+
+_ICON_DIR = Path(__file__).parent.parent.parent / "assets" / "icon"
+
+
+def _zone_icon(name_dark: str, name_light: str) -> QIcon:
+    """Load an SVG icon, preferring the dark variant; fall back to light if absent."""
+    try:
+        from bin.core.theme_manager import get_color_slot
+        is_light = get_color_slot()._current_theme == "light"
+    except Exception:
+        is_light = False
+    path = _ICON_DIR / (name_light if is_light else name_dark)
+    if not path.exists():
+        path = _ICON_DIR / (name_dark if is_light else name_light)
+    return QIcon(str(path))
+
+
+def _zone_toggle_button_extent() -> int:
+    """Square toggle sized to fit the header row."""
+    return 28
+
+
+def _zone_toggle_icon_size(extent: int | None = None) -> QSize:
+    """Stretch the glyph to nearly fill the square toggle button."""
+    btn_extent = extent or _zone_toggle_button_extent()
+    icon_extent = max(12, btn_extent - 4)
+    return QSize(icon_extent, icon_extent)
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -25,6 +52,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QComboBox,
     QAbstractSpinBox,
+    QFrame,
 )
 
 from bin.components.code_editor import CodeEditor
@@ -36,6 +64,7 @@ from bin.components.capability_inspector import CapabilityInspector
 from bin.components.settings_panel import SettingsPanel
 from bin.core.config_manager import ConfigManager
 from bin.core.localisation import tr
+from bin.components.training_panel import TrainingPanel
 from bin.layout.behavior_panel import BehaviorPanel
 
 
@@ -43,6 +72,8 @@ class MainZonePanel(QWidget):
     """Main workspace panel containing mission controls + mission editor."""
 
     start_requested    = Signal()
+    training_requested = Signal()
+    exit_requested     = Signal()
     pause_requested    = Signal()
     abort_requested    = Signal()
     reset_requested    = Signal()
@@ -51,7 +82,7 @@ class MainZonePanel(QWidget):
     workflow_load_requested = Signal()
     workflow_save_requested = Signal()
     workflow_save_as_requested = Signal()
-
+    workflow_browser_requested = Signal()
     def __init__(self, parent=None):
         super().__init__(parent)
         self._scenario_settings = {
@@ -116,14 +147,28 @@ class MainZonePanel(QWidget):
         self._exec_summary_bar.setVisible(False)
         main_zone_layout.addWidget(self._exec_summary_bar)
 
-        # Diagnostics panel (Cycle 1 STAGE-04) — hidden until failures occur
+        self.navigation_header = QWidget()
+        self.navigation_header.setObjectName("navigationHeader")
+        navigation_header_layout = QHBoxLayout(self.navigation_header)
+        navigation_header_layout.setContentsMargins(10, 6, 10, 6)
+        navigation_header_layout.setSpacing(0)
+        navigation_header_layout.addStretch()
+        main_zone_layout.addWidget(self.navigation_header)
+
+        # Diagnostics panel disabled by request: keep an unattached instance only
+        # so existing call sites can no-op against a stable attribute.
         self.diag_panel = DiagnosticsPanel()
         self.diag_panel.navigate_requested.connect(self.navigate_to_node)
         self.diag_panel.closed.connect(self._on_diag_panel_closed)
-        main_zone_layout.addWidget(self.diag_panel)
-
+        self.diag_panel.setVisible(False)
         # Compatibility alias; runtime zone no longer exists as a separate panel.
         self.runtime_zone = None
+
+        self.mission_content_row = QWidget()
+        self.mission_content_row.setObjectName("missionContentRow")
+        mission_content_row_layout = QHBoxLayout(self.mission_content_row)
+        mission_content_row_layout.setContentsMargins(0, 0, 0, 0)
+        mission_content_row_layout.setSpacing(0)
 
         self.mission_content_splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -142,11 +187,14 @@ class MainZonePanel(QWidget):
         canvas_header_layout = QHBoxLayout(self.canvas_header)
         canvas_header_layout.setContentsMargins(10, 6, 10, 6)
         canvas_header_layout.setSpacing(8)
-        canvas_header_layout.addWidget(QLabel("Canvas"))
-        self.canvas_load_btn = QPushButton("Load...")
-        self.canvas_load_btn.setObjectName("canvasHeaderButton")
-        self.canvas_load_btn.clicked.connect(self.workflow_load_requested.emit)
-        canvas_header_layout.addWidget(self.canvas_load_btn)
+        self.canvas_file_badge = QPushButton()
+        self.canvas_file_badge.setObjectName("canvasFileBadge")
+        self.canvas_file_badge.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+        )
+        self.canvas_file_badge.setCursor(Qt.PointingHandCursor)
+        self.canvas_file_badge.clicked.connect(self.workflow_browser_requested.emit)
+        canvas_header_layout.addWidget(self.canvas_file_badge)
         self.canvas_save_btn = QPushButton("Save")
         self.canvas_save_btn.setObjectName("canvasHeaderButton")
         self.canvas_save_btn.clicked.connect(self.workflow_save_requested.emit)
@@ -156,9 +204,11 @@ class MainZonePanel(QWidget):
         self.canvas_save_as_btn.clicked.connect(self.workflow_save_as_requested.emit)
         canvas_header_layout.addWidget(self.canvas_save_as_btn)
         canvas_header_layout.addStretch()
-        self.canvas_toggle_btn = QPushButton("⛶")
+        self.canvas_toggle_btn = QPushButton()
         self.canvas_toggle_btn.setObjectName("zoneToggleButton")
-        self.canvas_toggle_btn.setFixedWidth(34)
+        canvas_toggle_extent = _zone_toggle_button_extent()
+        self.canvas_toggle_btn.setFixedSize(canvas_toggle_extent, canvas_toggle_extent)
+        self.canvas_toggle_btn.setIconSize(_zone_toggle_icon_size(canvas_toggle_extent))
         self.canvas_toggle_btn.clicked.connect(self._toggle_canvas_fullscreen)
         canvas_header_layout.addWidget(self.canvas_toggle_btn)
         canvas_zone_layout.addWidget(self.canvas_header)
@@ -185,28 +235,20 @@ class MainZonePanel(QWidget):
         self.workspace_tabs.addTab(self.mission_zone, "[New File]")
         self.workspace_tabs.setTabsClosable(True)
         self.workspace_tabs.tabCloseRequested.connect(self._on_workspace_tab_close_requested)
+        self.workspace_tabs.tabBar().hide()
 
         self.behavior_panel = BehaviorPanel()
         self.behavior_panel.back_requested.connect(self.open_mission_tab)
 
-        # Settings/Capabilities surface — two separate workspace tabs
+        # Training panel — permanent tab, closeable only programmatically
+        self.training_panel = TrainingPanel()
+        self._training_tab_index: int = -1   # set when first shown
+
+        # Start node settings surface — a single popup containing both panels.
         self.settings_panel = SettingsPanel("unitree", {})
         self.capability_inspector = CapabilityInspector({})
-        # Wrapper kept for backward compat with _ensure_workspace_tab("settings")
-        self.settings_workspace = QWidget()
-        settings_workspace_layout = QVBoxLayout(self.settings_workspace)
-        settings_workspace_layout.setContentsMargins(0, 0, 0, 0)
-        settings_workspace_layout.setSpacing(6)
-        settings_workspace_layout.addWidget(self.settings_panel)
-        settings_workspace_layout.addStretch(1)
-
-        # Add Settings and Capabilities as permanent workspace tabs
-        self.workspace_tabs.addTab(self.settings_workspace, "Settings")
-        self.workspace_tabs.addTab(self.capability_inspector, "Capabilities")
-        # Switch back to mission tab (index 0)
-        self.workspace_tabs.setCurrentIndex(0)
-
         self.capability_inspector.focus_setting.connect(self._on_capability_focus_setting)
+        self._init_start_settings_dialog()
 
         # Right-align the tab bar so it stays clear of the left edge
         self.workspace_tabs.tabBar().setExpanding(False)
@@ -217,6 +259,7 @@ class MainZonePanel(QWidget):
         self.workspace_tabs.setCornerWidget(_tab_left_spacer, Qt.Corner.TopLeftCorner)
         self._init_workspace_tab_shortcuts()
         self._refresh_workspace_tab_close_buttons()
+        self._set_canvas_file_badge_text("[New File]")
 
         canvas_zone_layout.addWidget(self.workspace_tabs, 1)
 
@@ -241,9 +284,11 @@ class MainZonePanel(QWidget):
         self.compile_to_canvas_btn.clicked.connect(self.code_editor.compile_code)
         compiler_header_layout.addWidget(self.compile_to_canvas_btn)
         compiler_header_layout.addStretch()
-        self.compiler_toggle_btn = QPushButton("⛶")
+        self.compiler_toggle_btn = QPushButton()
         self.compiler_toggle_btn.setObjectName("zoneToggleButton")
-        self.compiler_toggle_btn.setFixedWidth(34)
+        compiler_toggle_extent = _zone_toggle_button_extent()
+        self.compiler_toggle_btn.setFixedSize(compiler_toggle_extent, compiler_toggle_extent)
+        self.compiler_toggle_btn.setIconSize(_zone_toggle_icon_size(compiler_toggle_extent))
         self.compiler_toggle_btn.clicked.connect(self._toggle_compiler_fullscreen)
         compiler_header_layout.addWidget(self.compiler_toggle_btn)
         compiler_zone_layout.addWidget(compiler_header)
@@ -270,7 +315,8 @@ class MainZonePanel(QWidget):
         self.mission_content_splitter.setStretchFactor(0, 1)
         self.mission_content_splitter.setStretchFactor(1, 1)
 
-        main_zone_layout.addWidget(self.mission_content_splitter, 1)
+        mission_content_row_layout.addWidget(self.mission_content_splitter, 1)
+        main_zone_layout.addWidget(self.mission_content_row, 1)
         self._restore_layout_from_config()
         QTimer.singleShot(0, self._ensure_mission_control_position)
 
@@ -291,31 +337,31 @@ class MainZonePanel(QWidget):
         mission_control_layout.addWidget(self.mission_control_drag_btn)
         mission_control_layout.addSpacing(8)
 
-        self.start_btn = QPushButton("▶")
+        self.start_btn = QPushButton("?")
         self.start_btn.setToolTip("Start")
         self.start_btn.setCursor(Qt.PointingHandCursor)
         self.start_btn.clicked.connect(self.start_requested.emit)
         mission_control_layout.addWidget(self.start_btn)
 
-        self.pause_btn = QPushButton("⦷")
+        self.pause_btn = QPushButton("?")
         self.pause_btn.setToolTip("Pause")
         self.pause_btn.setCursor(Qt.PointingHandCursor)
         self.pause_btn.clicked.connect(self.pause_requested.emit)
         mission_control_layout.addWidget(self.pause_btn)
 
-        self.abort_btn = QPushButton("☒")
+        self.abort_btn = QPushButton("?")
         self.abort_btn.setToolTip("Abort")
         self.abort_btn.setCursor(Qt.PointingHandCursor)
         self.abort_btn.clicked.connect(self.abort_requested.emit)
         mission_control_layout.addWidget(self.abort_btn)
 
-        self.reset_btn = QPushButton("↺")
+        self.reset_btn = QPushButton("?")
         self.reset_btn.setToolTip("Reset")
         self.reset_btn.setCursor(Qt.PointingHandCursor)
         self.reset_btn.clicked.connect(self.reset_requested.emit)
         mission_control_layout.addWidget(self.reset_btn)
 
-        self.scenario_settings_btn = QPushButton("⚙")
+        self.scenario_settings_btn = QPushButton("?")
         self.scenario_settings_btn.setObjectName("scenarioSettingsButton")
         self.scenario_settings_btn.setToolTip(tr("ui.mujoco_setting", "Mujoco Setting"))
         self.scenario_settings_btn.setCursor(Qt.PointingHandCursor)
@@ -355,11 +401,11 @@ class MainZonePanel(QWidget):
     def _apply_mission_control_icons(self) -> None:
         icon_bindings = [
             (self.mission_control_drag_btn, "icon_move", "assets/icon/icon_move.svg", ""),
-            (self.start_btn, "icon_play", "assets/icon/icon_play.svg", "▶"),
-            (self.pause_btn, "icon_pause", "assets/icon/icon_pause.svg", "⦷"),
-            (self.abort_btn, "icon_stop", "assets/icon/icon_stop.svg", "☒"),
-            (self.reset_btn, "icon_reset", "assets/icon/icon_reset.svg", "↺"),
-            (self.scenario_settings_btn, "icon_setting", "assets/icon/icon_setting.svg", "⚙"),
+            (self.start_btn, "icon_play", "assets/icon/icon_play.svg", "?"),
+            (self.pause_btn, "icon_pause", "assets/icon/icon_pause.svg", "?"),
+            (self.abort_btn, "icon_stop", "assets/icon/icon_stop.svg", "?"),
+            (self.reset_btn, "icon_reset", "assets/icon/icon_reset.svg", "?"),
+            (self.scenario_settings_btn, "icon_setting", "assets/icon/icon_setting.svg", "?"),
         ]
         for button, cfg_key, fallback_rel, fallback_text in icon_bindings:
             icon_path = self._resolve_system_icon_path(cfg_key, fallback_rel)
@@ -374,9 +420,10 @@ class MainZonePanel(QWidget):
 
     def _default_mission_control_pos(self) -> QPoint:
         panel = self.mission_control_float
-        margin = 8
-        x = max(0, self._mission_control_parent.width() - panel.width() - margin)
-        y = max(0, self._mission_control_parent.height() - panel.height() - margin)
+        right_margin = 40
+        top_margin = 12
+        x = max(0, self._mission_control_parent.width() - panel.width() - right_margin)
+        y = top_margin  # top-right
         return QPoint(x, y)
 
     def _save_mission_control_position(self) -> None:
@@ -389,14 +436,9 @@ class MainZonePanel(QWidget):
             pass
 
     def _load_mission_control_position(self) -> QPoint:
-        x_raw = str(self.config.get("LAYOUT", "mission_control_float_x", fallback="", config_type="user") or "").strip()
-        y_raw = str(self.config.get("LAYOUT", "mission_control_float_y", fallback="", config_type="user") or "").strip()
-        if not x_raw or not y_raw:
-            return self._default_mission_control_pos()
-        try:
-            return QPoint(int(x_raw), int(y_raw))
-        except Exception:
-            return self._default_mission_control_pos()
+        # Match Training Ground behavior: dock to the parent's top-right when
+        # the bar is first shown instead of restoring a persisted position.
+        return self._default_mission_control_pos()
 
     def _clamp_mission_control_pos(self, pos: QPoint) -> QPoint:
         panel = self.mission_control_float
@@ -410,6 +452,11 @@ class MainZonePanel(QWidget):
         if not hasattr(self, "mission_control_float"):
             return
         if not self._mission_control_position_initialized:
+            # Defer until the parent widget has been laid out and has a real width.
+            # This handles the case where the mission page is hidden inside a
+            # QStackedWidget at startup (parent width is 0 while hidden).
+            if self._mission_control_parent.width() == 0:
+                return
             target = self._load_mission_control_position()
             self._mission_control_position_initialized = True
         else:
@@ -436,8 +483,21 @@ class MainZonePanel(QWidget):
                 return True
         return super().eventFilter(watched, event)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._mission_control_position_initialized:
+            QTimer.singleShot(0, self._ensure_mission_control_position)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._ensure_mission_control_position()
+
+    def dock_mission_control_top_right(self) -> None:
+        """Force the floating mission control bar to re-dock at the canvas top-right."""
+        if not hasattr(self, "mission_control_float"):
+            return
+        self.mission_control_float.adjustSize()
+        self._mission_control_position_initialized = False
         self._ensure_mission_control_position()
 
     def _apply_default_layout(self):
@@ -467,8 +527,15 @@ class MainZonePanel(QWidget):
         self._save_layout_to_config()
 
     def _sync_zone_toggle_buttons(self):
-        self.canvas_toggle_btn.setText("⧉" if self._layout_mode == "canvas" else "⛶")
-        self.compiler_toggle_btn.setText("⧉" if self._layout_mode == "compiler" else "⛶")
+        # Canvas button: WW = canvas-fullscreen state, FW = split/windowed state
+        icon_size = _zone_toggle_icon_size(self.canvas_toggle_btn.width())
+        canvas_icon = _zone_icon("ICON_WW_W.svg", "ICON_WW.svg") if self._layout_mode == "canvas"             else _zone_icon("ICON_FW_W.svg", "ICON_FW.svg")
+        self.canvas_toggle_btn.setIcon(canvas_icon)
+        self.canvas_toggle_btn.setIconSize(icon_size)
+        # Compiler button: same icon logic mirrored
+        compiler_icon = _zone_icon("ICON_WW_W.svg", "ICON_WW.svg") if self._layout_mode == "compiler"             else _zone_icon("ICON_FW_W.svg", "ICON_FW.svg")
+        self.compiler_toggle_btn.setIcon(compiler_icon)
+        self.compiler_toggle_btn.setIconSize(icon_size)
 
     def _capture_default_widths(self):
         """Snapshot current splitter widths before leaving default (split) mode."""
@@ -512,8 +579,67 @@ class MainZonePanel(QWidget):
             self._layout_mode = "canvas"
         self._sync_zone_toggle_buttons()
 
+    def _init_start_settings_dialog(self) -> None:
+        """Create the Start-node popup that groups settings and capabilities."""
+        self.start_settings_dialog = QDialog(self)
+        self.start_settings_dialog.setObjectName("startSettingsDialog")
+        self.start_settings_dialog.setWindowTitle("Start Settings")
+        self.start_settings_dialog.setModal(True)
+        self.start_settings_dialog.resize(1120, 760)
+
+        root = QVBoxLayout(self.start_settings_dialog)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(10)
+
+        title = QLabel("Start Node Settings")
+        title.setObjectName("startSettingsDialogTitle")
+        root.addWidget(title)
+
+        subtitle = QLabel("Settings and capabilities are managed together from the Start node.")
+        subtitle.setWordWrap(True)
+        subtitle.setObjectName("startSettingsDialogSubtitle")
+        root.addWidget(subtitle)
+
+        content_splitter = QSplitter(Qt.Orientation.Horizontal, self.start_settings_dialog)
+        content_splitter.setChildrenCollapsible(False)
+
+        settings_container = QWidget(content_splitter)
+        settings_layout = QVBoxLayout(settings_container)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(8)
+        settings_label = QLabel("Settings")
+        settings_label.setObjectName("startSettingsSectionTitle")
+        settings_layout.addWidget(settings_label)
+        settings_layout.addWidget(self.settings_panel, 1)
+
+        capability_container = QWidget(content_splitter)
+        capability_layout = QVBoxLayout(capability_container)
+        capability_layout.setContentsMargins(0, 0, 0, 0)
+        capability_layout.setSpacing(8)
+        capability_label = QLabel("Capabilities")
+        capability_label.setObjectName("startSettingsSectionTitle")
+        capability_layout.addWidget(capability_label)
+        capability_layout.addWidget(self.capability_inspector, 1)
+
+        content_splitter.addWidget(settings_container)
+        content_splitter.addWidget(capability_container)
+        content_splitter.setSizes([680, 440])
+        root.addWidget(content_splitter, 1)
+
+        separator = QFrame(self.start_settings_dialog)
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        root.addWidget(separator)
+
+        actions = QHBoxLayout()
+        actions.addStretch()
+        close_btn = QPushButton("Close", self.start_settings_dialog)
+        close_btn.clicked.connect(self.start_settings_dialog.accept)
+        actions.addWidget(close_btn)
+        root.addLayout(actions)
+
     def _refresh_workspace_tab_close_buttons(self) -> None:
-        _permanent = {self.mission_zone, self.settings_workspace, self.capability_inspector}
+        _permanent = {self.mission_zone}
         tab_bar = self.workspace_tabs.tabBar()
         for i in range(self.workspace_tabs.count()):
             if self.workspace_tabs.widget(i) in _permanent:
@@ -526,12 +652,6 @@ class MainZonePanel(QWidget):
         if tab_id == "behavior":
             page = self.behavior_panel
             title = title_override.strip() or "Behavior"
-        elif tab_id == "settings":
-            page = self.settings_workspace
-            title = "Settings"
-        elif tab_id == "capabilities":
-            page = self.capability_inspector
-            title = "Capabilities"
         else:
             return -1
 
@@ -545,6 +665,27 @@ class MainZonePanel(QWidget):
         self._refresh_workspace_tab_close_buttons()
         return idx
 
+    def open_training_tab(self) -> None:
+        """Switch workspace to the Training tab, creating it if necessary."""
+        existing = self._find_workspace_tab_index(self.training_panel)
+        if existing >= 0:
+            self.workspace_tabs.setCurrentIndex(existing)
+            self._training_tab_index = existing
+            return
+        idx = self.workspace_tabs.addTab(self.training_panel, "?? Training")
+        self._training_tab_index = idx
+        self.workspace_tabs.setCurrentIndex(idx)
+        self._refresh_workspace_tab_close_buttons()
+
+    def close_training_tab(self) -> None:
+        """Remove the Training tab and return to the mission tab."""
+        idx = self._find_workspace_tab_index(self.training_panel)
+        if idx >= 0:
+            self.workspace_tabs.removeTab(idx)
+            self._training_tab_index = -1
+            self._refresh_workspace_tab_close_buttons()
+        self.open_mission_tab()
+
     def open_mission_tab(self) -> None:
         idx = self._find_workspace_tab_index(self.mission_zone)
         if idx >= 0:
@@ -553,11 +694,23 @@ class MainZonePanel(QWidget):
     def set_workflow_tab_title(self, title: str) -> None:
         idx = self._find_workspace_tab_index(self.mission_zone)
         if idx >= 0:
-            self.workspace_tabs.setTabText(idx, title or "[New File]")
+            display_title = title or "[New File]"
+            self.workspace_tabs.setTabText(idx, display_title)
+            self._set_canvas_file_badge_text(display_title)
+
+    def _set_canvas_file_badge_text(self, title: str) -> None:
+        display_title = title or "[New File]"
+        self.canvas_file_badge.setText(display_title)
+        metrics = self.canvas_file_badge.fontMetrics()
+        badge_width = metrics.horizontalAdvance(display_title) + 16
+        self.canvas_file_badge.setFixedWidth(badge_width)
+        if hasattr(self, "canvas_header") and self.canvas_header is not None:
+            header_height = max(24, self.canvas_header.sizeHint().height() - 12)
+            self.canvas_file_badge.setFixedHeight(header_height)
 
     def _on_workspace_tab_close_requested(self, index: int) -> None:
         page = self.workspace_tabs.widget(index)
-        _permanent = {self.mission_zone, self.settings_workspace, self.capability_inspector}
+        _permanent = {self.mission_zone, self.training_panel}
         if page in _permanent:
             return
         self.workspace_tabs.removeTab(index)
@@ -574,9 +727,20 @@ class MainZonePanel(QWidget):
                 break
         self.compiler_tabs.removeTab(index)
 
-    def open_behavior_tab(self, node_name: str, node_id: int):
+    def open_behavior_tab(
+        self,
+        node_name: str,
+        node_id: int,
+        behavior_ref: str = "",
+        intent_id: str = "",
+    ):
         """Switch workspace to Behavior tab and load Mission node context."""
-        self.behavior_panel.set_node_context(node_name, node_id)
+        self.behavior_panel.set_node_context(
+            node_name,
+            node_id,
+            behavior_ref=behavior_ref,
+            intent_id=intent_id,
+        )
         idx = self._ensure_workspace_tab("behavior", title_override=node_name)
         if idx >= 0:
             self.workspace_tabs.setCurrentIndex(idx)
@@ -660,14 +824,12 @@ class MainZonePanel(QWidget):
             self._save_layout_to_config()
 
     def open_settings_tab(self) -> None:
-        idx = self._ensure_workspace_tab("settings")
-        if idx >= 0:
-            self.workspace_tabs.setCurrentIndex(idx)
+        self.start_settings_dialog.show()
+        self.start_settings_dialog.raise_()
+        self.start_settings_dialog.activateWindow()
 
     def open_capabilities_tab(self) -> None:
-        idx = self._ensure_workspace_tab("capabilities")
-        if idx >= 0:
-            self.workspace_tabs.setCurrentIndex(idx)
+        self.open_settings_tab()
 
     def _init_workspace_tab_shortcuts(self):
         """Bind workspace tab-switch shortcuts from user.ini [SHORTCUTS]."""
@@ -751,13 +913,13 @@ class MainZonePanel(QWidget):
 
         # Icon and colour
         if status == "success":
-            icon = "✔"
+            icon = "?"
             icon_color = "#22c55e"
         elif status == "failed":
-            icon = "✖"
+            icon = "?"
             icon_color = "#ef4444"
         else:  # blocked or unknown
-            icon = "⊘"
+            icon = "?"
             icon_color = "#f59e0b"
 
         self._exec_status_icon.setText(icon)
@@ -786,8 +948,8 @@ class MainZonePanel(QWidget):
         else:
             self._exec_compat_label.setVisible(False)
 
-        # Show "Details" button only when there are failed nodes
-        self._details_btn.setVisible(bool(failed_nodes))
+        # Diagnostics UI is disabled; never expose the drill-down entry point.
+        self._details_btn.setVisible(False)
 
         self._exec_summary_bar.setVisible(True)
 
@@ -800,6 +962,11 @@ class MainZonePanel(QWidget):
         self._details_btn.setVisible(False)
         self.diag_panel.clear()
 
+    def clear_compat_report(self) -> None:
+        """Hide compat-only summary state without touching execution diagnostics."""
+        self._exec_compat_label.setText("")
+        self._exec_compat_label.setVisible(False)
+
     # ------------------------------------------------------------------
     # Diagnostics Panel (Cycle 1 STAGE-04)
     # ------------------------------------------------------------------
@@ -811,9 +978,9 @@ class MainZonePanel(QWidget):
             node_infos:  List from error_ux.extract_failed_nodes_info().
             start_index: Which node to display first.
         """
-        if not node_infos:
-            return
-        self.diag_panel.show_diagnostics(node_infos, start_index)
+        _ = (node_infos, start_index)
+        return
+
 
     def show_compat_report(self, report, compat_diag_dicts: list = None) -> None:
         """Surface compatibility audit results in the summary bar and diagnostics panel.
@@ -851,31 +1018,37 @@ class MainZonePanel(QWidget):
         # execution failures (IR semantic diagnostics pipeline).
         node_infos = []
         for d in (compat_diag_dicts or []):
+            code = str(d.get("code", "") or "")
+            location = str(d.get("location", "") or "")
+            # sensor_read is not implemented yet; suppress its limited-capability
+            # compat warning in the canvas diagnostics surface until the node lands.
+            if code == "compat.limited.sensor_read" and location == "sensor_read":
+                continue
             node_infos.append({
-                "node_name": d.get("location") or d.get("code", "?"),
-                "node_id":   d.get("location", ""),
+                "node_name": location or code or "?",
+                "node_id":   location,
                 "status":    d.get("level", "error"),
                 "reason":    d.get("message", ""),
-                "code":      d.get("code", ""),
+                "code":      code,
             })
         if node_infos:
-            self.diag_panel.show_diagnostics(node_infos)
-            self._details_btn.setVisible(True)
+            self._details_btn.setVisible(False)
+
 
     def clear_diagnostics_panel(self) -> None:
         """Hide and clear the diagnostics panel."""
-        self.diag_panel.clear()
+        return
 
     def _on_details_clicked(self) -> None:
         """Toggle diagnostics panel visibility from summary bar button."""
-        if self.diag_panel.isHidden():
-            self.diag_panel.setVisible(True)
-        else:
-            self.diag_panel.setVisible(False)
+        return
+
+
+
 
     def _on_diag_panel_closed(self) -> None:
         """Reset the Details button state when the panel is closed."""
-        self._details_btn.setVisible(bool(self._exec_summary_bar.isVisible()))
+        self._details_btn.setVisible(False)
 
     def _open_scenario_settings(self):
         dialog = QDialog(self)
@@ -918,7 +1091,7 @@ class MainZonePanel(QWidget):
         gravity_spin.setDecimals(2)
         gravity_spin.setRange(-50.0, 0.0)
         gravity_spin.setSingleStep(0.1)
-        gravity_spin.setSuffix(" m/s²")
+        gravity_spin.setSuffix(" m/s2")
         gravity_spin.setValue(float(self._scenario_settings.get("mujoco_gravity_z", -9.81)))
         form.addRow(tr("ui.mujoco_gravity_z", "Gravity Z"), gravity_spin)
 
@@ -1013,7 +1186,7 @@ class MainZonePanel(QWidget):
         self.capability_inspector.set_capabilities(cap_dict, missing_settings or [])
 
     def _on_capability_focus_setting(self, field_id: str) -> None:
-        """Switch to Settings tab and scroll to *field_id*."""
+        """Open the Start settings popup and scroll to *field_id*."""
         self.open_settings_tab()
         self.settings_panel.scroll_to_field(field_id)
 
@@ -1026,8 +1199,36 @@ class MainZonePanel(QWidget):
 
     def refresh_style(self) -> None:
         """Refresh theme-driven styles for dynamic panels owned by MainZonePanel."""
+        self._sync_zone_toggle_buttons()
         if hasattr(self, "code_editor"):
             self.code_editor.refresh_style()
         for editor in list(getattr(self, "_script_editor_tabs", {}).values()):
             if hasattr(editor, "refresh_style"):
                 editor.refresh_style()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

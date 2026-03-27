@@ -56,7 +56,7 @@ except (ImportError, AttributeError):
     def log_warning(*a, **k): pass  # type: ignore[misc]
 
 from compiler.semantic.diagnostics import Diagnostic, DiagnosticLevel
-from system.ir.workflow_ir import WorkflowIR
+from system.ir.workflow_ir import WorkflowIR, IRNode, IREdge, IRParam, NodeKind
 from system.mission.mission_planner import MissionPlanner
 
 from .behavior_artifact import (
@@ -65,6 +65,7 @@ from .behavior_artifact import (
     BehaviorErrorCode,      # noqa: F401 — re-exported for callers
     BehaviorResolveResult,  # noqa: F401 — re-exported for callers
 )
+from .editor_ir import build_behavior_editor_ir
 from .heartbeat_policy import HeartbeatPolicy  # Circle 2 Step 2.1
 
 # Phase 1 behavior redesign: action_profile is pure Python; import lazily to
@@ -75,6 +76,14 @@ try:
 except ImportError:
     _ACTION_PROFILE_AVAILABLE = False
     BehaviorTimeline = None  # type: ignore[assignment,misc]
+
+try:
+    from .timeline_migration import migrate_timeline, validate_timeline_topology  # type: ignore[attr-defined]
+    _TIMELINE_MIGRATION_AVAILABLE = True
+except ImportError:
+    _TIMELINE_MIGRATION_AVAILABLE = False
+    migrate_timeline = None  # type: ignore[assignment,misc]
+    validate_timeline_topology = None  # type: ignore[assignment,misc]
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +127,141 @@ def _map_diagnostic(d: Diagnostic, trace_id: str) -> BehaviorDiagnostic:
 def _source_hash(source: str) -> str:
     """Return SHA-256 hex digest of a source string."""
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def _brand_for_robot_type(robot_type: str) -> str:
+    """Return best-effort brand name for a robot_type."""
+    try:
+        from system.model_registry import get_robot_brand_map
+        mapping = get_robot_brand_map()
+        brand = mapping.get(robot_type)
+        if brand:
+            return str(brand).lower()
+    except Exception:
+        pass
+    fallback = {
+        "go2": "unitree",
+        "go2w": "unitree",
+        "a1": "unitree",
+        "b1": "unitree",
+        "b2": "unitree",
+        "h1": "unitree",
+        "h1_2": "unitree",
+        "g1": "unitree",
+        "spot": "bostiondynamics",
+        "cyberdog": "xiaomi",
+        "cyberdog2": "xiaomi",
+    }
+    return fallback.get(str(robot_type or "").strip().lower(), "unknown")
+
+
+def _has_executable_nodes(ir: WorkflowIR) -> bool:
+    """Return True when the IR already contains executable behavior nodes."""
+    executable_kinds = {
+        NodeKind.ACTION,
+        NodeKind.TIMER,
+        NodeKind.STOP,
+        NodeKind.WAIT,
+        NodeKind.BEHAVIOR_CALL,
+    }
+    return any(node.kind in executable_kinds for node in ir.nodes)
+
+
+def _timeline_to_behavior_ir(timeline: Any, robot_type: str) -> WorkflowIR:
+    """Build a sequential WorkflowIR from a structured BehaviorTimeline."""
+    brand = _brand_for_robot_type(robot_type)
+    ir = WorkflowIR(
+        robot_type=robot_type,
+        brand=brand,
+    )
+
+    previous_node_id: Optional[str] = None
+    ordered_segments = list(getattr(timeline, "action_segments", []) or [])
+    editor_ir = build_behavior_editor_ir(timeline, brand=brand, robot_type=robot_type)
+    modules_by_action: Dict[str, List[Dict[str, Any]]] = {}
+    for action_seg in ordered_segments:
+        action_id = str(getattr(action_seg, "action_id", "") or "")
+        modules_by_action[action_id] = [
+            module.to_dict() for module in editor_ir.modules_for_action(action_id)
+        ]
+
+    for index, seg in enumerate(ordered_segments):
+        seg_name = str(getattr(seg, "name", "") or "").strip()
+        seg_kind = str(getattr(seg, "kind", "movement") or "movement").strip().lower()
+        seg_duration = float(getattr(seg, "duration", 1.0) or 1.0)
+        seg_action_id = str(getattr(seg, "action_id", "") or "")
+        seg_intent_id = str(getattr(seg, "intent_id", "") or "")
+        seg_params = dict(getattr(seg, "params", {}) or {})
+        seg_modules = modules_by_action.get(seg_action_id, [])
+
+        if not seg_name:
+            continue
+
+        node_id = f"tl_{index}"
+        node: Optional[IRNode] = None
+
+        if seg_name == "wait":
+            node = IRNode(
+                id=node_id,
+                schema_id="builtin.timer",
+                kind=NodeKind.TIMER,
+                params={
+                    "duration": IRParam("duration", seg_duration, "float"),
+                    "unit": IRParam("unit", "seconds", "string"),
+                    "timeline_action_id": IRParam("timeline_action_id", seg_action_id, "string"),
+                    "body_part_modules": IRParam("body_part_modules", seg_modules, "object"),
+                },
+            )
+        elif seg_name == "stop":
+            node = IRNode(
+                id=node_id,
+                schema_id="builtin.stop",
+                kind=NodeKind.STOP,
+                params={
+                    "timeline_action_id": IRParam("timeline_action_id", seg_action_id, "string"),
+                    "body_part_modules": IRParam("body_part_modules", seg_modules, "object"),
+                },
+            )
+        elif seg_kind == "behavior":
+            node = IRNode(
+                id=node_id,
+                schema_id="behavior_call",
+                kind=NodeKind.BEHAVIOR_CALL,
+                params={
+                    "behavior_ref": IRParam("behavior_ref", seg_name, "string"),
+                    "duration": IRParam("duration", seg_duration, "float"),
+                    "timeline_action_id": IRParam("timeline_action_id", seg_action_id, "string"),
+                    "body_part_modules": IRParam("body_part_modules", seg_modules, "object"),
+                },
+            )
+        else:
+            node = IRNode(
+                id=node_id,
+                schema_id="builtin.action_execution",
+                kind=NodeKind.ACTION,
+                params={
+                    "action": IRParam("action", seg_name, "string"),
+                    "duration": IRParam("duration", seg_duration, "float"),
+                    "timeline_action_id": IRParam("timeline_action_id", seg_action_id, "string"),
+                    "intent_id": IRParam("intent_id", seg_intent_id, "string"),
+                    "action_params": IRParam("action_params", seg_params, "object"),
+                    "body_part_modules": IRParam("body_part_modules", seg_modules, "object"),
+                },
+            )
+
+        ir.add_node(node)
+        if previous_node_id is not None:
+            ir.add_edge(
+                IREdge(
+                    from_node=previous_node_id,
+                    from_port="flow_out",
+                    to_node=node_id,
+                    to_port="flow_in",
+                )
+            )
+        previous_node_id = node_id
+
+    return ir
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +316,7 @@ class BehaviorCompilerBridge:
         heartbeat_policy: Optional[Dict[str, Any]] = None,
         timeline: Optional[Any] = None,
         is_simulation: bool = False,
+        brand: Optional[str] = None,
     ) -> BehaviorArtifact:
         """Compile a behavior source string into a BehaviorArtifact.
 
@@ -208,8 +353,13 @@ class BehaviorCompilerBridge:
                 stored in the artifact as ``timeline_data``.
             is_simulation: Passed to ``validate_timeline()``; uses sim_min/sim_max
                 bounds instead of safe_min/safe_max when True.
+            brand: Robot brand (e.g. ``"unitree"``).  When None, resolved via
+                ``_brand_for_robot_type(robot_type)``.  Used for Step 9
+                topology validation so that canonical track/param checks use
+                the correct model-specific topology.
         """
         tid = trace_id or str(uuid.uuid4())
+        effective_brand = brand if brand is not None else _brand_for_robot_type(robot_type)
         behavior_ir, compiler_diags = self._planner.from_source(
             source, robot_type=robot_type
         )
@@ -227,10 +377,23 @@ class BehaviorCompilerBridge:
         # Emit warning-level diagnostics for out-of-range motor parameters;
         # these are non-blocking and do not affect is_valid.
         timeline_data: Optional[Dict[str, Any]] = None
+        effective_timeline = timeline
         if timeline is not None and _ACTION_PROFILE_AVAILABLE:
             try:
+                if _TIMELINE_MIGRATION_AVAILABLE and migrate_timeline is not None:
+                    migrated = migrate_timeline(
+                        timeline,
+                        brand=effective_brand,
+                        robot_type=robot_type,
+                    )
+                    effective_timeline = migrated.timeline
+                    for warning in migrated.warnings:
+                        log_warning(
+                            f"BehaviorCompilerBridge: timeline migration warning for "
+                            f"'{behavior_ref}': {warning}"
+                        )
                 motor_diags = validate_timeline(
-                    timeline,
+                    effective_timeline,
                     is_simulation=is_simulation,
                 )
                 for md in motor_diags:
@@ -241,11 +404,37 @@ class BehaviorCompilerBridge:
                         location=f"track:{md.track_name}" if md.track_name else None,
                         trace_id=tid,
                     ))
-                timeline_data = timeline.to_dict()
+                # Step 9: topology validation — unknown tracks are ERROR-level
+                # (block is_valid); param-key mismatches are WARNING-level.
+                if _TIMELINE_MIGRATION_AVAILABLE and validate_timeline_topology is not None:
+                    topo_diags = validate_timeline_topology(
+                        effective_timeline,
+                        brand=effective_brand,
+                        robot_type=robot_type,
+                    )
+                    for td in topo_diags:
+                        location = f"track:{td.track_name}" if td.track_name else None
+                        behavior_diags.append(BehaviorDiagnostic(
+                            level=td.level,
+                            code=td.code,
+                            message=td.message,
+                            location=location,
+                            trace_id=tid,
+                        ))
+                timeline_data = effective_timeline.to_dict()
             except Exception as _tl_exc:  # noqa: BLE001
                 log_warning(
                     f"BehaviorCompilerBridge: timeline validation failed for "
                     f"'{behavior_ref}': {type(_tl_exc).__name__}: {_tl_exc}"
+                )
+
+        if effective_timeline is not None and not _has_executable_nodes(behavior_ir):
+            try:
+                behavior_ir = _timeline_to_behavior_ir(effective_timeline, robot_type)
+            except Exception as _ir_exc:  # noqa: BLE001
+                log_warning(
+                    f"BehaviorCompilerBridge: timeline IR fallback failed for "
+                    f"'{behavior_ref}': {type(_ir_exc).__name__}: {_ir_exc}"
                 )
 
         artifact = BehaviorArtifact.create(

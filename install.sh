@@ -6,6 +6,7 @@
 # Creates a project-local virtual environment at .venv311/
 # and installs all dependencies into it.
 # Never installs packages into global Python.
+# runtime/python is ignored for dependency installation.
 #
 # Usage: ./install.sh
 # ==============================================================================
@@ -22,7 +23,6 @@ echo "[install] Project root: $SCRIPT_DIR"
 # ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
-RUNTIME_PYTHON="$SCRIPT_DIR/runtime/python/python"
 VENV_DIR="$SCRIPT_DIR/.venv311"
 VENV_PYTHON="$VENV_DIR/bin/python"
 WHEELS_DIR="$SCRIPT_DIR/runtime/wheels"
@@ -35,42 +35,36 @@ INSTALL_STATE="$ENV_DIR/install_state.json"
 # ------------------------------------------------------------------------------
 BASE_PYTHON=""
 
-# Prefer packaged runtime if present
-if [ -x "$RUNTIME_PYTHON" ]; then
-    BASE_PYTHON="$RUNTIME_PYTHON"
-    INSTALL_MODE="packaged"
-    echo "[install] Mode: packaged runtime"
-elif command -v python3.11 &> /dev/null; then
+if command -v python3.11 &> /dev/null; then
     BASE_PYTHON="python3.11"
-    INSTALL_MODE="system"
-    echo "[install] Mode: system Python 3.11"
+    INSTALL_MODE="venv311"
+    echo "[install] Mode: project-local .venv311 via system Python 3.11"
 elif command -v python3 &> /dev/null; then
     # Check if python3 is version 3.11
     PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     if [ "$PY_VERSION" = "3.11" ]; then
         BASE_PYTHON="python3"
-        INSTALL_MODE="system"
-        echo "[install] Mode: system Python 3.11"
+        INSTALL_MODE="venv311"
+        echo "[install] Mode: project-local .venv311 via python3 (3.11)"
     else
         echo "[ERROR] Python 3.11 not found. Current version: $PY_VERSION"
-        echo "[ERROR] Install Python 3.11 or use the packaged runtime if available."
-        echo "[ERROR] to provision the packaged runtime."
+        echo "[ERROR] Install Python 3.11."
         exit 1
     fi
 elif command -v python &> /dev/null; then
     PY_VERSION=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "unknown")
     if [ "$PY_VERSION" = "3.11" ]; then
         BASE_PYTHON="python"
-        INSTALL_MODE="system"
-        echo "[install] Mode: system Python 3.11"
+        INSTALL_MODE="venv311"
+        echo "[install] Mode: project-local .venv311 via python (3.11)"
     else
         echo "[ERROR] Python 3.11 not found. Current version: $PY_VERSION"
-        echo "[ERROR] Install Python 3.11 or use the packaged runtime if available."
+        echo "[ERROR] Install Python 3.11."
         exit 1
     fi
 else
     echo "[ERROR] Python not found."
-    echo "[ERROR] Install Python 3.11 or use the packaged runtime if available."
+    echo "[ERROR] Install Python 3.11."
     exit 1
 fi
 
@@ -81,25 +75,21 @@ echo "[install] Base Python: $PY_VER"
 # ------------------------------------------------------------------------------
 # Step 2: Create or verify .venv311
 # ------------------------------------------------------------------------------
-if [ "$INSTALL_MODE" = "packaged" ]; then
-    TARGET_PYTHON="$RUNTIME_PYTHON"
-else
-    if [ -d "$VENV_DIR" ]; then
-        if [ -x "$VENV_PYTHON" ]; then
-            VENV_VER=$($VENV_PYTHON --version 2>&1 | awk '{print $2}')
-            echo "[install] Existing .venv311: $VENV_VER"
-        fi
-    else
-        echo "[install] Creating .venv311 ..."
-        $BASE_PYTHON -m venv "$VENV_DIR"
-        if [ $? -ne 0 ]; then
-            echo "[ERROR] Failed to create .venv311"
-            exit 1
-        fi
-        echo "[install] .venv311 created."
+if [ -d "$VENV_DIR" ]; then
+    if [ -x "$VENV_PYTHON" ]; then
+        VENV_VER=$($VENV_PYTHON --version 2>&1 | awk '{print $2}')
+        echo "[install] Existing .venv311: $VENV_VER"
     fi
-    TARGET_PYTHON="$VENV_PYTHON"
+else
+    echo "[install] Creating .venv311 ..."
+    $BASE_PYTHON -m venv "$VENV_DIR"
+    if [ $? -ne 0 ]; then
+        echo "[ERROR] Failed to create .venv311"
+        exit 1
+    fi
+    echo "[install] .venv311 created."
 fi
+TARGET_PYTHON="$VENV_PYTHON"
 
 # Verify target Python exists
 if [ ! -x "$TARGET_PYTHON" ]; then
@@ -181,7 +171,7 @@ cat > "$INSTALL_STATE" << EOF
   "install_timestamp": "$INSTALL_TIMESTAMP",
   "install_mode": "$INSTALL_MODE",
   "python_version": "$PY_VER",
-  "runtime_python_verified": true,
+  "runtime_python_verified": false,
   "cyclonedds_verified": false,
   "wheels_installed": $WHEELS_BOOL,
   "notes": "Written by install.sh"

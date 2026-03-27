@@ -1,10 +1,17 @@
-"""Capability schema validation — Phase 5 STAGE-03.
+"""Capability schema validation — Phase 5 STAGE-03 / Circle 2 STEP 2.1.
 
 Defines the canonical schema for the dict returned by adapter.capabilities()
 and provides two public validation functions:
 
     validate_capability(cap)         -> bool
     capability_schema_errors(cap)    -> List[str]
+
+Circle 2 additive change — ``semantic_actions``:
+    Adapters may now include a ``"semantic_actions"`` key in their capability
+    dict.  When present it must be a list of dicts that each conform to the
+    SemanticActionDescriptor contract (validated via
+    ``semantic_action_item_errors``).  The key is optional so old adapters
+    that omit it remain fully conformant.
 
 Design constraints:
     - Pure Python; no external validation libraries.
@@ -16,6 +23,11 @@ Design constraints:
 from __future__ import annotations
 
 from typing import Any, Dict, List
+
+from system.behavior.semantic_action import (
+    ActionAvailability,
+    is_valid_intent_id,
+)
 
 
 # ── Schema definition ──────────────────────────────────────────────────────
@@ -35,6 +47,86 @@ CAPABILITY_SCHEMA: Dict[str, type] = {
 # Keys whose list elements must all be str
 _LIST_STR_KEYS = ("actions", "sensors", "required_settings")
 
+# Required string fields in each semantic_actions item
+_SEMANTIC_ITEM_STR_FIELDS = ("intent_id", "display_name", "category", "raw_action",
+                              "brand", "robot_type", "availability")
+
+
+# ── Semantic action item validation ────────────────────────────────────────
+
+def semantic_action_item_errors(item: Any, index: int) -> List[str]:
+    """Return validation errors for one entry inside ``semantic_actions``.
+
+    Each item must be a dict with all ``SemanticActionDescriptor`` string
+    fields present and non-empty (except ``brand``/``robot_type`` which may
+    be empty for brand-independent entries).  ``availability`` must be one of
+    the ``ActionAvailability`` constants and ``intent_id`` must pass the
+    dot-separated format check.
+
+    Args:
+        item:  A single element from the ``semantic_actions`` list.
+        index: Position within the list (used in error messages only).
+
+    Returns:
+        List of human-readable error strings; empty on success.
+    """
+    prefix = f"semantic_actions[{index}]"
+    if not isinstance(item, dict):
+        return [f"{prefix} must be a dict, got {type(item).__name__!r}"]
+
+    errors: List[str] = []
+
+    # All declared string fields must be present and be str
+    for field in _SEMANTIC_ITEM_STR_FIELDS:
+        if field not in item:
+            errors.append(f"{prefix} missing required field {field!r}")
+        elif not isinstance(item[field], str):
+            errors.append(
+                f"{prefix}.{field} must be str, got {type(item[field]).__name__!r}"
+            )
+
+    if errors:
+        return errors  # field-level errors make deeper checks unreliable
+
+    # intent_id format
+    if not is_valid_intent_id(item["intent_id"]):
+        errors.append(
+            f"{prefix}.intent_id {item['intent_id']!r} is not a valid "
+            "dot-separated ASCII intent ID"
+        )
+
+    # Non-empty fields (brand/robot_type may be empty)
+    for field in ("display_name", "category"):
+        if not item[field]:
+            errors.append(f"{prefix}.{field} must not be empty")
+
+    # availability must be a known constant
+    if item["availability"] not in ActionAvailability._ALL:
+        errors.append(
+            f"{prefix}.availability {item['availability']!r} must be one of "
+            f"{sorted(ActionAvailability._ALL)}"
+        )
+
+    # parameters must be a dict when present
+    if "parameters" in item and not isinstance(item["parameters"], dict):
+        errors.append(
+            f"{prefix}.parameters must be a dict, "
+            f"got {type(item['parameters']).__name__!r}"
+        )
+
+    # tags must be a list of str when present
+    if "tags" in item:
+        if not isinstance(item["tags"], list):
+            errors.append(
+                f"{prefix}.tags must be a list, got {type(item['tags']).__name__!r}"
+            )
+        else:
+            for ti, tag in enumerate(item["tags"]):
+                if not isinstance(tag, str):
+                    errors.append(f"{prefix}.tags[{ti}] must be str")
+
+    return errors
+
 
 # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -51,6 +143,8 @@ def capability_schema_errors(cap: Any) -> List[str]:
         3. Each present key must have the correct Python type.
         4. Elements of list-typed keys (actions / sensors / required_settings)
            must all be str.
+        5. When ``"semantic_actions"`` is present it must be a list of
+           schema-valid semantic descriptor dicts (optional key).
 
     Args:
         cap: The value returned by adapter.capabilities() to validate.
@@ -88,6 +182,17 @@ def capability_schema_errors(cap: Any) -> List[str]:
                     f"{list_key!r}[{i}] must be str, "
                     f"got {type(item).__name__!r} ({item!r})"
                 )
+
+    # ── Optional semantic_actions validation ──────────────────────────────
+    if "semantic_actions" in cap:
+        sa = cap["semantic_actions"]
+        if not isinstance(sa, list):
+            errors.append(
+                f"'semantic_actions' must be a list, got {type(sa).__name__!r}"
+            )
+        else:
+            for i, item in enumerate(sa):
+                errors.extend(semantic_action_item_errors(item, i))
 
     return errors
 

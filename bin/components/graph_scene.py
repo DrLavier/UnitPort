@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Graph Scene
@@ -7,14 +7,15 @@ Contains nodes, connections, grid and other elements
 
 import json
 import re
+from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable, Set
 from shiboken6 import isValid
 
-from PySide6.QtCore import Qt, QRectF, QPoint, QPointF, QTimer, QStringListModel, QEvent
+from PySide6.QtCore import Qt, QRectF, QPoint, QPointF, QTimer, QStringListModel, QEvent, Signal
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QBrush, QLinearGradient, QGradient, QPainterPath, QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
     QGraphicsScene, QGraphicsItem, QGraphicsRectItem, QGraphicsEllipseItem,
-    QGraphicsPathItem, QGraphicsProxyWidget, QComboBox, QLineEdit, QWidget,
+    QGraphicsPathItem, QGraphicsProxyWidget, QComboBox, QLineEdit, QWidget, QSlider,
     QHBoxLayout, QVBoxLayout, QPushButton, QMessageBox, QLabel, QToolTip,
     QApplication, QTextEdit, QPlainTextEdit
 )
@@ -22,7 +23,8 @@ from PySide6.QtWidgets import (
 from bin.core.logger import log_info, log_error, log_debug, log_warning, log_success
 from bin.core.theme_manager import get_color, get_node_color_pair, get_color_slot
 from bin.core.localisation import tr
-from models.brand_registry import BrandRegistry
+from system.behavior.action_registry import get_semantic_actions
+from system.model_registry import get_model_ids, list_brand_items, normalize_brand_id
 from bin.components.node_ui_rows import (
     make_tag,
     NodeRowStack,
@@ -70,9 +72,9 @@ def _sub_dot_type_color(data_type: str) -> QColor:
         "float": "#06b6d4",
         "number": "#0ea5a4",
         "function": "#a855f7",
-        "protocol": "#a78bfa",  # violet — motor-weight protocol payload
-        "list": "#f97316",      # orange — ordered collection
-        "dict": "#ec4899",      # pink — key-value mapping
+        "protocol": "#a78bfa",  # violet 鈥?motor-weight protocol payload
+        "list": "#f97316",      # orange 鈥?ordered collection
+        "dict": "#ec4899",      # pink 鈥?key-value mapping
         "any": "#9ca3af",
     }
     theme_key = f"sub_dot_{t}"
@@ -244,6 +246,22 @@ class ConnectionStyleDelegate:
         meta = port_item.data(20) or {}
         return _normalize_data_type(meta.get("data_type", "any"))
 
+    @staticmethod
+    def _port_type_color(port_item) -> QColor:
+        """Return the color for a port's data type.
+
+        Checks ``data(20)["type_color"]`` first (set by TrainingNodePort for
+        training-specific types). Falls back to ``_sub_dot_type_color`` for
+        standard Mission Canvas types.
+        """
+        if not port_item or not isValid(port_item):
+            return _sub_dot_type_color("any")
+        meta = port_item.data(20) or {}
+        hex_c = meta.get("type_color", "")
+        if hex_c:
+            return QColor(hex_c)
+        return _sub_dot_type_color(_normalize_data_type(meta.get("data_type", "any")))
+
     @classmethod
     def is_sub_dot_link(cls, conn: ConnectionItem) -> bool:
         return (
@@ -256,7 +274,7 @@ class ConnectionStyleDelegate:
         state = (state or "normal").strip().lower()
         is_hover = state == "hover"
         if cls.is_sub_dot_link(conn):
-            color = _sub_dot_type_color(cls._port_data_type(conn.out_port))
+            color = cls._port_type_color(conn.out_port)
             color.setAlpha(cls._SUB_DOT_ALPHA_HOVER if is_hover else cls._SUB_DOT_ALPHA_NORMAL)
             width = cls._SUB_DOT_WIDTH_HOVER if is_hover else cls._SUB_DOT_WIDTH_NORMAL
             return QPen(color, width)
@@ -267,7 +285,7 @@ class ConnectionStyleDelegate:
     @classmethod
     def make_marker_color(cls, conn: ConnectionItem) -> QColor:
         if cls.is_sub_dot_link(conn):
-            c = _sub_dot_type_color(cls._port_data_type(conn.out_port))
+            c = cls._port_type_color(conn.out_port)
             c.setAlpha(170)
             return c
         return QColor(get_color("connection", "#60a5fa"))
@@ -275,7 +293,7 @@ class ConnectionStyleDelegate:
     @classmethod
     def make_marker_border_pen(cls, conn: ConnectionItem) -> QPen:
         if cls.is_sub_dot_link(conn):
-            border = _sub_dot_type_color(cls._port_data_type(conn.out_port))
+            border = cls._port_type_color(conn.out_port)
             border.setAlpha(210)
             return QPen(border, 1)
         return QPen(QColor(get_color("connection_marker_border", "#ffffff")), 1)
@@ -286,9 +304,16 @@ class ResizableNodeItem(QGraphicsRectItem):
 
     def __init__(self, x, y, w, h, min_size_fn=None, resized_cb=None, parent=None):
         super().__init__(x, y, w, h, parent)
-        self._edge_margin = 8
+        # Use one shared edge hit zone for both cursor preview and resize start.
+        # The band is intentionally wider than before, but corner areas are
+        # excluded so resize only starts when the cursor is the horizontal or
+        # vertical resize cursor.
+        self._edge_margin = 12
+        self._corner_exclusion = 18
         self._min_size_fn = min_size_fn
         self._resized_cb = resized_cb
+        self._hover_passthrough_items = []
+        self._hover_resize_mode = None
         self._resize_mode = None
         self._resize_start_scene = None
         self._resize_start_rect = None
@@ -298,6 +323,14 @@ class ResizableNodeItem(QGraphicsRectItem):
     def set_resize_callbacks(self, min_size_fn=None, resized_cb=None):
         self._min_size_fn = min_size_fn
         self._resized_cb = resized_cb
+
+    def register_hover_passthrough(self, item):
+        if item is None:
+            return
+        if item not in self._hover_passthrough_items:
+            self._hover_passthrough_items.append(item)
+            item.setAcceptHoverEvents(True)
+            item.installSceneEventFilter(self)
 
     def _edge_hit(self, pos):
         r = self.rect()
@@ -309,24 +342,18 @@ class ResizableNodeItem(QGraphicsRectItem):
         right = abs(x - r.right()) <= self._edge_margin
         top = abs(y - r.top()) <= self._edge_margin
         bottom = abs(y - r.bottom()) <= self._edge_margin
+        within_vertical_span = (r.top() + self._corner_exclusion) <= y <= (r.bottom() - self._corner_exclusion)
+        within_horizontal_span = (r.left() + self._corner_exclusion) <= x <= (r.right() - self._corner_exclusion)
+        if left and within_vertical_span:
+            return "left"
+        if right and within_vertical_span:
+            return "right"
+        if top and within_horizontal_span:
+            return "top"
+        if bottom and within_horizontal_span:
+            return "bottom"
         if not (left or right or top or bottom):
             return None
-        if top and left:
-            return "top_left"
-        if top and right:
-            return "top_right"
-        if bottom and left:
-            return "bottom_left"
-        if bottom and right:
-            return "bottom_right"
-        if left:
-            return "left"
-        if right:
-            return "right"
-        if top:
-            return "top"
-        if bottom:
-            return "bottom"
         return None
 
     @staticmethod
@@ -335,29 +362,72 @@ class ResizableNodeItem(QGraphicsRectItem):
             return Qt.SizeHorCursor
         if mode in ("top", "bottom"):
             return Qt.SizeVerCursor
-        if mode in ("top_left", "bottom_right"):
-            return Qt.SizeFDiagCursor
-        if mode in ("top_right", "bottom_left"):
-            return Qt.SizeBDiagCursor
         return Qt.ArrowCursor
+
+    def _set_hover_resize_mode(self, mode):
+        self._hover_resize_mode = mode
+        cursor = self._cursor_for_mode(mode)
+        self.setCursor(cursor)
+        for item in list(self._hover_passthrough_items):
+            if item is not None and isValid(item):
+                item.setCursor(cursor)
+
+    def _begin_resize(self, mode, scene_pos):
+        self._resize_mode = mode
+        self._resize_start_scene = scene_pos
+        self._resize_start_rect = QRectF(self.rect())
+        self._resize_start_pos = QPointF(self.pos())
+        self.setCursor(self._cursor_for_mode(mode))
+
+    def _event_pos_in_self(self, watched, event):
+        pos = getattr(event, "pos", None)
+        if callable(pos):
+            try:
+                return self.mapFromItem(watched, event.pos())
+            except Exception:
+                return None
+        scene_pos = getattr(event, "scenePos", None)
+        if callable(scene_pos):
+            try:
+                return self.mapFromScene(event.scenePos())
+            except Exception:
+                return None
+        return None
+
+    def _event_cursor_matches_mode(self, event, mode):
+        widget = event.widget() if hasattr(event, "widget") else None
+        if widget is None:
+            return False
+        return widget.cursor().shape() == self._cursor_for_mode(mode)
+
+    def sceneEventFilter(self, watched, event):
+        event_type = event.type()
+        if event_type in (QEvent.GraphicsSceneHoverMove, QEvent.GraphicsSceneHoverEnter):
+            local_pos = self._event_pos_in_self(watched, event)
+            self._set_hover_resize_mode(self._edge_hit(local_pos) if local_pos is not None else None)
+        elif event_type == QEvent.GraphicsSceneHoverLeave and not self._resize_mode:
+            self._set_hover_resize_mode(None)
+        elif event_type == QEvent.GraphicsSceneMousePress and event.button() == Qt.LeftButton:
+            local_pos = self._event_pos_in_self(watched, event)
+            mode = self._edge_hit(local_pos) if local_pos is not None else None
+            if mode:
+                self._set_hover_resize_mode(mode)
+        return super().sceneEventFilter(watched, event)
 
     def hoverMoveEvent(self, event):
         mode = self._edge_hit(event.pos())
-        self.setCursor(self._cursor_for_mode(mode))
+        self._set_hover_resize_mode(mode)
         super().hoverMoveEvent(event)
 
     def hoverLeaveEvent(self, event):
-        self.setCursor(Qt.ArrowCursor)
+        self._set_hover_resize_mode(None)
         super().hoverLeaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             mode = self._edge_hit(event.pos())
-            if mode:
-                self._resize_mode = mode
-                self._resize_start_scene = event.scenePos()
-                self._resize_start_rect = QRectF(self.rect())
-                self._resize_start_pos = QPointF(self.pos())
+            if mode and self._hover_resize_mode == mode and self._event_cursor_matches_mode(event, mode):
+                self._begin_resize(mode, event.scenePos())
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -391,6 +461,7 @@ class ResizableNodeItem(QGraphicsRectItem):
         new_y = start_pos.y()
 
         mode = self._resize_mode
+        self.setCursor(self._cursor_for_mode(mode))
         if "right" in mode:
             new_w = max(min_w, start_rect.width() + dx)
         if "left" in mode:
@@ -414,6 +485,7 @@ class ResizableNodeItem(QGraphicsRectItem):
             self._resize_start_scene = None
             self._resize_start_rect = None
             self._resize_start_pos = None
+            self._set_hover_resize_mode(None)
             if callable(self._resized_cb):
                 self._resized_cb()
             event.accept()
@@ -435,7 +507,7 @@ class GroupContainerItem(QGraphicsRectItem):
 
     Design notes
     ------------
-    - Members are kept as independent scene items (no Qt parent–child nesting)
+    - Members are kept as independent scene items (no Qt parent鈥揷hild nesting)
       so that port connections are never invalidated.
     - Movement is propagated to members via itemChange(ItemPositionHasChanged).
     - A ``_prev_pos`` guard avoids re-entrant delta-moves during the FIRST
@@ -516,6 +588,9 @@ class GroupContainerItem(QGraphicsRectItem):
 
 
 class GraphScene(QGraphicsScene):
+    robot_type_changed = Signal(str)
+    workspace_open_requested = Signal(str)  # policy_id — emitted by Checkpoint node "Open Training Ground"
+
     """Graph Editor Scene"""
 
     def __init__(self, parent=None):
@@ -568,7 +643,6 @@ class GraphScene(QGraphicsScene):
         self._node_type_mapping = {
             "Start": "start",
             "End": "end",
-            "Behavior": "action_execution",
             "Sensor": "sensor_input",
             "Trigger": "wait",
             "Action Execution": "action_execution",
@@ -595,6 +669,13 @@ class GraphScene(QGraphicsScene):
             "SetState": "opaque_code",
             "CheckState": "opaque_code",
             "HumanConfirm": "opaque_code",
+            # Control pipeline nodes
+            "Checkpoint": "checkpoint",
+            "Behavior":   "behavior",
+            # Training nodes (Env Config / Train Config / Train / Task Config /
+            # Eval Config) are intentionally absent from this map.
+            # The Mission Canvas must never create training nodes.
+            # The Training Ground canvas manages its own separate type map.
         }
         self._port_meta_key = 20
 
@@ -611,15 +692,20 @@ class GraphScene(QGraphicsScene):
         self._subgraph_opener: Optional[Callable[..., None]] = None
         self._script_tab_closer: Optional[Callable[[int], None]] = None
         self._script_tab_renamer: Optional[Callable[[int, str], None]] = None
-        self._robot_brand = "Unitree"
+        self._behavior_param_provider: Optional[Callable[..., List[dict]]] = None
+        self._behavior_param_writer: Optional[Callable[..., bool]] = None
+        self._robot_brand = "unitree"
         self._robot_type = "go2"
         self._event_symbol_set: Set[str] = set()
         self._script_symbol_set: Set[str] = set()
+        self._policy_symbol_set: Set[str] = set()   # policy_id values from CheckpointRegistry
         self._event_symbol_model = QStringListModel(self)
         self._script_symbol_model = QStringListModel(self)
+        self._policy_symbol_model = QStringListModel(self)
         self._completer_popup_style = ""
         self._symbol_combos: List[QComboBox] = []
         self._symbol_line_to_combo: Dict[QLineEdit, QComboBox] = {}
+        self._policy_select_combos: List[QComboBox] = []  # non-editable Checkpoint pickers
 
         # Timer - for updating connections
         self._update_timer = QTimer()
@@ -647,6 +733,14 @@ class GraphScene(QGraphicsScene):
         """Set callback invoked when a Script Box script_ref is renamed/switched."""
         self._script_tab_renamer = renamer
 
+    def set_behavior_param_provider(self, provider: Optional[Callable[..., List[dict]]]):
+        """Set callback returning exposed Behavior action parameters for a node."""
+        self._behavior_param_provider = provider
+
+    def set_behavior_param_writer(self, writer: Optional[Callable[..., bool]]):
+        """Set callback that persists one exposed Behavior action parameter edit."""
+        self._behavior_param_writer = writer
+
     def eventFilter(self, watched, event):
         if isinstance(watched, QLineEdit) and watched.property("symbol_combo_kind"):
             kind = str(watched.property("symbol_combo_kind") or "")
@@ -667,6 +761,7 @@ class GraphScene(QGraphicsScene):
     def _refresh_symbol_models(self):
         self._event_symbol_model.setStringList(sorted(self._event_symbol_set, key=lambda s: s.lower()))
         self._script_symbol_model.setStringList(sorted(self._script_symbol_set, key=lambda s: s.lower()))
+        self._policy_symbol_model.setStringList(sorted(self._policy_symbol_set, key=lambda s: s.lower()))
         alive: List[QComboBox] = []
         for combo in self._symbol_combos:
             if combo is None or not isValid(combo):
@@ -674,6 +769,231 @@ class GraphScene(QGraphicsScene):
             alive.append(combo)
             self._sync_symbol_combo_items(combo)
         self._symbol_combos = alive
+
+    def refresh_policy_registry(self) -> None:
+        """
+        Populate the policy_id dropdown items from CheckpointRegistry.
+
+        Called by the main window (or any controller) after CheckpointRegistry is
+        available (Circle 3+).  Safe to call before Circle 3 — silently no-ops
+        if CheckpointRegistry cannot be imported.
+
+        Usage (Circle 3+):
+            scene.refresh_policy_registry()
+        """
+        try:
+            from system.service.checkpoint_registry import CheckpointRegistry
+            registry = CheckpointRegistry()
+            policies = registry.discover()
+            self._policy_symbol_set = {p.policy_id for p in policies}
+        except Exception:
+            pass
+        self._refresh_symbol_models()
+        self._refresh_policy_select_combos()
+
+    def _refresh_policy_select_combos(self) -> None:
+        """Repopulate all non-editable Checkpoint node policy_id pickers."""
+        items = sorted(self._policy_symbol_set, key=lambda s: s.lower())
+        alive = []
+        for combo in self._policy_select_combos:
+            if combo is None or not isValid(combo):
+                continue
+            alive.append(combo)
+            current = combo.currentText()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(items)
+            if current:
+                idx = combo.findText(current)
+                if idx >= 0:
+                    combo.setCurrentIndex(idx)
+                elif items:
+                    combo.setCurrentIndex(0)
+            elif items:
+                combo.setCurrentIndex(0)
+            combo.blockSignals(False)
+            # The Checkpoint node's "Open Training Ground" button state depends on
+            # currentTextChanged. Because repopulation is signal-blocked above,
+            # emit one sync notification after refresh.
+            try:
+                combo.currentTextChanged.emit(combo.currentText())
+            except Exception:
+                pass
+        self._policy_select_combos = alive
+
+    def retarget_checkpoint_policy_references(
+        self,
+        source_policy_id: str,
+        target_policy_id: str,
+    ) -> int:
+        """
+        Replace Mission-side Checkpoint picker selections from source -> target.
+
+        Returns the number of Checkpoint nodes updated. Only nodes whose current
+        picker selection exactly matches ``source_policy_id`` are modified.
+        """
+        source = str(source_policy_id or "").strip()
+        target = str(target_policy_id or "").strip()
+        if not source or not target or source == target:
+            return 0
+
+        updated = 0
+        for item in self.items():
+            if not item or not isValid(item):
+                continue
+            picker = getattr(item, "_ckpt_policy_id_picker", None)
+            if picker is None or getattr(picker, "combo", None) is None:
+                continue
+            combo = picker.combo
+            if not isValid(combo):
+                continue
+            if combo.currentText().strip() != source:
+                continue
+
+            idx = combo.findText(target)
+            if idx < 0:
+                continue
+
+            combo.setCurrentIndex(idx)
+            updated += 1
+
+        return updated
+
+    @staticmethod
+    def _checkpoint_has_trainable_asset(bundle_path: Path) -> bool:
+        """Return True when *bundle_path* looks like a recoverable training package."""
+        bundle_path = Path(bundle_path)
+        if not bundle_path.exists():
+            return False
+        candidate_patterns = (
+            "best/best_model.zip",
+            "best_model.zip",
+            "checkpoints/*.zip",
+            "*.zip",
+        )
+        for pattern in candidate_patterns:
+            for candidate in bundle_path.glob(pattern):
+                if candidate.is_file():
+                    return True
+        return False
+
+    def _bundle_sim_compat_check(self, bundle) -> str:
+        """Return an error string if *bundle* cannot run in the current sim env, else ''.
+
+        Two static checks (no live MuJoCo simulation required):
+
+        1. ONNX dry-run — load the inference engine and run one forward pass
+           with a zero observation. Catches corrupt or missing model files and
+           non-finite outputs that would blow up physics.
+
+        2. Joint name compatibility — resolve the MJCF for this bundle's robot
+           via mujoco_asset_registry, load the MuJoCo model (read-only, no
+           simulation), extract actuator names, and compare against the bundle's
+           joint_names list.  Mismatches mean CompatibilityChecker would raise
+           IncompatibleWeightError at PolicyRunner.load() time.
+        """
+        import numpy as np
+
+        # ── 1. ONNX inference dry-run ──────────────────────────────────────
+        try:
+            from system.policy.inference_engine import ONNXEngine
+            engine = ONNXEngine()
+            engine.load(bundle.policy_file)
+            dummy_obs = np.zeros(bundle.obs_dim, dtype=np.float32)
+            action = engine.predict(dummy_obs)
+            if not np.all(np.isfinite(action)):
+                return (
+                    f"ONNX 推理产生非有限输出（NaN/Inf），该模型无法安全驱动物理仿真。"
+                )
+        except Exception as exc:  # noqa: BLE001
+            return f"ONNX 推理干跑失败：{exc}"
+
+        # ── 2. Joint name compatibility vs registered MJCF ─────────────────
+        try:
+            robot_type = (bundle.raw_manifest.get("robot") or {}).get("type", "")
+            robot_brand = str(bundle.robot_brand or "").lower()
+            if robot_type and robot_brand:
+                from system.mujoco_asset_registry import resolve_mujoco_asset
+                loc = resolve_mujoco_asset(robot_brand, robot_type)
+                if loc is not None and loc.scene_path.exists():
+                    import mujoco as _mj
+                    m = _mj.MjModel.from_xml_path(str(loc.scene_path))
+                    mjcf_actuators = set()
+                    for i in range(int(getattr(m, "nu", 0))):
+                        name = _mj.mj_id2name(m, _mj.mjtObj.mjOBJ_ACTUATOR, i)
+                        if name:
+                            mjcf_actuators.add(name)
+                    if mjcf_actuators:
+                        from system.policy.joint_name_utils import canonicalize_joint_names
+                        bundle_joints = set(canonicalize_joint_names(bundle.joint_names))
+                        mjcf_actuator_names = set(canonicalize_joint_names(mjcf_actuators))
+                        extra_in_bundle = bundle_joints - mjcf_actuator_names
+                        if extra_in_bundle:
+                            return (
+                                f"关节名称与 MJCF 不兼容，运行时将触发 IncompatibleWeightError。"
+                                f"\nBundle 中存在 MJCF 不认识的关节：{sorted(extra_in_bundle)}"
+                                f"\n请在 Training Ground 中重新导出以匹配当前机型配置。"
+                            )
+        except Exception:  # noqa: BLE001
+            pass  # Registry or MuJoCo unavailable; skip this check
+
+        return ""
+
+    def _checkpoint_validation_state(self, policy_id: str) -> Dict[str, str]:
+        """Classify a checkpoint for runtime use and Training Ground recovery."""
+        policy_id = str(policy_id or "").strip()
+        if not policy_id:
+            return {
+                "symbol": "❌",
+                "level": "invalid",
+                "tooltip": "未选择 Checkpoint。",
+            }
+
+        try:
+            from system.service.checkpoint_registry import CheckpointRegistry
+            bundle_path = CheckpointRegistry().get_bundle_path(policy_id)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "symbol": "❌",
+                "level": "invalid",
+                "tooltip": f"Checkpoint 未注册或无法定位：{exc}",
+            }
+
+        try:
+            from system.policy.bundle_loader import BundleLoader
+            bundle = BundleLoader().load(bundle_path)
+            compat_error = self._bundle_sim_compat_check(bundle)
+            if compat_error:
+                raise RuntimeError(compat_error)
+            return {
+                "symbol": "✔",
+                "level": "runnable",
+                "tooltip": (
+                    "该 Checkpoint 已是合法运行产物，可直接进入 MuJoCo 模拟。"
+                ),
+            }
+        except Exception as exc:  # noqa: BLE001
+            runtime_error = str(exc)
+
+        if self._checkpoint_has_trainable_asset(Path(bundle_path)):
+            return {
+                "symbol": "⚠",
+                "level": "trainable",
+                "tooltip": (
+                    "该 Checkpoint 不是当前可直接运行的合法产物，但检测到可恢复的训练资产。"
+                    f"\n需要先进入 Training Ground 做校准/微调并重新导出。"
+                    f"\n运行拦截原因：{runtime_error}"
+                ),
+            }
+
+        return {
+            "symbol": "❌",
+            "level": "invalid",
+            "tooltip": (
+                "该 Checkpoint 既不是合法运行产物，也未检测到可恢复的训练资产。"
+                f"\n校验失败：{runtime_error}"
+            ),
+        }
 
     def _record_symbol(self, kind: str, raw_text: str):
         token = str(raw_text or "").strip()
@@ -687,6 +1007,10 @@ class GraphScene(QGraphicsScene):
         elif kind == "script":
             if token not in self._script_symbol_set:
                 self._script_symbol_set.add(token)
+                changed = True
+        elif kind == "policy":
+            if token not in self._policy_symbol_set:
+                self._policy_symbol_set.add(token)
                 changed = True
         if changed:
             self._refresh_symbol_models()
@@ -709,7 +1033,12 @@ class GraphScene(QGraphicsScene):
 
     def _sync_symbol_combo_items(self, combo: QComboBox):
         kind = str(combo.property("symbol_combo_kind") or "")
-        values = self._event_symbol_model.stringList() if kind == "event" else self._script_symbol_model.stringList()
+        if kind == "event":
+            values = self._event_symbol_model.stringList()
+        elif kind == "policy":
+            values = self._policy_symbol_model.stringList()
+        else:
+            values = self._script_symbol_model.stringList()
         current = combo.currentText().strip()
         combo.blockSignals(True)
         combo.clear()
@@ -750,7 +1079,12 @@ class GraphScene(QGraphicsScene):
         if combo is None or not isValid(combo):
             return
         kind = str(combo.property("symbol_combo_kind") or "")
-        source = self._event_symbol_model.stringList() if kind == "event" else self._script_symbol_model.stringList()
+        if kind == "event":
+            source = self._event_symbol_model.stringList()
+        elif kind == "policy":
+            source = self._policy_symbol_model.stringList()
+        else:
+            source = self._script_symbol_model.stringList()
         token = line_edit.text().strip().lower()
         filtered = source if not token else [v for v in source if token in v.lower()]
         current = line_edit.text()
@@ -801,10 +1135,283 @@ class GraphScene(QGraphicsScene):
                 break
         log_info(f"Robot type set to: {robot_type}")
 
+    def get_start_node_selection(self) -> tuple[str, str]:
+        """Return the live Start-node brand/model selection when present."""
+        for item in self.items():
+            if not isValid(item) or item.data(10) != "node" or item.data(11) != "Start":
+                continue
+            brand_combo = getattr(item, "_brand_picker", None)
+            model_combo = getattr(item, "_model_picker", None)
+            brand = str(
+                brand_combo.currentData(Qt.ItemDataRole.UserRole)
+                if brand_combo else self._robot_brand or ""
+            ).strip().lower()
+            robot_type = str(model_combo.currentText() if model_combo else self._robot_type or "").strip().lower()
+            return brand, robot_type
+        return (
+            normalize_brand_id(str(getattr(self, "_robot_brand", "") or "")),
+            str(getattr(self, "_robot_type", "") or "").strip().lower(),
+        )
+
+    @staticmethod
+    def _behavior_action_descriptors(brand: str = "", robot_type: str = "") -> List[dict]:
+        """Return all canonical IR action descriptors for Behavior-node dropdowns.
+
+        ALL registered IR intents are always returned regardless of brand/model.
+        Behavior actions are IR-level abstractions, so their labels must remain
+        stable across model switches. Brand/robot_type is kept only for future
+        parameter-default overlays, not for label changes.
+        """
+        from system.behavior.ir_action_registry import list_ir_actions_by_intent
+
+        base_by_intent = list_ir_actions_by_intent()
+
+        result = []
+        for intent_id in sorted(base_by_intent.keys()):
+            desc = base_by_intent[intent_id]
+            label = desc.display_name or desc.raw_action or desc.intent_id
+            result.append({
+                "label": label,
+                "intent_id": desc.intent_id,
+                "raw_action": desc.raw_action,
+                "availability": desc.availability,
+                "is_unsupported": False,  # IR actions are never blocked in the authoring UI
+            })
+
+        return result
+
+    @staticmethod
+    def _set_behavior_combo_items(combo, descriptors: List[dict], current_label: str = "", brand: str = "", robot_type: str = "") -> None:
+        """Populate a Behavior-node combo with IR action labels + metadata.
+
+        All IR actions are always selectable — no item is ever disabled.
+        """
+        combo.clear()
+        labels = []
+        for entry in descriptors:
+            if isinstance(entry, dict):
+                label = str(entry.get("label") or "").strip()
+                intent_id = str(entry.get("intent_id") or "").strip()
+                raw_action = str(entry.get("raw_action") or "").strip()
+            else:
+                # SemanticActionDescriptor object
+                label = str(
+                    getattr(entry, "display_name", "")
+                    or getattr(entry, "raw_action", "")
+                    or getattr(entry, "intent_id", "")
+                ).strip()
+                intent_id = str(getattr(entry, "intent_id", "") or "").strip()
+                raw_action = str(getattr(entry, "raw_action", "") or "").strip()
+
+            if not label:
+                continue
+
+            combo.addItem(label, {
+                "intent_id": intent_id,
+                "raw_action": raw_action,
+                "label": label,
+            })
+            labels.append(label)
+
+        if current_label and current_label in labels:
+            combo.setCurrentText(current_label)
+        elif labels:
+            combo.setCurrentIndex(0)
+        else:
+            combo.setCurrentIndex(-1)
+
+
+    @staticmethod
+    def _default_behavior_ref(node_id: int) -> str:
+        return f"behavior_node_{int(node_id)}"
+
+    def _ensure_behavior_ref(self, rect_item) -> str:
+        node_id = int(rect_item.data(12) or 0)
+        existing = str(getattr(rect_item, "_behavior_ref", "") or "").strip()
+        if existing:
+            return existing
+        ref = self._default_behavior_ref(node_id)
+        rect_item._behavior_ref = ref
+        return ref
+
+    def refresh_behavior_node_actions(self, descriptors: list = None) -> None:
+        """Update every Behavior node's action combo when the robot selection changes.
+
+        Always rebuilds from the full canonical IR catalog — all intents are
+        shown regardless of brand/model.  The ``descriptors`` argument is kept
+        for call-site compatibility but is no longer used; brand/model context
+        is read live from the Start node via ``get_start_node_selection()``.
+        """
+        brand, robot_type = self.get_start_node_selection()
+        current_descriptors = self._behavior_action_descriptors(brand, robot_type)
+        for item in self.items():
+            if not isValid(item):
+                continue
+            if item.data(10) != "node" or item.data(11) != "Behavior":
+                continue
+            condition_set = getattr(item, "_condition_set", None)
+            if condition_set is None:
+                continue
+            combo = getattr(condition_set, "combo", None)
+            if combo is None:
+                continue
+            current = combo.currentText()
+            combo.blockSignals(True)
+            self._set_behavior_combo_items(combo, current_descriptors, current, brand, robot_type)
+            combo.blockSignals(False)
+            self._refresh_behavior_node_parameter_rows(item)
+            self._sync_node_parameters(item)
+
+    def refresh_behavior_node_parameter_rows(self, node_id: Optional[int] = None) -> None:
+        """Refresh dynamic parameter rows for one Behavior node or all of them."""
+        if node_id is not None:
+            item = self.get_node_item(node_id)
+            if item is not None and item.data(11) == "Behavior":
+                self._refresh_behavior_node_parameter_rows(item)
+            return
+        for item in self.items():
+            if not isValid(item):
+                continue
+            if item.data(10) != "node" or item.data(11) != "Behavior":
+                continue
+            self._refresh_behavior_node_parameter_rows(item)
+
+    def _refresh_behavior_node_parameter_rows(self, rect_item) -> None:
+        row_stack = getattr(rect_item, "_row_stack", None)
+        if row_stack is None:
+            return
+        for row_id in list(getattr(rect_item, "_behavior_param_row_ids", [])):
+            row_stack.remove_row(row_id)
+        rect_item._behavior_param_row_ids = []
+        rect_item._behavior_param_inputs = {}
+
+        provider = self._behavior_param_provider
+        if not callable(provider):
+            sync_layout = getattr(rect_item, "_sync_layout_fn", None)
+            if callable(sync_layout):
+                sync_layout()
+            return
+
+        cond_set = getattr(rect_item, "_condition_set", None)
+        combo = getattr(cond_set, "combo", None) if cond_set is not None else None
+        combo_data = combo.currentData(Qt.ItemDataRole.UserRole) if combo is not None else {}
+        if not isinstance(combo_data, dict):
+            combo_data = {}
+        display_name = cond_set.logic_text() if cond_set is not None else ""
+        behavior_ref = self._ensure_behavior_ref(rect_item)
+        _brand, robot_type = self.get_start_node_selection()
+        rows = provider(
+            node_id=int(rect_item.data(12) or 0),
+            behavior_ref=behavior_ref,
+            intent_id=str(combo_data.get("intent_id") or ""),
+            display_name=display_name,
+            robot_type=robot_type or self._robot_type,
+        ) or []
+
+        if not rows:
+            sync_layout = getattr(rect_item, "_sync_layout_fn", None)
+            if callable(sync_layout):
+                sync_layout()
+            self._update_node_params(rect_item)
+            return
+
+        rect_item._behavior_param_suspend = True
+        try:
+            for idx, entry in enumerate(rows):
+                key = str(entry.get("key") or "").strip()
+                if not key:
+                    continue
+                row_id = f"behavior_param_row_{idx}"
+                setting = InputSetting(
+                    self._condition_set_left_bg,
+                    self._condition_set_right_bg,
+                    get_color("input_bg", "#0f1115"),
+                    self._button_border,
+                    self._condition_set_text,
+                    key_text=str(entry.get("label") or key),
+                    placeholder="",
+                    show_left_dot=False,
+                    show_right_dot=False,
+                )
+                setting.set_value(str(entry.get("value") or ""))
+                setting.input_edit.editingFinished.connect(
+                    lambda _k=key, _r=rect_item, _w=setting.input_edit: self._on_behavior_param_input_committed(_r, _k, _w)
+                )
+                row_widget = QWidget()
+                row_widget.setStyleSheet("background: transparent;")
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(8, 2, 8, 2)
+                row_layout.setSpacing(6)
+                row_layout.addWidget(setting, 1)
+                row_stack.add_row(row_id, row_widget)
+                rect_item._behavior_param_row_ids.append(row_id)
+                rect_item._behavior_param_inputs[key] = setting.input_edit
+        finally:
+            rect_item._behavior_param_suspend = False
+
+        sync_layout = getattr(rect_item, "_sync_layout_fn", None)
+        if callable(sync_layout):
+            sync_layout()
+        self._update_node_params(rect_item)
+
+    def _on_behavior_param_input_committed(self, rect_item, key: str, line_edit: QLineEdit) -> None:
+        if getattr(rect_item, "_behavior_param_suspend", False):
+            return
+        writer = self._behavior_param_writer
+        if not callable(writer):
+            return
+        cond_set = getattr(rect_item, "_condition_set", None)
+        combo = getattr(cond_set, "combo", None) if cond_set is not None else None
+        combo_data = combo.currentData(Qt.ItemDataRole.UserRole) if combo is not None else {}
+        if not isinstance(combo_data, dict):
+            combo_data = {}
+        display_name = cond_set.logic_text() if cond_set is not None else ""
+        behavior_ref = self._ensure_behavior_ref(rect_item)
+        _brand, robot_type = self.get_start_node_selection()
+        writer(
+            node_id=int(rect_item.data(12) or 0),
+            behavior_ref=behavior_ref,
+            intent_id=str(combo_data.get("intent_id") or ""),
+            display_name=display_name,
+            robot_type=robot_type or self._robot_type,
+            key=str(key),
+            value=line_edit.text(),
+        )
+        self._update_node_params(rect_item)
+        self._sync_node_parameters(rect_item)
+        self.regenerate_code()
+
     def _place_initial_nodes(self):
-        """Place default Start and End nodes on the canvas."""
-        self.create_node("Start", QPointF(self._initial_origin))
-        self.create_node("End", QPointF(self._initial_origin.x() + 400, self._initial_origin.y()))
+        """
+        Place the default Mission Canvas template.
+
+        Workflow lane:
+            START >> BEHAVIOR >> END
+
+        Runtime lane:
+            CHECKPOINT >> BEHAVIOR
+        """
+        x0 = self._initial_origin.x()
+        y0 = self._initial_origin.y()
+
+        start = self.create_node("Start", QPointF(x0, y0))
+        behavior = self.create_node("Behavior", QPointF(x0 + 300, y0 - 30))
+        end = self.create_node("End", QPointF(x0 + 620, y0))
+
+        checkpoint = self.create_node("Checkpoint", QPointF(x0, y0 + 220))
+
+        def _wire(src_item, src_slot: str, dst_item, dst_slot: str):
+            out_p = self._get_node_port(src_item, src_slot, "out")
+            in_p = self._get_node_port(dst_item, dst_slot, "in")
+            if out_p and in_p:
+                self._create_connection(out_p, in_p)
+
+        # Workflow path
+        _wire(start, "flow_out", behavior, "flow_in")
+        _wire(behavior, "flow_out", end, "flow_in")
+
+        # Runtime checkpoint input
+        _wire(checkpoint, "checkpoint", behavior, "checkpoint")
 
     def _apply_theme(self):
         """Apply theme colors and widget styles"""
@@ -935,6 +1542,8 @@ class GraphScene(QGraphicsScene):
             return get_node_color_pair("compute", fallback_start, fallback_end)
         if any(k in name_l for k in ("script box", "script")):
             return get_node_color_pair("script", fallback_start, fallback_end)
+        if any(k in name_l for k in ("checkpoint", "policy", "conductor")):
+            return get_node_color_pair("compute", fallback_start, fallback_end)
 
         if grad and len(grad) == 2:
             return tuple(grad)
@@ -1234,7 +1843,7 @@ class GraphScene(QGraphicsScene):
                             except Exception:
                                 pass
 
-                # Delete group container (members are NOT deleted — just detached)
+                # Delete group container (members are NOT deleted 鈥?just detached)
                 elif item.data(10) == "group":
                     gid = item._group_id
                     for scene_item in self.items():
@@ -1630,7 +2239,7 @@ class GraphScene(QGraphicsScene):
         self.regenerate_code()
 
     def _cancel_reconnection(self):
-        """Cancel reconnection — dropping without a target deletes the connection."""
+        """Cancel reconnection 鈥?dropping without a target deletes the connection."""
         conn = self._reconnect_connection
         original_port = self._reconnect_original_port
 
@@ -1645,7 +2254,7 @@ class GraphScene(QGraphicsScene):
             self._detach_connection(conn)
             if conn.scene() is not None:
                 self.removeItem(conn)
-            log_debug("Reconnection cancelled — connection removed")
+            log_debug("Reconnection cancelled 鈥?connection removed")
 
         self._reconnect_connection = None
         self._reconnect_original_port = None
@@ -1742,9 +2351,17 @@ class GraphScene(QGraphicsScene):
         in_port = self._resolve_script_proxy_input_target(out_port, in_port)
         if not in_port:
             return
+        try:
+            if not out_port or not in_port or not isValid(out_port) or not isValid(in_port):
+                return
+        except Exception:
+            return
         if not self._can_connect_ports(out_port, in_port):
             return
-        existing = out_port.data(2) or []
+        try:
+            existing = out_port.data(2) or []
+        except Exception:
+            existing = []
         for conn in existing:
             if not conn or not isValid(conn):
                 continue
@@ -1757,10 +2374,45 @@ class GraphScene(QGraphicsScene):
         self._attach_connection_safe(out_port, conn)
         self._attach_connection_safe(in_port, conn)
 
-        log_debug(f"Connection created: {out_port.data(3)} -> {in_port.data(3)}")
+        out_meta = self._port_meta(out_port)
+        in_meta = self._port_meta(in_port)
+        log_debug(f"Connection created: {out_meta['slot']} -> {in_meta['slot']}")
         self._apply_connection_to_input(in_port, out_port)
         self._refresh_behavior_protocol_state(in_port)
         self._maybe_autowire_break_for_connection(out_port, in_port)
+        self._maybe_refresh_behavior_on_flow_connect(in_port, out_port)
+
+    def _maybe_refresh_behavior_on_flow_connect(self, in_port, out_port) -> None:
+        """Refresh a Behavior node's action combo when it is flow-connected.
+
+        When a Behavior node's flow_in port is connected to any other node, pull
+        the current Start-node brand/model selection and rebuild the combo so it
+        shows the right actions for the active robot.  This covers the case where
+        the Behavior node was created before a Start node existed, or before the
+        user had selected a model.
+        """
+        meta = self._port_meta(in_port) if in_port and isValid(in_port) else {}
+        if meta.get("channel") != "flow":
+            return
+        node_item = in_port.parentItem() if in_port and isValid(in_port) else None
+        if node_item is None or not isValid(node_item):
+            return
+        if node_item.data(11) != "Behavior":
+            return
+        condition_set = getattr(node_item, "_condition_set", None)
+        if condition_set is None:
+            return
+        combo = getattr(condition_set, "combo", None)
+        if combo is None:
+            return
+        brand, robot_type = self.get_start_node_selection()
+        current = combo.currentText()
+        descriptors = self._behavior_action_descriptors(brand, robot_type)
+        combo.blockSignals(True)
+        self._set_behavior_combo_items(combo, descriptors, current, brand, robot_type)
+        combo.blockSignals(False)
+        self._refresh_behavior_node_parameter_rows(node_item)
+        self._sync_node_parameters(node_item)
 
     def _find_node_port(self, node_item, slot: str, io: str):
         if not node_item or not isValid(node_item):
@@ -1991,9 +2643,9 @@ class GraphScene(QGraphicsScene):
     # ------------------------------------------------------------------
 
     _PROTOCOL_BORDER_COLORS: Dict[str, str] = {
-        "protocol_valid":   "#22c55e",  # green  — valid protocol type connected
-        "protocol_invalid": "#f59e0b",  # amber  — wrong type connected to protocol port
-        "protocol_none":    "#6b7280",  # grey   — no connection / legacy mode
+        "protocol_valid":   "#22c55e",  # green  鈥?valid protocol type connected
+        "protocol_invalid": "#f59e0b",  # amber  鈥?wrong type connected to protocol port
+        "protocol_none":    "#6b7280",  # grey   鈥?no connection / legacy mode
     }
 
     def set_behavior_protocol_state(self, node_id, state: str) -> None:
@@ -2021,9 +2673,9 @@ class GraphScene(QGraphicsScene):
         over design-time type-check state.
 
         Mapping (protocol_status from per-node results):
-          "invalid" | "stale" → protocol_invalid  (amber)
-          "valid"              → protocol_valid    (green)
-          "absent" / missing   → protocol_none     (grey)
+          "invalid" | "stale" 鈫?protocol_invalid  (amber)
+          "valid"              鈫?protocol_valid    (green)
+          "absent" / missing   鈫?protocol_none     (grey)
 
         Args:
             run_result: The dict returned by RuntimeEngine.execute() / MissionRunThread.
@@ -2056,16 +2708,16 @@ class GraphScene(QGraphicsScene):
     def _refresh_behavior_protocol_state(self, in_port) -> None:
         """Recompute and apply the protocol border for the Behavior node owning *in_port*.
 
-        Called after any connection add/remove on the "condition" slot of a Behavior node.
+        Called after any connection add/remove on the "control_pipe" slot of a Behavior node.
         State rules:
-          - No connection         → protocol_none
-          - Connected, type match → protocol_valid   (out_port data_type == "protocol")
-          - Connected, type mismatch → protocol_invalid
+          - No connection         鈫?protocol_none
+          - Connected, type match 鈫?protocol_valid   (out_port data_type == "protocol")
+          - Connected, type mismatch 鈫?protocol_invalid
         """
         try:
             if not in_port or not isValid(in_port):
                 return
-            if in_port.data(3) != "condition":
+            if in_port.data(3) != "control_pipe":
                 return
             node_item = in_port.parentItem()
             if not node_item or not isValid(node_item):
@@ -2242,6 +2894,12 @@ class GraphScene(QGraphicsScene):
                 name = canonical
                 break
 
+        # Deprecated node types must not be creatable in the Mission Canvas.
+        _DEPRECATED_NAMES = {"Policy", "Conductor"}
+        if name in _DEPRECATED_NAMES:
+            log_debug(f"create_node: '{name}' is deprecated and cannot be created in Mission Canvas")
+            return None
+
         # --- Sizing ---
         # Initial w/h are placeholders; _resize_to_fit() derives the real
         # size from measured content after all rows have been added.
@@ -2327,6 +2985,7 @@ class GraphScene(QGraphicsScene):
         proxy.setWidget(widget_container)
         proxy.setPos(node_padding_x, node_padding_y)
         proxy.setZValue(2)
+        rect.register_hover_passthrough(proxy)
         rect._header_row_widget = header_row_widget
         self._apply_node_fill_and_header_style(rect, name, grad_seed=grad, unique_color=uniqueColor)
 
@@ -2345,7 +3004,7 @@ class GraphScene(QGraphicsScene):
         def _measure_rows():
             """Measure minimum content size from actual row sizeHints.
 
-            Uses sizeHint only — never calls adjustSize() which would force
+            Uses sizeHint only 鈥?never calls adjustSize() which would force
             rows to shrink during interactive resize.
             """
             layout = row_stack.layout
@@ -3061,12 +3720,17 @@ class GraphScene(QGraphicsScene):
 
         elif name == "Start":
             # Start node: brand picker (row 1) + model picker (row 2) + flow_out
-            registry = BrandRegistry()
-            brand_list = registry.get_brands() or ["Unitree"]
-            initial_brand = self._robot_brand if self._robot_brand in brand_list else brand_list[0]
-            model_list = registry.get_models(initial_brand) or ["go2"]
+            brand_items = list(list_brand_items())
+            if not brand_items:
+                brand_items = [("unitree", "Unitree")]
+            brand_list = [display_name for _, display_name in brand_items]
+            brand_id_by_display = {display_name: brand_id for brand_id, display_name in brand_items}
+            initial_brand_id = normalize_brand_id(self._robot_brand) or brand_items[0][0]
+            if initial_brand_id not in {brand_id for brand_id, _ in brand_items}:
+                initial_brand_id = brand_items[0][0]
+            model_list = get_model_ids(initial_brand_id) or ["go2"]
 
-            # Row 1 — Brand
+            # Row 1 鈥?Brand
             brand_row, brand_picker_widget = _make_combo_setting_row(
                 "brand_row",
                 tr("node_content.start_brand_label", "Brand"),
@@ -3074,10 +3738,14 @@ class GraphScene(QGraphicsScene):
                 show_left_dot=False,
                 show_right_dot=False,
             )
-            brand_picker_widget.combo.setCurrentText(initial_brand)
             brand_combo = brand_picker_widget.combo
+            for idx, (brand_id, _display_name) in enumerate(brand_items):
+                brand_combo.setItemData(idx, brand_id, Qt.ItemDataRole.UserRole)
+            brand_idx = brand_combo.findData(initial_brand_id, Qt.ItemDataRole.UserRole)
+            brand_combo.setCurrentIndex(brand_idx if brand_idx >= 0 else 0)
+            self._robot_brand = initial_brand_id
 
-            # Row 2 — Model
+            # Row 2 鈥?Model
             model_row, model_picker_widget = _make_combo_setting_row(
                 "model_row",
                 tr("node_content.start_model_label", "Model"),
@@ -3112,18 +3780,22 @@ class GraphScene(QGraphicsScene):
             rect._brand_picker = brand_combo
             rect._model_picker = model_combo
             # Keep legacy alias for backward compat in serialization helpers
-            rect._robot_combo = model_combo
             rect._is_protected = True
             header_title.setText("START")
             delete_btn.setVisible(False)
             start_settings_btn = widget_factory.button("⚙", size=20)
-            start_settings_btn.setToolTip("Open Settings")
+            start_settings_btn.setToolTip("Open Start Settings")
             header_row_layout.addWidget(start_settings_btn)
             open_subgraph_controls.append(start_settings_btn)
 
             def _on_brand_changed(brand_text):
-                self._robot_brand = brand_text
-                new_models = registry.get_models(brand_text) or ["(no models)"]
+                brand_id = str(
+                    brand_combo.currentData(Qt.ItemDataRole.UserRole)
+                    or brand_id_by_display.get(brand_text)
+                    or normalize_brand_id(brand_text)
+                ).strip().lower()
+                self._robot_brand = brand_id
+                new_models = get_model_ids(brand_id) or ["(no models)"]
                 previous_model = model_combo.currentText().strip()
                 # Replace model list atomically and choose a model valid for the new brand.
                 model_combo.blockSignals(True)
@@ -3136,11 +3808,13 @@ class GraphScene(QGraphicsScene):
                 model_combo.blockSignals(False)
                 # Manually sync state and regenerate since model signal was blocked.
                 self._robot_type = model_combo.currentText()
+                self.robot_type_changed.emit(self._robot_type)
                 self._sync_node_parameters(rect)
                 self.regenerate_code()
 
             def _on_model_changed(text):
                 self._robot_type = text
+                self.robot_type_changed.emit(self._robot_type)
                 self._sync_node_parameters(rect)
                 self.regenerate_code()
 
@@ -3211,7 +3885,7 @@ class GraphScene(QGraphicsScene):
             duration_input.textChanged.connect(lambda _t: _on_duration_change())
 
         elif name == "Wait":
-            # Row 1 — Mode picker
+            # Row 1 鈥?Mode picker
             mode_row, mode_picker = _make_combo_setting_row(
                 "mode_row",
                 tr("node_content.wait_mode", "Mode"),
@@ -3220,7 +3894,7 @@ class GraphScene(QGraphicsScene):
                 show_right_dot=False,
             )
 
-            # Row 2 — Duration (visible in duration mode)
+            # Row 2 鈥?Duration (visible in duration mode)
             dur_row, duration_setting = _make_input_setting_row(
                 "duration_row",
                 "duration",
@@ -3231,7 +3905,7 @@ class GraphScene(QGraphicsScene):
             duration_input = duration_setting.input_edit
             duration_input.setValidator(QDoubleValidator(0.0, 60.0, 3, duration_input))
 
-            # Row 3 — Event name (visible in event mode)
+            # Row 3 鈥?Event name (visible in event mode)
             event_row, event_setting = _make_combo_setting_row(
                 "event_row",
                 "event",
@@ -3241,7 +3915,7 @@ class GraphScene(QGraphicsScene):
             )
             event_combo = event_setting.combo
 
-            # Row 4 — Timeout (visible in event mode)
+            # Row 4 鈥?Timeout (visible in event mode)
             to_row, timeout_setting = _make_input_setting_row(
                 "timeout_row",
                 "timeout",
@@ -3303,7 +3977,7 @@ class GraphScene(QGraphicsScene):
             mode_picker.combo.currentIndexChanged.connect(lambda _i: _on_wait_change())
 
         elif name == "Gate":
-            # Row 1 — Mode picker
+            # Row 1 鈥?Mode picker
             mode_row, mode_picker = _make_combo_setting_row(
                 "mode_row",
                 tr("node_content.gate_mode", "Mode"),
@@ -3312,7 +3986,7 @@ class GraphScene(QGraphicsScene):
                 show_right_dot=False,
             )
 
-            # Row 2 — ConditionSet (visible in condition mode)
+            # Row 2 鈥?ConditionSet (visible in condition mode)
             cond_input = ConditionSet(
                 self._condition_set_left_bg, self._condition_set_right_bg, self._button_border,
                 self._condition_set_text, self._hover_bg, "< logic >",
@@ -3322,7 +3996,7 @@ class GraphScene(QGraphicsScene):
             _finish_row(cond_layout, "input")
             row_stack.add_row("cond_row", cond_row)
 
-            # Row 3 — Event name (visible in event mode)
+            # Row 3 鈥?Event name (visible in event mode)
             event_row, event_setting = _make_combo_setting_row(
                 "event_row",
                 "event",
@@ -3398,7 +4072,7 @@ class GraphScene(QGraphicsScene):
             mode_picker.combo.currentIndexChanged.connect(lambda _i: _on_gate_change())
 
         elif name == "Timeout":
-            # Single row — duration input (same pattern as Timer)
+            # Single row 鈥?duration input (same pattern as Timer)
             dur_row, duration_setting = _make_input_setting_row(
                 "duration_row",
                 "duration",
@@ -3452,7 +4126,7 @@ class GraphScene(QGraphicsScene):
             duration_input.textChanged.connect(lambda _t: _on_timeout_change())
 
         elif name == "Retry":
-            # Row 1 — Max attempts
+            # Row 1 鈥?Max attempts
             att_row, attempts_setting = _make_input_setting_row(
                 "attempts_row",
                 tr("node_content.retry_attempts", "Max"),
@@ -3463,7 +4137,7 @@ class GraphScene(QGraphicsScene):
             attempts_input = attempts_setting.input_edit
             attempts_input.setValidator(QIntValidator(1, 100, attempts_input))
 
-            # Row 2 — Backoff
+            # Row 2 鈥?Backoff
             bo_row, backoff_setting = _make_input_setting_row(
                 "backoff_row",
                 tr("node_content.retry_backoff", "Wait"),
@@ -3474,7 +4148,7 @@ class GraphScene(QGraphicsScene):
             backoff_input = backoff_setting.input_edit
             backoff_input.setValidator(QDoubleValidator(0.0, 300.0, 3, backoff_input))
 
-            # Row 3 — Strategy picker
+            # Row 3 鈥?Strategy picker
             strat_row, strategy_picker = _make_combo_setting_row(
                 "strategy_row",
                 tr("node_content.retry_strategy", "Backoff"),
@@ -3538,7 +4212,7 @@ class GraphScene(QGraphicsScene):
             strategy_picker.combo.currentIndexChanged.connect(lambda _i: _on_retry_change())
 
         elif name == "Cancel":
-            # Row 1 — Target picker
+            # Row 1 鈥?Target picker
             target_row, target_picker = _make_combo_setting_row(
                 "target_row",
                 tr("node_content.cancel_target", "Target"),
@@ -3547,7 +4221,7 @@ class GraphScene(QGraphicsScene):
                 show_right_dot=False,
             )
 
-            # Row 2 — Tag name (visible only when target=tag)
+            # Row 2 鈥?Tag name (visible only when target=tag)
             tag_row, tag_setting = _make_input_setting_row(
                 "tag_row",
                 "tag",
@@ -3596,7 +4270,7 @@ class GraphScene(QGraphicsScene):
             tag_input.textChanged.connect(lambda _t: _on_cancel_change())
 
         elif name == "Abort":
-            # Row 1 — Reason input
+            # Row 1 鈥?Reason input
             reason_row, reason_setting = _make_input_setting_row(
                 "reason_row",
                 "reason",
@@ -3606,7 +4280,7 @@ class GraphScene(QGraphicsScene):
             )
             reason_input = reason_setting.input_edit
 
-            # Row 2 — Emergency picker
+            # Row 2 鈥?Emergency picker
             em_row, emergency_picker = _make_combo_setting_row(
                 "emergency_row",
                 tr("node_content.abort_emergency", "Emergency"),
@@ -3616,7 +4290,7 @@ class GraphScene(QGraphicsScene):
             )
 
             flow_in_port = _mk_port(0, h / 2, "in", "flow_in", radius=6, channel="flow")
-            # Abort is terminal — no output ports
+            # Abort is terminal 鈥?no output ports
 
             def _sync_ports_abort():
                 if not isValid(rect):
@@ -4345,27 +5019,69 @@ class GraphScene(QGraphicsScene):
             )
 
         elif name == "Behavior":
-            behavior_row, behavior_setting = _make_behavior_setting_row(
-                "behavior_row",
-                items=["lift_right_leg", "stand", "sit", "walk", "stop"],
+            # Executes the trained policy of the bound checkpoint.
+
+            # Row 1: checkpoint selector — left dot = checkpoint in-port
+            beh_pid_row, beh_pid_setting = _make_combo_setting_row(
+                "beh_policy_id_row",
+                "Checkpoint",
+                items=[],
                 show_left_dot=True,
-                show_advanced_button=True,
+                show_right_dot=False,
             )
 
+            speed_row_widget, speed_row_layout = _make_row("none")
+            speed_wrap = QWidget()
+            speed_wrap.setStyleSheet("background: transparent;")
+            speed_wrap_layout = QHBoxLayout(speed_wrap)
+            speed_wrap_layout.setContentsMargins(0, 0, 0, 0)
+            speed_wrap_layout.setSpacing(6)
+
+            speed_key = QLabel("Speed")
+            speed_key.setFixedHeight(20)
+            speed_key.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+            speed_key.setStyleSheet(
+                f"QLabel {{ background: {self._condition_set_right_bg}; color: {self._condition_set_text}; "
+                f"border: 1px solid {self._button_border}; padding: 2px 6px; font-size: 10px; }}"
+            )
+            speed_key.setFixedWidth(46)
+
+            speed_slider = QSlider(Qt.Orientation.Horizontal)
+            speed_slider.setRange(0, 200)
+            speed_slider.setValue(100)
+            speed_slider.setFixedHeight(20)
+            speed_slider.setStyleSheet("background: transparent;")
+
+            speed_value = QLabel("100%")
+            speed_value.setFixedHeight(20)
+            speed_value.setFixedWidth(34)
+            speed_value.setAlignment(Qt.AlignVCenter | Qt.AlignRight)
+            speed_value.setStyleSheet(
+                f"QLabel {{ color: {self._condition_set_text}; background: transparent; border: none; font-size: 10px; }}"
+            )
+
+            speed_wrap_layout.addWidget(speed_key, 0)
+            speed_wrap_layout.addWidget(speed_slider, 1)
+            speed_wrap_layout.addWidget(speed_value, 0)
+            speed_row_layout.addWidget(speed_wrap, 1)
+            row_stack.add_row("beh_speed_scale_row", speed_row_widget)
+
+            # Ports
             flow_in = _mk_port(0, h / 2, "in", "flow_in", radius=6, channel="flow")
             flow_out = _mk_port(w, h / 2, "out", "flow_out", radius=6, channel="flow")
-            behavior_in_port = _mk_port(12, h / 2, "in", "condition", channel="data", data_type="protocol", dot_kind="sub_dot")
+            checkpoint_in_beh = _mk_port(12, h / 2, "in", "checkpoint", radius=4,
+                                         channel="data", data_type="dict", dot_kind="sub_dot")
 
             def _sync_ports_behavior():
                 if not isValid(rect):
                     return
                 w_now = rect.rect().width()
-                y = _port_y(behavior_row)
-                if y is not None:
-                    flow_in.setPos(0, y)
-                    flow_out.setPos(w_now, y)
-                    in_center = _widget_center_in_node(behavior_setting.left_box) if behavior_setting.left_box else None
-                    behavior_in_port.setPos(in_center.x(), in_center.y()) if in_center is not None else behavior_in_port.setPos(12, y)
+                y_pid = _port_y(beh_pid_row)
+                if y_pid is not None:
+                    flow_in.setPos(0, y_pid)
+                    flow_out.setPos(w_now, y_pid)
+                    in_center = _widget_center_in_node(beh_pid_setting.left_box) if beh_pid_setting.left_box else None
+                    checkpoint_in_beh.setPos(in_center.x(), in_center.y()) if in_center is not None else checkpoint_in_beh.setPos(12, y_pid)
 
             def _sync_layout_behavior():
                 _resize_to_fit()
@@ -4374,17 +5090,24 @@ class GraphScene(QGraphicsScene):
             QTimer.singleShot(0, _sync_layout_behavior)
             rect._sync_layout_fn = _sync_layout_behavior
             resize_ports_cb = _sync_ports_behavior
-            rect._condition_set = behavior_setting
-            if behavior_setting.advanced_btn is not None:
-                behavior_setting.advanced_btn.setToolTip("Open Behavior editor")
-                open_subgraph_controls.append(behavior_setting.advanced_btn)
+            rect._beh_policy_id_picker   = beh_pid_setting
+            rect._beh_command_scale_slider = speed_slider
+            rect._beh_command_scale_label = speed_value
 
             def _on_behavior_change():
                 self._update_node_params(rect)
                 self._sync_node_parameters(rect)
                 self.regenerate_code()
 
-            behavior_setting.combo.currentIndexChanged.connect(lambda _i: _on_behavior_change())
+            def _on_behavior_scale_change(value: int):
+                speed_value.setText(f"{int(value)}%")
+                _on_behavior_change()
+
+            # Register as a pure-select policy picker alongside CheckpointNode
+            self._policy_select_combos.append(beh_pid_setting.combo)
+            self._refresh_policy_select_combos()
+            beh_pid_setting.combo.currentIndexChanged.connect(lambda _i: _on_behavior_change())
+            speed_slider.valueChanged.connect(_on_behavior_scale_change)
 
         elif name == "Sensor":
             sensor_row, sensor_picker = _make_combo_setting_row(
@@ -4514,12 +5237,428 @@ class GraphScene(QGraphicsScene):
             target_combo.currentTextChanged.connect(lambda _t: _on_trigger_change())
             timeout_input.textChanged.connect(lambda _t: _on_trigger_change())
 
+        elif name == "Checkpoint":
+            # Pure select dropdown — items populated by refresh_policy_registry()
+            # (Circle 3+).  No free-text entry; format is read from the manifest
+            # automatically and never exposed to the user.
+            policy_id_row, policy_id_setting = _make_combo_setting_row(
+                "ckpt_policy_id_row",
+                "Checkpoint",
+                items=[],
+                show_left_dot=False,
+                show_right_dot=True,
+            )
+            status_badge = QLabel("❌")
+            status_badge.setObjectName("ckptValidationBadge")
+            status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            status_badge.setFixedSize(20, 20)
+            status_badge.setToolTip("未选择 Checkpoint。")
+            policy_id_setting.set_middle_widget(status_badge)
+
+            checkpoint_out_ckpt = _mk_port(w - 12, h / 2, "out", "checkpoint", radius=4,
+                                           channel="data", data_type="dict", dot_kind="sub_dot")
+
+            def _sync_ports_ckpt():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y_pid = _port_y(policy_id_row)
+                if y_pid is not None:
+                    out_center = _widget_center_in_node(policy_id_setting.right_box) if policy_id_setting.right_box else None
+                    checkpoint_out_ckpt.setPos(out_center.x(), out_center.y()) if out_center is not None else checkpoint_out_ckpt.setPos(w_now - 12, y_pid)
+
+            def _sync_layout_ckpt():
+                _resize_to_fit()
+                _sync_ports_ckpt()
+
+            QTimer.singleShot(0, _sync_layout_ckpt)
+            rect._sync_layout_fn = _sync_layout_ckpt
+            resize_ports_cb = _sync_ports_ckpt
+            rect._ckpt_policy_id_picker = policy_id_setting
+            rect._ckpt_validation_badge = status_badge
+
+            def _on_ckpt_change():
+                self._update_node_params(rect)
+                self._sync_node_parameters(rect)
+                _apply_ckpt_validation_state()
+                self.regenerate_code()
+
+            # Register as a pure-select (non-editable) policy picker and populate now
+            self._policy_select_combos.append(policy_id_setting.combo)
+            self._refresh_policy_select_combos()
+            policy_id_setting.combo.currentIndexChanged.connect(lambda _i: _on_ckpt_change())
+
+            # "Open Training Ground" action button (Phase A2)
+            train_btn_row_w = QWidget()
+            train_btn_row_w.setObjectName("ckpt_train_btn_row")
+            train_btn_row_w.setStyleSheet("QWidget { border: 0px; background: transparent; }")
+            train_btn_row_layout = QHBoxLayout(train_btn_row_w)
+            train_btn_row_layout.setContentsMargins(8, 2, 8, 4)
+            train_btn = QPushButton("Open Training Ground")
+            train_btn.setObjectName("ckptTrainBtn")
+            train_btn.setStyleSheet(self._button_style)
+            train_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            train_btn.setEnabled(False)
+            train_btn_row_layout.addWidget(train_btn)
+            row_stack.add_row("ckpt_train_btn_row", train_btn_row_w)
+            rect._ckpt_train_btn = train_btn
+
+            def _apply_ckpt_validation_state():
+                state = self._checkpoint_validation_state(policy_id_setting.combo.currentText())
+                symbol = state.get("symbol", "❌")
+                level = state.get("level", "invalid")
+                tooltip = state.get("tooltip", "")
+                color = {
+                    "runnable": "#22C55E",
+                    "trainable": "#F59E0B",
+                    "invalid": "#EF4444",
+                }.get(level, "#9CA3AF")
+                status_badge.setText(symbol)
+                status_badge.setToolTip(tooltip)
+                status_badge.setStyleSheet(
+                    "QLabel#ckptValidationBadge {"
+                    f"background: {color}; color: #ffffff; "
+                    f"border: 1px solid {self._button_border};"
+                    "font-size: 11px; font-weight: 700; }"
+                )
+                train_btn.setEnabled(True)
+                train_btn.setToolTip("打开 Training Ground。")
+
+            def _update_train_btn():
+                _apply_ckpt_validation_state()
+
+            def _on_train_btn_clicked():
+                pid = policy_id_setting.combo.currentText().strip()
+                self.workspace_open_requested.emit(pid)
+
+            policy_id_setting.combo.currentTextChanged.connect(lambda _t: _update_train_btn())
+            train_btn.clicked.connect(_on_train_btn_clicked)
+            _update_train_btn()
+
+        elif name == "Train Input":
+            # Fixed canvas anchor: outputs robot_type → EnvConfigNode robot_type input
+            ti_robot_row, ti_robot_setting = _make_input_setting_row(
+                "ti_robot_row", "robot_type", "go2",
+                show_left_dot=False, show_right_dot=True,
+            )
+
+            ti_out = _mk_port(w - 12, h / 2, "out", "robot_type", radius=4,
+                              channel="data", data_type="string", dot_kind="sub_dot")
+
+            def _sync_ports_ti():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y = _port_y(ti_robot_row)
+                if y is not None:
+                    out_center = _widget_center_in_node(ti_robot_setting.right_box) if ti_robot_setting.right_box else None
+                    ti_out.setPos(out_center.x(), out_center.y()) if out_center else ti_out.setPos(w_now - 12, y)
+
+            def _sync_layout_ti():
+                _resize_to_fit()
+                _sync_ports_ti()
+
+            QTimer.singleShot(0, _sync_layout_ti)
+            rect._sync_layout_fn = _sync_layout_ti
+            resize_ports_cb = _sync_ports_ti
+            rect._ti_robot_input = ti_robot_setting.input_edit
+            rect._is_protected = True
+            delete_btn.setVisible(False)
+            header_title.setText("INPUT")
+
+            def _on_ti_change():
+                self._update_node_params(rect)
+                self._sync_node_parameters(rect)
+
+            ti_robot_setting.input_edit.textChanged.connect(lambda _t: _on_ti_change())
+
+        elif name == "Train Output":
+            # Fixed canvas anchor: receives training result dict from TrainNode
+            to_cp_row, to_cp_setting = _make_input_setting_row(
+                "to_cp_row", "checkpoint", "trained_policy",
+                show_left_dot=True, show_right_dot=False,
+            )
+
+            to_in = _mk_port(12, h / 2, "in", "checkpoint_name", radius=4,
+                             channel="data", data_type="dict", dot_kind="sub_dot")
+
+            def _sync_ports_to():
+                if not isValid(rect):
+                    return
+                y = _port_y(to_cp_row)
+                if y is not None:
+                    in_center = _widget_center_in_node(to_cp_setting.left_box) if to_cp_setting.left_box else None
+                    to_in.setPos(in_center.x(), in_center.y()) if in_center else to_in.setPos(12, y)
+
+            def _sync_layout_to():
+                _resize_to_fit()
+                _sync_ports_to()
+
+            QTimer.singleShot(0, _sync_layout_to)
+            rect._sync_layout_fn = _sync_layout_to
+            resize_ports_cb = _sync_ports_to
+            rect._to_cp_input = to_cp_setting.input_edit
+            rect._is_protected = True
+            delete_btn.setVisible(False)
+            header_title.setText("OUTPUT")
+
+        elif name == "Env Config":
+            # Rows: robot_type (with left input dot), scene_xml, obs_components, reward_fn, max_steps
+            ec_robot_row, ec_robot_setting = _make_input_setting_row(
+                "ec_robot_row", "robot_type", "go2",
+                show_left_dot=True, show_right_dot=False,
+            )
+            ec_scene_row, ec_scene_setting = _make_input_setting_row(
+                "ec_scene_row", "scene_xml", "go2.xml",
+                show_left_dot=False, show_right_dot=False,
+            )
+            ec_obs_row, ec_obs_setting = _make_input_setting_row(
+                "ec_obs_row", "obs_components", "joint_pos joint_vel imu",
+                show_left_dot=False, show_right_dot=False,
+            )
+            ec_reward_row, ec_reward_setting = _make_input_setting_row(
+                "ec_reward_row", "reward_fn", "default",
+                show_left_dot=False, show_right_dot=False,
+            )
+            ec_steps_row, ec_steps_setting = _make_input_setting_row(
+                "ec_steps_row", "max_steps", "1000",
+                show_left_dot=False, show_right_dot=True,
+            )
+
+            robot_type_in_port = _mk_port(12, h / 4, "in", "robot_type", radius=4,
+                                          channel="data", data_type="string", dot_kind="sub_dot")
+            env_config_out = _mk_port(w - 12, h / 2, "out", "env_config", radius=4,
+                                      channel="data", data_type="dict", dot_kind="sub_dot")
+
+            def _sync_ports_ec():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y_robot = _port_y(ec_robot_row)
+                if y_robot is not None:
+                    in_center = _widget_center_in_node(ec_robot_setting.left_box) if ec_robot_setting.left_box else None
+                    robot_type_in_port.setPos(in_center.x(), in_center.y()) if in_center else robot_type_in_port.setPos(12, y_robot)
+                y = _port_y(ec_steps_row)
+                if y is not None:
+                    out_center = _widget_center_in_node(ec_steps_setting.right_box) if ec_steps_setting.right_box else None
+                    env_config_out.setPos(out_center.x(), out_center.y()) if out_center else env_config_out.setPos(w_now - 12, y)
+
+            def _sync_layout_ec():
+                _resize_to_fit()
+                _sync_ports_ec()
+
+            QTimer.singleShot(0, _sync_layout_ec)
+            rect._sync_layout_fn = _sync_layout_ec
+            resize_ports_cb = _sync_ports_ec
+            rect._ec_robot_input = ec_robot_setting.input_edit
+            rect._ec_scene_input = ec_scene_setting.input_edit
+            rect._ec_obs_input = ec_obs_setting.input_edit
+            rect._ec_reward_input = ec_reward_setting.input_edit
+            rect._ec_steps_input = ec_steps_setting.input_edit
+            header_title.setText("ENV CONFIG")
+
+            def _on_ec_change():
+                self._update_node_params(rect)
+                self._sync_node_parameters(rect)
+                self.regenerate_code()
+
+            for _ec_w in (ec_robot_setting.input_edit, ec_scene_setting.input_edit,
+                          ec_obs_setting.input_edit, ec_reward_setting.input_edit,
+                          ec_steps_setting.input_edit):
+                _ec_w.textChanged.connect(lambda _t: _on_ec_change())
+
+        elif name == "Train Config":
+            # Combo for algorithm + text inputs for key hyperparams
+            tc_algo_row, tc_algo_setting = _make_combo_setting_row(
+                "tc_algo_row", "algorithm", ["SAC", "PPO", "TD3"],
+                show_left_dot=True, show_right_dot=False,
+            )
+            tc_steps_row, tc_steps_setting = _make_input_setting_row(
+                "tc_steps_row", "total_timesteps", "1000000",
+                show_left_dot=True, show_right_dot=False,
+            )
+            tc_pid_row, tc_pid_setting = _make_input_setting_row(
+                "tc_pid_row", "policy_id_out", "trained_policy",
+                show_left_dot=False, show_right_dot=True,
+            )
+
+            # Input ports: env_config (top-left) and checkpoint (mid-left)
+            env_cfg_in_port = _mk_port(12, h * 0.35, "in", "env_config", radius=4,
+                                       channel="data", data_type="dict", dot_kind="sub_dot")
+            checkpoint_in_port = _mk_port(12, h * 0.55, "in", "checkpoint", radius=4,
+                                          channel="data", data_type="dict", dot_kind="sub_dot")
+            train_cfg_out = _mk_port(w - 12, h / 2, "out", "train_config", radius=4,
+                                     channel="data", data_type="dict", dot_kind="sub_dot")
+
+            def _sync_ports_tc():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y_algo = _port_y(tc_algo_row)
+                y_steps = _port_y(tc_steps_row)
+                y_pid = _port_y(tc_pid_row)
+                if y_algo is not None:
+                    in_center = _widget_center_in_node(tc_algo_setting.left_box) if tc_algo_setting.left_box else None
+                    env_cfg_in_port.setPos(in_center.x(), in_center.y()) if in_center else env_cfg_in_port.setPos(12, y_algo)
+                if y_steps is not None:
+                    in_center2 = _widget_center_in_node(tc_steps_setting.left_box) if tc_steps_setting.left_box else None
+                    checkpoint_in_port.setPos(in_center2.x(), in_center2.y()) if in_center2 else checkpoint_in_port.setPos(12, y_steps)
+                if y_pid is not None:
+                    out_center = _widget_center_in_node(tc_pid_setting.right_box) if tc_pid_setting.right_box else None
+                    train_cfg_out.setPos(out_center.x(), out_center.y()) if out_center else train_cfg_out.setPos(w_now - 12, y_pid)
+
+            def _sync_layout_tc():
+                _resize_to_fit()
+                _sync_ports_tc()
+
+            QTimer.singleShot(0, _sync_layout_tc)
+            rect._sync_layout_fn = _sync_layout_tc
+            resize_ports_cb = _sync_ports_tc
+            rect._tc_algo_picker = tc_algo_setting
+            rect._tc_steps_input = tc_steps_setting.input_edit
+            rect._tc_pid_input = tc_pid_setting.input_edit
+            header_title.setText("TRAIN CONFIG")
+
+            def _on_tc_change():
+                self._update_node_params(rect)
+                self._sync_node_parameters(rect)
+                self.regenerate_code()
+
+            tc_algo_setting.combo.currentIndexChanged.connect(lambda _i: _on_tc_change())
+            tc_steps_setting.input_edit.textChanged.connect(lambda _t: _on_tc_change())
+            tc_pid_setting.input_edit.textChanged.connect(lambda _t: _on_tc_change())
+
+        elif name == "Task Config":
+            # Rows: task_type, command_mode, curriculum (output: task_config)
+            tsk_type_row, tsk_type_setting = _make_combo_setting_row(
+                "tsk_type_row", "task_type",
+                ["velocity_tracking", "locomotion", "manipulation", "custom"],
+                show_left_dot=False, show_right_dot=False,
+            )
+            tsk_cmd_row, tsk_cmd_setting = _make_combo_setting_row(
+                "tsk_cmd_row", "command_mode", ["fixed", "variable"],
+                show_left_dot=False, show_right_dot=False,
+            )
+            tsk_curric_row, tsk_curric_setting = _make_combo_setting_row(
+                "tsk_curric_row", "curriculum", ["false", "true"],
+                show_left_dot=False, show_right_dot=True,
+            )
+
+            task_config_out = _mk_port(w - 12, h / 2, "out", "task_config", radius=4,
+                                       channel="data", data_type="dict", dot_kind="sub_dot")
+
+            def _sync_ports_tsk():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y = _port_y(tsk_curric_row)
+                if y is not None:
+                    out_center = _widget_center_in_node(tsk_curric_setting.right_box) if tsk_curric_setting.right_box else None
+                    task_config_out.setPos(out_center.x(), out_center.y()) if out_center else task_config_out.setPos(w_now - 12, y)
+
+            def _sync_layout_tsk():
+                _resize_to_fit()
+                _sync_ports_tsk()
+
+            QTimer.singleShot(0, _sync_layout_tsk)
+            rect._sync_layout_fn = _sync_layout_tsk
+            resize_ports_cb = _sync_ports_tsk
+            rect._tsk_type_picker = tsk_type_setting
+            rect._tsk_cmd_picker = tsk_cmd_setting
+            rect._tsk_curric_picker = tsk_curric_setting
+            header_title.setText("TASK CONFIG")
+
+            def _on_tsk_change():
+                self._update_node_params(rect)
+                self._sync_node_parameters(rect)
+                self.regenerate_code()
+
+            tsk_type_setting.combo.currentIndexChanged.connect(lambda _i: _on_tsk_change())
+            tsk_cmd_setting.combo.currentIndexChanged.connect(lambda _i: _on_tsk_change())
+            tsk_curric_setting.combo.currentIndexChanged.connect(lambda _i: _on_tsk_change())
+
+        elif name == "Eval Config":
+            # Rows: eval_episodes, success_threshold, deterministic (output: eval_config)
+            ev_eps_row, ev_eps_setting = _make_input_setting_row(
+                "ev_eps_row", "eval_episodes", "10",
+                show_left_dot=False, show_right_dot=False,
+            )
+            ev_thresh_row, ev_thresh_setting = _make_input_setting_row(
+                "ev_thresh_row", "success_threshold", "0.8",
+                show_left_dot=False, show_right_dot=False,
+            )
+            ev_det_row, ev_det_setting = _make_combo_setting_row(
+                "ev_det_row", "deterministic", ["true", "false"],
+                show_left_dot=False, show_right_dot=True,
+            )
+
+            eval_config_out = _mk_port(w - 12, h / 2, "out", "eval_config", radius=4,
+                                       channel="data", data_type="dict", dot_kind="sub_dot")
+
+            def _sync_ports_ev():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y = _port_y(ev_det_row)
+                if y is not None:
+                    out_center = _widget_center_in_node(ev_det_setting.right_box) if ev_det_setting.right_box else None
+                    eval_config_out.setPos(out_center.x(), out_center.y()) if out_center else eval_config_out.setPos(w_now - 12, y)
+
+            def _sync_layout_ev():
+                _resize_to_fit()
+                _sync_ports_ev()
+
+            QTimer.singleShot(0, _sync_layout_ev)
+            rect._sync_layout_fn = _sync_layout_ev
+            resize_ports_cb = _sync_ports_ev
+            rect._ev_eps_input = ev_eps_setting.input_edit
+            rect._ev_thresh_input = ev_thresh_setting.input_edit
+            rect._ev_det_picker = ev_det_setting
+            header_title.setText("EVAL CONFIG")
+
+            def _on_ev_change():
+                self._update_node_params(rect)
+                self._sync_node_parameters(rect)
+                self.regenerate_code()
+
+            ev_eps_setting.input_edit.textChanged.connect(lambda _t: _on_ev_change())
+            ev_thresh_setting.input_edit.textChanged.connect(lambda _t: _on_ev_change())
+            ev_det_setting.combo.currentIndexChanged.connect(lambda _i: _on_ev_change())
+
+        elif name == "Train":
+            # Minimal shell: input port (train_config) + output port (result)
+            train_tag_row, train_tag_layout = _make_row("none")
+            train_tag_layout.addWidget(make_tag("train_config \u2192 result", self._tag_style))
+            _finish_row(train_tag_layout, "none")
+            row_stack.add_row("train_tag_row", train_tag_row)
+
+            train_cfg_in = _mk_port(12, h / 2, "in", "train_config", radius=4,
+                                    channel="data", data_type="dict", dot_kind="sub_dot")
+            result_out = _mk_port(w - 12, h / 2, "out", "result", radius=4,
+                                  channel="data", data_type="dict", dot_kind="sub_dot")
+
+            def _sync_ports_train():
+                if not isValid(rect):
+                    return
+                w_now = rect.rect().width()
+                y = _port_y(train_tag_row)
+                if y is not None:
+                    train_cfg_in.setPos(12, y)
+                    result_out.setPos(w_now - 12, y)
+
+            def _sync_layout_train():
+                _resize_to_fit()
+                _sync_ports_train()
+
+            QTimer.singleShot(0, _sync_layout_train)
+            rect._sync_layout_fn = _sync_layout_train
+            resize_ports_cb = _sync_ports_train
+            header_title.setText("TRAIN")
+
         else:
             default_text = "< logic >"
             if "Action Execution" in name:
                 default_text = "< action >"
-            elif name == "Behavior":
-                default_text = "< behavior >"
             elif "Sensor Input" in name:
                 default_text = "< sensor >"
             elif name == "Sensor":
@@ -4634,10 +5773,22 @@ class GraphScene(QGraphicsScene):
                     self._record_symbol("script", ref)
                 elif kind == "settings":
                     ref = "settings"
+                elif kind == "behavior":
+                    ref = self._ensure_behavior_ref(rect)
+                    display_name = cond_set.logic_text() if cond_set else ""
+                    combo = getattr(cond_set, "combo", None) if cond_set else None
+                    combo_data = combo.currentData(Qt.ItemDataRole.UserRole) if combo is not None else {}
+                    if not isinstance(combo_data, dict):
+                        combo_data = {}
+                    intent_id = str(combo_data.get("intent_id") or "").strip()
                 else:
                     ref = cond_set.logic_text() if cond_set else ""
                 if callable(self._subgraph_opener):
-                    self._subgraph_opener(kind=kind, node_id=node_id, ref=ref, node_item=rect)
+                    kwargs = {"kind": kind, "node_id": node_id, "ref": ref, "node_item": rect}
+                    if kind == "behavior":
+                        kwargs["display_name"] = display_name
+                        kwargs["intent_id"] = intent_id
+                    self._subgraph_opener(**kwargs)
                 else:
                     log_info(f"Open nested editor requested: kind={kind}, node_id={node_id}, ref={ref}")
 
@@ -4699,7 +5850,10 @@ class GraphScene(QGraphicsScene):
             brand_combo = getattr(rect_item, '_brand_picker', None)
             model_combo = getattr(rect_item, '_model_picker', None)
             if brand_combo:
-                logic_node.set_parameter('robot_brand', brand_combo.currentText())
+                logic_node.set_parameter(
+                    'robot_brand',
+                    brand_combo.currentData(Qt.ItemDataRole.UserRole) or brand_combo.currentText(),
+                )
             if model_combo:
                 logic_node.set_parameter('robot_type', model_combo.currentText())
             return
@@ -4713,13 +5867,12 @@ class GraphScene(QGraphicsScene):
             logic_node.set_parameter('action', robot_action)
 
         elif name == "Behavior":
-            behavior_ref = cond_set_generic.logic_text() if cond_set_generic else ""
-            logic_node.set_parameter('behavior_ref', behavior_ref)
-            robot_action = self._action_mapping.get(
-                behavior_ref,
-                behavior_ref.lower().replace(" ", "_")
-            )
-            logic_node.set_parameter('action', robot_action)
+            pid_picker = getattr(rect_item, '_beh_policy_id_picker', None)
+            if pid_picker:
+                logic_node.set_parameter('policy_id', pid_picker.combo.currentText())
+            scale_slider = getattr(rect_item, '_beh_command_scale_slider', None)
+            if scale_slider is not None:
+                logic_node.set_parameter('command_scale', float(scale_slider.value()) / 100.0)
 
         elif "Sensor Input" in name and cond_set_generic:
             sensor_map = {
@@ -4937,6 +6090,59 @@ class GraphScene(QGraphicsScene):
                 level = 1
             logic_node.set_parameter('break_level', max(1, level))
 
+        elif name == "Checkpoint":
+            pid_picker = getattr(rect_item, '_ckpt_policy_id_picker', None)
+            if pid_picker:
+                logic_node.set_parameter('policy_id', pid_picker.combo.currentText())
+
+        elif name == "Env Config":
+            for attr, param in (
+                ("_ec_robot_input", "robot_type"),
+                ("_ec_scene_input", "scene_xml"),
+                ("_ec_obs_input", "obs_components"),
+                ("_ec_reward_input", "reward_fn"),
+                ("_ec_steps_input", "max_steps"),
+            ):
+                w = getattr(rect_item, attr, None)
+                if w:
+                    logic_node.set_parameter(param, w.text())
+
+        elif name == "Train Config":
+            algo_picker = getattr(rect_item, "_tc_algo_picker", None)
+            if algo_picker:
+                logic_node.set_parameter("algorithm", algo_picker.combo.currentText())
+            steps_inp = getattr(rect_item, "_tc_steps_input", None)
+            if steps_inp:
+                logic_node.set_parameter("total_timesteps", steps_inp.text())
+            pid_inp = getattr(rect_item, "_tc_pid_input", None)
+            if pid_inp:
+                logic_node.set_parameter("policy_id_out", pid_inp.text())
+
+        elif name == "Train":
+            pass  # No user-editable parameters in S1
+
+        elif name == "Task Config":
+            for attr, param in (
+                ("_tsk_type_picker", "task_type"),
+                ("_tsk_cmd_picker", "command_mode"),
+                ("_tsk_curric_picker", "curriculum"),
+            ):
+                picker = getattr(rect_item, attr, None)
+                if picker and hasattr(picker, "combo"):
+                    logic_node.set_parameter(param, picker.combo.currentText())
+
+        elif name == "Eval Config":
+            for attr, param in (
+                ("_ev_eps_input", "eval_episodes"),
+                ("_ev_thresh_input", "success_threshold"),
+            ):
+                w = getattr(rect_item, attr, None)
+                if w:
+                    logic_node.set_parameter(param, w.text())
+            det_picker = getattr(rect_item, "_ev_det_picker", None)
+            if det_picker and hasattr(det_picker, "combo"):
+                logic_node.set_parameter("deterministic", det_picker.combo.currentText())
+
         elif "Switch" in name:
             expr_inp = getattr(rect_item, '_switch_expr_input', None)
             if expr_inp:
@@ -4965,6 +6171,18 @@ class GraphScene(QGraphicsScene):
                 except ValueError:
                     logic_node.set_parameter('branch_count', 2)
 
+    def _get_node_port(self, rect_item, slot: str, io: str):
+        """Return the port QGraphicsEllipseItem matching slot name and io direction."""
+        for child in rect_item.childItems():
+            if not child or not isValid(child):
+                continue
+            try:
+                if child.data(0) == "port" and child.data(3) == slot and child.data(1) == io:
+                    return child
+            except RuntimeError:
+                continue
+        return None
+
     def _find_port_near(self, pos, radius=14):
         """Find port near position"""
         search_rect = QRectF(pos.x() - radius, pos.y() - radius, radius * 2, radius * 2)
@@ -4985,7 +6203,14 @@ class GraphScene(QGraphicsScene):
 
     def _is_port(self, item):
         """Check if item is a port"""
-        return bool(item) and item.data(0) == "port"
+        if not item:
+            return False
+        try:
+            if not isValid(item):
+                return False
+            return item.data(0) == "port"
+        except RuntimeError:
+            return False
 
     def _apply_port_visual(self, port_item, state: str = "normal"):
         """Apply consistent main/sub dot visuals with preview state."""
@@ -5371,7 +6596,7 @@ class GraphScene(QGraphicsScene):
                 if port and isValid(port) and port.data(2):
                     log_warning(
                         f"[Script] Output '{current_name}' has active connections "
-                        f"and will be removed — please reconnect."
+                        f"and will be removed 鈥?please reconnect."
                     )
 
         # Remove all existing output ports and their connections
@@ -5401,7 +6626,7 @@ class GraphScene(QGraphicsScene):
         if callable(sync_layout):
             QTimer.singleShot(0, sync_layout)
 
-    # ── Step 4: name-stable IO sync from compile result ──────────────────────
+    # 鈹€鈹€ Step 4: name-stable IO sync from compile result 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     @staticmethod
     def _script_entry_name(entry: Dict[str, Any]) -> str:
@@ -5489,7 +6714,7 @@ class GraphScene(QGraphicsScene):
         new_inputs = list(compile_result.get("inputs") or [])
         new_outputs = list(compile_result.get("outputs") or [])
 
-        # ── inputs diff ───────────────────────────────────────────────────────
+        # 鈹€鈹€ inputs diff 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
         current_input_entries = list(getattr(node_item, "_script_input_rows", []) or [])
         current_in_by_name: Dict[str, Any] = {
             self._script_entry_name(e): e for e in current_input_entries
@@ -5528,7 +6753,7 @@ class GraphScene(QGraphicsScene):
             else:
                 self._script_add_input_row(node_item, data_type=data_type, var_name=name)
 
-        # ── outputs diff ──────────────────────────────────────────────────────
+        # 鈹€鈹€ outputs diff 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
         current_output_entries = list(getattr(node_item, "_script_output_rows", []) or [])
         current_out_by_name: Dict[str, Any] = {
             self._script_entry_name(e): e for e in current_output_entries
@@ -5566,7 +6791,7 @@ class GraphScene(QGraphicsScene):
             else:
                 self._script_add_output_row(node_item, var_name=name, data_type=data_type)
 
-        # ── sync spec and layout ──────────────────────────────────────────────
+        # 鈹€鈹€ sync spec and layout 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
         self._script_sync_io_spec(node_item)
         sync_layout = getattr(node_item, "_sync_layout_fn", None)
         if callable(sync_layout):
@@ -5674,13 +6899,30 @@ class GraphScene(QGraphicsScene):
 
     def _port_meta(self, port_item) -> Dict[str, Any]:
         """Return normalized port metadata for type-safe connection checks."""
+        if not port_item:
+            return {
+                "io": "",
+                "slot": "",
+                "channel": "data",
+                "data_type": "any",
+                "max_connections": None,
+                "dot_kind": "sub_dot",
+            }
         meta = {}
         try:
+            if not isValid(port_item):
+                raise RuntimeError("invalid port")
             meta = dict(port_item.data(self._port_meta_key) or {})
         except Exception:
             meta = {}
-        slot = str(port_item.data(3) or "")
-        io = str(port_item.data(1) or "")
+        try:
+            slot = str(port_item.data(3) or "")
+        except Exception:
+            slot = ""
+        try:
+            io = str(port_item.data(1) or "")
+        except Exception:
+            io = ""
         channel = meta.get("channel")
         if not channel:
             channel = "flow" if slot in _FLOW_SLOTS or slot.startswith("out_elif") else "data"
@@ -5709,6 +6951,14 @@ class GraphScene(QGraphicsScene):
 
     def _can_connect_ports(self, out_port, in_port, ignore_connection=None, log_fail: bool = True) -> bool:
         """Protocol-level connection validator to prevent wrong/messy wiring."""
+        if not out_port or not in_port:
+            return False
+        try:
+            if not isValid(out_port) or not isValid(in_port):
+                return False
+        except Exception:
+            return False
+
         out_meta = self._port_meta(out_port)
         in_meta = self._port_meta(in_port)
 
@@ -5731,14 +6981,14 @@ class GraphScene(QGraphicsScene):
                 )
             return False
         if not self._is_data_type_compatible(out_meta["data_type"], in_meta["data_type"]):
-            # Migration-compat gate (Step 5): when loading a pre-1.4 mission file,
-            # Behavior "condition" connections may be typed "bool" (old contract).
+            # Migration-compat gate (Step 5): when loading an older mission file,
+            # Behavior protocol input may still use the legacy "condition" slot.
             # Allow them to restore so the user sees a protocol_invalid border
-            # rather than a silent missing-connection — without widening type rules
+            # rather than a silent missing-connection 鈥?without widening type rules
             # for interactive use.
             is_migration_load = getattr(self, "_loading_workflow", False)
             is_legacy_behavior_cond = (
-                in_meta["slot"] == "condition"
+                in_meta["slot"] in ("condition", "control_pipe")
                 and in_meta["data_type"] == "protocol"
                 and out_meta["data_type"] in ("bool", "any")
             )
@@ -5752,7 +7002,10 @@ class GraphScene(QGraphicsScene):
 
         max_in = in_meta.get("max_connections")
         if isinstance(max_in, int) and max_in >= 0:
-            current_conns = list(in_port.data(2) or [])
+            try:
+                current_conns = list(in_port.data(2) or [])
+            except Exception:
+                current_conns = []
             if ignore_connection is not None:
                 current_conns = [c for c in current_conns if c is not ignore_connection]
             current = len(current_conns)
@@ -6010,6 +7263,36 @@ class GraphScene(QGraphicsScene):
             }
         if hasattr(node_item, "_behavior_extension_notes"):
             params["behavior_extension_notes"] = getattr(node_item, "_behavior_extension_notes", {})
+        if hasattr(node_item, "_behavior_param_inputs"):
+            params["behavior_action_params"] = {
+                str(k): w.text()
+                for k, w in (getattr(node_item, "_behavior_param_inputs", {}) or {}).items()
+                if hasattr(w, "text")
+            }
+        if hasattr(node_item, "_ckpt_policy_id_picker"):
+            params["ckpt_policy_id"] = node_item._ckpt_policy_id_picker.combo.currentText()
+        # Behavior node params
+        if hasattr(node_item, "_beh_policy_id_picker"):
+            params["beh_policy_id"] = node_item._beh_policy_id_picker.combo.currentText()
+        if hasattr(node_item, "_beh_command_scale_slider"):
+            params["beh_command_scale"] = f"{float(node_item._beh_command_scale_slider.value()) / 100.0:.2f}"
+        # Training nodes (Circle 7 S1)
+        if hasattr(node_item, "_ec_robot_input"):
+            params["ec_robot_type"] = node_item._ec_robot_input.text()
+        if hasattr(node_item, "_ec_scene_input"):
+            params["ec_scene_xml"] = node_item._ec_scene_input.text()
+        if hasattr(node_item, "_ec_obs_input"):
+            params["ec_obs_components"] = node_item._ec_obs_input.text()
+        if hasattr(node_item, "_ec_reward_input"):
+            params["ec_reward_fn"] = node_item._ec_reward_input.text()
+        if hasattr(node_item, "_ec_steps_input"):
+            params["ec_max_steps"] = node_item._ec_steps_input.text()
+        if hasattr(node_item, "_tc_algo_picker"):
+            params["tc_algorithm"] = node_item._tc_algo_picker.combo.currentText()
+        if hasattr(node_item, "_tc_steps_input"):
+            params["tc_total_timesteps"] = node_item._tc_steps_input.text()
+        if hasattr(node_item, "_tc_pid_input"):
+            params["tc_policy_id_out"] = node_item._tc_pid_input.text()
 
         node_item.setData(20, params)
 
@@ -6174,15 +7457,16 @@ class GraphScene(QGraphicsScene):
     def _find_entry_nodes(self, graph: Dict[str, Any]) -> List[int]:
         """Find nodes with no flow_in connections (entry points)"""
         entry_nodes = []
+        data_only_entries = {"End", "Checkpoint"}
         for node_id, item in graph['nodes'].items():
             if not item or not isValid(item):
                 continue
             incoming = graph['incoming'].get(node_id, {})
             # Check if has flow_in connection
             has_flow_in = 'flow_in' in incoming and len(incoming['flow_in']) > 0
-            # Exclude End nodes from entry points
+            # Exclude pure data-provider nodes from entry points.
             node_name = item.data(11) if item else ""
-            if not has_flow_in and node_name != "End":
+            if not has_flow_in and node_name not in data_only_entries:
                 entry_nodes.append(node_id)
 
         # Sort by x position (left to right) - with safe access
@@ -6600,8 +7884,15 @@ class GraphScene(QGraphicsScene):
                 "height": round(item.rect().height(), 1),
                 "node_type": logic_node.node_type if logic_node else "unknown",
             }
-            if name in ("Behavior", "Sensor", "Trigger"):
+            if name in ("Sensor", "Trigger"):
                 node_entry["external_kind"] = name.lower()
+            if name == "Behavior":
+                node_entry["behavior_ref"] = self._ensure_behavior_ref(item)
+                cond_set = getattr(item, "_condition_set", None)
+                combo = getattr(cond_set, "combo", None) if cond_set is not None else None
+                combo_data = combo.currentData(Qt.ItemDataRole.UserRole) if combo is not None else {}
+                if isinstance(combo_data, dict):
+                    node_entry["behavior_intent_id"] = str(combo_data.get("intent_id") or "").strip()
             if name == "Script Box":
                 node_entry["node_type"] = "opaque_code"
                 node_entry["external_kind"] = "script"
@@ -6622,7 +7913,9 @@ class GraphScene(QGraphicsScene):
             brand_combo = getattr(item, '_brand_picker', None)
             model_combo = getattr(item, '_model_picker', None)
             if brand_combo:
-                node_entry["robot_brand"] = brand_combo.currentText()
+                node_entry["robot_brand"] = (
+                    brand_combo.currentData(Qt.ItemDataRole.UserRole) or brand_combo.currentText()
+                )
             if model_combo:
                 node_entry["ui_selection"] = model_combo.currentText()
                 node_entry["robot_type"] = model_combo.currentText()
@@ -6717,6 +8010,37 @@ class GraphScene(QGraphicsScene):
             break_level = getattr(item, '_break_level_input', None)
             if break_level:
                 node_entry["break_level"] = break_level.text()
+
+            # Control pipeline nodes
+            ckpt_policy_id = getattr(item, "_ckpt_policy_id_picker", None)
+            if ckpt_policy_id is not None:
+                node_entry["ckpt_policy_id"] = ckpt_policy_id.combo.currentText()
+            beh_pid = getattr(item, "_beh_policy_id_picker", None)
+            if beh_pid is not None:
+                node_entry["beh_policy_id"] = beh_pid.combo.currentText()
+            beh_scale = getattr(item, "_beh_command_scale_slider", None)
+            if beh_scale is not None:
+                node_entry["beh_command_scale"] = round(float(beh_scale.value()) / 100.0, 2)
+            # Training nodes (Circle 7 S1)
+            for _attr, _key in (
+                ("_ec_robot_input", "ec_robot_type"),
+                ("_ec_scene_input", "ec_scene_xml"),
+                ("_ec_obs_input", "ec_obs_components"),
+                ("_ec_reward_input", "ec_reward_fn"),
+                ("_ec_steps_input", "ec_max_steps"),
+            ):
+                _w = getattr(item, _attr, None)
+                if _w is not None:
+                    node_entry[_key] = _w.text()
+            _tc_algo = getattr(item, "_tc_algo_picker", None)
+            if _tc_algo is not None:
+                node_entry["tc_algorithm"] = _tc_algo.combo.currentText()
+            _tc_steps = getattr(item, "_tc_steps_input", None)
+            if _tc_steps is not None:
+                node_entry["tc_total_timesteps"] = _tc_steps.text()
+            _tc_pid = getattr(item, "_tc_pid_input", None)
+            if _tc_pid is not None:
+                node_entry["tc_policy_id_out"] = _tc_pid.text()
 
             # Loop node (unified While / For)
             loop_type_picker = getattr(item, '_loop_type_picker', None)
@@ -6923,7 +8247,6 @@ class GraphScene(QGraphicsScene):
         trigger_timeout_widget = getattr(rect, "_trigger_timeout_input", None)
         if trigger_timeout_val is not None and trigger_timeout_widget:
             trigger_timeout_widget.setText(str(trigger_timeout_val))
-
         # Restore Gate node
         gate_mode_val = node_data.get("gate_mode")
         gate_mode_widget = getattr(rect, '_gate_mode_picker', None)
@@ -6979,6 +8302,67 @@ class GraphScene(QGraphicsScene):
         break_level_widget = getattr(rect, '_break_level_input', None)
         if break_level_val is not None and break_level_widget:
             break_level_widget.setText(str(break_level_val))
+
+        # Restore Checkpoint node
+        ckpt_pid_val = node_data.get("ckpt_policy_id")
+        ckpt_pid_widget = getattr(rect, '_ckpt_policy_id_picker', None)
+        if ckpt_pid_val is not None and ckpt_pid_widget:
+            idx = ckpt_pid_widget.combo.findText(str(ckpt_pid_val))
+            if idx >= 0:
+                ckpt_pid_widget.combo.setCurrentIndex(idx)
+            else:
+                ckpt_pid_widget.combo.addItem(str(ckpt_pid_val))
+                ckpt_pid_widget.combo.setCurrentText(str(ckpt_pid_val))
+
+        # Restore training nodes (Circle 7 S1)
+        for _key, _attr in (
+            ("ec_robot_type", "_ec_robot_input"),
+            ("ec_scene_xml", "_ec_scene_input"),
+            ("ec_obs_components", "_ec_obs_input"),
+            ("ec_reward_fn", "_ec_reward_input"),
+            ("ec_max_steps", "_ec_steps_input"),
+        ):
+            _val = node_data.get(_key)
+            _w = getattr(rect, _attr, None)
+            if _val is not None and _w is not None:
+                _w.setText(str(_val))
+        _tc_algo_val = node_data.get("tc_algorithm")
+        _tc_algo_w = getattr(rect, "_tc_algo_picker", None)
+        if _tc_algo_val and _tc_algo_w:
+            _idx = _tc_algo_w.combo.findText(str(_tc_algo_val))
+            if _idx >= 0:
+                _tc_algo_w.combo.setCurrentIndex(_idx)
+        _tc_steps_val = node_data.get("tc_total_timesteps")
+        _tc_steps_w = getattr(rect, "_tc_steps_input", None)
+        if _tc_steps_val is not None and _tc_steps_w is not None:
+            _tc_steps_w.setText(str(_tc_steps_val))
+        _tc_pid_val = node_data.get("tc_policy_id_out")
+        _tc_pid_w = getattr(rect, "_tc_pid_input", None)
+        if _tc_pid_val is not None and _tc_pid_w is not None:
+            _tc_pid_w.setText(str(_tc_pid_val))
+
+        # Restore Behavior node
+        beh_pid_val = node_data.get("beh_policy_id")
+        beh_pid_widget = getattr(rect, '_beh_policy_id_picker', None)
+        if beh_pid_val is not None and beh_pid_widget:
+            idx = beh_pid_widget.combo.findText(str(beh_pid_val))
+            if idx >= 0:
+                beh_pid_widget.combo.setCurrentIndex(idx)
+            else:
+                beh_pid_widget.combo.addItem(str(beh_pid_val))
+                beh_pid_widget.combo.setCurrentText(str(beh_pid_val))
+        beh_scale_val = node_data.get("beh_command_scale")
+        beh_scale_widget = getattr(rect, "_beh_command_scale_slider", None)
+        beh_scale_label = getattr(rect, "_beh_command_scale_label", None)
+        if beh_scale_val is not None and beh_scale_widget is not None:
+            try:
+                slider_value = int(round(float(beh_scale_val) * 100.0))
+            except (TypeError, ValueError):
+                slider_value = 100
+            slider_value = max(0, min(200, slider_value))
+            beh_scale_widget.setValue(slider_value)
+            if beh_scale_label is not None:
+                beh_scale_label.setText(f"{slider_value}%")
         script_ref_val = node_data.get("script_ref")
         if script_ref_val is not None:
             rect._script_ref = str(script_ref_val)
@@ -7105,10 +8489,13 @@ class GraphScene(QGraphicsScene):
         brand_val = node_data.get("robot_brand")
         brand_combo = getattr(rect, '_brand_picker', None)
         if brand_val and brand_combo:
-            idx = brand_combo.findText(brand_val)
+            brand_id = normalize_brand_id(str(brand_val))
+            idx = brand_combo.findData(brand_id, Qt.ItemDataRole.UserRole)
+            if idx < 0:
+                idx = brand_combo.findText(str(brand_val))
             if idx >= 0:
                 brand_combo.setCurrentIndex(idx)
-            self._robot_brand = brand_val
+            self._robot_brand = brand_id or str(brand_val)
 
         robot_type_val = node_data.get("robot_type") or node_data.get("ui_selection")
         model_combo = getattr(rect, '_model_picker', None)
@@ -7125,7 +8512,7 @@ class GraphScene(QGraphicsScene):
 
         # Set robot type
         if "robot_brand" in data:
-            self._robot_brand = data["robot_brand"]
+            self._robot_brand = normalize_brand_id(data["robot_brand"])
         if "robot_type" in data:
             self._robot_type = data["robot_type"]
 
@@ -7192,8 +8579,18 @@ class GraphScene(QGraphicsScene):
                 name = "Abort"
             elif node_type == "break":
                 name = "Break"
+            elif node_type == "checkpoint":
+                name = "Checkpoint"
+            elif node_type == "policy":
+                name = "Policy"
+            elif node_type == "conductor":
+                name = "Conductor"
 
-            pos = QPointF(x + w / 2, y + h / 2)
+            # create_node internally does setPos(scene_pos - QPointF(50, 40))
+            # using the fixed initial node size (100×80). Pass scene_pos such
+            # that the final setPos lands exactly on the saved (x, y) position,
+            # avoiding coordinate drift caused by using the saved (w, h) offsets.
+            pos = QPointF(x + 50, y + 40)
             rect = self.create_node(name, pos, features)
 
             # Block signals on all child widgets to prevent triggering
@@ -7241,7 +8638,7 @@ class GraphScene(QGraphicsScene):
 
             self._create_connection(out_port, in_port)
 
-        # Restore group containers (backward compat: missing key → empty list)
+        # Restore group containers (backward compat: missing key 鈫?empty list)
         for group_data in data.get("groups", []):
             try:
                 gid = int(group_data.get("id", 0))
@@ -7259,7 +8656,7 @@ class GraphScene(QGraphicsScene):
                 self.addItem(g_item)
 
                 # Restore position without triggering member moves
-                # (_prev_pos is None on fresh item → first setPos is a no-op for members)
+                # (_prev_pos is None on fresh item 鈫?first setPos is a no-op for members)
                 g_item.setPos(QPointF(gx, gy))
                 g_item.setRect(0, 0, gw, gh)
 
@@ -7463,4 +8860,3 @@ class GraphScene(QGraphicsScene):
             'incoming': graph['incoming'],
             'entry_nodes': entry_nodes
         }
-

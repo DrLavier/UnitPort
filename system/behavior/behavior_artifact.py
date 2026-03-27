@@ -46,6 +46,8 @@ class BehaviorErrorCode:
     SUBGRAPH_EXECUTION_FAILED   = "subgraph_execution_failed"
     SUBGRAPH_ABORTED            = "subgraph_aborted"
     BEHAVIOR_COMPILE_ERROR      = "behavior_compile_error"
+    # Circle 7 Step 7.1 — semantic intent resolution failure
+    SEMANTIC_RESOLUTION_FAILED  = "semantic_resolution_failed"
 
 
 # ---------------------------------------------------------------------------
@@ -384,6 +386,19 @@ class BehaviorInvokeOutput:
     apply_success_count: int = 0
     apply_skipped_count: int = 0
     apply_failure_reasons: List[str] = field(default_factory=list)
+    # Circle 7 Step 7.1: semantic intent resolution diagnostics.
+    # resolution_diagnostics: BehaviorDiagnostic entries from intent resolution.
+    #   - info-level "resolution.resolved.<intent_id>" for each successful mapping.
+    #   - error-level "resolution.unsupported.<intent_id>" for each failed mapping.
+    #   Empty when resolution was skipped (no brand / no timeline data).
+    resolution_diagnostics: List["BehaviorDiagnostic"] = field(default_factory=list)
+    # Step 10: runtime motor-track topology diagnostics.
+    # topology_diagnostics: non-blocking BehaviorDiagnostic entries from the
+    #   runtime canonical-topology check on artifact.timeline_data.
+    #   - warning-level "runtime.topology.unknown_track" for each stale track_name.
+    #   - warning-level "runtime.topology.degraded" when topology is unavailable.
+    #   Empty when no timeline_data, no motor overlays, or topology check skipped.
+    topology_diagnostics: List["BehaviorDiagnostic"] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # Factories
@@ -403,6 +418,8 @@ class BehaviorInvokeOutput:
         apply_success_count: int = 0,                                    # Circle 1 Step 2
         apply_skipped_count: int = 0,                                    # Circle 1 Step 2
         apply_failure_reasons: List[str] | None = None,                  # Circle 1 Step 2
+        resolution_diagnostics: List["BehaviorDiagnostic"] | None = None,  # Circle 7
+        topology_diagnostics: List["BehaviorDiagnostic"] | None = None,    # Step 10
     ) -> "BehaviorInvokeOutput":
         return cls(
             status="success",
@@ -418,6 +435,8 @@ class BehaviorInvokeOutput:
             apply_success_count=apply_success_count,
             apply_skipped_count=apply_skipped_count,
             apply_failure_reasons=apply_failure_reasons or [],
+            resolution_diagnostics=resolution_diagnostics or [],
+            topology_diagnostics=topology_diagnostics or [],
         )
 
     @classmethod
@@ -435,6 +454,8 @@ class BehaviorInvokeOutput:
         apply_success_count: int = 0,                                    # Circle 1 Step 2
         apply_skipped_count: int = 0,                                    # Circle 1 Step 2
         apply_failure_reasons: List[str] | None = None,                  # Circle 1 Step 2
+        resolution_diagnostics: List["BehaviorDiagnostic"] | None = None,  # Circle 7
+        topology_diagnostics: List["BehaviorDiagnostic"] | None = None,    # Step 10
     ) -> "BehaviorInvokeOutput":
         return cls(
             status="failed",
@@ -450,6 +471,8 @@ class BehaviorInvokeOutput:
             apply_success_count=apply_success_count,
             apply_skipped_count=apply_skipped_count,
             apply_failure_reasons=apply_failure_reasons or [],
+            resolution_diagnostics=resolution_diagnostics or [],
+            topology_diagnostics=topology_diagnostics or [],
         )
 
     @classmethod
@@ -460,6 +483,8 @@ class BehaviorInvokeOutput:
         diagnostics: List[BehaviorDiagnostic] | None = None,
         protocol_status: str = "absent",                                 # Circle 1 gap fix
         protocol_diagnostics: List["BehaviorDiagnostic"] | None = None, # Circle 1 gap fix
+        resolution_diagnostics: List["BehaviorDiagnostic"] | None = None,  # Circle 7
+        topology_diagnostics: List["BehaviorDiagnostic"] | None = None,    # Step 10
     ) -> "BehaviorInvokeOutput":
         return cls(
             status="blocked",
@@ -468,6 +493,8 @@ class BehaviorInvokeOutput:
             diagnostics=diagnostics or [],
             protocol_status=protocol_status,
             protocol_diagnostics=protocol_diagnostics or [],
+            resolution_diagnostics=resolution_diagnostics or [],
+            topology_diagnostics=topology_diagnostics or [],
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -492,6 +519,10 @@ class BehaviorInvokeOutput:
             "apply_success_count": self.apply_success_count,
             "apply_skipped_count": self.apply_skipped_count,
             "apply_failure_reasons": self.apply_failure_reasons,
+            # Circle 7 Step 7.1: semantic intent resolution diagnostics
+            "resolution_diagnostics": [d.to_dict() for d in self.resolution_diagnostics],
+            # Step 10: runtime motor-track topology diagnostics
+            "topology_diagnostics": [d.to_dict() for d in self.topology_diagnostics],
         }
 
 

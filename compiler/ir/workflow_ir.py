@@ -40,6 +40,7 @@ class NodeKind(Enum):
     OPAQUE = "opaque"
     BEHAVIOR_CALL  = "behavior_call"   # Circle 1 Step 1.3: explicit behavior subgraph invocation
     PROTOCOL_EMIT  = "protocol_emit"   # Circle 4: compile node-output → motor-weight protocol payload
+    RUN_POLICY     = "run_policy"      # Circle 6: policy execution node (Canvas Policy → IR)
 
     @classmethod
     def from_string(cls, s: str) -> 'NodeKind':

@@ -459,10 +459,12 @@ class ComboSetting(QWidget):
 
         self.left_box: Optional[QFrame] = None
         self.right_box: Optional[QFrame] = None
+        self._middle_widget: Optional[QWidget] = None
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(0)
+        self._row_layout = row
 
         if show_left_dot:
             self.left_box = QFrame()
@@ -510,6 +512,22 @@ class ComboSetting(QWidget):
                 f"background: {dot_bg_color}; border-radius: 0px; }}"
             )
             row.addWidget(self.right_box)
+
+    def set_middle_widget(self, widget: Optional[QWidget]) -> None:
+        """Insert a compact widget between the combo and the optional right dot."""
+        if self._middle_widget is widget:
+            return
+        if self._middle_widget is not None:
+            self._row_layout.removeWidget(self._middle_widget)
+            self._middle_widget.setParent(None)
+        self._middle_widget = widget
+        if widget is None:
+            return
+        widget.setParent(self)
+        insert_at = self._row_layout.count()
+        if self.right_box is not None:
+            insert_at = max(0, self._row_layout.indexOf(self.right_box))
+        self._row_layout.insertWidget(insert_at, widget)
 
     def set_key_text(self, text: str):
         self.key_box.setText(text or "")

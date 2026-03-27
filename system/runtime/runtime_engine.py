@@ -23,6 +23,7 @@ from .safety.emergency_handler import EmergencyHandler
 from .safety.audit_logger import SafetyAuditLogger
 from .contracts import DiagnosticsKey, ExecutionPath, RuntimeResult
 from .migration import MigrationFlags
+from .result_inspector import is_failure_result
 from system.ir.workflow_ir import NodeKind, WorkflowIR
 
 
@@ -305,7 +306,7 @@ class RuntimeEngine:
             # 统一感知节点级失败（两路径共用）
             failed_nodes = [
                 nid for nid, out in results.items()
-                if isinstance(out, dict) and "error" in out
+                if is_failure_result(out)
             ]
             # Cycle 2 STAGE-06: cancellation is the highest-priority override —
             # checked before abort/failure so a cancelled run always surfaces as

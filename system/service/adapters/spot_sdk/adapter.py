@@ -28,12 +28,14 @@ All ``bosdyn.*`` calls stay inside this module.  No caller outside
 
 from __future__ import annotations
 
+import importlib
 import logging as _logging
 from typing import Any, Dict, Optional
 
 from system.service.adapters.base_adapter import BaseAdapter
 from system.service.lifecycle import LifecycleReason, LifecycleResult
 from .mapper import ACTION_MAP, map_action
+from .semantic_actions import get_spot_semantic_actions
 
 _log = _logging.getLogger("unitport.service.adapter.spot")
 
@@ -97,6 +99,7 @@ class SpotAdapter(BaseAdapter):
         username: str = "user",
         password: str = "",
     ):
+        self.robot_type = "spot"
         self.hostname = hostname
         self.username = username
         self.password = password
@@ -107,6 +110,7 @@ class SpotAdapter(BaseAdapter):
         self._lease_client:   Any = None
         self._lease:          Any = None
         self._command_client: Any = None
+        self._model:          Any = None
         self._session_open:   bool = False
 
     # ── Legacy interface (Phase 1 contract) ───────────────────────────────
@@ -123,7 +127,39 @@ class SpotAdapter(BaseAdapter):
             self.username = str(kwargs["username"])
         if kwargs.get("password"):
             self.password = str(kwargs["password"])
+        if kwargs.get("robot_type"):
+            self.robot_type = str(kwargs["robot_type"]).strip().lower() or "spot"
         return True
+
+    def _create_model_instance(self, robot_type: str) -> Any:
+        module_names = [
+            "system.brand_packages.bostiondynamics",
+        ]
+        for module_name in module_names:
+            try:
+                module = importlib.import_module(module_name)
+                model_class = getattr(module, "SpotModel", None)
+                if model_class is not None:
+                    return model_class(robot_type)
+            except Exception:
+                continue
+        return None
+
+    def get_model(self) -> Optional[Any]:
+        if self._model is None:
+            self._model = self._create_model_instance(self.robot_type)
+        return self._model
+
+    def velocity_move(self, vx: float, vy: float, vyaw: float, duration: float) -> bool:
+        if not self._session_open:
+            return False
+        return self._cmd_walk(vx=float(vx), vy=float(vy), vr=float(vyaw), duration=float(duration))
+
+    def velocity_move_mujoco(self, vx: float, vy: float, vyaw: float, duration: float) -> bool:
+        model = self.get_model()
+        if model is None:
+            return False
+        return model.velocity_move_mujoco(float(vx), float(vy), float(vyaw), float(duration))
 
     def run_action(self, action: str, **params: Any) -> Any:
         """Execute a canonical action.
@@ -429,6 +465,7 @@ class SpotAdapter(BaseAdapter):
         """
         return {
             "brand":   "bostiondynamics",
+            "robot_type": str(getattr(self, "robot_type", "spot") or "spot"),
             "adapter": "spot_sdk",
             "actions": list(ACTION_MAP.keys()),
             "sensors": ["battery", "estop", "power_state"],
@@ -444,6 +481,10 @@ class SpotAdapter(BaseAdapter):
                 "stop_policy", "safety_enabled",
                 "hostname", "auth_token", "timesync_required", "lease_required",
                 "safety_channel", "power_policy",
+            ],
+            "semantic_actions": [
+                d.to_dict()
+                for d in get_spot_semantic_actions(getattr(self, "robot_type", "spot"))
             ],
         }
 

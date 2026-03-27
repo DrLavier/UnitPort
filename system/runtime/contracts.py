@@ -101,6 +101,14 @@ class DiagnosticsKey:
     # Always present after Circle 3; empty strings when no package metadata loaded.
     PACKAGE_METADATA_TRACE = "package_metadata_trace"  # Dict[str, str]
 
+    # Circle 7 Step 7.1 — semantic intent resolution diagnostics
+    # List of BehaviorDiagnostic.to_dict() entries from the late-binding
+    # intent → raw_action resolution performed at invoke time.
+    # - info-level "resolution.resolved.<intent_id>" for each successful mapping.
+    # - error-level "resolution.unsupported.<intent_id>" for each blocked mapping.
+    # Empty list when resolution was skipped (no brand / no timeline data).
+    SEMANTIC_RESOLUTION = "semantic_resolution"  # List[dict]
+
 
 class ExecutionPath:
     """diagnostics[PATH] 的合法值。"""

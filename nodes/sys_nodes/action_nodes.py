@@ -105,3 +105,42 @@ class StopNode(BaseNode):
             "from bin.core.robot_context import RobotContext\n"
             "RobotContext.stop()\n"
         )
+
+
+class BehaviorCallNode(BaseNode):
+    """Behavior subgraph invocation node.
+
+    Runtime execution is handled by ``NodeExecutor``'s behavior fast-path.
+    This class exists so the editor/registry can construct and serialize
+    behavior_call nodes without treating them as raw action nodes.
+    """
+
+    def __init__(self, node_id: str):
+        super().__init__(node_id, "behavior_call")
+        self.inputs = {"flow_in": None, "control_pipe": None}
+        self.outputs = {"flow_out": None}
+        self.parameters = {
+            "behavior_ref": "",
+            "behavior_intent_id": "",
+            "action": "",
+        }
+
+    def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        # control_pipe: absorbed silently in Circle 2; acted on in Circle 7
+        _control_pipe = inputs.get("control_pipe")  # noqa: F841  (used in Circle 7)
+        return {
+            "flow_out": {
+                "status": "skipped",
+                "reason": "behavior_call_requires_runtime_executor",
+            }
+        }
+
+    def get_display_name(self) -> str:
+        return "Behavior"
+
+    def get_description(self) -> str:
+        return "Invoke a compiled behavior subgraph."
+
+    def to_code(self) -> str:
+        behavior_ref = self.get_parameter("behavior_ref", "")
+        return f"# Behavior: {behavior_ref}\n"

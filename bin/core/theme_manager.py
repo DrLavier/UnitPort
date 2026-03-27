@@ -331,6 +331,16 @@ def get_color(color_key: str, fallback: str = "#FFFFFF") -> str:
     return get_color_slot().get_color(color_key, fallback)
 
 
+def get_color_for_theme(color_key: str, theme: str, fallback: str = "#FFFFFF") -> str:
+    """Get color from a specific theme section without mutating global theme state."""
+    slot = get_color_slot()
+    slot._ensure_loaded()
+    theme_key = (theme or "dark").lower()
+    if theme_key not in ("light", "dark"):
+        theme_key = "dark"
+    return slot._colors.get(theme_key, {}).get(color_key, fallback)
+
+
 def get_node_color(color_key: str, fallback: str = "#2d2d2d") -> str:
     """Get node color value (string)"""
     return get_node_color_slot().get_color(color_key, fallback)

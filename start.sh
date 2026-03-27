@@ -1,12 +1,8 @@
 #!/bin/bash
 # ==============================================================================
 # UnitPort start.sh
-# Launches UnitPort using the project-local Python environment.
-#
-# Priority order:
-#   1. runtime/python/python (packaged runtime, if present)
-#   2. .venv311/bin/python (project-local venv, default)
-#
+# Launches UnitPort using ONLY the project-local .venv311 environment.
+# Never falls back to runtime/python or any global Python.
 # Always injects project-local CYCLONEDDS_HOME if available.
 # ==============================================================================
 
@@ -19,7 +15,6 @@ cd "$SCRIPT_DIR"
 # ------------------------------------------------------------------------------
 # Configuration
 # ------------------------------------------------------------------------------
-RUNTIME_PYTHON="$SCRIPT_DIR/runtime/python/python"
 VENV_PYTHON="$SCRIPT_DIR/.venv311/bin/python"
 CDDS_DIR="$SCRIPT_DIR/runtime/cyclonedds"
 INSTALL_STATE="$SCRIPT_DIR/runtime/env/install_state.json"
@@ -27,15 +22,11 @@ INSTALL_STATE="$SCRIPT_DIR/runtime/env/install_state.json"
 # ------------------------------------------------------------------------------
 # Select Python executable
 # ------------------------------------------------------------------------------
-if [ -x "$RUNTIME_PYTHON" ]; then
-    PYTHON_EXE="$RUNTIME_PYTHON"
-    LAUNCH_MODE="packaged"
-elif [ -x "$VENV_PYTHON" ]; then
+if [ -x "$VENV_PYTHON" ]; then
     PYTHON_EXE="$VENV_PYTHON"
     LAUNCH_MODE="venv311"
 else
-    echo "[ERROR] No project-local Python found."
-    echo "[ERROR] Checked: runtime/python/python"
+    echo "[ERROR] .venv311 Python not found."
     echo "[ERROR] Checked: .venv311/bin/python"
     echo "[ERROR] Run install.sh first."
     exit 1

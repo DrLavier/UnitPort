@@ -269,39 +269,46 @@ class ModulePalette(QWidget):
         self.tree.addTopLevelItem(root)
 
         groups = [
-            (tr("modules.group_base", "Base"), [
-                "Start",
-                "End",
-                "Wait(duration/event)",
-                "Gate(condition/event)",
-                "Timeout(duration)",
-                "Retry(max_attempts, backoff)",
-                "Cancel",
-                "Abort",
-            ]),
-            (tr("modules.group_logic", "Logic"), [
-                "If / Elif / Else",
-                "Loop",
-                "Break",
-                "Switch / Case",
-                "Try / Catch / Finally",
-                "Parallel Branch",
-                "Join",
-            ]),
             (tr("modules.group_action", "Action"), [
-                "Behavior",
                 "Sensor",
                 "Trigger",
+            ]),
+            (tr("modules.group_base", "Base"), [
+                "Abort",
+                "Cancel",
+                "End",
+                "Gate(condition/event)",
+                "Retry(max_attempts, backoff)",
+                "Start",
+                "Timeout(duration)",
+                "Wait(duration/event)",
+            ]),
+            (tr("modules.group_control", "Control"), [
+                "Checkpoint",
+                "Behavior",
+            ]),
+            # Training nodes (Env Config / Train Config / Train / Task Config /
+            # Eval Config) are intentionally absent from this palette.
+            # They belong exclusively to the Training Ground canvas and must
+            # not appear in the Mission Canvas node library (Phase A1).
+            (tr("modules.group_logic", "Logic"), [
+                "Break",
+                "If / Elif / Else",
+                "Join",
+                "Loop",
+                "Parallel Branch",
+                "Switch / Case",
+                "Try / Catch / Finally",
             ]),
             (tr("modules.group_script", "Script"), [
                 "Script Box",
             ]),
             (tr("modules.group_state_event", "State/Event"), [
+                "CheckState(key, expected)",
+                "HumanConfirm(prompt, timeout)",
                 "OnEvent(event_name)",
                 "PublishEvent(event_name, payload)",
                 "SetState(key, value)",
-                "CheckState(key, expected)",
-                "HumanConfirm(prompt, timeout)",
             ]),
         ]
 

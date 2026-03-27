@@ -30,13 +30,16 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
 
-BEHAVIOR_TIMELINE_VERSION: str = "1.0"
+BEHAVIOR_TIMELINE_VERSION: str = "1.1"
+# v1.0 — initial timeline schema
+# v1.1 — ActionSegment gains intent_id as the durable semantic authoring field;
+#         raw action (name) is retained as derived/display metadata.
 
 
 # ---------------------------------------------------------------------------
@@ -50,12 +53,19 @@ class ActionSegment:
     Fields
     ------
     action_id   : Unique ID within this timeline (auto-generated UUID).
-    name        : Action name (e.g. "walk", "stand", "sit").
+    name        : Raw action / display name (e.g. "walk", "stand", "sit").
+                  Retained as derived/display metadata.  **Not** the primary
+                  authoring identity — use ``intent_id`` for that.
     start_time  : Start offset in seconds from timeline origin (>= 0).
     duration    : Duration in seconds (> 0).
     params      : Key-value param overrides (e.g. {"speed": 0.3, "duration": 4.0}).
     kind        : "movement" | "behavior" — mirrors SequenceModule.kind.
     locked      : When True, dragging/resizing this segment is disabled.
+    intent_id   : **Durable semantic authoring key** (e.g. "locomotion.forward").
+                  This is the stable identifier stored in behavior drafts and
+                  used for cross-model compatibility.  Empty string means the
+                  segment was created before Circle 4 migration (legacy format);
+                  call ``migrate_timeline()`` to resolve it.
     """
 
     action_id: str
@@ -65,6 +75,7 @@ class ActionSegment:
     params: Dict[str, Any] = field(default_factory=dict)
     kind: str = "movement"
     locked: bool = False
+    intent_id: str = ""  # v1.1: durable semantic ID; "" = legacy / not yet resolved
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -75,6 +86,7 @@ class ActionSegment:
             "params": dict(self.params),
             "kind": self.kind,
             "locked": self.locked,
+            "intent_id": self.intent_id,  # v1.1: always serialised
         }
 
     @classmethod
@@ -87,6 +99,7 @@ class ActionSegment:
             params=dict(d.get("params") or {}),
             kind=str(d.get("kind", "movement")),
             locked=bool(d.get("locked", False)),
+            intent_id=str(d.get("intent_id") or ""),
         )
 
     @classmethod
@@ -97,6 +110,7 @@ class ActionSegment:
         duration: float,
         params: Optional[Dict[str, Any]] = None,
         kind: str = "movement",
+        intent_id: str = "",
     ) -> "ActionSegment":
         return cls(
             action_id=str(uuid.uuid4()),
@@ -105,6 +119,7 @@ class ActionSegment:
             duration=max(0.1, duration),
             params=dict(params or {}),
             kind=kind,
+            intent_id=intent_id,
         )
 
 
@@ -322,7 +337,7 @@ class BehaviorTimeline:
 
 
 # ---------------------------------------------------------------------------
-# MotorTrackDef — motor track definition with safe/sim bounds
+# MotorTrackDef — motor track definition with safe/sim bounds and real motor mapping
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -341,6 +356,12 @@ class MotorTrackDef:
     sim_max     : Extended maximum value for simulation path.
     unit        : Unit label for display (e.g. "m/s", "rad", "N·m").
     default_val : Default parameter value within safe range.
+    
+    Real motor mapping fields (v2.0):
+    ------------------
+    motor_ids   : List of real motor IDs this track maps to (from motor_registry).
+                  Empty list means this is a composite/virtual track.
+    joint_names : List of joint names for direct motor control.
     """
 
     track_name: str
@@ -353,6 +374,9 @@ class MotorTrackDef:
     sim_max: float = 2.0
     unit: str = ""
     default_val: float = 0.5
+    # Real motor mapping (v2.0)
+    motor_ids: Tuple[str, ...] = field(default_factory=tuple)
+    joint_names: Tuple[str, ...] = field(default_factory=tuple)
 
     def clamp_safe(self, value: float) -> float:
         """Clamp value to safe hardware range."""
@@ -457,6 +481,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=0.0,  sim_max=1.0,
         unit="m/s",
         default_val=0.3,
+        motor_ids=("go2_fl_hip", "go2_fl_thigh", "go2_fl_calf"),
+        joint_names=("FL_hip", "FL_thigh", "FL_calf"),
     ),
     MotorTrackDef(
         track_name="leg_fr",
@@ -467,6 +493,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=0.0,  sim_max=1.0,
         unit="m/s",
         default_val=0.3,
+        motor_ids=("go2_fr_hip", "go2_fr_thigh", "go2_fr_calf"),
+        joint_names=("FR_hip", "FR_thigh", "FR_calf"),
     ),
     MotorTrackDef(
         track_name="leg_rl",
@@ -477,6 +505,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=0.0,  sim_max=1.0,
         unit="m/s",
         default_val=0.3,
+        motor_ids=("go2_rl_hip", "go2_rl_thigh", "go2_rl_calf"),
+        joint_names=("RL_hip", "RL_thigh", "RL_calf"),
     ),
     MotorTrackDef(
         track_name="leg_rr",
@@ -487,6 +517,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=0.0,  sim_max=1.0,
         unit="m/s",
         default_val=0.3,
+        motor_ids=("go2_rr_hip", "go2_rr_thigh", "go2_rr_calf"),
+        joint_names=("RR_hip", "RR_thigh", "RR_calf"),
     ),
     MotorTrackDef(
         track_name="body_posture",
@@ -497,6 +529,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=0.0,  sim_max=3.0,
         unit="",
         default_val=1.0,
+        motor_ids=(),
+        joint_names=(),
     ),
     MotorTrackDef(
         track_name="head_pitch",
@@ -507,6 +541,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=-0.5,  sim_max=0.5,
         unit="rad",
         default_val=0.0,
+        motor_ids=(),
+        joint_names=(),
     ),
     # Legacy compatibility tracks (old grouped layout).
     MotorTrackDef(
@@ -518,6 +554,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=0.0,  sim_max=1.0,
         unit="m/s",
         default_val=0.3,
+        motor_ids=("go2_fl_hip", "go2_fl_thigh", "go2_fl_calf", "go2_rl_hip", "go2_rl_thigh", "go2_rl_calf"),
+        joint_names=("FL_hip", "FL_thigh", "FL_calf", "RL_hip", "RL_thigh", "RL_calf"),
     ),
     MotorTrackDef(
         track_name="leg_group_right",
@@ -528,6 +566,8 @@ UNITREE_MOTOR_TRACKS: List[MotorTrackDef] = [
         sim_min=0.0,  sim_max=1.0,
         unit="m/s",
         default_val=0.3,
+        motor_ids=("go2_fr_hip", "go2_fr_thigh", "go2_fr_calf", "go2_rr_hip", "go2_rr_thigh", "go2_rr_calf"),
+        joint_names=("FR_hip", "FR_thigh", "FR_calf", "RR_hip", "RR_thigh", "RR_calf"),
     ),
 ]
 
@@ -538,18 +578,279 @@ UNITREE_MOTOR_TRACK_MAP: Dict[str, MotorTrackDef] = {
 
 # Robot types whose motor topology is covered by UNITREE_MOTOR_TRACK_MAP.
 _UNITREE_ROBOT_TYPES = frozenset({
-    "go2", "go2w", "h1", "h1_2", "b2", "b2w", "unitree",
+    "go2", "go2w", "a1", "b1", "h1", "h1_2", "b2", "b2w", "unitree",
 })
 
 
-def get_motor_track_map(robot_type: str) -> Optional[Dict[str, MotorTrackDef]]:
+# ---------------------------------------------------------------------------
+# A1 Motor Tracks — 4 legs, 12 motors total (3 joints per leg)
+# ---------------------------------------------------------------------------
+A1_MOTOR_TRACKS: List[MotorTrackDef] = [
+    # Front Left Leg
+    MotorTrackDef(track_name="FL_hip", label="Front Left Hip", color="#4d84c4",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FL_thigh", label="Front Left Thigh", color="#5a9ad4",
+                 param_key="position", safe_min=0.0, safe_max=2.6, sim_min=-0.5, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="FL_calf", label="Front Left Calf", color="#6ab0e4",
+                 param_key="position", safe_min=-2.7, safe_max=-0.5, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.5),
+    # Front Right Leg
+    MotorTrackDef(track_name="FR_hip", label="Front Right Hip", color="#7a5db6",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FR_thigh", label="Front Right Thigh", color="#8a6dc6",
+                 param_key="position", safe_min=0.0, safe_max=2.6, sim_min=-0.5, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="FR_calf", label="Front Right Calf", color="#9a7dd6",
+                 param_key="position", safe_min=-2.7, safe_max=-0.5, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.5),
+    # Rear Left Leg
+    MotorTrackDef(track_name="RL_hip", label="Rear Left Hip", color="#4ca88b",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RL_thigh", label="Rear Left Thigh", color="#5cb89b",
+                 param_key="position", safe_min=0.0, safe_max=2.6, sim_min=-0.5, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="RL_calf", label="Rear Left Calf", color="#6cc8ab",
+                 param_key="position", safe_min=-2.7, safe_max=-0.5, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.5),
+    # Rear Right Leg
+    MotorTrackDef(track_name="RR_hip", label="Rear Right Hip", color="#b06a3d",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RR_thigh", label="Rear Right Thigh", color="#c07a4d",
+                 param_key="position", safe_min=0.0, safe_max=2.6, sim_min=-0.5, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="RR_calf", label="Rear Right Calf", color="#d08a5d",
+                 param_key="position", safe_min=-2.7, safe_max=-0.5, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.5),
+    # Body posture
+    MotorTrackDef(track_name="body_posture", label="Body Posture", color="#5a9a5a",
+                 param_key="gain", safe_min=0.5, safe_max=1.5, sim_min=0.0, sim_max=3.0, unit="", default_val=1.0),
+]
+
+A1_MOTOR_TRACK_MAP: Dict[str, MotorTrackDef] = {
+    t.track_name: t for t in A1_MOTOR_TRACKS
+}
+
+# ---------------------------------------------------------------------------
+# B1 Motor Tracks — 4 legs, 12 motors + additional joints
+# ---------------------------------------------------------------------------
+B1_MOTOR_TRACKS: List[MotorTrackDef] = [
+    # Front Left Leg
+    MotorTrackDef(track_name="FL_hip", label="Front Left Hip", color="#4d84c4",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FL_thigh", label="Front Left Thigh", color="#5a9ad4",
+                 param_key="position", safe_min=0.0, safe_max=2.8, sim_min=-0.5, sim_max=3.2, unit="rad", default_val=1.1),
+    MotorTrackDef(track_name="FL_calf", label="Front Left Calf", color="#6ab0e4",
+                 param_key="position", safe_min=-2.9, safe_max=-0.6, sim_min=-3.2, sim_max=0.0, unit="rad", default_val=-1.6),
+    # Front Right Leg
+    MotorTrackDef(track_name="FR_hip", label="Front Right Hip", color="#7a5db6",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FR_thigh", label="Front Right Thigh", color="#8a6dc6",
+                 param_key="position", safe_min=0.0, safe_max=2.8, sim_min=-0.5, sim_max=3.2, unit="rad", default_val=1.1),
+    MotorTrackDef(track_name="FR_calf", label="Front Right Calf", color="#9a7dd6",
+                 param_key="position", safe_min=-2.9, safe_max=-0.6, sim_min=-3.2, sim_max=0.0, unit="rad", default_val=-1.6),
+    # Rear Left Leg
+    MotorTrackDef(track_name="RL_hip", label="Rear Left Hip", color="#4ca88b",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RL_thigh", label="Rear Left Thigh", color="#5cb89b",
+                 param_key="position", safe_min=0.0, safe_max=2.8, sim_min=-0.5, sim_max=3.2, unit="rad", default_val=1.1),
+    MotorTrackDef(track_name="RL_calf", label="Rear Left Calf", color="#6cc8ab",
+                 param_key="position", safe_min=-2.9, safe_max=-0.6, sim_min=-3.2, sim_max=0.0, unit="rad", default_val=-1.6),
+    # Rear Right Leg
+    MotorTrackDef(track_name="RR_hip", label="Rear Right Hip", color="#b06a3d",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RR_thigh", label="Rear Right Thigh", color="#c07a4d",
+                 param_key="position", safe_min=0.0, safe_max=2.8, sim_min=-0.5, sim_max=3.2, unit="rad", default_val=1.1),
+    MotorTrackDef(track_name="RR_calf", label="Rear Right Calf", color="#d08a5d",
+                 param_key="position", safe_min=-2.9, safe_max=-0.6, sim_min=-3.2, sim_max=0.0, unit="rad", default_val=-1.6),
+    # Body posture
+    MotorTrackDef(track_name="body_posture", label="Body Posture", color="#5a9a5a",
+                 param_key="gain", safe_min=0.5, safe_max=1.5, sim_min=0.0, sim_max=3.0, unit="", default_val=1.0),
+    # Waist (B1 specific)
+    MotorTrackDef(track_name="waist", label="Waist", color="#9a5a1a",
+                 param_key="position", safe_min=-0.5, safe_max=0.5, sim_min=-1.0, sim_max=1.0, unit="rad", default_val=0.0),
+]
+
+B1_MOTOR_TRACK_MAP: Dict[str, MotorTrackDef] = {
+    t.track_name: t for t in B1_MOTOR_TRACKS
+}
+
+# ---------------------------------------------------------------------------
+# G1 Motor Tracks — Humanoid robot with more joints
+# ---------------------------------------------------------------------------
+G1_MOTOR_TRACKS: List[MotorTrackDef] = [
+    # Left Leg
+    MotorTrackDef(track_name="L_hip_yaw", label="Left Hip Yaw", color="#4d84c4",
+                 param_key="position", safe_min=-1.0, safe_max=1.0, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="L_hip_roll", label="Left Hip Roll", color="#5a9ad4",
+                 param_key="position", safe_min=-0.5, safe_max=0.5, sim_min=-1.0, sim_max=1.0, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="L_hip_pitch", label="Left Hip Pitch", color="#6ab0e4",
+                 param_key="position", safe_min=-1.5, safe_max=0.2, sim_min=-2.0, sim_max=0.5, unit="rad", default_val=-0.5),
+    MotorTrackDef(track_name="L_knee", label="Left Knee", color="#7ac6f4",
+                 param_key="position", safe_min=0.0, safe_max=2.5, sim_min=-0.2, sim_max=2.8, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="L_ankle", label="Left Ankle", color="#8adcfc",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.2, sim_max=1.2, unit="rad", default_val=0.0),
+    # Right Leg
+    MotorTrackDef(track_name="R_hip_yaw", label="Right Hip Yaw", color="#b06a3d",
+                 param_key="position", safe_min=-1.0, safe_max=1.0, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="R_hip_roll", label="Right Hip Roll", color="#c07a4d",
+                 param_key="position", safe_min=-0.5, safe_max=0.5, sim_min=-1.0, sim_max=1.0, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="R_hip_pitch", label="Right Hip Pitch", color="#d08a5d",
+                 param_key="position", safe_min=-1.5, safe_max=0.2, sim_min=-2.0, sim_max=0.5, unit="rad", default_val=-0.5),
+    MotorTrackDef(track_name="R_knee", label="Right Knee", color="#e09a6d",
+                 param_key="position", safe_min=0.0, safe_max=2.5, sim_min=-0.2, sim_max=2.8, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="R_ankle", label="Right Ankle", color="#f0aa7d",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.2, sim_max=1.2, unit="rad", default_val=0.0),
+    # Left Arm
+    MotorTrackDef(track_name="L_shoulder_pitch", label="Left Shoulder Pitch", color="#4ca88b",
+                 param_key="position", safe_min=-2.8, safe_max=2.8, sim_min=-3.0, sim_max=3.0, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="L_shoulder_roll", label="Left Shoulder Roll", color="#5cb89b",
+                 param_key="position", safe_min=-1.5, safe_max=1.5, sim_min=-2.0, sim_max=2.0, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="L_elbow", label="Left Elbow", color="#6cc8ab",
+                 param_key="position", safe_min=-2.6, safe_max=0.0, sim_min=-3.0, sim_max=0.2, unit="rad", default_val=-1.0),
+    # Right Arm
+    MotorTrackDef(track_name="R_shoulder_pitch", label="Right Shoulder Pitch", color="#7a5db6",
+                 param_key="position", safe_min=-2.8, safe_max=2.8, sim_min=-3.0, sim_max=3.0, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="R_shoulder_roll", label="Right Shoulder Roll", color="#8a6dc6",
+                 param_key="position", safe_min=-1.5, safe_max=1.5, sim_min=-2.0, sim_max=2.0, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="R_elbow", label="Right Elbow", color="#9a7dd6",
+                 param_key="position", safe_min=-2.6, safe_max=0.0, sim_min=-3.0, sim_max=0.2, unit="rad", default_val=-1.0),
+    # Torso
+    MotorTrackDef(track_name="torso_yaw", label="Torso Yaw", color="#5a9a5a",
+                 param_key="position", safe_min=-1.0, safe_max=1.0, sim_min=-1.5, sim_max=1.5, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="torso_pitch", label="Torso Pitch", color="#6aaa6a",
+                 param_key="position", safe_min=-0.5, safe_max=0.5, sim_min=-0.8, sim_max=0.8, unit="rad", default_val=0.0),
+]
+
+G1_MOTOR_TRACK_MAP: Dict[str, MotorTrackDef] = {
+    t.track_name: t for t in G1_MOTOR_TRACKS
+}
+
+# ---------------------------------------------------------------------------
+# Spot Motor Tracks (BostionDynamics) — 4 legs, 12 motors
+# ---------------------------------------------------------------------------
+SPOT_MOTOR_TRACKS: List[MotorTrackDef] = [
+    # Front Left Leg
+    MotorTrackDef(track_name="FL_hip_x", label="FL Hip X (Abduction)", color="#4d84c4",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.2, sim_max=1.2, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FL_hip_y", label="FL Hip Y (Flexion)", color="#5a9ad4",
+                 param_key="position", safe_min=-1.5, safe_max=1.5, sim_min=-2.0, sim_max=2.0, unit="rad", default_val=0.5),
+    MotorTrackDef(track_name="FL_knee", label="FL Knee", color="#6ab0e4",
+                 param_key="position", safe_min=-2.6, safe_max=-0.2, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.2),
+    # Front Right Leg
+    MotorTrackDef(track_name="FR_hip_x", label="FR Hip X (Abduction)", color="#7a5db6",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.2, sim_max=1.2, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FR_hip_y", label="FR Hip Y (Flexion)", color="#8a6dc6",
+                 param_key="position", safe_min=-1.5, safe_max=1.5, sim_min=-2.0, sim_max=2.0, unit="rad", default_val=0.5),
+    MotorTrackDef(track_name="FR_knee", label="FR Knee", color="#9a7dd6",
+                 param_key="position", safe_min=-2.6, safe_max=-0.2, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.2),
+    # Rear Left Leg
+    MotorTrackDef(track_name="RL_hip_x", label="RL Hip X (Abduction)", color="#4ca88b",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.2, sim_max=1.2, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RL_hip_y", label="RL Hip Y (Flexion)", color="#5cb89b",
+                 param_key="position", safe_min=-1.5, safe_max=1.5, sim_min=-2.0, sim_max=2.0, unit="rad", default_val=0.5),
+    MotorTrackDef(track_name="RL_knee", label="RL Knee", color="#6cc8ab",
+                 param_key="position", safe_min=-2.6, safe_max=-0.2, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.2),
+    # Rear Right Leg
+    MotorTrackDef(track_name="RR_hip_x", label="RR Hip X (Abduction)", color="#b06a3d",
+                 param_key="position", safe_min=-0.8, safe_max=0.8, sim_min=-1.2, sim_max=1.2, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RR_hip_y", label="RR Hip Y (Flexion)", color="#c07a4d",
+                 param_key="position", safe_min=-1.5, safe_max=1.5, sim_min=-2.0, sim_max=2.0, unit="rad", default_val=0.5),
+    MotorTrackDef(track_name="RR_knee", label="RR Knee", color="#d08a5d",
+                 param_key="position", safe_min=-2.6, safe_max=-0.2, sim_min=-3.0, sim_max=0.0, unit="rad", default_val=-1.2),
+    # Body posture
+    MotorTrackDef(track_name="body_posture", label="Body Posture", color="#5a9a5a",
+                 param_key="gain", safe_min=0.5, safe_max=1.5, sim_min=0.0, sim_max=3.0, unit="", default_val=1.0),
+]
+
+SPOT_MOTOR_TRACK_MAP: Dict[str, MotorTrackDef] = {
+    t.track_name: t for t in SPOT_MOTOR_TRACKS
+}
+
+# ---------------------------------------------------------------------------
+# Cyberdog Motor Tracks (Xiaomi) — 4 legs, 12 motors
+# ---------------------------------------------------------------------------
+CYBERDOG_MOTOR_TRACKS: List[MotorTrackDef] = [
+    # Front Left Leg
+    MotorTrackDef(track_name="FL_hip", label="Front Left Hip", color="#4d84c4",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.4, sim_max=1.4, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FL_thigh", label="Front Left Thigh", color="#5a9ad4",
+                 param_key="position", safe_min=0.0, safe_max=2.7, sim_min=-0.4, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="FL_calf", label="Front Left Calf", color="#6ab0e4",
+                 param_key="position", safe_min=-2.8, safe_max=-0.5, sim_min=-3.1, sim_max=0.0, unit="rad", default_val=-1.4),
+    # Front Right Leg
+    MotorTrackDef(track_name="FR_hip", label="Front Right Hip", color="#7a5db6",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.4, sim_max=1.4, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="FR_thigh", label="Front Right Thigh", color="#8a6dc6",
+                 param_key="position", safe_min=0.0, safe_max=2.7, sim_min=-0.4, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="FR_calf", label="Front Right Calf", color="#9a7dd6",
+                 param_key="position", safe_min=-2.8, safe_max=-0.5, sim_min=-3.1, sim_max=0.0, unit="rad", default_val=-1.4),
+    # Rear Left Leg
+    MotorTrackDef(track_name="RL_hip", label="Rear Left Hip", color="#4ca88b",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.4, sim_max=1.4, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RL_thigh", label="Rear Left Thigh", color="#5cb89b",
+                 param_key="position", safe_min=0.0, safe_max=2.7, sim_min=-0.4, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="RL_calf", label="Rear Left Calf", color="#6cc8ab",
+                 param_key="position", safe_min=-2.8, safe_max=-0.5, sim_min=-3.1, sim_max=0.0, unit="rad", default_val=-1.4),
+    # Rear Right Leg
+    MotorTrackDef(track_name="RR_hip", label="Rear Right Hip", color="#b06a3d",
+                 param_key="position", safe_min=-0.9, safe_max=0.9, sim_min=-1.4, sim_max=1.4, unit="rad", default_val=0.0),
+    MotorTrackDef(track_name="RR_thigh", label="Rear Right Thigh", color="#c07a4d",
+                 param_key="position", safe_min=0.0, safe_max=2.7, sim_min=-0.4, sim_max=3.0, unit="rad", default_val=1.0),
+    MotorTrackDef(track_name="RR_calf", label="Rear Right Calf", color="#d08a5d",
+                 param_key="position", safe_min=-2.8, safe_max=-0.5, sim_min=-3.1, sim_max=0.0, unit="rad", default_val=-1.4),
+    # Body posture
+    MotorTrackDef(track_name="body_posture", label="Body Posture", color="#5a9a5a",
+                 param_key="gain", safe_min=0.5, safe_max=1.5, sim_min=0.0, sim_max=3.0, unit="", default_val=1.0),
+]
+
+CYBERDOG_MOTOR_TRACK_MAP: Dict[str, MotorTrackDef] = {
+    t.track_name: t for t in CYBERDOG_MOTOR_TRACKS
+}
+
+# ---------------------------------------------------------------------------
+# Motor track map registry by brand and robot type
+# ---------------------------------------------------------------------------
+_MOTOR_TRACK_REGISTRY: Dict[Tuple[str, str], Dict[str, MotorTrackDef]] = {
+    # Unitree robots
+    ("unitree", "go2"): UNITREE_MOTOR_TRACK_MAP,
+    ("unitree", "go2w"): UNITREE_MOTOR_TRACK_MAP,
+    ("unitree", "a1"): A1_MOTOR_TRACK_MAP,
+    ("unitree", "b1"): B1_MOTOR_TRACK_MAP,
+    # B2: Uses same motor configuration as B1 (approximation - verify against actual B2 specs if needed)
+    # H1: Uses same motor configuration as G1 (approximation - verify against actual H1 specs if needed)
+    ("unitree", "b2"): B1_MOTOR_TRACK_MAP,
+    ("unitree", "g1"): G1_MOTOR_TRACK_MAP,
+    ("unitree", "h1"): G1_MOTOR_TRACK_MAP,
+    ("unitree", "h1_2"): G1_MOTOR_TRACK_MAP,
+    # BostionDynamics robots
+    ("bostiondynamics", "spot"): SPOT_MOTOR_TRACK_MAP,
+    # Xiaomi robots
+    ("xiaomi", "cyberdog"): CYBERDOG_MOTOR_TRACK_MAP,
+    ("xiaomi", "cyberdog2"): CYBERDOG_MOTOR_TRACK_MAP,
+}
+
+
+def get_motor_track_map(robot_type: str, brand: str = "unitree") -> Optional[Dict[str, MotorTrackDef]]:
     """Return the motor-track catalog for *robot_type*, or None if unknown.
+
+    Parameters
+    ----------
+    robot_type : str
+        Robot type identifier (e.g. "go2", "a1", "spot", "cyberdog")
+    brand : str
+        Robot brand (e.g. "unitree", "bostiondynamics", "xiaomi")
+        Defaults to "unitree" for backward compatibility.
+
+    Returns
+    -------
+    Optional[Dict[str, MotorTrackDef]]
+        Motor track map for the specified robot, or None if unknown.
 
     None signals callers (e.g. MotorWeightNavigator) to fall back to
     overlay-derived tracks rather than showing a mis-matched catalog.
     """
+    key = (str(brand or "").lower(), str(robot_type or "").lower())
+    track_map = _MOTOR_TRACK_REGISTRY.get(key)
+    if track_map is not None:
+        return track_map
+
+    # Fallback: check if robot_type is in UNITREE_ROBOT_TYPES (backward compat)
     if (robot_type or "").lower() in _UNITREE_ROBOT_TYPES:
         return UNITREE_MOTOR_TRACK_MAP
+
     return None
 
 
@@ -909,12 +1210,61 @@ def build_timeline_from_modules(
             seg_cursor += step_duration
         cursor = seg_cursor
 
-    # Decide whether to apply Unitree decomposition
+    # Decide whether to apply Unitree decomposition.
+    # Covers all known Unitree models; Go2/Go2W use abstract tracks directly,
+    # other models have abstract tracks expanded to joint-level below.
+    _norm_rt = (robot_type or "").lower()
     use_unitree = auto_decompose and (
-        robot_type in ("", "go2", "unitree")
-        or "go2" in robot_type
-        or "unitree" in robot_type
+        not _norm_rt
+        or _norm_rt in ("go2", "go2w", "unitree")
+        or _norm_rt in ("a1", "b1", "b2", "g1", "h1", "h1_2")
+        or "go2" in _norm_rt
+        or "unitree" in _norm_rt
     )
+
+    # For joint-addressed models (A1, B1, H1, G1 …) the canonical topology
+    # uses individual joint names as track keys (FL_hip, L_hip_yaw, …) rather
+    # than the Go2 abstract keys (leg_fl, …) that UNITREE_ACTION_PROFILES emit.
+    # Build an abstract→[joint_name] expansion map from the motor registry so
+    # the decomposed segments can be re-keyed to match the topology.
+    #
+    # Humanoid models (H1, G1) use "leg_l"/"leg_r" as abstract tracks while
+    # Go2 profiles use "leg_fl"/"leg_rl" (front/rear-left) and
+    # "leg_fr"/"leg_rr" (front/rear-right).  Map these onto the single
+    # humanoid abstract track to avoid missing expansion; deduplicate so that
+    # the left-leg joints are only emitted once (from leg_fl, not leg_rl too).
+    _GO2_TO_HUMANOID: Dict[str, str] = {
+        "leg_fl": "leg_l",
+        "leg_rl": "",        # collapsed into leg_l via leg_fl — skip to avoid dups
+        "leg_fr": "leg_r",
+        "leg_rr": "",        # collapsed into leg_r via leg_fr — skip
+        "body_posture": "",  # no direct equivalent; omit for now
+    }
+
+    _is_go2_family = _norm_rt in ("", "go2", "go2w") or "go2" in _norm_rt
+    _abstract_to_joints: Dict[str, List[str]] = {}
+    if use_unitree and not _is_go2_family:
+        try:
+            from system.behavior.motor_registry import get_motors_for_robot  # type: ignore
+            _model_motors = get_motors_for_robot("unitree", _norm_rt)
+            # Build model-native abstract→joints map
+            _native: Dict[str, List[str]] = {}
+            for _ms in _model_motors:
+                _native.setdefault(_ms.abstract_track, []).append(_ms.joint_name)
+
+            # Check if Go2 abstract tracks (leg_fl …) exist directly in the
+            # model's registry (A1/B1 use same abstract names as Go2).
+            _go2_tracks = {"leg_fl", "leg_fr", "leg_rl", "leg_rr", "body_posture"}
+            if _go2_tracks & set(_native):
+                # Direct match (A1, B1) — use as-is.
+                _abstract_to_joints = _native
+            else:
+                # Humanoid remap: map Go2 names through _GO2_TO_HUMANOID first.
+                for _go2_key, _humanoid_key in _GO2_TO_HUMANOID.items():
+                    if _humanoid_key and _humanoid_key in _native:
+                        _abstract_to_joints[_go2_key] = _native[_humanoid_key]
+        except Exception:
+            pass
 
     motor_overlays: List[ActionMotorOverlay] = []
     active_tracks: List[str] = []
@@ -927,14 +1277,40 @@ def build_timeline_from_modules(
                 overlay = ActionMotorOverlay(action_id=seg.action_id)
             else:
                 motor_segs = template.decompose(seg)
+                # Expand abstract tracks → joint-level for non-Go2 models.
+                if _abstract_to_joints:
+                    expanded: List[MotorSegment] = []
+                    for mseg in motor_segs:
+                        joint_names = _abstract_to_joints.get(mseg.track_name)
+                        if joint_names:
+                            for jn in joint_names:
+                                eseg = MotorSegment.create(
+                                    track_name=jn,
+                                    start_time=mseg.start_time,
+                                    duration=mseg.duration,
+                                    params=dict(mseg.params),
+                                    parent_action_id=mseg.parent_action_id,
+                                )
+                                expanded.append(eseg)
+                                if jn not in tracks_seen:
+                                    active_tracks.append(jn)
+                                    tracks_seen.add(jn)
+                        else:
+                            # In expansion mode: unmapped tracks are dropped.
+                            # They either have no equivalent on this model (e.g.
+                            # quadruped rear-legs merged into humanoid leg) or are
+                            # semantically irrelevant (body_posture for humanoid).
+                            pass
+                    motor_segs = expanded
+                else:
+                    for track_name in template.motor_tracks:
+                        if track_name not in tracks_seen:
+                            active_tracks.append(track_name)
+                            tracks_seen.add(track_name)
                 overlay = ActionMotorOverlay(
                     action_id=seg.action_id,
                     motor_segments=motor_segs,
                 )
-                for track_name in template.motor_tracks:
-                    if track_name not in tracks_seen:
-                        active_tracks.append(track_name)
-                        tracks_seen.add(track_name)
             motor_overlays.append(overlay)
 
     return BehaviorTimeline(

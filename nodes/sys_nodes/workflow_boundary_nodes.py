@@ -16,7 +16,7 @@ class StartNode(BaseNode):
 
     def __init__(self, node_id: str):
         super().__init__(node_id, "start")
-        self.parameters['robot_brand'] = 'Unitree'
+        self.parameters['robot_brand'] = 'unitree'
         self.parameters['robot_type'] = 'go2'
 
     def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:

@@ -28,6 +28,7 @@ class ProjectFilesPanel(QWidget):
     """Sidebar panel that exposes workflow files under a root directory."""
 
     file_activated = Signal(str)
+    load_requested = Signal()
     open_folder_requested = Signal()
 
     def __init__(self, workflows_root: str, parent=None):
@@ -52,9 +53,16 @@ class ProjectFilesPanel(QWidget):
         controls_layout.addWidget(self.search_input, 1)
 
         self.open_button = QPushButton("📂")
+        self.load_button = QPushButton("+")
+        self.load_button.setObjectName("projectFilesLoadButton")
+        self.load_button.setCursor(Qt.PointingHandCursor)
+        self.load_button.setFixedSize(28, 28)
+        self.load_button.clicked.connect(self.load_requested.emit)
+        controls_layout.addWidget(self.load_button)
+
         self.open_button.setObjectName("projectFilesOpenButton")
         self.open_button.setCursor(Qt.PointingHandCursor)
-        self.open_button.setFixedSize(28,28)
+        self.open_button.setFixedSize(28, 28)
         self.open_button.clicked.connect(self.open_folder_requested.emit)
         controls_layout.addWidget(self.open_button)
         layout.addLayout(controls_layout)
@@ -157,10 +165,11 @@ class SidebarDock(QWidget):
         super().__init__(parent)
         w_gap = 10
         h_gap = 20
-        spacing = 12
+        spacing = 2
         
-        self._button_size = 35
-        rail_width = self._button_size + (2*w_gap)
+        self._button_size = 55
+        self._icon_button_extent = 29
+        rail_width = self._button_size
         
         self.config = config
         self._rail_width = rail_width
@@ -183,7 +192,7 @@ class SidebarDock(QWidget):
         self.rail.setObjectName("sidebarRail")
         self.rail.setFixedWidth(self._rail_width)
         rail_layout = QVBoxLayout(self.rail)
-        rail_layout.setContentsMargins(w_gap, h_gap, w_gap, h_gap)
+        rail_layout.setContentsMargins(0, h_gap, 0, h_gap)
         rail_layout.setSpacing(spacing)
 
         self.content_panel = QFrame()
@@ -261,11 +270,7 @@ class SidebarDock(QWidget):
             lambda hovered, button=self.theme_button: self._on_button_hover_changed(button, hovered)
         )
         rail_layout.addWidget(self.theme_button)
-        self._apply_button_icon(
-            self.theme_button,
-            "icon_theme_toggle",
-            "assets/icon/icon_L&D.svg",
-        )
+        self._apply_theme_toggle_icon("light")
 
         self.language_button = SidebarHoverButton(title="Language", base_icon_extent=self._icon_size().width())
         self.language_button.setText("EN")
@@ -427,11 +432,13 @@ class SidebarDock(QWidget):
             resolved_key = f"{base_key}_dark" if dark_mode else base_key
             resolved_fallback = self._dark_icon_fallback(fallback_icon) if dark_mode else fallback_icon
             self._apply_button_icon(button, resolved_key, resolved_fallback)
-        self._apply_button_icon(
-            self.theme_button,
-            "icon_theme_toggle",
-            "assets/icon/icon_L&D.svg",
-        )
+        self._apply_theme_toggle_icon(theme)
+
+    def _apply_theme_toggle_icon(self, theme: str):
+        dark_mode = str(theme or "").lower() == "dark"
+        icon_key = "icon_theme_toggle_dark" if dark_mode else "icon_theme_toggle"
+        fallback_icon = "assets/icon/icon_L&D.svg" if dark_mode else "assets/icon/icon_L&D_w.svg"
+        self._apply_button_icon(self.theme_button, icon_key, fallback_icon)
 
     def _resolve_icon_path(self, key: str, fallback_rel_path: str) -> Path:
         rel_or_abs = fallback_rel_path
@@ -455,7 +462,7 @@ class SidebarDock(QWidget):
         button.setIcon(QIcon())
 
     def _icon_size(self):
-        icon_px = max(20, self._button_size - 6)
+        icon_px = max(20, self._icon_button_extent)
         return QSize(icon_px, icon_px)
 
     def _dark_icon_fallback(self, light_fallback: str) -> str:

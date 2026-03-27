@@ -17,9 +17,17 @@ import os
 import platform
 import subprocess
 import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
+
+from system.model_registry import (
+    canonical_brand_ids,
+    get_brand_spec,
+    sdk_project_keys_for_brand,
+    sdk_project_url,
+)
 
 
 ProgressCallback = Callable[[str, str], None]
@@ -27,6 +35,76 @@ ProgressCallback = Callable[[str, str], None]
 # Project root inferred relative to this file (models/sdk_manager.py → project root)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _RUNTIME_DIR = _PROJECT_ROOT / "runtime"
+_BRANDS_SDK_DIR = _PROJECT_ROOT / "brands_sdk"
+_MENAGERIE_DIR = _PROJECT_ROOT / "models" / "mujoco_menagerie"
+_MENAGERIE_URL = "https://github.com/google-deepmind/mujoco_menagerie.git"
+
+
+def _prepend_sys_path(path: Path) -> bool:
+    """Insert *path* at the front of sys.path once.
+
+    Returns True when the path was added, False when it was absent or already
+    present.
+    """
+    try:
+        resolved = str(path.resolve())
+    except Exception:
+        resolved = str(path)
+    if not path.exists():
+        return False
+    existing = {str(Path(p).resolve()) if p else "" for p in sys.path}
+    if resolved in existing:
+        return False
+    sys.path.insert(0, resolved)
+    return True
+
+
+def _runtime_python_executable() -> Optional[Path]:
+    """Return the packaged Python executable when present."""
+    system = platform.system()
+    if system == "Windows":
+        candidate = _RUNTIME_DIR / "python" / "python.exe"
+        return candidate if candidate.exists() else None
+    for name in ("python", "python3"):
+        candidate = _RUNTIME_DIR / "python" / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _probe_module_with_runtime_python(
+    module_name: str,
+    extra_paths: Optional[List[Path]] = None,
+) -> bool:
+    """Probe whether *module_name* is importable in the packaged runtime."""
+    runtime_python = _runtime_python_executable()
+    if runtime_python is None:
+        return False
+
+    env = os.environ.copy()
+    path_lines: List[str] = []
+    for path in extra_paths or []:
+        if path.exists():
+            path_lines.append(f"sys.path.insert(0, {str(path)!r})")
+
+    probe_code = textwrap.dedent(
+        f"""
+        import sys
+        {'; '.join(path_lines)}
+        import {module_name}
+        print(getattr({module_name}, "__file__", "ok"))
+        """
+    ).strip()
+    completed = subprocess.run(
+        [str(runtime_python), "-c", probe_code],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        check=False,
+    )
+    return completed.returncode == 0
 
 
 def _emit(message: str, level: str = "info", callback: Optional[ProgressCallback] = None) -> None:
@@ -47,6 +125,12 @@ def _emit(message: str, level: str = "info", callback: Optional[ProgressCallback
             "success": log_success,
         }
         logger_map.get(level, log_info)(message)
+        # Startup runs synchronously in the main Qt thread, blocking the event loop.
+        # processEvents() forces an immediate repaint so the loading screen shows this line.
+        from PySide6.QtWidgets import QApplication
+        _app = QApplication.instance()
+        if _app is not None:
+            _app.processEvents()
     except Exception:
         pass
 
@@ -70,7 +154,7 @@ class InstallTarget:
 
 
 class SdkManager:
-    """Load SDK registrations and ensure required repos exist under models/."""
+    """Load SDK registrations from the canonical model registry."""
 
     _instance: Optional["SdkManager"] = None
 
@@ -84,7 +168,7 @@ class SdkManager:
             return
 
         self.models_dir = Path(__file__).resolve().parent
-        self.registry_path = self.models_dir / "brands_list.json"
+        self.brands_sdk_dir = _BRANDS_SDK_DIR
         self.state_path = self.models_dir / ".sdk_install_state.json"
         self._projects: List[SdkProject] = []
         self._project_index: Dict[str, SdkProject] = {}
@@ -98,22 +182,16 @@ class SdkManager:
         self._projects = []
         self._project_index = {}
 
-        raw = self._read_registry_json()
-        for brand, repos in raw.items():
-            brand_dir = self.models_dir / brand
-            if not isinstance(repos, dict):
-                continue
-            for name, url in repos.items():
-                if not isinstance(name, str) or not isinstance(url, str):
-                    continue
-                clean_url = url.strip()
-                if not clean_url:
-                    continue
+        for brand_id in canonical_brand_ids():
+            brand_spec = get_brand_spec(brand_id)
+            brand_dir_name = brand_spec.display_name if brand_spec is not None else brand_id
+            brand_dir = self.brands_sdk_dir / brand_dir_name
+            for name in sdk_project_keys_for_brand(brand_id):
                 project = SdkProject(
-                    brand=brand,
+                    brand=brand_id,
                     brand_dir=brand_dir,
-                    name=name.strip(),
-                    url=clean_url,
+                    name=name,
+                    url=sdk_project_url(brand_id, name),
                 )
                 self._projects.append(project)
                 self._project_index[self._normalize_key(name)] = project
@@ -137,10 +215,10 @@ class SdkManager:
         return seen
 
     def get_registered_brand_dirs(self) -> List[Path]:
-        return [self.models_dir / brand for brand in self.get_registered_brand_names()]
+        return [self.brands_sdk_dir / brand for brand in self.get_registered_brand_names()]
 
     def resolve_path(self, key: str, fallback: Optional[Path] = None) -> Optional[Path]:
-        """Resolve a logical SDK path key to a concrete directory under models/."""
+        """Resolve a logical SDK path key to a concrete directory under brands_sdk/."""
         self.load_registry()
         normalized = self._normalize_key(key)
         project = self._project_index.get(normalized)
@@ -170,7 +248,7 @@ class SdkManager:
         progress: Optional[ProgressCallback] = None,
         strict: bool = False,
     ) -> List[Path]:
-        """Ensure all repos listed in brands_list.json are present."""
+        """Ensure all SDK repos declared in the canonical model registry are present."""
         ensured: List[Path] = []
         for project in self.load_registry():
             if project.path.exists():
@@ -358,21 +436,77 @@ class SdkManager:
         stat = path.stat()
         return f"{stat.st_mtime_ns}:{stat.st_size}"
 
-    def _read_registry_json(self) -> Dict[str, Dict[str, str]]:
-        if not self.registry_path.exists():
-            return {}
-
-        with open(self.registry_path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-
-        if not isinstance(data, dict):
-            return {}
-        return data
-
     @staticmethod
     def _normalize_key(value: str) -> str:
         return value.strip().lower().replace("-", "_")
 
+
+
+def check_mujoco_menagerie() -> bool:
+    """Return True if models/mujoco_menagerie exists and is non-empty."""
+    return _MENAGERIE_DIR.is_dir() and any(_MENAGERIE_DIR.iterdir())
+
+
+def ensure_mujoco_menagerie(
+    *,
+    progress: Optional[ProgressCallback] = None,
+) -> bool:
+    """Ensure models/mujoco_menagerie is present; clone from GitHub if missing.
+
+    Uses ``--depth=1`` for a shallow clone (fast, ~300 MB).
+    Returns True on success; False when git is unavailable or the clone fails.
+    Startup continues in degraded mode on failure — never raises.
+    """
+    if check_mujoco_menagerie():
+        _emit("[menagerie] mujoco_menagerie already present.", "info", progress)
+        return True
+
+    _MENAGERIE_DIR.parent.mkdir(parents=True, exist_ok=True)
+    _emit(
+        f"[menagerie] models/mujoco_menagerie not found — cloning from {_MENAGERIE_URL} ...",
+        "info",
+        progress,
+    )
+
+    command = [
+        "git", "clone",
+        "--depth=1",
+        "--progress",
+        _MENAGERIE_URL,
+        str(_MENAGERIE_DIR),
+    ]
+
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=str(_MENAGERIE_DIR.parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            msg = line.strip()
+            if msg:
+                _emit(f"[menagerie] {msg}", "info", progress)
+        return_code = process.wait()
+    except Exception as exc:
+        _emit(f"[menagerie] clone failed — {exc}", "error", progress)
+        return False
+
+    if return_code != 0:
+        _emit(
+            f"[menagerie] git clone exited with code {return_code} — MuJoCo assets unavailable.",
+            "error",
+            progress,
+        )
+        return False
+
+    _emit("[menagerie] mujoco_menagerie ready.", "success", progress)
+    return True
 
 
 def configure_cyclonedds_env(project_root: Optional[Path] = None) -> str:
@@ -421,6 +555,36 @@ def configure_cyclonedds_env(project_root: Optional[Path] = None) -> str:
     return ""
 
 
+def configure_registered_sdk_imports(
+    *,
+    progress: Optional[ProgressCallback] = None,
+) -> List[Path]:
+    """Expose vendored SDK package roots to Python import resolution.
+
+    This is a lightweight bootstrap step for startup verification and local
+    runtime use. It does not build or install anything; it only prepends known
+    project-local SDK roots to ``sys.path`` when they exist.
+    """
+    manager = SdkManager()
+    added: List[Path] = []
+
+    known_import_roots: List[Path] = []
+    runtime_site_packages = _RUNTIME_DIR / "python" / "Lib" / "site-packages"
+    if runtime_site_packages.is_dir():
+        known_import_roots.append(runtime_site_packages)
+
+    unitree_sdk = manager.resolve_path("unitree_sdk")
+    if unitree_sdk is not None:
+        known_import_roots.append(unitree_sdk)
+
+    for root in known_import_roots:
+        if _prepend_sys_path(root):
+            added.append(root)
+            _emit(f"SDK import path enabled: {root}", "info", progress)
+
+    return added
+
+
 def verify_registered_sdks(
     *,
     progress: Optional[ProgressCallback] = None,
@@ -434,6 +598,7 @@ def verify_registered_sdks(
     """
     manager = SdkManager()
     projects = manager.load_registry()
+    configure_registered_sdk_imports(progress=progress)
 
     results: Dict[str, object] = {
         "mode": "verify",
@@ -451,6 +616,9 @@ def verify_registered_sdks(
             results["sdk_dirs_missing"].append(key)  # type: ignore[attr-defined]
             _emit(f"Optional SDK not present (degraded mode): {key}", "warning", progress)
 
+    runtime_site_packages = _RUNTIME_DIR / "python" / "Lib" / "site-packages"
+    unitree_sdk = manager.resolve_path("unitree_sdk")
+
     # Attempt lightweight import probes for known optional SDK packages
     _import_probes: List[Tuple[str, str]] = [
         ("unitree_sdk2py", "unitree"),
@@ -460,7 +628,24 @@ def verify_registered_sdks(
         try:
             __import__(module_name)
             results["import_checks"][label] = "ok"  # type: ignore[index]
-        except ImportError:
+            continue
+        except Exception:
+            pass
+
+        fallback_paths: List[Path] = []
+        if runtime_site_packages.is_dir():
+            fallback_paths.append(runtime_site_packages)
+        if module_name == "unitree_sdk2py" and unitree_sdk is not None:
+            fallback_paths.append(unitree_sdk)
+
+        if _probe_module_with_runtime_python(module_name, extra_paths=fallback_paths):
+            results["import_checks"][label] = "ok"  # type: ignore[index]
+            _emit(
+                f"Optional SDK import verified via packaged runtime: {label} ({module_name})",
+                "info",
+                progress,
+            )
+        else:
             results["import_checks"][label] = "unavailable"  # type: ignore[index]
             _emit(f"Optional SDK import unavailable: {label} ({module_name})", "warning", progress)
 

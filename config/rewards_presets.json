@@ -1,0 +1,28 @@
+{
+  "Motion Mimic": {
+    "action_smoothness": -0.1,
+    "alive": 0.2,
+    "base_height_penalty": -0.5,
+    "energy": -0.05,
+    "foot_pos_tracking": 3.0,
+    "joint_pose_tracking": 3.0,
+    "joint_vel_tracking": 3.0,
+    "lateral_penalty": -0.05,
+    "reference_tracking": 4.0,
+    "upright": 0.8,
+    "velocity_tracking": 0.7,
+    "yaw_tracking": 0.1
+  },
+  "Velocity_Chase": {
+    "action_smoothness": -0.02,
+    "alive": 0.2,
+    "base_height_penalty": -1.0,
+    "energy": -0.01,
+    "lateral_penalty": -0.1,
+    "reference_tracking": 2.0,
+    "slip_penalty": -0.5,
+    "upright": 1.0,
+    "velocity_tracking": 4.0,
+    "yaw_tracking": 0.5
+  }
+}

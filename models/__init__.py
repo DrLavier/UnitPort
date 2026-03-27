@@ -6,7 +6,7 @@ import importlib
 from typing import Dict, Type, Optional
 
 from .base import BaseRobotModel
-from .brand_registry import BrandRegistry
+from system.model_registry import list_brand_items, normalize_brand_id
 
 # Global model registry
 REGISTERED_MODELS: Dict[str, Type[BaseRobotModel]] = {}
@@ -53,28 +53,15 @@ def list_models() -> list:
 
 def refresh_models() -> None:
     """Attempt to import and register all discoverable brands."""
-    try:
-        _registry_mod = importlib.import_module("models.brand_registry")
-        _BrandReg = getattr(_registry_mod, "BrandRegistry", BrandRegistry)
-    except Exception:
-        _BrandReg = BrandRegistry
-    registry = _BrandReg()
-    registry.discover()
-    for brand in registry.get_brands():
-        _autoload_model(brand.lower())
+    for brand_id, _display_name in list_brand_items():
+        _autoload_model(brand_id)
 
 
 def _autoload_model(name: str) -> None:
     """Import the brand package on demand and register its model class if exported."""
-    try:
-        _registry_mod = importlib.import_module("models.brand_registry")
-        _BrandReg = getattr(_registry_mod, "BrandRegistry", BrandRegistry)
-    except Exception:
-        _BrandReg = BrandRegistry
-    registry = _BrandReg()
-    registry.discover()
-    brand_map = {brand.lower(): _module_key(brand) for brand in registry.get_brands()}
-    module_name = brand_map.get(name)
+    canonical_name = normalize_brand_id(name)
+    brand_map = {brand_id: _module_key(brand_id) for brand_id, _display_name in list_brand_items()}
+    module_name = brand_map.get(canonical_name)
     if module_name is None:
         return
 
@@ -97,7 +84,7 @@ def _autoload_model(name: str) -> None:
             and issubclass(attr, _BaseModel)
             and attr is not _BaseModel
         ):
-            register_model(name, attr)
+            register_model(canonical_name, attr)
             break
 
 

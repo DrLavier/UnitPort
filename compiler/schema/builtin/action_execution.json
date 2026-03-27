@@ -11,9 +11,9 @@
         {
             "name": "action",
             "param_type": "string",
-            "default": "stand",
+            "default": "forward",
             "constraints": {
-                "choices": ["lift_right_leg", "stand", "sit", "walk", "stop"]
+                "choices": ["forward"]
             },
             "description": "Robot action to execute"
         }

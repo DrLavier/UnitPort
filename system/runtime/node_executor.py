@@ -15,6 +15,94 @@ except (ImportError, AttributeError):
     def log_debug(*a, **k): pass   # type: ignore[misc]
     def log_warning(*a, **k): pass # type: ignore[misc]
 
+from .result_inspector import is_failure_result
+
+
+# ---------------------------------------------------------------------------
+# Step 8 — Executor dispatch helpers
+# ---------------------------------------------------------------------------
+
+def _select_executor(brand: str, backend: str):
+    """Return the appropriate OperationExecutor for (brand, backend), or None.
+
+    Returns None when no executor is available; callers must fall through to
+    the legacy raw-action path in that case.
+    """
+    from system.binding.executors import UnitreeSDKExecutor, Go2MujocoExecutor, SpotSDKExecutor, SpotMujocoExecutor
+    from system.binding.output import BACKEND_SDK, BACKEND_MUJOCO
+    b = (brand or "").lower()
+    if b == "unitree":
+        if backend == BACKEND_SDK:
+            return UnitreeSDKExecutor()
+        if backend == BACKEND_MUJOCO:
+            return Go2MujocoExecutor()
+    if b == "bostiondynamics":
+        if backend == BACKEND_SDK:
+            return SpotSDKExecutor()
+        if backend == BACKEND_MUJOCO:
+            return SpotMujocoExecutor()
+    return None
+
+
+def _dispatch_via_executor(binding_output: Any, context: Dict[str, Any]) -> Dict[str, Any]:
+    """Dispatch a pre-resolved BindingOutput through the appropriate executor.
+
+    Returns a node-result dict compatible with the action_execution node format:
+      - success     → ``{'flow_out': {'status': 'success', ...}}``
+      - unsupported → ``{'flow_out': {'status': 'unsupported', ...}}``  (graceful)
+      - failed      → ``{'error': reason, 'flow_out': {'status': 'failed', ...}}``
+
+    If no executor is found for the brand/backend combination, returns an
+    'unsupported' result so the node degrades gracefully without blocking.
+    """
+    executor = _select_executor(binding_output.brand, binding_output.backend)
+    if executor is None:
+        return {
+            "flow_out": {
+                "status": "unsupported",
+                "diag_code": f"executor.unsupported.{binding_output.operation}",
+                "reason": (
+                    f"No executor for brand={binding_output.brand!r} "
+                    f"backend={binding_output.backend!r}"
+                ),
+                "binding_name": None,
+                "binding_output": binding_output.to_dict() if hasattr(binding_output, "to_dict") else {},
+                "executor_name": None,
+                "executor_path": True,
+            }
+        }
+
+    from system.binding.executors.base import ExecutorResult
+    exec_result: ExecutorResult = executor.execute(binding_output, context)
+    executor_name = type(executor).__name__
+
+    flow = {
+        "status": "success" if exec_result.success else (
+            "unsupported"
+            if exec_result.diag_code.startswith("executor.unsupported.")
+            else "failed"
+        ),
+        "operation": exec_result.operation,
+        "diag_code": exec_result.diag_code,
+        "reason": exec_result.reason,
+        "intent_id": binding_output.intent_id,
+        "binding_name": f"{binding_output.intent_id}:{binding_output.backend}",
+        "binding_output": binding_output.to_dict() if hasattr(binding_output, "to_dict") else {},
+        "executor_name": executor_name,
+        "execution_result": "success" if exec_result.success else (
+            "unsupported"
+            if exec_result.diag_code.startswith("executor.unsupported.")
+            else "failed"
+        ),
+        "executor_path": True,
+    }
+    if exec_result.success:
+        return {"flow_out": flow}
+    if exec_result.diag_code.startswith("executor.unsupported."):
+        return {"flow_out": flow}
+    # executor.failed — surface as node error so invoker can detect it
+    return {"error": exec_result.reason, "flow_out": flow}
+
 
 class NodeExecutor:
     """Execute a DAG/workflow node graph.
@@ -46,6 +134,9 @@ class NodeExecutor:
     _ROBOT_AWARE_TYPES: FrozenSet[str] = frozenset(
         {"action_execution", "sensor_input", "stop"}
     )
+
+    # Node types that need sim_env injected (Phase F — checkpoint-runner path).
+    _SIM_ENV_AWARE_TYPES: FrozenSet[str] = frozenset({"behavior"})
 
     # Output port names that identify a loop node.
     _LOOP_PORTS: FrozenSet[str] = frozenset({"loop_body", "loop_end"})
@@ -244,10 +335,10 @@ class NodeExecutor:
         """
         flow_out, flow_in_count = self._build_flow_graph()
 
-        # "comparison" and "end" nodes should not be entry points:
-        # comparison nodes are invoked on-demand via DATA edges;
+        # Pure data-provider nodes should not be entry points:
+        # comparison/checkpoint nodes are invoked on-demand via DATA edges;
         # end nodes have no outgoing flow by definition.
-        _SKIP_AS_ENTRY: FrozenSet[str] = frozenset({"comparison", "end"})
+        _SKIP_AS_ENTRY: FrozenSet[str] = frozenset({"comparison", "checkpoint", "end"})
         entry_nodes = [
             n["id"]
             for n in self.nodes
@@ -303,9 +394,14 @@ class NodeExecutor:
             try:
                 output = self._execute_node(node, inputs, context)
                 results[node_id] = output
-                log_debug(f"node {node_id} output: {output}")
-                if _cb is not None:
-                    _cb(node_id, "success")
+                if is_failure_result(output):
+                    log_error(f"node {node_id} output indicates failure: {output}")
+                    if _cb is not None:
+                        _cb(node_id, "failed")
+                else:
+                    log_debug(f"node {node_id} output: {output}")
+                    if _cb is not None:
+                        _cb(node_id, "success")
             except RuntimeError as exc:
                 msg = str(exc)
                 results[node_id] = {"error": msg}
@@ -471,10 +567,15 @@ class NodeExecutor:
             try:
                 output = self._execute_node(node, inputs, context)
                 results[node_id] = output
-                log_debug(f"node {node_id} output: {output}")
                 self._last_executed_count += 1
-                if _cb is not None:
-                    _cb(node_id, "success")
+                if is_failure_result(output):
+                    log_error(f"node {node_id} output indicates failure: {output}")
+                    if _cb is not None:
+                        _cb(node_id, "failed")
+                else:
+                    log_debug(f"node {node_id} output: {output}")
+                    if _cb is not None:
+                        _cb(node_id, "success")
             except Exception as exc:
                 log_error(f"node {node_id} failed: {exc}")
                 results[node_id] = {"error": str(exc)}
@@ -561,16 +662,33 @@ class NodeExecutor:
         node_type = node["type"]
         node_data = node["data"]
 
-        # ── Behavior node fast-path (STAGE-03, Circle 1 Step 1.3 extended) ────
-        # Detect on: explicit "behavior_call" type (Circle 1 new canonical form),
-        # legacy "behavior" schema_id/type, or canvas external_kind marker.
-        _is_behavior = (
-            node_type in ("behavior", "behavior_call")
-            or node_data.get("schema_id") in ("behavior", "behavior_call")
-            or node_data.get("external_kind") == "behavior"
+        # ── Behavior-call fast-path (Circle 1 Step 1.3, Phase F updated) ────
+        # Route old behavior_call / external_kind="behavior" nodes to the
+        # Circle 6 BehaviorSubgraphInvoker.  The new "behavior" node type
+        # (BehaviorNode — Phase F checkpoint-runner) is NOT intercepted here
+        # so it falls through to the registry lookup and executes normally.
+        _schema_id = str(node_data.get("schema_id", "") or "").strip().lower()
+        _external_kind = str(node_data.get("external_kind", "") or "").strip().lower()
+        _is_new_behavior_node = node_type == "behavior" or _schema_id == "behavior"
+        _is_behavior_call = (
+            node_type == "behavior_call"
+            or _schema_id == "behavior_call"
+            or (_external_kind == "behavior" and not _is_new_behavior_node)
         )
-        if _is_behavior:
+        if _is_behavior_call:
             return self._execute_behavior_node(node, inputs, context)
+        # ────────────────────────────────────────────────────────────────────
+
+        # Circle 7: RUN_POLICY fast path — dispatch through PolicyCommandExecutor.
+        # Detected by schema_id "run_policy" (Circle 6 canonical form) or the
+        # node_data kind field for direct dict payloads.
+        _is_run_policy = (
+            node_type == "run_policy"
+            or node_data.get("kind") == "run_policy"
+            or node_data.get("schema_id") == "run_policy"
+        )
+        if _is_run_policy:
+            return self._execute_run_policy_node(node, inputs, context)
         # ────────────────────────────────────────────────────────────────────
 
         registry_type = self._resolve_registry_type(node_type, node_data)
@@ -596,11 +714,92 @@ class NodeExecutor:
             else:
                 logic_node.set_parameter(param_name, param_info)
 
+        if registry_type == "start":
+            robot_model = (
+                (context.get("scenario") or {}).get("robot_model")
+                or context.get("robot_model")
+            )
+            current_robot_type = getattr(robot_model, "robot_type", "")
+            if current_robot_type:
+                logic_node.set_parameter("robot_type", current_robot_type)
+
         # Inject robot_model for robot-aware types (mirrors WorkflowRunner).
         if registry_type in self._ROBOT_AWARE_TYPES:
             robot_model = (context.get("scenario") or {}).get("robot_model")
             if robot_model is not None:
                 logic_node.set_parameter("robot_model", robot_model)
+
+        # Inject sim_env for behavior nodes (Phase F checkpoint-runner path).
+        if registry_type in self._SIM_ENV_AWARE_TYPES:
+            sim_env = (
+                (context.get("scenario") or {}).get("sim_env")
+                or context.get("sim_env")
+            )
+            if sim_env is not None:
+                logic_node.set_parameter("sim_env", sim_env)
+
+        # Step 8 — BindingOutput → Executor dispatch (canonical path).
+        #
+        # node_executor only dispatches using already-resolved BindingOutputs.
+        # The old resolved_actions raw-action rewrite is completely removed.
+        #
+        # Dispatch rules for action_execution nodes:
+        #
+        #   1. action in resolved_bindings
+        #        → _dispatch_via_executor() — primary path for ALL semantic intents.
+        #
+        #   2. action in resolved_actions but NOT in resolved_bindings
+        #        → graceful unsupported (binding was missing at Step 2e; warning was
+        #          already recorded by the invoker).  No SDK call is made.
+        #
+        #   3. action in neither map (raw action, non-semantic, non-behavior path)
+        #        → fall through to logic_node.execute() below (unchanged legacy).
+        #
+        # Result shapes:
+        #   success     → {'flow_out': {'status': 'success', ...}}
+        #   unsupported → {'flow_out': {'status': 'unsupported', ...}}  (no 'error' key)
+        #   failed      → {'error': ..., 'flow_out': {'status': 'failed', ...}}
+        if registry_type == "action_execution":
+            current_action = logic_node.get_parameter("action", "")
+            resolved_bindings = context.get("resolved_bindings", None)
+            resolved_actions  = context.get("resolved_actions")  or {}
+
+            # Step 8 behavior path is active only when the invoker explicitly
+            # injected the resolved_bindings key. Non-behavior / legacy paths
+            # may still carry resolved_actions without any binding layer.
+            if resolved_bindings is not None:
+                if current_action in resolved_bindings:
+                    # Primary path: executor dispatch (raw action name matches key).
+                    return _dispatch_via_executor(resolved_bindings[current_action], context)
+
+                # Timeline-generated IR nodes store raw_action in "action" but
+                # resolved_bindings is keyed by intent_id.  Fall back to intent_id
+                # lookup so the binding (with user-edited speed/duration) is found.
+                _intent_id_param = logic_node.get_parameter("intent_id", "")
+                if _intent_id_param and _intent_id_param in resolved_bindings:
+                    return _dispatch_via_executor(resolved_bindings[_intent_id_param], context)
+
+                if current_action in resolved_actions:
+                    # Semantic intent but no BindingOutput — degrade gracefully.
+                    return {
+                        "flow_out": {
+                            "status": "unsupported",
+                            "diag_code": f"binding.no_binding.{current_action}",
+                            "reason": f"No BindingOutput for intent {current_action!r}",
+                            "executor_path": True,
+                        }
+                    }
+
+        # Legacy path: when Step 8 binding dispatch is not active, retain the
+        # older semantic-intent -> raw-action rewrite behaviour so non-behavior
+        # contexts and pre-Step-8 callers keep working.
+        if registry_type == "action_execution":
+            if "resolved_bindings" not in context:
+                resolved_actions = context.get("resolved_actions") or {}
+                if resolved_actions:
+                    current_action = logic_node.get_parameter("action", "")
+                    if current_action in resolved_actions:
+                        logic_node.set_parameter("action", resolved_actions[current_action])
 
         return logic_node.execute(inputs)
 
@@ -709,6 +908,8 @@ class NodeExecutor:
         _timeline_diags = [d for d in _all_diags if str(d.get("code", "")).startswith("timeline.")]
         # Step 1: surface protocol diagnostics
         _proto_diags = [d.to_dict() for d in invoke_result.protocol_diagnostics]
+        # Circle 7: surface semantic resolution diagnostics
+        _res_diags = [d.to_dict() for d in invoke_result.resolution_diagnostics]
 
         if invoke_result.status == "success":
             return {
@@ -732,6 +933,8 @@ class NodeExecutor:
                 "apply_success_count": invoke_result.apply_success_count,
                 "apply_skipped_count": invoke_result.apply_skipped_count,
                 "apply_failure_reasons": invoke_result.apply_failure_reasons,
+                # Circle 7: semantic resolution diagnostics
+                "resolution_diagnostics": _res_diags,
             }
         else:
             # "error" key triggers failed_nodes tracking in RuntimeEngine.
@@ -755,7 +958,73 @@ class NodeExecutor:
                 "apply_success_count": invoke_result.apply_success_count,
                 "apply_skipped_count": invoke_result.apply_skipped_count,
                 "apply_failure_reasons": invoke_result.apply_failure_reasons,
+                # Circle 7: semantic resolution diagnostics
+                "resolution_diagnostics": _res_diags,
             }
+
+    def _execute_run_policy_node(
+        self,
+        node: Dict[str, Any],
+        inputs: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Dispatch a RUN_POLICY node to PolicyCommandExecutor.
+
+        Circle 7: connects the compiled RUN_POLICY IR node to real policy
+        execution via a brand-agnostic bridge.
+
+        Failure containment rule: any failure in PolicyCommandExecutor returns
+        a failure result dict (with "error" key) without raising — the workflow
+        continues from the node's downstream flow edges normally.
+
+        Result mapping
+        --------------
+        success → plain result dict (no "error" key)
+                  RuntimeEngine does NOT add node to failed_nodes
+        failure → result dict with "error" key
+                  RuntimeEngine adds node to failed_nodes; traversal continues
+        """
+        node_data = node["data"]
+        node_payload = self._extract_run_policy_params(node_data)
+        log_info(
+            f"run_policy node '{node['id']}': policy_id={node_payload.get('policy_id')!r}"
+        )
+
+        from system.policy.policy_command_executor import PolicyCommandExecutor
+        executor = PolicyCommandExecutor()
+        result = executor.execute(node_payload, context)
+
+        if result.get("status") == "success":
+            return result  # no "error" key → not counted as failed
+        else:
+            # "error" key triggers failed_nodes tracking in RuntimeEngine;
+            # returning (not raising) keeps the workflow alive.
+            return {"error": result.get("message", "run_policy failed"), **result}
+
+    @staticmethod
+    def _extract_run_policy_params(node_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract run_policy execution params from a node data dict.
+
+        Handles two formats:
+          - WorkflowIR-origin: node_data["params"]["<key>"]["value"]
+          - Flat dict: node_data["<key>"] (top-level)
+        """
+        params = node_data.get("params", {})
+
+        def _get(name: str, default: Any) -> Any:
+            p = params.get(name)
+            if p is None:
+                return node_data.get(name, default)
+            if isinstance(p, dict) and "value" in p:
+                return p["value"]
+            return p
+
+        return {
+            "policy_id":        _get("policy_id",        ""),
+            "max_steps":        _get("max_steps",        1000),
+            "velocity_command": _get("velocity_command", [0.0, 0.0, 0.0]),
+            "render":           _get("render",           False),
+        }
 
     @staticmethod
     def _extract_behavior_ref(node_data: Dict[str, Any]) -> str:

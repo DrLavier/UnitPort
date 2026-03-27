@@ -19,4 +19,3 @@ def map_action(action: str) -> str:
     if not action:
         return ""
     return ACTION_MAP.get(action, action)
-

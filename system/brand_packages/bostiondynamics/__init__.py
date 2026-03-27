@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""BostionDynamics brand stub — adapter not yet implemented."""
+"""Boston Dynamics brand package."""
+
+from .spot_model import SpotModel
 
 SUPPORTED_MODELS = ["spot"]
+
+__all__ = ["SpotModel", "SUPPORTED_MODELS"]

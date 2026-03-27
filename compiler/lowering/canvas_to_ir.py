@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Canvas to IR conversion.
@@ -12,6 +12,7 @@ from compiler.ir.workflow_ir import (
 )
 from compiler.schema.registry import SchemaRegistry
 from compiler.semantic.diagnostics import Diagnostic, make_error, make_warning
+from system.model_registry import get_robot_brand_map, normalize_brand_id
 
 # Maps display names used in the canvas to schema node types
 _DISPLAY_NAME_TO_NODE_TYPE = {
@@ -51,6 +52,10 @@ _DISPLAY_NAME_TO_NODE_TYPE = {
     "Behavior": "behavior_call",
     # Circle 4: protocol emit node — compiles node outputs to motor-weight protocol payload.
     "Protocol Emit": "protocol_emit",
+    # Circle 6: policy execution nodes.  Checkpoint carries policy_id; Policy
+    # carries execution params and resolves policy_id from upstream Checkpoint.
+    "Checkpoint": "checkpoint",
+    "Policy": "run_policy",
 }
 
 # Maps UI action display text to robot action identifiers
@@ -139,13 +144,22 @@ class CanvasToIR:
             if edge:
                 ir.add_edge(edge)
 
+        # Circle 6: resolve policy_id for RUN_POLICY nodes from upstream Checkpoint.
+        # This must run after all nodes and edges are added so graph traversal works.
+        for ir_node in ir.nodes:
+            if ir_node.kind == NodeKind.RUN_POLICY:
+                policy_id, resolve_diags = self._resolve_policy_id(ir_node.id, ir)
+                diags.extend(resolve_diags)
+                if policy_id is not None:
+                    ir_node.set_param("policy_id", policy_id, "string")
+
         # Sync robot_type and brand from Start node if present
         start_nodes = ir.get_nodes_by_kind(NodeKind.START)
         if start_nodes:
             rt = start_nodes[0].get_param_value("robot_type", "go2")
             ir.robot_type = rt
             rb = start_nodes[0].get_param_value("robot_brand", "")
-            ir.brand = rb.lower() if rb else self._brand_for(rt)
+            ir.brand = normalize_brand_id(rb) if rb else self._brand_for(rt)
 
         return ir, diags
 
@@ -155,6 +169,7 @@ class CanvasToIR:
         display_name = node_data.get("display_name", "")
         node_id = str(node_data.get("id", IRNode.new_id()))
         ui_selection = node_data.get("ui_selection", "")
+        external_kind = str(node_data.get("external_kind", "") or "").lower()
 
         # Determine node type and resolve Logic Control special case
         node_type = node_data.get("node_type", "unknown")
@@ -169,12 +184,18 @@ class CanvasToIR:
                 node_type = "if"
 
         # Handle Stop node disguised as Action Execution with Stop preset
+        # Legacy compatibility: pre-behavior_call canvas data persisted Behavior
+        # nodes as action_execution + external_kind=behavior.
+        if node_type == "action_execution" and external_kind == "behavior":
+            node_type = "behavior_call"
+
         if node_type == "action_execution" and ui_selection == "Stop":
             node_type = "stop"
 
         # Circle 1 Step 1.3: behavior_call has an explicit IR kind;
         # handle before the schema registry lookup so it never falls back to CUSTOM.
         # Circle 4: protocol_emit similarly bypasses the registry.
+        # Circle 6: run_policy and checkpoint also bypass the registry.
         if node_type == "behavior_call":
             schema_id = "behavior_call"
             kind = NodeKind.BEHAVIOR_CALL
@@ -182,6 +203,18 @@ class CanvasToIR:
             # Use builtin schema id so SemanticValidator can resolve schema metadata.
             schema_id = "builtin.protocol_emit"
             kind = NodeKind.PROTOCOL_EMIT
+        elif node_type == "run_policy":
+            schema_id = "run_policy"
+            kind = NodeKind.RUN_POLICY
+        elif node_type == "checkpoint":
+            # Checkpoint is a data-carrying node; no dedicated IR kind beyond CUSTOM needed.
+            schema_id = "checkpoint"
+            kind = NodeKind.CUSTOM
+        elif node_type == "behavior":
+            # BehaviorNode: executes checkpoint policy in MuJoCo.
+            # Bypasses schema registry (same pattern as checkpoint).
+            schema_id = "behavior"
+            kind = NodeKind.CUSTOM
         else:
             # Find schema
             schema = SchemaRegistry.get_by_node_type(node_type)
@@ -234,7 +267,7 @@ class CanvasToIR:
             params["behavior_ref"] = IRParam("behavior_ref", behavior_ref, "string")
 
         elif node_type == "start":
-            robot_brand = node_data.get("robot_brand", "Unitree")
+            robot_brand = normalize_brand_id(node_data.get("robot_brand", "unitree"))
             params["robot_brand"] = IRParam("robot_brand", robot_brand, "string")
             robot_type = node_data.get("robot_type", ui_selection or "go2")
             params["robot_type"] = IRParam("robot_type", robot_type, "string")
@@ -399,6 +432,51 @@ class CanvasToIR:
                 count = 2
             params["branch_count"] = IRParam("branch_count", count, "int")
 
+        elif node_type == "checkpoint":
+            # Circle 6: Checkpoint carries the policy bundle identifier.
+            policy_id = (
+                node_data.get("policy_id")
+                or node_data.get("ckpt_policy_id")
+                or ""
+            )
+            params["policy_id"] = IRParam(
+                "policy_id", policy_id, "string"
+            )
+            params["checkpoint_name"] = IRParam(
+                "checkpoint_name",
+                node_data.get("checkpoint_name", node_data.get("display_name", "")),
+                "string",
+            )
+
+        elif node_type == "behavior":
+            policy_id = (
+                node_data.get("policy_id")
+                or node_data.get("beh_policy_id")
+                or ""
+            )
+            params["policy_id"] = IRParam("policy_id", policy_id, "string")
+
+        elif node_type == "run_policy":
+            # Circle 6: Policy node execution params.
+            # policy_id is intentionally left empty here; it is resolved in convert()
+            # by walking the 'checkpoint' edge upstream to the Checkpoint node.
+            params["policy_id"] = IRParam("policy_id", "", "string")
+            ms_raw = node_data.get("max_steps", 1000)
+            try:
+                ms = int(ms_raw)
+            except (ValueError, TypeError):
+                ms = 1000
+            params["max_steps"] = IRParam("max_steps", ms, "int")
+            render_val = node_data.get("render", False)
+            if isinstance(render_val, str):
+                render_val = render_val.lower() in ("true", "1", "yes")
+            params["render"] = IRParam("render", bool(render_val), "bool")
+            # velocity_command: [vx, vy, vyaw].  Default [0.0, 0.0, 0.0] (stationary).
+            vc = node_data.get("velocity_command", None)
+            if vc is None:
+                vc = [0.0, 0.0, 0.0]
+            params["velocity_command"] = IRParam("velocity_command", vc, "list")
+
         elif node_type == "protocol_emit":
             # Circle 4: extract protocol emission params from canvas node data.
             params["motor_key"]   = IRParam("motor_key",   node_data.get("motor_key",   ""),        "string")
@@ -470,6 +548,75 @@ class CanvasToIR:
         )
         return edge, diags
 
+    def _resolve_policy_id(
+        self, policy_node_id: str, ir: WorkflowIR
+    ) -> Tuple[str, List[Diagnostic]]:
+        """Resolve policy_id for a RUN_POLICY node from its upstream Checkpoint.
+
+        Traversal rule: walk the inbound edge attached to the 'checkpoint' input port
+        and read the upstream Checkpoint node's 'policy_id' param.
+
+        Returns (policy_id, diagnostics).  policy_id is None on any error.
+        """
+        diags: List[Diagnostic] = []
+
+        checkpoint_edges = [
+            e for e in ir.edges
+            if e.to_node == policy_node_id and e.to_port == "checkpoint"
+        ]
+
+        if not checkpoint_edges:
+            diags.append(make_error(
+                "E6001",
+                f"Policy node '{policy_node_id}' has no 'checkpoint' input edge; "
+                "policy_id cannot be resolved — connect a Checkpoint node via the checkpoint port",
+                node_id=policy_node_id,
+            ))
+            return None, diags
+
+        if len(checkpoint_edges) > 1:
+            diags.append(make_error(
+                "E6002",
+                f"Policy node '{policy_node_id}' has multiple 'checkpoint' input edges; "
+                "ambiguous policy_id — only one Checkpoint may feed the checkpoint port",
+                node_id=policy_node_id,
+            ))
+            return None, diags
+
+        source_node_id = checkpoint_edges[0].from_node
+        source_node = ir.get_node(source_node_id)
+
+        if source_node is None:
+            diags.append(make_error(
+                "E6003",
+                f"Policy node '{policy_node_id}' checkpoint edge source '{source_node_id}' "
+                "not found in IR",
+                node_id=policy_node_id,
+            ))
+            return None, diags
+
+        if source_node.schema_id != "checkpoint":
+            diags.append(make_error(
+                "E6004",
+                f"Policy node '{policy_node_id}' checkpoint edge source is not a Checkpoint "
+                f"(got schema_id={source_node.schema_id!r}); "
+                "only a Checkpoint node may supply policy_id via the checkpoint port",
+                node_id=policy_node_id,
+            ))
+            return None, diags
+
+        policy_id = source_node.get_param_value("policy_id", "")
+        if not policy_id:
+            diags.append(make_error(
+                "E6005",
+                f"Upstream Checkpoint node '{source_node_id}' has an empty policy_id; "
+                "set a non-empty policy bundle path on the Checkpoint node",
+                node_id=policy_node_id,
+            ))
+            return None, diags
+
+        return policy_id, diags
+
     @staticmethod
     def _safe_int(val, default: int = 0) -> int:
         try:
@@ -479,13 +626,9 @@ class CanvasToIR:
 
     @staticmethod
     def _brand_for(robot_type: str) -> str:
-        try:
-            from models.brand_registry import BrandRegistry
-            mapping = BrandRegistry().get_robot_brand_map()
-            if robot_type in mapping:
-                return mapping[robot_type]
-        except Exception:
-            pass
+        mapping = get_robot_brand_map()
+        if robot_type in mapping:
+            return mapping[robot_type]
         _fallback = {
             "go2": "unitree", "a1": "unitree", "b1": "unitree",
             "b2": "unitree", "h1": "unitree",

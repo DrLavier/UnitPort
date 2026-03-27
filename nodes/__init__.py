@@ -14,6 +14,7 @@ from .sys_nodes.base_node import BaseNode
 from .sys_nodes import (
     ActionExecutionNode,
     StopNode,
+    BehaviorCallNode,
     IfNode,
     WhileLoopNode,
     ComparisonNode,
@@ -35,10 +36,17 @@ from .sys_nodes import (
     CancelNode,
     AbortNode,
     BreakNode,
+    CheckpointNode,
+    BehaviorNode,
+    # PolicyNode / ConductorNode are DEPRECATED — not imported here.
+    # Training nodes (EnvConfigNode / TrainConfigNode / TrainNode) are
+    # intentionally NOT imported here.  They live in
+    # nodes.sys_nodes.training_nodes and are registered only by the
+    # Training Ground canvas — never by the Mission Canvas registry.
 )
 
 # Import custom nodes interface
-from custom_nodes import CUSTOM_NODES, discover_custom_nodes, get_custom_nodes
+from .custom_nodes import CUSTOM_NODES, discover_custom_nodes, get_custom_nodes
 
 # ============================================================================
 # Global Node Registry
@@ -106,12 +114,13 @@ def list_system_nodes() -> List[str]:
     """List only system (built-in) node types"""
     system_types = [
         'start', 'end',
-        'action_execution', 'stop',
+        'action_execution', 'stop', 'behavior_call',
         'if', 'while_loop', 'comparison',
         'sensor_input',
         'protocol_emit',
         'math', 'timer', 'variable',
         'wait', 'gate', 'timeout', 'retry', 'cancel', 'abort', 'break',
+        'checkpoint', 'behavior',
     ]
     return [t for t in system_types if t in REGISTERED_NODES]
 
@@ -133,6 +142,7 @@ register_node("end", EndNode)
 # Action nodes
 register_node("action_execution", ActionExecutionNode)
 register_node("stop", StopNode)
+register_node("behavior_call", BehaviorCallNode)
 
 # Logic nodes
 register_node("if", IfNode)
@@ -160,6 +170,13 @@ register_node("retry", RetryNode)
 register_node("cancel", CancelNode)
 register_node("abort", AbortNode)
 register_node("break", BreakNode)
+
+# Control pipeline nodes
+register_node("checkpoint", CheckpointNode)
+register_node("behavior", BehaviorNode)
+# policy / conductor are DEPRECATED — not registered.
+# env_config / train_config / train are NOT registered here.
+# The Training Ground canvas manages its own separate node table.
 
 
 # ============================================================================
@@ -208,6 +225,7 @@ __all__ = [
     'EndNode',
     'ActionExecutionNode',
     'StopNode',
+    'BehaviorCallNode',
     'IfNode',
     'WhileLoopNode',
     'ComparisonNode',
@@ -227,4 +245,8 @@ __all__ = [
     'CancelNode',
     'AbortNode',
     'BreakNode',
+    'CheckpointNode',
+    'BehaviorNode',
+    # PolicyNode / ConductorNode: DEPRECATED, not exported.
+    # EnvConfigNode / TrainConfigNode / TrainNode intentionally excluded.
 ]
