@@ -89,7 +89,7 @@ Sry, will have to wait a little bit longer for this :(
     place nodes onto the canvas >> adjust the parameters >> connect them to the workflow.
     At the same time, I’ve retained the ability to edit workflows directly in **Python** within Mission Control. This stems from my personal habits developed while working with UE Blueprints, but I find it genuinely useful.
 
-**- AI enhanced-**
+**- AI enhanced:**
     Yes we have it, but this feature **was not included in the Alpha release**. 
     It is currently in our internal version, in which we have built a hybrid RAG framework that integrates Ollama with APIs of more advanced agents. 
     It currently supports configuration and parameter tuning, reinforcement learning, workflow construction, and the generation of **.npy** reference action files.
