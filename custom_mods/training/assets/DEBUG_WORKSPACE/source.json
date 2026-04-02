@@ -1,0 +1,8 @@
+{
+  "type": "training",
+  "parent_policy_id": "HUMANOID",
+  "experiment_id": "exp_5a77226f",
+  "run_id": "run_75c9db72",
+  "algorithm": "SAC",
+  "created_at": 1775116659.4888752
+}

@@ -1,0 +1,16 @@
+{
+  "run_id": "run_df761032",
+  "policy_id": "test_policy2",
+  "experiment_id": "",
+  "experiment_name": "",
+  "status": "running",
+  "created_at": 1774879504.0926552,
+  "started_at": 1774879504.0947173,
+  "finished_at": null,
+  "cancelled_at": null,
+  "algorithm": "PPO",
+  "total_timesteps": 2000,
+  "policy_id_out": "emitted_policy",
+  "bundle_path": "",
+  "error": ""
+}

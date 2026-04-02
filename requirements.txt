@@ -1,4 +1,4 @@
-# UnitPort - Robot Visual Programming Platform
+# Celebrimbor - Robot Visual Programming Platform
 # Python dependency list
 
 # Core runtime dependencies
@@ -6,19 +6,31 @@ PySide6>=6.5.0
 mujoco>=3.0.0
 numpy>=1.24.0
 PyYAML>=6.0
+onnx>=1.14
 onnxruntime>=1.17
+# PyTorch: install.bat/install.sh install the CUDA build first when an
+# NVIDIA GPU is detected.  This bare specifier acts as a fallback for
+# CPU-only machines and satisfies the version constraint in either case.
+torch>=2.0.0
 huggingface_hub==1.7.1
 psutil>=5.9
+loguru>=0.7.0
+gymnasium
+stable-baselines3>=2.0.0
 
-# Training stack (RL algorithms + environment API)
-# gymnasium is pulled in automatically as an SB3 dependency
-stable_baselines3>=2.0.0
-
-# Note: torch is installed separately by install.bat
-# to select the correct CPU or CUDA build for the current hardware.
-# Minimum required: torch>=2.0.0
+# Optional: test/development
+pytest>=7.4.0
+# black>=23.0.0
+# pylint>=2.17.0
 
 # Optional: Unitree SDK2
 # The project imports `unitree_sdk2py`, but this is typically installed from
 # Unitree's official SDK distribution (local/vendor path), not PyPI.
 # unitree_sdk2py
+
+# CycloneDDS — required by unitree_sdk2py for real-robot communication.
+# 0.10.2 (pinned by unitree_sdk2py) has no Windows binary wheel and requires
+# the CycloneDDS C library to build from source.  11.x ships a pre-built wheel
+# for Windows/Python 3.11 and is API-compatible for the channel primitives used
+# here.  Install with --only-binary :all: to avoid the C-build path.
+cyclonedds>=0.10.2

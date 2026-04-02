@@ -1,0 +1,11 @@
+{
+  "type": "training",
+  "parent_policy_id": "Walk_try",
+  "experiment_id": "exp_ecf28f6b",
+  "run_id": "run_8d587bd2",
+  "algorithm": "SAC",
+  "created_at": 1774737336.162167,
+  "exported_from": "best_model",
+  "best_step": 933216,
+  "best_reward_mean": 1192.3009
+}

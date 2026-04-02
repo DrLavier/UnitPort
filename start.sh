@@ -1,63 +1,71 @@
 #!/bin/bash
 # ==============================================================================
-# UnitPort start.sh
-# Launches UnitPort using ONLY the project-local .venv311 environment.
-# Never falls back to runtime/python or any global Python.
-# Always injects project-local CYCLONEDDS_HOME if available.
+# UnitPort start.sh - single entry point
+# Checks .venv311; if missing or broken, runs install.sh first.
+# Then launches the application.
 # ==============================================================================
 
-set -e
-
-# Get script directory (resolve symlinks)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# ------------------------------------------------------------------------------
-# Configuration
-# ------------------------------------------------------------------------------
 VENV_PYTHON="$SCRIPT_DIR/.venv311/bin/python"
 CDDS_DIR="$SCRIPT_DIR/runtime/cyclonedds"
-INSTALL_STATE="$SCRIPT_DIR/runtime/env/install_state.json"
 
 # ------------------------------------------------------------------------------
-# Select Python executable
+# Auto-install if .venv311 is missing or broken
 # ------------------------------------------------------------------------------
-if [ -x "$VENV_PYTHON" ]; then
-    PYTHON_EXE="$VENV_PYTHON"
-    LAUNCH_MODE="venv311"
-else
-    echo "[ERROR] .venv311 Python not found."
-    echo "[ERROR] Checked: .venv311/bin/python"
-    echo "[ERROR] Run install.sh first."
-    exit 1
+
+need_install=0
+
+if [ ! -x "$VENV_PYTHON" ]; then
+    echo "[start] .venv311 not found, running install.sh ..."
+    need_install=1
+elif ! "$VENV_PYTHON" -c "import sys; sys.exit(0)" 2>/dev/null; then
+    echo "[start] .venv311 Python broken, running install.sh ..."
+    need_install=1
 fi
+
+if [ "$need_install" -eq 1 ]; then
+    bash "$SCRIPT_DIR/install.sh"
+    if [ $? -ne 0 ]; then
+        echo "[start] install.sh failed, cannot continue."
+        exit 1
+    fi
+    if [ ! -x "$VENV_PYTHON" ]; then
+        echo "[start] install.sh finished but .venv311 still missing, cannot continue."
+        exit 1
+    fi
+fi
+
+# Quick sanity: can we import PySide6?
+if ! "$VENV_PYTHON" -c "import PySide6" 2>/dev/null; then
+    echo "[start] PySide6 missing, re-running install.sh ..."
+    bash "$SCRIPT_DIR/install.sh"
+    if [ $? -ne 0 ]; then
+        echo "[start] install.sh failed, cannot continue."
+        exit 1
+    fi
+fi
+
+PYTHON_EXE="$VENV_PYTHON"
+LAUNCH_MODE="venv311"
 
 # ------------------------------------------------------------------------------
 # Inject project-local CycloneDDS (best-effort, non-blocking)
 # ------------------------------------------------------------------------------
 if [ -d "$CDDS_DIR/lib" ] || [ -d "$CDDS_DIR/bin" ]; then
     export CYCLONEDDS_HOME="$CDDS_DIR"
-    
-    # Add library path based on architecture
-    if [ -d "$CDDS_DIR/lib" ]; then
-        export LD_LIBRARY_PATH="$CDDS_DIR/lib:$LD_LIBRARY_PATH"
-    fi
-    
-    # Add bin path
-    if [ -d "$CDDS_DIR/bin" ]; then
-        export PATH="$CDDS_DIR/bin:$PATH"
-    fi
-    
+    [ -d "$CDDS_DIR/lib" ] && export LD_LIBRARY_PATH="$CDDS_DIR/lib:${LD_LIBRARY_PATH:-}"
+    [ -d "$CDDS_DIR/bin" ] && export PATH="$CDDS_DIR/bin:$PATH"
     echo "[runtime:cyclonedds] CYCLONEDDS_HOME=$CYCLONEDDS_HOME"
 else
-    echo "[runtime:cyclonedds] CycloneDDS not configured — Unitree SDK may be unavailable."
+    echo "[runtime:cyclonedds] CycloneDDS not configured, Unitree SDK may be unavailable."
 fi
 
 # ------------------------------------------------------------------------------
 # Detect display for Qt
 # ------------------------------------------------------------------------------
 if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
-    # No display available, use offscreen platform
     export QT_QPA_PLATFORM="offscreen"
     echo "[runtime:display] No display detected, using offscreen mode"
 elif [ -n "$WAYLAND_DISPLAY" ]; then
@@ -73,7 +81,6 @@ fi
 # ------------------------------------------------------------------------------
 echo "[start] UnitPort - mode: $LAUNCH_MODE"
 echo "[start] Python: $PYTHON_EXE"
-echo "[start] Platform: Linux"
+echo "[start] Platform: $(uname -s)"
 
-# Pass all arguments to main.py
 exec "$PYTHON_EXE" main.py "$@"

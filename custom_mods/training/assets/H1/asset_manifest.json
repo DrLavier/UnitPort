@@ -1,0 +1,13 @@
+{
+  "asset_id": "H1",
+  "display_name": "H1",
+  "framework": "sb3",
+  "algorithm": "SAC",
+  "robot_type": "h1",
+  "obs_dim": 40,
+  "action_dim": 10,
+  "action_type": "torque",
+  "primary_checkpoint": "best/best_model.zip",
+  "source_type": "training",
+  "experiment_id": "exp_46d65ead"
+}

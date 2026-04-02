@@ -1,0 +1,16 @@
+{
+  "run_id": "run_c040707e",
+  "policy_id": "test_policy",
+  "experiment_id": "",
+  "experiment_name": "",
+  "status": "running",
+  "created_at": 1774882011.8984392,
+  "started_at": 1774882011.8998208,
+  "finished_at": null,
+  "cancelled_at": null,
+  "algorithm": "PPO",
+  "total_timesteps": 2000,
+  "policy_id_out": "sig_test_policy",
+  "bundle_path": "",
+  "error": ""
+}

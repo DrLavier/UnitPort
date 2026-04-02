@@ -93,50 +93,28 @@ if errorlevel 1 (
 )
 
 :: -------------------------------------------------------
-:: Step 3.5: install torch (GPU-aware)
-::
-:: torch is installed BEFORE requirements.txt so that pip can select
-:: the correct CUDA or CPU build.  requirements.txt intentionally omits
-:: torch and only documents the minimum version constraint.
+:: Step 4a: install PyTorch with CUDA (if NVIDIA GPU present)
 :: -------------------------------------------------------
+:: PyPI only hosts CPU-only torch builds.  The CUDA builds live on
+:: PyTorch's own index.  We detect NVIDIA hardware first and install
+:: the CUDA wheel so that the plain "torch>=2.0.0" line in
+:: requirements.txt is already satisfied when Step 4b runs.
 
-echo [install] Detecting GPU ...
-set "TORCH_VARIANT=cpu"
 nvidia-smi >nul 2>&1
 if not errorlevel 1 (
-    echo [install] NVIDIA GPU detected.
-    set "TORCH_VARIANT=cu124"
-) else (
-    echo [install] No NVIDIA GPU found, using CPU torch.
-)
-
-:: Check whether torch is already installed in the venv
-"%TARGET_PYTHON%" -c "import torch" >nul 2>&1
-if not errorlevel 1 (
-    for /f "tokens=*" %%v in ('"%TARGET_PYTHON%" -c "import torch; print(torch.__version__)" 2^>nul') do (
-        echo [install] torch already installed: %%v  ^(skipping torch download^)
-        goto :torch_done
-    )
-)
-
-if "!TORCH_VARIANT!"=="cu124" (
-    echo [install] Installing torch with CUDA 12.4 support ...
-    "%TARGET_PYTHON%" -m pip install torch --index-url https://download.pytorch.org/whl/cu124 --quiet
+    echo [install] NVIDIA GPU detected — installing PyTorch with CUDA ...
+    "%TARGET_PYTHON%" -m pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124 --quiet
     if errorlevel 1 (
-        echo [WARNING] CUDA torch install failed, falling back to CPU torch ...
-        "%TARGET_PYTHON%" -m pip install torch --quiet
-        if errorlevel 1 ( echo [ERROR] torch install failed & exit /b 1 )
+        echo [WARNING] CUDA PyTorch install failed; will fall back to CPU version.
+    ) else (
+        echo [install] PyTorch CUDA installed.
     )
 ) else (
-    echo [install] Installing CPU torch ...
-    "%TARGET_PYTHON%" -m pip install torch --quiet
-    if errorlevel 1 ( echo [ERROR] torch install failed & exit /b 1 )
+    echo [install] No NVIDIA GPU detected — PyTorch CPU will be installed.
 )
-
-:torch_done
 
 :: -------------------------------------------------------
-:: Step 4: install packages
+:: Step 4b: install packages
 :: -------------------------------------------------------
 
 if not exist "%REQUIREMENTS%" (
@@ -165,24 +143,45 @@ if %WHEEL_COUNT% GTR 0 (
 )
 
 :: -------------------------------------------------------
-:: Step 5: verify critical imports
+:: Step 5: clone loco-mujoco if missing
+:: -------------------------------------------------------
+
+if not exist "%PROJECT_ROOT%\custom_mods\motions\loco-mujoco\.git" (
+    echo [install] Cloning loco-mujoco reference motion library ...
+    git clone --depth=1 --progress "https://github.com/robfiras/loco-mujoco.git" "%PROJECT_ROOT%\custom_mods\motions\loco-mujoco"
+    if errorlevel 1 (
+        echo [WARNING] loco-mujoco clone failed (optional, reference motions unavailable^).
+    ) else (
+        echo [install] loco-mujoco cloned.
+    )
+) else (
+    echo [install] loco-mujoco already present.
+)
+
+:: -------------------------------------------------------
+:: Step 6: verify critical imports
 :: -------------------------------------------------------
 
 echo [install] Verifying imports ...
-"%TARGET_PYTHON%" -c "import PySide6; print('[install] PySide6           OK:', PySide6.__version__)" 2>nul
+"%TARGET_PYTHON%" -c "import PySide6; print('[install] PySide6 OK:', PySide6.__version__)" 2>nul
 if errorlevel 1 echo [WARNING] PySide6 import failed.
 
-"%TARGET_PYTHON%" -c "import mujoco; print('[install] MuJoCo            OK:', mujoco.__version__)" 2>nul
-if errorlevel 1 echo [WARNING] MuJoCo import failed.
+"%TARGET_PYTHON%" -c "import torch; cuda='CUDA '+torch.version.cuda if torch.cuda.is_available() else 'CPU only'; print('[install] PyTorch OK:', torch.__version__, cuda)" 2>nul
+if errorlevel 1 echo [WARNING] PyTorch import failed.
 
-"%TARGET_PYTHON%" -c "import torch; v=torch.__version__; cuda=torch.cuda.is_available(); print('[install] torch             OK:', v, '| CUDA:', cuda)" 2>nul
-if errorlevel 1 echo [WARNING] torch import failed.
+"%TARGET_PYTHON%" -c "import mujoco; print('[install] MuJoCo  OK:', mujoco.__version__)" 2>nul
+if errorlevel 1 echo [WARNING] MuJoCo import failed (optional).
 
-"%TARGET_PYTHON%" -c "import stable_baselines3; print('[install] stable-baselines3 OK:', stable_baselines3.__version__)" 2>nul
-if errorlevel 1 echo [WARNING] stable_baselines3 import failed.
+"%TARGET_PYTHON%" -c "import cyclonedds; print('[install] CycloneDDS OK:', cyclonedds.__file__)" 2>nul
+if errorlevel 1 (
+    echo [WARNING] CycloneDDS import failed. Attempting reinstall ...
+    "%TARGET_PYTHON%" -m pip install --only-binary :all: "cyclonedds>=0.10.2" --quiet
+    "%TARGET_PYTHON%" -c "import cyclonedds; print('[install] CycloneDDS OK (retry):', cyclonedds.__file__)" 2>nul
+    if errorlevel 1 echo [WARNING] CycloneDDS still unavailable. Real-robot communication may not work.
+)
 
 :: -------------------------------------------------------
-:: Step 6: write install_state.json (valid JSON, batch echo)
+:: Step 7: write install_state.json (valid JSON, batch echo)
 :: -------------------------------------------------------
 
 if not exist "%ENV_DIR%" mkdir "%ENV_DIR%"

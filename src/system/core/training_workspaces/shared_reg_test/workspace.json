@@ -1,0 +1,8 @@
+{
+  "schema": "training_workspace_v1",
+  "policy_id": "shared_reg_test",
+  "created_at": 1774877755.201761,
+  "updated_at": 1774877755.201761,
+  "active_experiment_id": "",
+  "experiments": []
+}

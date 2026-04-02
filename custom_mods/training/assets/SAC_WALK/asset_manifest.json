@@ -1,0 +1,13 @@
+{
+  "asset_id": "SAC_WALK",
+  "display_name": "SAC_WALK",
+  "framework": "sb3",
+  "algorithm": "SAC",
+  "robot_type": "go2",
+  "obs_dim": 45,
+  "action_dim": 12,
+  "action_type": "joint_position",
+  "primary_checkpoint": "best/best_model.zip",
+  "source_type": "training",
+  "experiment_id": "exp_ecf28f6b"
+}

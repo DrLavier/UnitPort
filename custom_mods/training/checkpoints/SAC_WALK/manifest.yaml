@@ -1,0 +1,49 @@
+action_space:
+  clip: 1.0
+  dim: 12
+  scale: 1.0
+  type: joint_position
+name: SAC_WALK
+normalization:
+  file: normalization_stats.json
+observation_space:
+  components:
+  - joint_pos
+  - joint_vel
+  - imu
+  - velocity_command
+  - previous_action
+  contract_preset: unitport_go2_v1
+  dim: 45
+policy:
+  file: policy.onnx
+  format: onnx
+robot:
+  brand: unitree
+  joint_names:
+  - FL_hip
+  - FL_thigh
+  - FL_calf
+  - FR_hip
+  - FR_thigh
+  - FR_calf
+  - RL_hip
+  - RL_thigh
+  - RL_calf
+  - RR_hip
+  - RR_thigh
+  - RR_calf
+  num_joints: 12
+  type: go2
+runtime:
+  command_defaults:
+    vx: 0.5
+    vy: 0.0
+    wz: 0.0
+  control_frequency_hz: 50.0
+  decimation: 10
+training:
+  algorithm: SAC
+  experiment_id: exp_ecf28f6b
+  total_timesteps: 500000
+version: 1.0.0

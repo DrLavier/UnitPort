@@ -1,0 +1,13 @@
+{
+  "asset_id": "DEBUG_WORKSPACE",
+  "display_name": "DEBUG_WORKSPACE",
+  "framework": "sb3",
+  "algorithm": "SAC",
+  "robot_type": "h1",
+  "obs_dim": 40,
+  "action_dim": 10,
+  "action_type": "torque",
+  "primary_checkpoint": "best/best_model.zip",
+  "source_type": "training",
+  "experiment_id": "exp_5a77226f"
+}

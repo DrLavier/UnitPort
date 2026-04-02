@@ -1,0 +1,19 @@
+{
+  "Motion Mimic": {
+    "alive": 0.5,
+    "energy": -0.05,
+    "foot_pos_tracking": 1.0,
+    "joint_pose_tracking": 2.0,
+    "upright": 1.0
+  },
+  "Velocity_Chase": {
+    "action_smoothness": -0.1,
+    "energy": -0.05,
+    "foot_air_time": 0.3,
+    "foot_pos_tracking": 0.8,
+    "joint_pose_tracking": 1.0,
+    "joint_vel_tracking": 0.5,
+    "reference_tracking": 2.0,
+    "velocity_tracking": 1.5
+  }
+}

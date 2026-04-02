@@ -1,0 +1,15 @@
+{
+  "reward_terms": {
+    "velocity_tracking": 5.0,
+    "alive": 1.0,
+    "upright": 0.3,
+    "energy": -0.001,
+    "lateral_penalty": -0.3,
+    "action_smoothness": -0.0001
+  },
+  "termination_conditions": {
+    "fall_threshold_roll": 1.05,
+    "fall_threshold_pitch": 1.05,
+    "min_height": 0.18
+  }
+}

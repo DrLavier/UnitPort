@@ -1,0 +1,8 @@
+{
+  "schema": "training_workspace_v1",
+  "policy_id": "grey_test_policy",
+  "created_at": 1774877753.7855706,
+  "updated_at": 1774877753.7855706,
+  "active_experiment_id": "",
+  "experiments": []
+}

@@ -1,0 +1,10 @@
+action_space:
+  dim: 12
+  type: torque
+name: sac-unitree-go2-mujoco
+observation_space:
+  dim: 34
+robot:
+  brand: unitree
+  type: go2
+version: 0.1.0

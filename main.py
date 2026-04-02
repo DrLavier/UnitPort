@@ -18,14 +18,14 @@ from PySide6.QtWidgets import QApplication
 PROJECT_ROOT = Path(__file__).parent.absolute()
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.project_python import ensure_project_venv
+from src.system.core.utils.project_python import ensure_project_venv
 
 ensure_project_venv(PROJECT_ROOT, Path(__file__))
 
 # ============================================================================
 # Config Paths - Central definition for all config file access
 # ============================================================================
-CONFIG_DIR = PROJECT_ROOT / "config"
+CONFIG_DIR = PROJECT_ROOT / "src" / "config"
 SYSTEM_CONFIG_PATH = CONFIG_DIR / "system.ini"
 USER_CONFIG_PATH = CONFIG_DIR / "user.ini"
 UI_CONFIG_PATH = CONFIG_DIR / "ui.ini"
@@ -55,13 +55,13 @@ def get_config_path(config_type: str) -> Path:
 
 
 # Now import modules (after path setup)
-from bin.core.config_manager import ConfigManager
-from bin.core.theme_manager import init_theme_manager, set_theme
-from bin.core.localisation import get_localisation
-from bin.ui import MainWindow
-from models import get_model
-from models.sdk_manager import configure_cyclonedds_env, ensure_mujoco_menagerie, verify_registered_sdks
-from utils.logger import setup_logger
+from src.system.core.config_manager import ConfigManager
+from src.system.core.theme_manager import init_theme_manager, set_theme
+from src.system.core.localisation import get_localisation
+from bin.pages.layout.ui import MainWindow
+from src.system.models import get_model
+from src.system.models.sdk_manager import configure_cyclonedds_env, ensure_loco_mujoco, ensure_mujoco_menagerie, verify_registered_sdks
+from src.system.core.utils.logger import setup_logger
 
 _DEV_MODE = os.environ.get("UNITPORT_DEV_MODE", "0") == "1"
 
@@ -84,7 +84,7 @@ class _LogSignalHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            from bin.core.logger import get_log_signal
+            from src.system.core.logger import get_log_signal
             msg = record.getMessage()
             log_type = self._LEVEL_MAP.get(record.levelno, "info")
             get_log_signal().emit_log(msg, log_type)
@@ -164,7 +164,7 @@ def _run_sdk_dev_bootstrap(logger) -> None:
 
     Only executed when UNITPORT_DEV_MODE=1. Not called in production.
     """
-    from models.sdk_manager import ensure_registered_sdks
+    from src.system.models.sdk_manager import ensure_registered_sdks
     logger.warning("[sdk:dev-bootstrap] Running full SDK bootstrap (developer mode only).")
     try:
         ensure_registered_sdks()
@@ -254,9 +254,7 @@ def main():
     def _run_startup_sequence_body() -> None:
         # ── Project-local CycloneDDS env injection ─────────────────────────
         cdds_home = configure_cyclonedds_env(PROJECT_ROOT)
-        if cdds_home:
-            logger.info(f"[runtime:cyclonedds] CYCLONEDDS_HOME={cdds_home}")
-        else:
+        if not cdds_home:
             logger.warning("[runtime:cyclonedds] CycloneDDS not configured – Unitree SDK may be unavailable.")
 
         # ── SDK verification (lightweight; no builds) ──────────────────────
@@ -273,6 +271,16 @@ def main():
             logger.warning(
                 "[menagerie:unavailable] mujoco_menagerie not available – "
                 "MuJoCo simulation assets disabled."
+            )
+
+        # ── Loco-MuJoCo reference motion library check / auto-clone ─────────
+        loco_ok = ensure_loco_mujoco()
+        if loco_ok:
+            logger.info("[loco-mujoco:ok] Reference motion library available.")
+        else:
+            logger.warning(
+                "[loco-mujoco:unavailable] loco-mujoco not available – "
+                "community reference motions disabled."
             )
 
         # ── Localisation ───────────────────────────────────────────────────

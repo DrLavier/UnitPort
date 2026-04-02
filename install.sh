@@ -106,7 +106,25 @@ $TARGET_PYTHON -m pip install --upgrade pip setuptools wheel --quiet 2>/dev/null
 }
 
 # ------------------------------------------------------------------------------
-# Step 4: Install packages
+# Step 4a: Install PyTorch with CUDA (if NVIDIA GPU present)
+# ------------------------------------------------------------------------------
+# PyPI only hosts CPU-only torch builds.  The CUDA builds live on
+# PyTorch's own index.  We detect NVIDIA hardware first and install
+# the CUDA wheel so that the plain "torch>=2.0.0" line in
+# requirements.txt is already satisfied when Step 4b runs.
+
+if command -v nvidia-smi &> /dev/null; then
+    echo "[install] NVIDIA GPU detected — installing PyTorch with CUDA ..."
+    $TARGET_PYTHON -m pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124 --quiet || {
+        echo "[WARNING] CUDA PyTorch install failed; will fall back to CPU version."
+    }
+    echo "[install] PyTorch CUDA installed."
+else
+    echo "[install] No NVIDIA GPU detected — PyTorch CPU will be installed."
+fi
+
+# ------------------------------------------------------------------------------
+# Step 4b: Install packages
 # ------------------------------------------------------------------------------
 if [ ! -f "$REQUIREMENTS" ]; then
     echo "[ERROR] requirements.txt not found: $REQUIREMENTS"
@@ -136,7 +154,20 @@ if [ $? -ne 0 ]; then
 fi
 
 # ------------------------------------------------------------------------------
-# Step 5: Verify critical imports
+# Step 5: Clone loco-mujoco if missing
+# ------------------------------------------------------------------------------
+LOCO_DIR="$SCRIPT_DIR/custom_mods/motions/loco-mujoco"
+if [ ! -d "$LOCO_DIR/.git" ]; then
+    echo "[install] Cloning loco-mujoco reference motion library ..."
+    git clone --depth=1 --progress "https://github.com/robfiras/loco-mujoco.git" "$LOCO_DIR" || {
+        echo "[WARNING] loco-mujoco clone failed (optional, reference motions unavailable)."
+    }
+else
+    echo "[install] loco-mujoco already present."
+fi
+
+# ------------------------------------------------------------------------------
+# Step 6: Verify critical imports
 # ------------------------------------------------------------------------------
 echo "[install] Verifying imports ..."
 
@@ -147,6 +178,9 @@ else
     echo "[install] PySide6 OK: $PYSIDE6_OK"
 fi
 
+TORCH_INFO=$($TARGET_PYTHON -c "import torch; cuda='CUDA '+torch.version.cuda if torch.cuda.is_available() else 'CPU only'; print(torch.__version__, cuda)" 2>/dev/null || echo "import failed")
+echo "[install] PyTorch : $TORCH_INFO"
+
 MUJOCO_OK=$($TARGET_PYTHON -c "import mujoco; print(mujoco.__version__)" 2>/dev/null && echo "ok" || echo "failed")
 if [ "$MUJOCO_OK" != "ok" ]; then
     echo "[WARNING] MuJoCo import failed (optional)."
@@ -154,8 +188,22 @@ else
     echo "[install] MuJoCo OK: $MUJOCO_OK"
 fi
 
+CDDS_OK=$($TARGET_PYTHON -c "import cyclonedds; print(cyclonedds.__file__)" 2>/dev/null && echo "ok" || echo "failed")
+if [ "$CDDS_OK" != "ok" ]; then
+    echo "[WARNING] CycloneDDS import failed. Attempting reinstall ..."
+    $TARGET_PYTHON -m pip install --only-binary :all: "cyclonedds>=0.10.2" --quiet 2>/dev/null || true
+    CDDS_OK=$($TARGET_PYTHON -c "import cyclonedds; print(cyclonedds.__file__)" 2>/dev/null && echo "ok" || echo "failed")
+    if [ "$CDDS_OK" != "ok" ]; then
+        echo "[WARNING] CycloneDDS still unavailable. Real-robot communication may not work."
+    else
+        echo "[install] CycloneDDS OK (retry): $CDDS_OK"
+    fi
+else
+    echo "[install] CycloneDDS OK: $CDDS_OK"
+fi
+
 # ------------------------------------------------------------------------------
-# Step 6: Write install_state.json
+# Step 7: Write install_state.json
 # ------------------------------------------------------------------------------
 mkdir -p "$ENV_DIR"
 
