@@ -56,26 +56,52 @@ def _resolve_bundle_lineage_spec(bundle_path, fallback_spec=None, log_fn: Option
 
         parent_policy_id = str(source.get("parent_policy_id", "") or "").strip()
         experiment_id = str(source.get("experiment_id", "") or "").strip()
+        project_id = str(source.get("project_id", "") or "").strip()
         if not parent_policy_id or not experiment_id:
             return fallback_spec
 
-        canvas_path = (
-            get_project_root()
-            / "training_workspaces"
-            / parent_policy_id
-            / "experiments"
-            / f"{experiment_id}.canvas.json"
-        )
-        if not canvas_path.exists():
-            if log_fn:
-                log_fn(
-                    f"[review] Lineage canvas not found for bundle '{bundle_dir.name}': "
-                    f"{canvas_path}"
-                )
-            return fallback_spec
+        graph = None
 
-        with canvas_path.open("r", encoding="utf-8") as fh:
-            graph = json.load(fh) or {}
+        # Try loading from ProjectStore first (new project workspace layout)
+        if project_id and experiment_id:
+            try:
+                from src.system.core.project_store import ProjectStore
+                store = ProjectStore()
+                graph = store.load_experiment(project_id, experiment_id)
+            except Exception:
+                pass
+
+        # Fallback: resolve via TrainingWorkspaceStore (legacy compat wrapper)
+        if graph is None:
+            try:
+                from src.system.training.training_workspace_store import TrainingWorkspaceStore
+                ws_store = TrainingWorkspaceStore()
+                pid = ws_store._resolve_project_id(parent_policy_id)
+                if pid:
+                    from src.system.core.project_store import ProjectStore
+                    store = ProjectStore()
+                    graph = store.load_experiment(pid, experiment_id)
+            except Exception:
+                pass
+
+        # Final fallback: legacy training_workspaces path
+        if graph is None:
+            canvas_path = (
+                get_project_root()
+                / "training_workspaces"
+                / parent_policy_id
+                / "experiments"
+                / f"{experiment_id}.canvas.json"
+            )
+            if not canvas_path.exists():
+                if log_fn:
+                    log_fn(
+                        f"[review] Lineage canvas not found for bundle '{bundle_dir.name}': "
+                        f"{canvas_path}"
+                    )
+                return fallback_spec
+            with canvas_path.open("r", encoding="utf-8") as fh:
+                graph = json.load(fh) or {}
 
         spec = TrainingSpecCompiler().compile(
             graph,

@@ -53,6 +53,8 @@ class MainWindow(QMainWindow):
         self._mission_run_thread = None
         # AppShell: single Training Ground page (created lazily)
         self._training_page = None
+        self._active_project_id: str = ""
+        self._active_project_name: str = ""
         self._nav_busy = False
         self._fade_pending_cb = None  # currently-connected finished callback
         self._last_exec_graph: dict = {}
@@ -171,8 +173,9 @@ class MainWindow(QMainWindow):
         # Page 0: Homepage
         from bin.pages.homepage.homepage import HomepageWidget
         self._homepage_page = HomepageWidget(theme=self._theme)
-        self._homepage_page.mission_requested.connect(self.go_mission)
-        self._homepage_page.training_requested.connect(self.go_training)
+        self._homepage_page.continue_requested.connect(self.go_mission)
+        self._homepage_page.new_project_created.connect(self._on_homepage_new_project)
+        self._homepage_page.load_project_selected.connect(self._on_homepage_load_project)
         self._homepage_page.exit_requested.connect(QApplication.quit)
         self._page_stack.addWidget(self._homepage_page)
 
@@ -303,6 +306,13 @@ class MainWindow(QMainWindow):
         self._startup_log.ensureCursorVisible()
 
     def run_startup_prewarm(self) -> None:
+        self._load_active_project_from_config()
+        if hasattr(self, "mission_nav_header"):
+            self.mission_nav_header.set_active_project(
+                self._active_project_id, self._active_project_name
+            )
+            self._refresh_mainrow_projects()
+        self._update_project_files_root()
         self._prime_training_shell_cache("")
 
     def _build_mission_page(self):
@@ -337,9 +347,16 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.mission_shell, 1)
 
         self.mission_nav_header = MainRow(theme=self._theme)
-        # PageSwitcher now lives in ControlPanel; _page_switcher ref is set
-        # after MainZonePanel creates its OverviewPanel (see _setup_mission_zone).
+        # PageSwitcher ref is set after MainZonePanel creates its float bar
         self._page_switcher = None
+
+        # Wire tab bar signals for canvas file switching
+        self.mission_nav_header.tab_bar.tab_activated.connect(self._on_tab_activated)
+        self.mission_nav_header.tab_bar.tab_close_requested.connect(self._on_tab_close_requested)
+        self.mission_nav_header.tab_bar.new_tab_requested.connect(self._on_new_tab_requested)
+        self.mission_nav_header.workspace_selected.connect(self._on_mainrow_workspace_selected)
+
+        self._shell_mode = "mission"
 
         self._mc_nav_content = QWidget()
         mc_nav_layout = QHBoxLayout(self._mc_nav_content)
@@ -445,15 +462,17 @@ class MainWindow(QMainWindow):
             self._shell_content_stack.insertWidget(0, self.main_zone)
         self._shell_content_stack.setCurrentIndex(0)
 
-        # Wire ControlPanel page_selected → _on_page_switcher_selected
-        if hasattr(self.main_zone, '_overview_panel'):
-            self.main_zone._overview_panel.page_selected.connect(self._on_page_switcher_selected)
-            self._page_switcher = self.main_zone._overview_panel.page_switcher
+        # Wire PageSwitcher from the mission control float bar
+        if hasattr(self.main_zone, 'page_switcher'):
+            self._page_switcher = self.main_zone.page_switcher
+            self._page_switcher.page_selected.connect(self._on_page_switcher_selected)
+
+        # Apply initial page accent to the float bar
+        self.main_zone.set_page_mode("mission")
 
         # Store MC sidebar panel widgets and icon bindings for later restoration
         self._mc_sidebar_user_widget = self.sidebar._panel_meta.get("user", {}).get("widget")
         self._mc_sidebar_icon_bindings = dict(self.sidebar._nav_icon_bindings)
-        self._shell_mode = "mission"
 
         # Overview Panel is now integrated into TrainingFloatControlBar
         # (created inside TrainingWorkspaceWindow alongside the canvas view).
@@ -465,6 +484,115 @@ class MainWindow(QMainWindow):
     def go_home(self) -> None:
         """Navigate to the Homepage."""
         self._navigate_to_page(0)
+
+    # -- Active project management ---------------------------------------------
+
+    def _set_active_project(self, project_id: str, project_name: str = "") -> None:
+        """Set (or clear) the active project and propagate to UI widgets."""
+        self._active_project_id = project_id
+        self._active_project_name = project_name
+        # Persist to user.ini
+        try:
+            self.config.set("RECENT", "last_project_id", project_id, config_type="user")
+            self.config.save_user_config()
+        except Exception:
+            pass
+        # Update MainRow header
+        if hasattr(self, "mission_nav_header"):
+            self.mission_nav_header.set_active_project(project_id, project_name)
+            self._refresh_mainrow_projects()
+        # Redirect sidebar Project Files to the project workflows dir
+        self._update_project_files_root()
+
+    def _load_active_project_from_config(self) -> None:
+        """Restore the last active project from user.ini on startup."""
+        pid = self.config.get("RECENT", "last_project_id", fallback="", config_type="user") or ""
+        if not pid:
+            return
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            meta = store.open_project(pid)
+            self._active_project_id = meta.project_id
+            self._active_project_name = meta.name
+        except Exception:
+            # Project was deleted — clear stale reference
+            self._active_project_id = ""
+            self._active_project_name = ""
+            try:
+                self.config.set("RECENT", "last_project_id", "", config_type="user")
+                self.config.save_user_config()
+            except Exception:
+                pass
+
+    def _refresh_mainrow_projects(self) -> None:
+        """Feed the MainRow workspace dropdown with current project list."""
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            projects = [
+                {"id": p.project_id, "name": p.name}
+                for p in store.list_projects()
+            ]
+        except Exception:
+            projects = []
+        if hasattr(self, "mission_nav_header"):
+            self.mission_nav_header.set_projects(projects)
+
+    def _on_homepage_new_project(self, name: str) -> None:
+        """Homepage created a new project — activate it and enter Mission."""
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            # Find the just-created project by name
+            for p in store.list_projects():
+                if p.name == name:
+                    self._set_active_project(p.project_id, p.name)
+                    break
+        except Exception:
+            pass
+        self.go_mission()
+
+    def _on_homepage_load_project(self, project_id: str) -> None:
+        """Homepage selected a project to load — activate it and enter Mission."""
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            meta = store.open_project(project_id)
+            self._set_active_project(meta.project_id, meta.name)
+        except Exception:
+            self._set_active_project(project_id)
+        self.go_mission()
+
+    def _on_mainrow_workspace_selected(self, project_id: str) -> None:
+        """User picked a different project from MainRow dropdown."""
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            meta = store.open_project(project_id)
+            self._set_active_project(meta.project_id, meta.name)
+        except Exception:
+            self._set_active_project(project_id)
+
+    def _update_project_files_root(self) -> None:
+        """Redirect the sidebar ProjectFilesPanel to the active project's workflows dir."""
+        if self.project_files_panel is None:
+            return
+        root = self._active_workflows_root()
+        self.project_files_panel.set_root(root)
+
+    def _active_workflows_root(self) -> str:
+        """Return the workflows directory for the active project, or legacy fallback."""
+        if self._active_project_id:
+            try:
+                from src.system.core.project_store import ProjectStore
+                store = ProjectStore()
+                wf_dir = store._workflows_dir(self._active_project_id)
+                wf_dir.mkdir(parents=True, exist_ok=True)
+                return str(wf_dir)
+            except Exception:
+                pass
+        return self._workflows_root()
 
     def go_mission(self) -> None:
         """Navigate to Mission Control (restores MC mode if in TG mode)."""
@@ -497,6 +625,8 @@ class MainWindow(QMainWindow):
         policy_id = str(policy_id or "")
         self._enter_training_mode(policy_id)
         self._navigate_to_page(1)
+        # Deferred refresh — ensure tabs show after page transition completes
+        QTimer.singleShot(250, self._refresh_training_tabs)
 
     def _on_page_switcher_selected(self, page: str) -> None:
         page = str(page or "").strip().lower()
@@ -517,17 +647,21 @@ class MainWindow(QMainWindow):
         return None
 
     def _sync_all_page_switchers(self, page: str) -> None:
-        """Keep all ControlPanel page switchers and accent colors in sync."""
-        # Mission zone ControlPanel
-        mc_panel = getattr(self.main_zone, '_overview_panel', None) if hasattr(self, 'main_zone') else None
-        if mc_panel is not None:
-            mc_panel.page_switcher.set_current_page(page)
-            mc_panel.set_page_mode(page)
-        # Training zone ControlPanel
-        tg_cp = self._get_training_control_panel(self._training_page) if self._training_page else None
-        if tg_cp is not None:
-            tg_cp.page_switcher.set_current_page(page)
-            tg_cp.set_page_mode(page)
+        """Keep all page switchers and float bar accents in sync."""
+        # Mission float bar PageSwitcher + border accent
+        if hasattr(self, "main_zone"):
+            self.main_zone.set_page_mode(page)
+        # Training float bar PageSwitcher + border accent
+        if self._training_page is not None:
+            tg_float = getattr(
+                getattr(self._training_page, '_canvas', None),
+                '_float_bar', None,
+            )
+            if tg_float is not None:
+                if hasattr(tg_float, 'page_switcher'):
+                    tg_float.page_switcher.set_current_page(page)
+                if hasattr(tg_float, 'set_page_mode'):
+                    tg_float.set_page_mode(page)
 
     # ------------------------------------------------------------------
     # Shell mode switching (MC 鈫?TG within page 1)
@@ -579,13 +713,17 @@ class MainWindow(QMainWindow):
         if startup_restore_error:
             self._schedule_main_warning("Load Training Failed", startup_restore_error)
         self._training_page = page
-        # Wire training ControlPanel's page_selected to the main handler.
-        # _overview_panel lives on TrainingCanvasWidget (page._canvas), not page itself.
-        tg_cp = self._get_training_control_panel(page)
-        if tg_cp is not None:
-            tg_cp.page_selected.connect(self._on_page_switcher_selected)
-        if policy_id:
-            self._save_last_training_policy(policy_id)
+        # Wire training float bar's PageSwitcher to the main handler.
+        tg_float = getattr(getattr(page, '_canvas', None), '_float_bar', None)
+        if tg_float is not None and hasattr(tg_float, 'page_switcher'):
+            tg_float.page_switcher.page_selected.connect(self._on_page_switcher_selected)
+        # Sync: if the workspace no longer exists, _init_workspace resets
+        # _workspace_policy_id to "".  Respect that so we don't keep a stale
+        # reference in user.ini that would recreate a deleted workspace.
+        actual_pid = getattr(page, "_workspace_policy_id", policy_id) or ""
+        if actual_pid != policy_id:
+            policy_id = actual_pid
+        self._save_last_training_policy(policy_id)
 
     def _prime_training_shell_cache(self, policy_id: str = "") -> None:
         """Prebuild hidden Training Ground UI so the first page switch is instant."""
@@ -675,6 +813,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        # Refresh training tabs — _ws_store is initialized synchronously
+        # in TrainingWorkspaceWindow.__init__, so data is ready now.
+        self._refresh_training_tabs()
+
     def _enter_mission_mode(self) -> None:
         """Switch the shared mission shell back to Mission Control content."""
         if self._shell_mode == "mission":
@@ -714,6 +856,9 @@ class MainWindow(QMainWindow):
         # --- Nav header: restore MC nav content ---
         self.mission_nav_header.set_right_widget(self._mc_nav_content)
         self.mission_nav_header.set_current_page("mission")
+
+        # Tab bar is hidden in mission mode (set_current_page handles visibility).
+        # Do NOT clear tabs — training tab data is preserved for when user switches back.
 
         # --- Shell content: restore MC splitter ---
         self._shell_content_stack.setCurrentIndex(0)
@@ -864,8 +1009,21 @@ class MainWindow(QMainWindow):
                 ly = y - g.y()
                 if 0 <= lx < h.width() and 0 <= ly < h.height():
                     child = h.childAt(lx, ly)
-                    # Only treat as caption if cursor is over empty header space
+                    # Treat as caption if cursor is over empty header space
+                    # or over non-interactive container widgets (tab bar bg,
+                    # left zone bg, right host bg) — these are layout
+                    # containers that should not block window dragging.
                     if child is None:
+                        return True, HTCAPTION
+                    _drag_through = (
+                        child is h,
+                        child is h._left_zone,
+                        child is h._right_host,
+                        child.objectName() in (
+                            "mainRowLeftZone", "mainRowHeader",
+                        ),
+                    )
+                    if any(_drag_through):
                         return True, HTCAPTION
 
             return True, HTCLIENT
@@ -954,7 +1112,7 @@ class MainWindow(QMainWindow):
                 selection-background-color: transparent;
             }}
             #startupLoadingOverlay {{
-                background-color: rgba(0, 0, 0, 217);
+                background-color: rgba(0, 0, 0, 179);
             }}
             QLabel {{
                 background-color: {card_bg};
@@ -1150,14 +1308,6 @@ class MainWindow(QMainWindow):
             #workspaceTabs::pane {{
                 background-color: {bg};
                 border: none;
-            }}
-            #canvasFileBadge {{
-                background-color: {tab_bg_checked};
-                color: {tab_text_checked};
-                border: none;
-                border-radius: 2px;
-                padding: 0px;
-                font-weight: 600;
             }}
             #workspaceTabs QTabBar::tab {{
                 background-color: {tab_bg};
@@ -1480,6 +1630,100 @@ class MainWindow(QMainWindow):
         if self.project_files_panel is not None:
             self.project_files_panel.refresh_files()
 
+    # -- Tab management (browser-style canvas tabs) --------------------------
+
+    def _on_tab_activated(self, tab_id: str) -> None:
+        """User clicked a training experiment tab — load that experiment."""
+        if self._shell_mode != "training" or self._training_page is None:
+            return
+        current_exp = getattr(self._training_page, "_current_experiment_id", "")
+        if tab_id == current_exp:
+            return
+        if hasattr(self._training_page, '_load_experiment_by_id'):
+            self._training_page._load_experiment_by_id(tab_id)
+        self._update_tab_close_buttons()
+
+    def _on_tab_close_requested(self, tab_id: str) -> None:
+        """User clicked X on a training experiment tab."""
+        tab_bar = self.mission_nav_header.tab_bar
+        if tab_bar.tab_count() <= 1:
+            return  # don't close the last tab
+        tab_bar.remove_tab(tab_id)
+        self._update_tab_close_buttons()
+
+    def _on_new_tab_requested(self, name: str) -> None:
+        """User clicked '+' — create new training experiment."""
+        if self._training_page is not None and hasattr(self._training_page, '_new_experiment'):
+            self._training_page._new_experiment()
+            self._add_current_experiment_tab()
+            self._update_tab_close_buttons()
+
+    def _update_tab_close_buttons(self) -> None:
+        """Disable close button when only one tab remains."""
+        tab_bar = self.mission_nav_header.tab_bar
+        bar = tab_bar._bar
+        only_one = tab_bar.tab_count() <= 1
+        for i in range(bar.count()):
+            btn = bar.tabButton(i, bar.ButtonPosition.RightSide)
+            if btn is not None:
+                btn.setEnabled(not only_one)
+                btn.setVisible(not only_one)
+
+    def _add_current_experiment_tab(self) -> None:
+        """Add a tab for the training page's current experiment (without clearing others)."""
+        if self._training_page is None:
+            return
+        page = self._training_page
+        exp_id = getattr(page, "_current_experiment_id", "") or ""
+        tab_id = exp_id or "__tg_new__"
+        display = self._format_experiment_tab_name(page, exp_id)
+        self.mission_nav_header.tab_bar.add_tab(tab_id, display)
+
+    def _refresh_training_tabs(self) -> None:
+        """Rebuild tab bar with ALL experiments in the current workspace."""
+        tab_bar = self.mission_nav_header.tab_bar
+        tab_bar.clear_tabs()
+        if self._training_page is None:
+            return
+        page = self._training_page
+        ws_store = getattr(page, "_ws_store", None)
+        ws_pid = getattr(page, "_workspace_policy_id", "") or ""
+        current_exp = getattr(page, "_current_experiment_id", "") or ""
+
+        # List all experiments in this workspace
+        experiments = []
+        if ws_store is not None and ws_pid:
+            try:
+                meta = ws_store.load_workspace(ws_pid)
+                experiments = meta.experiments
+            except Exception:
+                pass
+
+        if experiments:
+            for exp in experiments:
+                display = self._format_experiment_tab_name(page, exp.experiment_id, exp.name)
+                tab_bar.add_tab(exp.experiment_id, display)
+            # Activate current
+            if current_exp:
+                tab_bar.activate_tab(current_exp)
+        else:
+            # Fallback: just show whatever is loaded
+            self._add_current_experiment_tab()
+        self._update_tab_close_buttons()
+
+    def _format_experiment_tab_name(self, page, exp_id: str, exp_name: str = "") -> str:
+        """Format tab label as [workspace]: experiment."""
+        ws_name = ""
+        if hasattr(page, "_current_workspace_name"):
+            ws_name = page._current_workspace_name()
+        if not exp_name and hasattr(page, "_current_experiment_name"):
+            exp_name = page._current_experiment_name()
+        if not exp_name:
+            exp_name = exp_id or "New File"
+        if ws_name:
+            return f"[{ws_name}]: {exp_name}"
+        return exp_name
+
     def _build_workflow_payload(self) -> dict:
         from src.system.core.mission_persistence import inject_snapshot_metadata
 
@@ -1740,7 +1984,7 @@ class MainWindow(QMainWindow):
         self._load_workflow_from_path(path)
 
     def _open_workflows_folder(self):
-        workflows_root = self._workflows_root()
+        workflows_root = self._active_workflows_root()
         if os.name == "nt":
             try:
                 os.startfile(workflows_root)

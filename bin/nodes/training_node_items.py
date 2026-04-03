@@ -221,44 +221,26 @@ WIDGET_W: int = NODE_STANDARD_W     # functional widget max width (dropdowns, sl
 PARAM_ROW_H: int = NODE_STANDARD_H  # default height of a parameter row
 
 # ---------------------------------------------------------------------------
-# Node UI rows — loaded once from NODE设计.json
+# Node UI rows — runtime config (bin/nodes/training_node_ui.json)
 # ---------------------------------------------------------------------------
 
-_JSON_PATH = pathlib.Path(__file__).parent.parent.parent / "knowledge_base" / "NODE设计.json"
+_UI_JSON_PATH = pathlib.Path(__file__).parent / "training_node_ui.json"
 
 # Maps node_type key (e.g. "robot_mjcf") → list of ui_row dicts
 NODE_UI_ROWS: Dict[str, List[dict]] = {}
 
-_NODE_ID_TO_TYPE: Dict[str, str] = {
-    "RobotMJCFNode":          "robot_mjcf",
-    "PhysicsConfigNode":      "physics_config",
-    "RewardsNode":            "rewards",
-    "TerminationsNode":       "terminations",
-    "TaskConfigNode":         "task_config",
-    "DomainRandNode":         "domain_rand",
-    "ObsActionConfigNode":    "obs_action_config",
-    "EnvAssemblerNode":       "env_assembler",
-    "AlgorithmConfigNode":    "algo_config",
-    "TrainNode":              "train",
-    "EvalConfigNode":         "eval_config",
-    "ExportNode":             "export",
-    "VisCheckNode":           "vis_check",
-    "SceneConfigNode":        "scene_config",
-    "BaseAssetNode":          "base_asset",
-    "ReferenceMotionNode":      "reference_motion",
-    "InitPoseNode":             "init_pose",
-    "MultiGatedRewardNode":     "multigated_reward",
-}
-
 try:
-    with _JSON_PATH.open("r", encoding="utf-8") as _f:
-        _design_data = json.load(_f)
-    for _node_def in _design_data.get("nodes", []):
-        _nid = _node_def["id"]
-        _ntype = _NODE_ID_TO_TYPE.get(_nid, _nid.lower())
-        NODE_UI_ROWS[_ntype] = [r for r in _node_def.get("ui_rows", []) if r.get("kind") == "param"]
-except Exception:
-    pass  # graceful degradation — no widgets if JSON is missing
+    with _UI_JSON_PATH.open("r", encoding="utf-8") as _f:
+        NODE_UI_ROWS = json.load(_f)
+except FileNotFoundError:
+    raise FileNotFoundError(
+        f"Training node UI config not found: {_UI_JSON_PATH}\n"
+        "This file is required for node rendering."
+    )
+except Exception as _exc:
+    raise RuntimeError(
+        f"Failed to load training node UI config: {_UI_JSON_PATH}\n{_exc}"
+    )
 
 NODE_UI_ROWS.setdefault("train", []).append(
     {
@@ -3618,7 +3600,7 @@ class _StartPointChoicePicker(_RichChoicePicker):
 
 def _preset_file_path(kind: str) -> pathlib.Path:
     from src.system.core.utils.path_helper import get_project_root
-    return pathlib.Path(get_project_root()) / "config" / f"{kind}_presets.json"
+    return pathlib.Path(get_project_root()) / "src" / "config" / f"{kind}_presets.json"
 
 
 def _load_module_presets(kind: str) -> Dict[str, dict]:

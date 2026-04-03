@@ -60,8 +60,10 @@ _REGISTERED_MODEL_RULES: Dict[Tuple[str, str], MujocoAssetRule] = {
 
 def _project_root() -> Path:
     # __file__ = src/system/models/mujoco_asset_registry.py
-    # parents: [0]=models/ [1]=system/ [2]=src/ [3]=<project_root>
-    return Path(__file__).resolve().parents[3]
+    # parents: [0]=models/ [1]=system/  ← runtime/ lives here
+    # sdk_manager.py downloads to _PROJECT_ROOT / "runtime/..." where
+    # _PROJECT_ROOT = src/system/, so we must return the same base.
+    return Path(__file__).resolve().parents[1]
 
 
 def _existing_scene_paths(base_dir: Path) -> Iterable[Path]:

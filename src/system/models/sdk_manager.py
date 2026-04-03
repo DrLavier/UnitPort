@@ -111,11 +111,9 @@ def _probe_module_with_runtime_python(
 
 
 def _emit(message: str, level: str = "info", callback: Optional[ProgressCallback] = None) -> None:
-    """Send bootstrap progress to stdout and, if available, the in-app CMD log."""
+    """Send bootstrap progress to the in-app CMD log."""
     if callback is not None:
         callback(level, message)
-
-    print(f"[sdk-bootstrap:{level}] {message}")
 
     try:
         from src.system.core.logger import log_debug, log_error, log_info, log_success, log_warning
@@ -128,8 +126,6 @@ def _emit(message: str, level: str = "info", callback: Optional[ProgressCallback
             "success": log_success,
         }
         logger_map.get(level, log_info)(message)
-        # Startup runs synchronously in the main Qt thread, blocking the event loop.
-        # processEvents() forces an immediate repaint so the loading screen shows this line.
         from PySide6.QtWidgets import QApplication
         _app = QApplication.instance()
         if _app is not None:
@@ -382,9 +378,13 @@ class SdkManager:
             workdir = target.path.parent
             description = f"Installing requirements from {target.path.relative_to(project.path)}"
         elif target.kind == "package":
-            command = [sys.executable, "-m", "pip", "install", "-e", str(target.path)]
+            # --no-deps: vendored SDK setup.py files often pin outdated
+            # dependency versions (e.g. cyclonedds==0.10.2) that conflict
+            # with the newer versions already in the venv.  The venv's own
+            # requirements.txt is the authoritative dependency source.
+            command = [sys.executable, "-m", "pip", "install", "--no-deps", "-e", str(target.path)]
             workdir = project.path
-            description = "Installing SDK package in editable mode"
+            description = "Installing SDK package in editable mode (--no-deps)"
         else:
             raise ValueError(f"Unsupported install target type: {target.kind}")
 
@@ -509,6 +509,152 @@ def ensure_mujoco_menagerie(
         return False
 
     _emit("[menagerie] mujoco_menagerie ready.", "success", progress)
+    return True
+
+
+def ensure_mujoco_menagerie_selective(
+    folders: List[str],
+    *,
+    progress: Optional[ProgressCallback] = None,
+) -> bool:
+    """Sparse-checkout only the selected *folders* from mujoco_menagerie.
+
+    Uses ``git sparse-checkout`` with ``--depth=1`` so only the chosen robot
+    model directories are fetched.  Falls back to a full shallow clone when
+    the git version does not support sparse-checkout.
+
+    Returns True on success; False on failure (never raises).
+    """
+    if not folders:
+        _emit("[menagerie] No folders selected — skipping menagerie download.", "info", progress)
+        return True
+
+    if check_mujoco_menagerie():
+        _emit("[menagerie] mujoco_menagerie already present.", "info", progress)
+        return True
+
+    _MENAGERIE_DIR.parent.mkdir(parents=True, exist_ok=True)
+    _emit(
+        f"[menagerie] Sparse-checkout {len(folders)} folder(s) from {_MENAGERIE_URL} …",
+        "info",
+        progress,
+    )
+
+    try:
+        # 1. Init empty repo
+        subprocess.run(
+            ["git", "init", str(_MENAGERIE_DIR)],
+            capture_output=True, text=True, check=True,
+        )
+        # 2. Add remote
+        subprocess.run(
+            ["git", "-C", str(_MENAGERIE_DIR), "remote", "add", "origin", _MENAGERIE_URL],
+            capture_output=True, text=True, check=True,
+        )
+        # 3. Enable sparse-checkout (cone mode)
+        subprocess.run(
+            ["git", "-C", str(_MENAGERIE_DIR), "sparse-checkout", "init", "--cone"],
+            capture_output=True, text=True, check=True,
+        )
+        # 4. Set desired folders
+        subprocess.run(
+            ["git", "-C", str(_MENAGERIE_DIR), "sparse-checkout", "set"] + folders,
+            capture_output=True, text=True, check=True,
+        )
+        # 5. Shallow fetch + checkout
+        process = subprocess.Popen(
+            ["git", "-C", str(_MENAGERIE_DIR), "pull", "--depth=1", "--progress", "origin", "main"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+        )
+        assert process.stdout is not None
+        for line in process.stdout:
+            msg = line.strip()
+            if msg:
+                _emit(f"[menagerie] {msg}", "info", progress)
+        rc = process.wait()
+        if rc != 0:
+            raise RuntimeError(f"git pull exited with code {rc}")
+
+        _emit(f"[menagerie] Sparse-checkout complete ({len(folders)} folders).", "success", progress)
+        return True
+
+    except Exception as exc:
+        _emit(f"[menagerie] Sparse-checkout failed ({exc}) — falling back to full clone.", "warning", progress)
+        # Clean up partial init
+        import shutil
+        if _MENAGERIE_DIR.exists():
+            shutil.rmtree(_MENAGERIE_DIR, ignore_errors=True)
+        return ensure_mujoco_menagerie(progress=progress)
+
+
+def ensure_selected_sdks(
+    selections: List[Dict[str, str]],
+    *,
+    progress: Optional[ProgressCallback] = None,
+) -> List[Path]:
+    """Clone and install only the SDK projects specified in *selections*.
+
+    Each entry in *selections* should have keys: brand, key, url.
+    Returns a list of paths for successfully ensured projects.
+    """
+    if not selections:
+        _emit("[sdk] No SDK projects selected — skipping.", "info", progress)
+        return []
+
+    manager = SdkManager()
+    manager.load_registry()
+    ensured: List[Path] = []
+
+    for sel in selections:
+        brand_id = sel["brand"]
+        project_key = sel["key"]
+        project = manager.get_project(project_key)
+        if project is None:
+            _emit(f"[sdk] Unknown project: {brand_id}/{project_key} — skipped.", "warning", progress)
+            continue
+
+        if project.path.exists():
+            _emit(f"[sdk] {brand_id}/{project_key} already present.", "info", progress)
+            ensured.append(project.path)
+        else:
+            try:
+                manager._clone_project(project, progress=progress)
+                ensured.append(project.path)
+            except Exception as exc:
+                _emit(f"[sdk] Download failed for {brand_id}/{project_key}: {exc}", "error", progress)
+
+        try:
+            manager._ensure_project_dependencies(project, progress=progress)
+        except Exception as exc:
+            _emit(f"[sdk] Dependency install failed for {brand_id}/{project_key}: {exc}", "error", progress)
+
+    return ensured
+
+
+def register_isaaclab_path(
+    path: str,
+    *,
+    progress: Optional[ProgressCallback] = None,
+) -> bool:
+    """Register an existing Isaac Lab installation for training use.
+
+    Writes the path to ``src/config/isaaclab.json`` so the training pipeline
+    can locate the Isaac Lab root at runtime.
+    Returns True on success.
+    """
+    p = Path(path)
+    if not p.is_dir():
+        _emit(f"[isaaclab] Path does not exist: {path}", "error", progress)
+        return False
+
+    config_path = _REPO_ROOT / "src" / "config" / "isaaclab.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    import json as _json
+    data = {"root": str(p.resolve()), "registered": True}
+    config_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+    _emit(f"[isaaclab] Registered Isaac Lab path: {p.resolve()}", "success", progress)
     return True
 
 

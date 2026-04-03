@@ -74,9 +74,17 @@ class ProjectFilesPanel(QWidget):
 
         self.refresh_files()
 
+    def set_root(self, new_root: str) -> None:
+        """Change the root directory and refresh file list."""
+        self._workflows_root = Path(new_root)
+        self.refresh_files()
+
     def refresh_files(self):
         self._workflows_root.mkdir(parents=True, exist_ok=True)
-        self._all_files = sorted(self._workflows_root.rglob("*.unitport"), key=lambda p: p.as_posix().lower())
+        # Scan both legacy .unitport and new .workflow.json files
+        all_files = list(self._workflows_root.rglob("*.unitport"))
+        all_files.extend(self._workflows_root.rglob("*.workflow.json"))
+        self._all_files = sorted(set(all_files), key=lambda p: p.as_posix().lower())
         self._apply_filter()
 
     def _apply_filter(self):

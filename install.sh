@@ -114,13 +114,13 @@ $TARGET_PYTHON -m pip install --upgrade pip setuptools wheel --quiet 2>/dev/null
 # requirements.txt is already satisfied when Step 4b runs.
 
 if command -v nvidia-smi &> /dev/null; then
-    echo "[install] NVIDIA GPU detected — installing PyTorch with CUDA ..."
+    echo "[install] NVIDIA GPU detected -- installing PyTorch with CUDA ..."
     $TARGET_PYTHON -m pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124 --quiet || {
         echo "[WARNING] CUDA PyTorch install failed; will fall back to CPU version."
     }
     echo "[install] PyTorch CUDA installed."
 else
-    echo "[install] No NVIDIA GPU detected — PyTorch CPU will be installed."
+    echo "[install] No NVIDIA GPU detected -- PyTorch CPU will be installed."
 fi
 
 # ------------------------------------------------------------------------------

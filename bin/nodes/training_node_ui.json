@@ -1,0 +1,1279 @@
+{
+  "robot_mjcf": [
+    {
+      "kind": "param",
+      "key": "robot_type",
+      "display_name": "Robot Type",
+      "widget": "dropdown",
+      "choices": [
+        "a1",
+        "b2",
+        "b2w",
+        "g1",
+        "go2",
+        "go2w",
+        "h1",
+        "h1_2",
+        "spot"
+      ],
+      "default": "go2",
+      "tooltip": "Robot model — populated dynamically from mujoco_asset_registry at runtime. Determines mock action_dim and available obs_components in Phase A; Phase D reads actuator count directly from MJCF."
+    },
+    {
+      "kind": "param",
+      "key": "mjcf_path",
+      "display_name": "MJCF Overwrite",
+      "widget": "path_browse",
+      "mode": "file",
+      "filter": "MuJoCo XML (*.xml);;All files (*.*)",
+      "default": "",
+      "tooltip": "Manual MJCF override path. When empty the system auto-resolves the scene from mujoco_asset_registry (shown by the ✔/❌ indicator on Robot Type)."
+    }
+  ],
+  "physics_config": [
+    {
+      "kind": "param",
+      "key": "sim_dt",
+      "display_name": "Sim dt",
+      "widget": "float_input",
+      "min": 0.0001,
+      "max": 0.01,
+      "decimals": 5,
+      "unit": "s",
+      "default": "0.002",
+      "tooltip": "MuJoCo physics integration timestep. Smaller = more accurate but slower. Typical: 0.001–0.004 s."
+    },
+    {
+      "kind": "param",
+      "key": "control_dt",
+      "display_name": "Control dt",
+      "widget": "float_input",
+      "min": 0.001,
+      "max": 0.1,
+      "decimals": 4,
+      "unit": "s",
+      "default": "0.02",
+      "validation": "must_be_integer_multiple_of_sim_dt",
+      "tooltip": "Policy step interval. Must be an exact integer multiple of sim_dt. E.g., sim_dt=0.002 → control_dt=0.02 gives 10 physics steps per control step."
+    },
+    {
+      "kind": "param",
+      "key": "episode_max_steps",
+      "display_name": "Max Steps",
+      "widget": "int_spinbox",
+      "min": 100,
+      "max": 20000,
+      "step": 100,
+      "default": "1000",
+      "tooltip": "Maximum number of control steps per episode before forced truncation. Overridden by TrainNode eval path when EnvAssembler.time_limit_override > 0."
+    },
+    {
+      "kind": "param",
+      "key": "action_type",
+      "display_name": "Action Type",
+      "widget": "dropdown",
+      "choices": [
+        "joint_position",
+        "torque",
+        "joint_velocity"
+      ],
+      "default": "joint_position",
+      "tooltip": "Actuator control mode. 'joint_position' = target joint angle (PD-controlled); 'torque' = direct torque command; 'joint_velocity' = target joint velocity."
+    }
+  ],
+  "rewards": [
+    {
+      "kind": "param",
+      "key": "reward_terms",
+      "display_name": "Reward Terms",
+      "widget": "module_registry_editor",
+      "registry": "rewards",
+      "selector_title": "Rewards",
+      "default": "{\"velocity_tracking\": 1.0, \"alive\": 0.5, \"energy\": -0.01}",
+      "row_height": 24,
+      "full_width_widget": true,
+      "tooltip": "Select supported reward modules from the registry, then tune each selected weight with the inline slider rows."
+    }
+  ],
+  "terminations": [
+    {
+      "kind": "param",
+      "key": "termination_conditions",
+      "display_name": "Termination",
+      "widget": "module_registry_editor",
+      "registry": "terminations",
+      "selector_title": "Terminations",
+      "default": "{\"fall_threshold_roll\": 1.2, \"min_height\": 0.15}",
+      "row_height": 24,
+      "full_width_widget": true,
+      "tooltip": "Select supported termination modules from the registry, then tune each selected threshold with the inline slider rows."
+    }
+  ],
+  "scene_config": [
+    {
+      "kind": "param",
+      "key": "scene_type",
+      "display_name": "Scene Type",
+      "widget": "dropdown",
+      "choices": [
+        "flat",
+        "terrain",
+        "custom"
+      ],
+      "default": "flat",
+      "tooltip": "flat: scene.xml — flat ground + lights + skybox.\nterrain: scene_terrain.xml — adds heightfield and obstacle geometry.\ncustom: provide your own scene XML path below."
+    },
+    {
+      "kind": "param",
+      "key": "custom_scene_path",
+      "display_name": "Scene XML Path",
+      "widget": "path_browse",
+      "mode": "file",
+      "filter": "MuJoCo XML (*.xml);;All files (*.*)",
+      "default": "",
+      "tooltip": "Absolute path to a custom MuJoCo scene XML. Only active when Scene Type is \"custom\".",
+      "condition": {
+        "key": "scene_type",
+        "op": "==",
+        "value": "custom"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "gravity_z",
+      "display_name": "Gravity (Z)",
+      "widget": "slider_float",
+      "min": -50.0,
+      "max": 0.0,
+      "step": 0.1,
+      "default": "-9.81",
+      "tooltip": "World gravity on the Z axis. Default inherits the runtime scenario value."
+    }
+  ],
+  "task_config": [
+    {
+      "kind": "param",
+      "key": "task_type",
+      "display_name": "Task Type",
+      "widget": "dropdown",
+      "choices": [
+        "velocity_tracking",
+        "stand_balance",
+        "turn_in_place",
+        "recovery",
+        "waypoint_following"
+      ],
+      "default": "velocity_tracking",
+      "tooltip": "Learning task template. Selects the overall task semantics and command interpretation."
+    },
+    {
+      "kind": "param",
+      "key": "command_mode",
+      "display_name": "Command Mode",
+      "widget": "dropdown",
+      "choices": [
+        "fixed",
+        "sampled",
+        "curriculum"
+      ],
+      "default": "fixed",
+      "tooltip": "'fixed' = constant velocity command each episode; 'sampled' = random command from uniform distribution; 'curriculum' = difficulty increases as policy improves."
+    },
+    {
+      "kind": "param",
+      "key": "target_vx",
+      "display_name": "Target Vx",
+      "widget": "slider_float",
+      "min": -2.0,
+      "max": 2.0,
+      "step": 0.05,
+      "default": "0.5",
+      "tooltip": "Target forward velocity in m/s. Positive = forward, negative = backward."
+    },
+    {
+      "kind": "param",
+      "key": "target_vy",
+      "display_name": "Target Vy",
+      "widget": "slider_float",
+      "min": -1.5,
+      "max": 1.5,
+      "step": 0.05,
+      "default": "0.0",
+      "tooltip": "Target lateral velocity in m/s. Positive = left, negative = right."
+    },
+    {
+      "kind": "param",
+      "key": "target_wz",
+      "display_name": "Target Yaw",
+      "widget": "slider_float",
+      "min": -4.0,
+      "max": 4.0,
+      "step": 0.1,
+      "default": "0.0",
+      "tooltip": "Target yaw rate in rad/s. Positive = turn left, negative = turn right."
+    },
+    {
+      "kind": "param",
+      "key": "truncation_max_steps",
+      "display_name": "Truncation Steps",
+      "widget": "int_spinbox",
+      "min": 0,
+      "max": 10000,
+      "step": 100,
+      "default": "0",
+      "note": "0 = inherit from PhysicsConfig.episode_max_steps",
+      "tooltip": "Per-task step limit override. 0 uses physics_config.episode_max_steps. Set > 0 to tighten limit for this task without changing physics."
+    },
+    {
+      "kind": "param",
+      "key": "success_threshold",
+      "display_name": "Success Thresh",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "default": "0.8",
+      "tooltip": "Fraction of eval episodes that must succeed for the run to be considered 'converged'. Used by EvalConfigNode.save_best_model logic and convergence reporting."
+    },
+    {
+      "kind": "param",
+      "key": "curriculum",
+      "display_name": "Curriculum",
+      "widget": "toggle",
+      "default": "false",
+      "tooltip": "Enable curriculum learning. When ON, command_mode is automatically set to 'curriculum' and curriculum_schedule becomes active."
+    },
+    {
+      "kind": "param",
+      "key": "curriculum_schedule",
+      "display_name": "Curriculum Schedule",
+      "widget": "json_editor",
+      "default": "{}",
+      "condition": {
+        "key": "curriculum",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "JSON schedule for curriculum progression. Keys are milestone names; values define difficulty ramp parameters. Active only when Curriculum is ON."
+    }
+  ],
+  "domain_rand": [
+    {
+      "kind": "param",
+      "key": "enabled",
+      "display_name": "Enabled",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Master switch. When OFF, all randomization is disabled and the environment uses fixed nominal parameters."
+    },
+    {
+      "kind": "param",
+      "key": "mass_range",
+      "display_name": "Mass Range",
+      "widget": "range_slider",
+      "range": [
+        0.3,
+        3.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "default": "[0.8, 1.2]",
+      "tooltip": "Body mass multiplier range [min, max]. At each reset, a multiplier is sampled uniformly and applied to all link masses."
+    },
+    {
+      "kind": "param",
+      "key": "friction_range",
+      "display_name": "Friction Range",
+      "widget": "range_slider",
+      "range": [
+        0.1,
+        5.0
+      ],
+      "step": 0.1,
+      "decimals": 2,
+      "default": "[0.5, 1.5]",
+      "tooltip": "Floor friction coefficient multiplier range [min, max]. Sampled per reset."
+    },
+    {
+      "kind": "param",
+      "key": "motor_strength_range",
+      "display_name": "Motor Strength",
+      "widget": "range_slider",
+      "range": [
+        0.5,
+        1.5
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "default": "[0.9, 1.1]",
+      "tooltip": "Motor torque limit multiplier range [min, max]. Simulates actuator wear and manufacturing variance."
+    },
+    {
+      "kind": "param",
+      "key": "joint_damping_range",
+      "display_name": "Joint Damping",
+      "widget": "range_slider",
+      "range": [
+        0.5,
+        2.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "default": "[0.95, 1.05]",
+      "tooltip": "Joint damping coefficient multiplier range [min, max]."
+    },
+    {
+      "kind": "param",
+      "key": "obs_noise_std",
+      "display_name": "Obs Noise σ",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 0.2,
+      "step": 0.005,
+      "default": "0.01",
+      "tooltip": "Standard deviation of additive Gaussian noise applied to each observation element. 0 = no noise."
+    },
+    {
+      "kind": "param",
+      "key": "push_robot",
+      "display_name": "Push Robot",
+      "widget": "toggle",
+      "default": "false",
+      "tooltip": "When ON, applies random force impulses to the robot base at regular intervals. Tests balance recovery."
+    },
+    {
+      "kind": "param",
+      "key": "push_interval_steps",
+      "display_name": "Push Interval",
+      "widget": "int_spinbox",
+      "min": 20,
+      "max": 2000,
+      "step": 20,
+      "unit": "steps",
+      "default": "200",
+      "condition": {
+        "key": "push_robot",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Number of control steps between push events. Active only when Push Robot is ON."
+    },
+    {
+      "kind": "param",
+      "key": "push_force_range",
+      "display_name": "Push Force",
+      "widget": "range_slider",
+      "range": [
+        10,
+        1000
+      ],
+      "step": 10,
+      "decimals": 0,
+      "unit": "N",
+      "default": "[50, 150]",
+      "condition": {
+        "key": "push_robot",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Random push force magnitude range [min, max] in Newtons. Direction is uniformly randomized in the horizontal plane. Active only when Push Robot is ON."
+    },
+    {
+      "kind": "param",
+      "key": "rand_schedule",
+      "display_name": "DR Schedule",
+      "widget": "dropdown",
+      "choices": [
+        "none",
+        "linear",
+        "exponential"
+      ],
+      "default": "none",
+      "tooltip": "Curriculum domain randomization: gradually increase randomization intensity from 0 to full scale over training. none = fixed intensity from step 0. linear = linearly ramps up. exponential = slow start, fast ramp. Implements ADR-style scheduling for better sim-to-real transfer."
+    },
+    {
+      "kind": "param",
+      "key": "rand_schedule_end_step",
+      "display_name": "Schedule End",
+      "widget": "int_spinbox",
+      "min": 10000,
+      "max": 10000000,
+      "step": 10000,
+      "unit": "steps",
+      "default": "500000",
+      "condition": {
+        "key": "rand_schedule",
+        "op": "!=",
+        "value": "none"
+      },
+      "tooltip": "Training step at which DR schedule reaches full intensity. Before this step, randomization ranges are linearly/exponentially scaled from 0 to the configured values. Active only when DR Schedule is not 'none'."
+    }
+  ],
+  "obs_action_config": [
+    {
+      "kind": "param",
+      "key": "contract_preset",
+      "display_name": "Contract Preset",
+      "widget": "dropdown",
+      "choices": [
+        "custom",
+        "unitport_go2_v1",
+        "community_go2_sac_34d"
+      ],
+      "default": "custom",
+      "tooltip": "Named obs/action contract preset. 'custom' = free-form fields below. 'unitport_go2_v1' = 45-d (joint_pos+joint_vel+imu+command+prev_action, position control). 'community_go2_sac_34d' = 34-d (joint_pos+joint_vel+imu+command, torque control); matches sac_unitree_go2_mujoco. When a preset is active, obs_components and action_type below are locked to the preset values."
+    },
+    {
+      "kind": "param",
+      "key": "obs_components",
+      "display_name": "Obs Components",
+      "widget": "multiselect_tags",
+      "options": [
+        "joint_pos",
+        "joint_vel",
+        "imu",
+        "command",
+        "previous_action",
+        "base_lin_vel",
+        "base_ang_vel",
+        "gravity_vec"
+      ],
+      "default": "joint_pos joint_vel imu command previous_action",
+      "tooltip": "Observation vector components. Selected items are concatenated in order to form the obs array. Order matters: network input shape = sum of component dims."
+    },
+    {
+      "kind": "param",
+      "key": "obs_clip_range",
+      "display_name": "Obs Clip",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 1000.0,
+      "decimals": 1,
+      "default": "100.0",
+      "note": "0 = no clip",
+      "tooltip": "Symmetric clip applied to raw obs values before normalization. ±clip_range. 0 = disabled. Prevents extreme values from destabilizing training."
+    },
+    {
+      "kind": "param",
+      "key": "frame_stack",
+      "display_name": "Frame Stack",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 16,
+      "step": 1,
+      "default": "1",
+      "tooltip": "Number of consecutive observation frames stacked to form the network input. 1 = no stacking (Markovian). >1 provides temporal context for partial observability."
+    },
+    {
+      "kind": "param",
+      "key": "action_type",
+      "display_name": "Action Type",
+      "widget": "dropdown",
+      "choices": [
+        "joint_position",
+        "torque",
+        "joint_velocity"
+      ],
+      "default": "joint_position",
+      "tooltip": "Must match PhysicsConfig.action_type to avoid mis-scaled commands. 'joint_position' = target joint angle (PD control); 'torque' = direct torque; 'joint_velocity' = target angular velocity."
+    },
+    {
+      "kind": "param",
+      "key": "action_scale",
+      "display_name": "Action Scale",
+      "widget": "float_input",
+      "min": 0.01,
+      "max": 10.0,
+      "decimals": 3,
+      "default": "1.0",
+      "tooltip": "Scalar multiplier on raw policy output before sending to actuators. Adjusts the action magnitude without retraining."
+    },
+    {
+      "kind": "param",
+      "key": "action_clip",
+      "display_name": "Action Clip",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 10.0,
+      "decimals": 2,
+      "default": "1.0",
+      "note": "0 = no clip",
+      "tooltip": "Symmetric clip on scaled action output: ±action_clip. 0 = disabled. Protects actuators from extreme commands during early training."
+    }
+  ],
+  "env_assembler": [
+    {
+      "kind": "param",
+      "key": "n_envs",
+      "display_name": "Num Envs",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 256,
+      "step": 1,
+      "default": "8",
+      "tooltip": "Number of parallel environment instances. Default 8 — suitable for most single-GPU setups. Increase to 32-64 for server training. n_envs=1 is generally unacceptable for robot RL throughput."
+    },
+    {
+      "kind": "param",
+      "key": "vec_type",
+      "display_name": "Vec Type",
+      "widget": "dropdown",
+      "choices": [
+        "subproc",
+        "dummy"
+      ],
+      "default": "subproc",
+      "tooltip": "VecEnv implementation. subproc = SubprocVecEnv (separate processes, 5-10x faster for ≥4 envs, required for MuJoCo). dummy = DummyVecEnv (single process, useful for debugging or lightweight envs)."
+    },
+    {
+      "kind": "param",
+      "key": "obs_normalize",
+      "display_name": "Obs Normalize",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Apply VecNormalize to observations. Maintains running mean/std and normalizes each obs element. Highly recommended for most locomotion tasks."
+    },
+    {
+      "kind": "param",
+      "key": "reward_normalize",
+      "display_name": "Reward Norm",
+      "widget": "toggle",
+      "default": "false",
+      "tooltip": "Apply VecNormalize to rewards. Divides rewards by running std. Useful when reward magnitude varies widely; generally not needed for well-tuned reward terms."
+    },
+    {
+      "kind": "param",
+      "key": "clip_obs",
+      "display_name": "Clip Obs",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 100.0,
+      "decimals": 1,
+      "default": "10.0",
+      "note": "VecNormalize clip bound",
+      "tooltip": "VecNormalize clip bound for normalized observations. Applied after normalization. Ignored when obs_normalize is OFF."
+    },
+    {
+      "kind": "param",
+      "key": "clip_reward",
+      "display_name": "Clip Reward",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 100.0,
+      "decimals": 1,
+      "default": "10.0",
+      "tooltip": "VecNormalize clip bound for normalized rewards. Ignored when reward_normalize is OFF."
+    },
+    {
+      "kind": "param",
+      "key": "time_limit_override",
+      "display_name": "Time Limit",
+      "widget": "int_spinbox",
+      "min": 0,
+      "max": 20000,
+      "step": 100,
+      "default": "0",
+      "note": "0 = from PhysicsConfig",
+      "tooltip": "Override episode_max_steps for this env assembly. 0 = inherit from physics_config.episode_max_steps. Useful to set a shorter eval limit."
+    },
+    {
+      "kind": "param",
+      "key": "action_clip_range",
+      "display_name": "Action Clip",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 10.0,
+      "decimals": 2,
+      "default": "1.0",
+      "note": "0 = disabled",
+      "tooltip": "ActionClip wrapper: clips action values to [-x, x] before passing to the environment. Prevents saturated actuator commands. 0 = disabled (no clipping)."
+    },
+    {
+      "kind": "param",
+      "key": "enable_monitor",
+      "display_name": "Monitor",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Monitor wrapper: wraps each env with gymnasium's Monitor to record episode reward, length, and time. Required for SB3 EvalCallback and reward logging. Disable only for headless benchmarking."
+    },
+    {
+      "kind": "param",
+      "key": "eval_disable_rand",
+      "display_name": "Eval No Rand",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "When ON, the evaluation copy of this env built by EvalCallback has all domain randomization disabled. Ensures eval is on the nominal env for fair comparison."
+    }
+  ],
+  "base_asset": [
+    {
+      "kind": "param",
+      "key": "load_mode",
+      "display_name": "Load Mode",
+      "widget": "dropdown",
+      "choices": [
+        "scratch",
+        "resume_sb3",
+        "warm_start_actor"
+      ],
+      "default": "scratch",
+      "tooltip": "scratch: train from random init.\nresume_sb3: restore weights + optimizer state (continue a run).\nwarm_start_actor: copy actor weights only, reset optimizer (transfer learning)."
+    },
+    {
+      "kind": "param",
+      "key": "asset_id",
+      "display_name": "Asset ID",
+      "widget": "text_input",
+      "default": "",
+      "tooltip": "Training asset ID from the registry (e.g. \"sac_unitree_go2_mujoco\"). Auto-filled when you click an entry in the Training Assets panel; you can also type it directly.",
+      "condition": {
+        "key": "load_mode",
+        "op": "!=",
+        "value": "scratch"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "checkpoint_file",
+      "display_name": "Checkpoint",
+      "widget": "path_browse",
+      "mode": "file",
+      "filter": "SB3 model (*.zip);;All files (*.*)",
+      "default": "",
+      "tooltip": "Relative or absolute path to the SB3 .zip checkpoint. Leave empty to auto-select the primary checkpoint for the chosen asset.",
+      "condition": {
+        "key": "load_mode",
+        "op": "!=",
+        "value": "scratch"
+      }
+    }
+  ],
+  "algo_config": [
+    {
+      "kind": "param",
+      "key": "algorithm",
+      "display_name": "Algorithm",
+      "widget": "dropdown",
+      "choices": [
+        "PPO",
+        "SAC",
+        "TD3"
+      ],
+      "default": "PPO",
+      "tooltip": "RL algorithm. PPO = on-policy (stable, good for locomotion); SAC = off-policy entropy-maximizing (sample-efficient); TD3 = off-policy deterministic (low-variance). Algorithm choice controls visibility of conditional params below."
+    },
+    {
+      "kind": "param",
+      "key": "total_timesteps",
+      "display_name": "Total Steps",
+      "widget": "timestep_input",
+      "min": 10000,
+      "max": 100000000,
+      "step": 10000,
+      "default": "1000000",
+      "tooltip": "Total environment interaction steps. Displayed with K/M suffix. Typical locomotion: 1–10 M for PPO, 0.5–2 M for SAC."
+    },
+    {
+      "kind": "param",
+      "key": "learning_rate",
+      "display_name": "Learning Rate",
+      "widget": "scientific_input",
+      "min": 1e-07,
+      "max": 0.01,
+      "default": "3e-4",
+      "tooltip": "Adam optimizer learning rate. Typical range: 1e-4 to 1e-3 for PPO; 1e-4 to 3e-4 for SAC/TD3."
+    },
+    {
+      "kind": "param",
+      "key": "batch_size",
+      "display_name": "Batch Size",
+      "widget": "int_spinbox",
+      "min": 32,
+      "max": 4096,
+      "step": 32,
+      "default": "256",
+      "note": "Power of 2 recommended",
+      "tooltip": "Mini-batch size for gradient updates. For PPO: must divide (n_steps × n_envs). For SAC/TD3: samples drawn from replay buffer."
+    },
+    {
+      "kind": "param",
+      "key": "gamma",
+      "display_name": "Gamma (γ)",
+      "widget": "slider_float",
+      "min": 0.9,
+      "max": 0.9999,
+      "step": 0.0001,
+      "default": "0.99",
+      "tooltip": "Discount factor for future rewards. Higher = more far-sighted. 0.99 is standard for locomotion; 0.995 for tasks with sparse delayed rewards."
+    },
+    {
+      "kind": "param",
+      "key": "seed",
+      "display_name": "Random Seed",
+      "widget": "int_spinbox",
+      "min": -1,
+      "max": 99999,
+      "step": 1,
+      "default": "42",
+      "note": "-1 = random seed",
+      "tooltip": "RNG seed for reproducibility. -1 = non-deterministic (random seed on each run)."
+    },
+    {
+      "kind": "param",
+      "key": "device",
+      "display_name": "Device",
+      "widget": "dropdown",
+      "choices": [
+        "auto",
+        "cuda",
+        "cpu"
+      ],
+      "default": "auto",
+      "tooltip": "'auto' = use CUDA if available, else CPU. Network training is device-bound; environments always run on CPU regardless of this setting."
+    },
+    {
+      "kind": "param",
+      "key": "hidden_dim_1",
+      "display_name": "Layer 1 Width",
+      "widget": "int_spinbox",
+      "min": 32,
+      "max": 2048,
+      "step": 32,
+      "default": "256",
+      "tooltip": "Number of neurons in the first hidden layer of the policy network. Larger = more expressive but slower to train. Recommended: 256-512 for locomotion tasks."
+    },
+    {
+      "kind": "param",
+      "key": "hidden_dim_2",
+      "display_name": "Layer 2 Width",
+      "widget": "int_spinbox",
+      "min": 32,
+      "max": 2048,
+      "step": 32,
+      "default": "256",
+      "tooltip": "Number of neurons in the second hidden layer of the policy network. Can be smaller than Layer 1 to create a funnel architecture (e.g. 512 → 256). Set to 0 to disable the second layer."
+    },
+    {
+      "kind": "param",
+      "key": "activation",
+      "display_name": "Activation",
+      "widget": "dropdown",
+      "choices": [
+        "relu",
+        "tanh",
+        "elu"
+      ],
+      "default": "relu",
+      "tooltip": "Non-linearity for all MLP hidden layers. 'tanh' is common for locomotion with SB3 defaults; 'relu'/'elu' often faster to train."
+    },
+    {
+      "kind": "param",
+      "key": "gae_lambda",
+      "display_name": "GAE λ",
+      "widget": "slider_float",
+      "min": 0.8,
+      "max": 1.0,
+      "step": 0.005,
+      "default": "0.95",
+      "condition": {
+        "key": "algorithm",
+        "op": "==",
+        "value": "PPO"
+      },
+      "tooltip": "[PPO only] Generalized Advantage Estimation smoothing factor. 1.0 = Monte Carlo returns; 0.9 = more biased but lower variance. 0.95 is standard."
+    },
+    {
+      "kind": "param",
+      "key": "n_steps",
+      "display_name": "N Steps",
+      "widget": "int_spinbox",
+      "min": 64,
+      "max": 8192,
+      "step": 64,
+      "default": "2048",
+      "condition": {
+        "key": "algorithm",
+        "op": "==",
+        "value": "PPO"
+      },
+      "tooltip": "[PPO only] Number of environment steps collected per env before each gradient update. Total rollout = n_steps × n_envs. Larger = more stable but slower updates."
+    },
+    {
+      "kind": "param",
+      "key": "ent_coef",
+      "display_name": "Entropy Coef",
+      "widget": "dropdown",
+      "choices": [
+        "auto",
+        "0.0",
+        "0.001",
+        "0.01",
+        "0.05",
+        "0.1",
+        "0.2"
+      ],
+      "default": "auto",
+      "tooltip": "[PPO/SAC/TD3] Entropy regularisation coefficient. \"auto\" = adaptive tuning (recommended for SAC). 0.0 = pure exploitation. Higher values encourage exploration and prevent premature convergence."
+    },
+    {
+      "kind": "param",
+      "key": "gradient_steps",
+      "display_name": "Gradient Steps",
+      "widget": "text_input",
+      "placeholder": "1  (auto → n_envs)",
+      "default": "1",
+      "condition": {
+        "key": "algorithm",
+        "op": "in",
+        "values": [
+          "SAC",
+          "TD3"
+        ]
+      },
+      "tooltip": "[SAC/TD3] Gradient updates per env-step collected. '1' = auto-tune to n_envs at runtime (recommended: keeps GPU busy). Set higher (e.g. 4–16) on powerful GPUs for more training signal per sample. Set '-1' to let SB3 decide."
+    },
+    {
+      "kind": "param",
+      "key": "n_epochs",
+      "display_name": "N Epochs",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 50,
+      "default": "10",
+      "condition": {
+        "key": "algorithm",
+        "op": "==",
+        "value": "PPO"
+      },
+      "tooltip": "[PPO] How many times to reuse each rollout buffer for gradient updates. Higher = more GPU utilization per rollout. Recommended: 10-20 for standard PPO; beyond 20 may cause instability."
+    },
+    {
+      "kind": "param",
+      "key": "lr_schedule",
+      "display_name": "LR Schedule",
+      "widget": "dropdown",
+      "choices": [
+        "cosine",
+        "linear",
+        "constant"
+      ],
+      "default": "cosine",
+      "tooltip": "Learning rate decay over the training run. cosine = smooth annealing (recommended). linear = linear decay to 10% of initial LR. constant = fixed LR throughout."
+    },
+    {
+      "kind": "param",
+      "key": "tau",
+      "display_name": "Tau (Target Net)",
+      "widget": "float_input",
+      "default": "0.005",
+      "condition": {
+        "key": "algorithm",
+        "op": "in",
+        "values": [
+          "SAC",
+          "TD3"
+        ]
+      },
+      "tooltip": "[SAC/TD3] Soft target-network update coefficient (Polyak averaging). Default 0.005. Smaller values (0.001-0.003) make the target Q-network update more slowly, reducing Q-value overestimation and preventing reward collapse in locomotion tasks. Recommended: 0.002 for quadruped gait training."
+    },
+    {
+      "kind": "param",
+      "key": "target_entropy",
+      "display_name": "Target Entropy",
+      "widget": "text_input",
+      "default": "auto",
+      "condition": {
+        "key": "algorithm",
+        "op": "in",
+        "values": [
+          "SAC",
+          "TD3"
+        ]
+      },
+      "tooltip": "[SAC] Entropy target for automatic temperature tuning. \"auto\" = -action_dim (e.g. -12 for Go2). For locomotion with dense shaped rewards, a less aggressive target like \"-6\" (= -0.5 × action_dim) maintains more exploration and prevents premature policy collapse. Use \"auto\" to start, switch to \"-6\" if training collapses."
+    },
+    {
+      "kind": "param",
+      "key": "buffer_size_mode",
+      "display_name": "Buffer Size",
+      "widget": "buffer_size_picker",
+      "min": 10000,
+      "max": 10000000,
+      "step": 10000,
+      "condition": {
+        "key": "algorithm",
+        "op": "in",
+        "values": [
+          "SAC",
+          "TD3"
+        ]
+      },
+      "tooltip": "AUTO: buffer_size = total_timesteps ÷ 10 rounded to 10 k (recommended). Manual: exact capacity. Re-click AUTO after changing total_timesteps to refresh."
+    },
+    {
+      "kind": "param",
+      "key": "learning_starts",
+      "display_name": "Learn Starts",
+      "widget": "timestep_input",
+      "min": 100,
+      "max": 100000,
+      "step": 100,
+      "default": "10000",
+      "condition": {
+        "key": "algorithm",
+        "op": "in",
+        "values": [
+          "SAC",
+          "TD3"
+        ]
+      },
+      "tooltip": "[SAC/TD3] Number of random exploration steps before learning begins. Fills the replay buffer with diverse experience before the first gradient update."
+    },
+    {
+      "kind": "param",
+      "key": "checkpoint_interval",
+      "display_name": "Checkpoint",
+      "widget": "timestep_input",
+      "min": 1000,
+      "max": 1000000,
+      "step": 1000,
+      "default": "50000",
+      "tooltip": "Save a checkpoint every N timesteps during training. Checkpoints are written to runs/<run_id>/checkpoints/ and can be resumed via resume_mode=warm_start."
+    },
+    {
+      "kind": "param",
+      "key": "resume_mode",
+      "display_name": "Resume Mode",
+      "widget": "dropdown",
+      "choices": [
+        "scratch",
+        "warm_start"
+      ],
+      "default": "scratch",
+      "tooltip": "'scratch' = start fresh, ignoring any existing checkpoint. 'warm_start' = load the latest checkpoint for policy_id_out and continue training from that point."
+    },
+    {
+      "kind": "param",
+      "key": "collapse_guard",
+      "display_name": "Collapse Guard",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Enable automatic rollback when reward collapses. When ON: the guard reloads the best saved checkpoint and reduces LR whenever rolling reward drops below collapse_threshold × best_ever for patience consecutive rollout-ends."
+    },
+    {
+      "kind": "param",
+      "key": "collapse_threshold",
+      "display_name": "Guard Threshold",
+      "widget": "float_input",
+      "min": 0.1,
+      "max": 0.95,
+      "decimals": 2,
+      "step": 0.05,
+      "default": "0.65",
+      "condition": {
+        "key": "collapse_guard",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Fraction of best-ever reward below which a rollout counts as collapsed. Default 0.65 — rollback triggers when reward < 65% of best seen. Lower = less sensitive (fewer rollbacks). Higher = more aggressive intervention."
+    },
+    {
+      "kind": "param",
+      "key": "collapse_lr_factor",
+      "display_name": "Guard LR Factor",
+      "widget": "float_input",
+      "min": 0.05,
+      "max": 0.9,
+      "decimals": 2,
+      "step": 0.05,
+      "default": "0.3",
+      "condition": {
+        "key": "collapse_guard",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Learning-rate multiplier applied immediately after rollback. Default 0.3 — reduces to 30% for 20 rollout-ends while the buffer flushes bad experiences, then linearly recovers to the original rate."
+    },
+    {
+      "kind": "param",
+      "key": "collapse_max_rollbacks",
+      "display_name": "Max Rollbacks",
+      "widget": "int_spinbox",
+      "min": 0,
+      "max": 50,
+      "step": 1,
+      "default": "0",
+      "condition": {
+        "key": "collapse_guard",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Maximum number of collapse rollbacks before training stops. 0 = unlimited (train runs to completion regardless of oscillation). Set to e.g. 5 to prevent infinite loops."
+    },
+    {
+      "kind": "param",
+      "key": "use_per",
+      "display_name": "Enable PER",
+      "widget": "toggle",
+      "default": "false",
+      "condition": {
+        "key": "algorithm",
+        "op": "in",
+        "values": [
+          "SAC",
+          "TD3"
+        ]
+      },
+      "tooltip": "Use Prioritized Experience Replay — samples transitions with high TD-error more often, so the policy learns from its biggest mistakes first. Only available for off-policy algorithms (SAC, TD3)."
+    },
+    {
+      "kind": "param",
+      "key": "per_alpha",
+      "display_name": "PER Alpha",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 2,
+      "step": 0.05,
+      "default": "0.6",
+      "condition": {
+        "key": "use_per",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Exponent controlling how much prioritization is used. 0 = uniform sampling (no PER). 1 = full prioritization by TD-error. Default 0.6."
+    },
+    {
+      "kind": "param",
+      "key": "per_beta",
+      "display_name": "PER Beta",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 1.0,
+      "decimals": 2,
+      "step": 0.05,
+      "default": "0.4",
+      "condition": {
+        "key": "use_per",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Importance-sampling correction exponent. Compensates for the bias introduced by non-uniform sampling. 0 = no correction. 1 = full IS correction. Typically annealed from 0.4 toward 1.0 during training."
+    }
+  ],
+  "eval_config": [
+    {
+      "kind": "param",
+      "key": "eval_episodes",
+      "display_name": "Eval Episodes",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 500,
+      "step": 5,
+      "default": "20",
+      "tooltip": "Number of full episodes to run at each evaluation interval. More episodes = more accurate estimate but slower evaluation."
+    },
+    {
+      "kind": "param",
+      "key": "eval_interval",
+      "display_name": "Eval Interval",
+      "widget": "timestep_input",
+      "min": 1000,
+      "max": 1000000,
+      "step": 1000,
+      "default": "50000",
+      "tooltip": "Run evaluation every N training timesteps. Smaller = more frequent monitoring (slower training); larger = less overhead."
+    },
+    {
+      "kind": "param",
+      "key": "deterministic",
+      "display_name": "Deterministic",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "When ON, evaluation uses the deterministic policy (no exploration noise / action sampling). Recommended for fair performance reporting."
+    },
+    {
+      "kind": "param",
+      "key": "save_best_model",
+      "display_name": "Save Best",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Automatically save a checkpoint whenever the current eval mean reward exceeds the previous best. The best model is exported by ExportNode."
+    },
+    {
+      "kind": "param",
+      "key": "success_threshold",
+      "display_name": "Success Thresh",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "default": "0.8",
+      "tooltip": "Fraction of eval episodes that must exceed TaskConfig.success_threshold to declare the policy 'converged'. Used for early-stop signals in Phase D."
+    },
+    {
+      "kind": "param",
+      "key": "record_video",
+      "display_name": "Record Video",
+      "widget": "toggle",
+      "default": "false",
+      "tooltip": "When ON, renders and saves a video at each evaluation. Requires MuJoCo headless rendering and an available display/offscreen context."
+    },
+    {
+      "kind": "param",
+      "key": "video_dir",
+      "display_name": "Video Dir",
+      "widget": "path_browse",
+      "mode": "dir",
+      "filter": "",
+      "default": "",
+      "condition": {
+        "key": "record_video",
+        "op": "==",
+        "value": "true"
+      },
+      "tooltip": "Directory where evaluation video files are saved. Active only when Record Video is ON. Leave blank to use runs/<run_id>/videos/ auto-path."
+    }
+  ],
+  "export": [
+    {
+      "kind": "param",
+      "key": "bundle_name",
+      "display_name": "名称",
+      "widget": "text_input_with_button",
+      "placeholder": "trained_policy",
+      "default": "trained_policy",
+      "button_text": "Folder",
+      "button_width": 52,
+      "button_action": "open_export_dir",
+      "button_tooltip": "Open checkpoint save folder",
+      "tooltip": "Checkpoint 保存名。最终导出到 custom_checkpoints/<名称>/。"
+    },
+    {
+      "kind": "param",
+      "key": "export_target",
+      "display_name": "Export Target",
+      "widget": "dropdown",
+      "choices": [
+        "runtime_bundle",
+        "training_artifact",
+        "both"
+      ],
+      "default": "runtime_bundle",
+      "tooltip": "'runtime_bundle' = ONNX/JIT bundle to custom_checkpoints/ (usable by main canvas). 'training_artifact' = SB3 zip to training_assets/ (resumable in Training Ground, NOT listed in main canvas). 'both' = produce both outputs."
+    },
+    {
+      "kind": "param",
+      "key": "export_onnx",
+      "display_name": "Export ONNX",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Export policy network to ONNX format. Required for UnitPort deployment on real hardware via ONNX Runtime inference."
+    },
+    {
+      "kind": "param",
+      "key": "export_torchscript",
+      "display_name": "TorchScript",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Export policy network as TorchScript (torch.jit.script). Enables C++ inference deployment and serves as a backup to ONNX."
+    },
+    {
+      "kind": "param",
+      "key": "include_norm_stats",
+      "display_name": "Norm Stats",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Bundle VecNormalize running mean/std statistics alongside the policy. Mandatory for correct inference if obs_normalize was ON during training."
+    },
+    {
+      "kind": "param",
+      "key": "overwrite",
+      "display_name": "Overwrite",
+      "widget": "toggle",
+      "default": "false",
+      "tooltip": "When OFF (default), creates a new derived checkpoint with an incremented version suffix if policy_id_out already exists. When ON, overwrites the existing bundle in-place."
+    }
+  ],
+  "vis_check": [
+    {
+      "kind": "param",
+      "key": "trigger_mode",
+      "display_name": "Trigger Mode",
+      "widget": "dropdown",
+      "choices": [
+        "step_interval",
+        "episode_split"
+      ],
+      "default": "step_interval",
+      "tooltip": "step_interval: open viewer every N training steps. episode_split: divide total training into equally-spaced vis checks."
+    },
+    {
+      "kind": "param",
+      "key": "vis_start_step",
+      "display_name": "Start Step",
+      "widget": "timestep_input",
+      "default": "50000",
+      "min": 1000,
+      "max": 10000000,
+      "step": 1000,
+      "tooltip": "Training step at which the first visualization milestone fires.",
+      "condition": {
+        "key": "trigger_mode",
+        "op": "==",
+        "value": "step_interval"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "vis_interval_steps",
+      "display_name": "Interval Steps",
+      "widget": "timestep_input",
+      "default": "50000",
+      "min": 1000,
+      "max": 10000000,
+      "step": 1000,
+      "tooltip": "How many training steps between subsequent visualization milestones.",
+      "condition": {
+        "key": "trigger_mode",
+        "op": "==",
+        "value": "step_interval"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "num_vis_checks",
+      "display_name": "Vis Checks",
+      "widget": "int_spinbox",
+      "default": "5",
+      "min": 1,
+      "max": 50,
+      "step": 1,
+      "tooltip": "Total number of equally-spaced vis checks across the full training run. The interval is computed automatically from total_timesteps.",
+      "condition": {
+        "key": "trigger_mode",
+        "op": "==",
+        "value": "episode_split"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "vis_episodes",
+      "display_name": "Episodes",
+      "widget": "int_spinbox",
+      "default": "3",
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "tooltip": "Number of full episodes to show per milestone. Close the viewer window after the last episode to resume training."
+    },
+    {
+      "kind": "param",
+      "key": "deterministic",
+      "display_name": "Deterministic",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "When ON the viewer runs the deterministic policy (no exploration noise)."
+    }
+  ]
+}

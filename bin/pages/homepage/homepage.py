@@ -5,7 +5,6 @@ Homepage UI components — all startup-screen widgets live here.
 
 Classes (public)
 ----------------
-WheelSelector   — 转轮式选择器（原 wheel_selector.py，已内联）
 PageSelector    — 主页三区布局组件（顶部 Logo / 中间按钮 / 底部版本）
 LoadingScreen   — 启动加载屏
 HomepageWidget  — 全屏主页（渐变背景 + PageSelector）
@@ -32,7 +31,8 @@ from PySide6.QtMultimedia import QSoundEffect
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
-    QApplication, QGraphicsScene, QGraphicsBlurEffect,
+    QApplication, QGraphicsScene, QGraphicsBlurEffect, QLineEdit,
+    QStackedWidget, QFrame,
 )
 
 from src.system.core.theme_manager import get_color, get_font_size, get_color_slot
@@ -52,10 +52,13 @@ SOUND_SET: dict[str, str] = {
 # ---------------------------------------------------------------------------
 # Navigation item registry
 # ---------------------------------------------------------------------------
-_ITEMS       = ["Mission Control", "Training Ground", "Exit"]
-_IDX_MISSION  = 0
-_IDX_TRAINING = 1
-_IDX_EXIT     = 2
+_ITEMS = ["Continue", "New Project", "Load Project", "Settings", "Credits", "Exit"]
+_IDX_CONTINUE    = 0
+_IDX_NEW_PROJECT = 1
+_IDX_LOAD        = 2
+_IDX_SETTINGS    = 3
+_IDX_CREDITS     = 4
+_IDX_EXIT        = 5
 
 
 class WindowControlButtons(QWidget):
@@ -200,333 +203,6 @@ class WindowControlButtons(QWidget):
 
 
 # ===========================================================================
-# WheelSelector  (moved from wheel_selector.py)
-# ===========================================================================
-class WheelSelector(QWidget):
-    """
-    转轮式选择器（Wheel Selector）
-
-    特性：
-    - 垂直半圆转轮布局，选中项居中
-    - 上下项逐级缩放 + 虚化
-    - hover 高亮（选中项 hover 时显示背景；非选中项 hover 半透明背景）
-    - 鼠标点击：非选中项 → 旋转；选中项 → 触发 item_activated
-    - 滚轮 / 键盘支持
-    """
-
-    currentIndexChanged = Signal(int, str)
-    item_activated      = Signal(int, str)
-
-    def __init__(
-        self,
-        items=None,
-        parent=None,
-        visible_count: int = 5,
-        radius: int = 100,
-        font_size: Optional[int] = None,
-    ):
-        super().__init__(parent)
-
-        self._items: list[str] = items or []
-        self._current_index: int = 0
-        self._offset: float = 0.0
-        self._hover_index: int = -1
-
-        self.visible_count = visible_count
-        self.radius        = radius
-        self._custom_font_size = font_size
-
-        self.setMinimumWidth(120)
-        self.setMinimumHeight(120)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setMouseTracking(True)
-
-        self._anim = QPropertyAnimation(self, b"offset")
-        self._anim.setDuration(120)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._angle_step = math.pi / self.visible_count
-
-        self._pending_steps  = 0
-        self._anim_running   = False
-
-        self._emit_timer = QTimer(self)
-        self._emit_timer.setSingleShot(True)
-        self._emit_timer.setInterval(200)
-        self._emit_timer.timeout.connect(self._emit_current_index)
-
-        self._slip_effect: Optional[QSoundEffect] = None
-        self._beep_effect: Optional[QSoundEffect] = None
-
-        self.apply_theme()
-
-        if self._items:
-            QTimer.singleShot(0, self._emit_current_index)
-
-    # ── Public API ──────────────────────────────────────────────────────────
-
-    def setItems(self, items: list[str]):
-        self._items = items or []
-        self._current_index = min(self._current_index, max(0, len(self._items) - 1))
-        self.update()
-
-    def items(self)        -> list[str]: return self._items
-    def currentIndex(self) -> int:       return self._current_index
-    def currentText(self)  -> str:
-        return self._items[self._current_index] if self._items else ""
-
-    def selectNext(self): self._enqueue_step(1)
-    def selectPrev(self): self._enqueue_step(-1)
-
-    def setCurrentIndex(self, index: int):
-        if not self._items:
-            return
-        index = max(0, min(index, len(self._items) - 1))
-        diff  = index - self._current_index
-        if diff:
-            self._enqueue_step(diff)
-
-    # ── Animation property (PySide6) ────────────────────────────────────────
-
-    def _get_offset(self) -> float: return self._offset
-    def _set_offset(self, v: float):
-        self._offset = max(-1.5, min(1.5, v))
-        self.update()
-
-    offset = Property(float, _get_offset, _set_offset)
-
-    # ── Internal animation ──────────────────────────────────────────────────
-
-    def _enqueue_step(self, step: int):
-        if not self._items:
-            return
-        self._pending_steps += step
-        self._pending_steps = max(
-            -self._current_index,
-            min(self._pending_steps, len(self._items) - 1 - self._current_index),
-        )
-        if not self._anim_running:
-            self._dequeue_and_animate()
-
-    def _dequeue_and_animate(self):
-        if self._pending_steps == 0:
-            self._anim_running = False
-            return
-        step = 1 if self._pending_steps > 0 else -1
-        self._pending_steps -= step
-        target = max(0, min(self._current_index + step, len(self._items) - 1))
-        self._anim_running = True
-        self._play_sound("SLIP")
-        self._anim.setStartValue(self._offset)
-        self._anim.setEndValue(self._offset - step)
-        try:
-            self._anim.finished.disconnect()
-        except RuntimeError:
-            pass
-        self._anim.finished.connect(lambda idx=target: self._commit_and_continue(idx))
-        self._anim.start()
-
-    def _commit_and_continue(self, index: int):
-        self._offset = 0.0
-        self._current_index = index
-        self.update()
-        self._emit_timer.start()
-        self._dequeue_and_animate()
-
-    def _emit_current_index(self):
-        self.currentIndexChanged.emit(self._current_index, self.currentText())
-
-    # ── Sound ───────────────────────────────────────────────────────────────
-
-    def _play_sound(self, key: str):
-        try:
-            path = SOUND_SET.get(key, "")
-            if not path:
-                return
-            if key == "SLIP":
-                if self._slip_effect is None:
-                    self._slip_effect = QSoundEffect(self)
-                    self._slip_effect.setSource(QUrl.fromLocalFile(path))
-                    self._slip_effect.setVolume(0.45)
-                self._slip_effect.play()
-            elif key == "BEEP":
-                if self._beep_effect is None:
-                    self._beep_effect = QSoundEffect(self)
-                    self._beep_effect.setSource(QUrl.fromLocalFile(path))
-                    self._beep_effect.setVolume(0.55)
-                self._beep_effect.play()
-        except Exception:
-            pass
-
-    # ── Input events ────────────────────────────────────────────────────────
-
-    def wheelEvent(self, event):
-        delta = event.angleDelta().y()
-        if delta:
-            self._enqueue_step(-1 if delta > 0 else 1)
-        event.accept()
-
-    def mouseMoveEvent(self, event):
-        new = self._item_at_pos(event.pos().y())
-        if new != self._hover_index:
-            self._hover_index = new
-            self.setCursor(
-                Qt.CursorShape.PointingHandCursor if new >= 0
-                else Qt.CursorShape.ArrowCursor
-            )
-            self.update()
-
-    def leaveEvent(self, event):
-        if self._hover_index != -1:
-            self._hover_index = -1
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-            self.update()
-
-    def mousePressEvent(self, event):
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
-        idx = self._item_at_pos(event.pos().y())
-        if idx < 0:
-            return
-        if idx == self._current_index:
-            self._play_sound("BEEP")
-            self.item_activated.emit(idx, self._items[idx])
-        else:
-            self.setCurrentIndex(idx)
-
-    def _item_at_pos(self, mouse_y: int) -> int:
-        cy       = self.height() / 2
-        hit_half = max(self._center_item_height / 2, 22)
-        for i in range(-(self.visible_count // 2), self.visible_count // 2 + 1):
-            idx   = self._current_index + i
-            if not (0 <= idx < len(self._items)):
-                continue
-            theta = (i + self._offset) * self._angle_step
-            if abs(theta) > math.pi / 2:
-                continue
-            y = cy + math.sin(theta) * self.radius
-            if abs(mouse_y - y) <= hit_half:
-                return idx
-        return -1
-
-    # ── Painting ─────────────────────────────────────────────────────────────
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        w, h = self.width(), self.height()
-
-        bg = QColor(self._bg_color)
-        if bg.alpha() > 0:
-            painter.setBrush(bg)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRect(self.rect())
-
-        if self._side_border_width > 0:
-            painter.save()
-            pen = QPen(QColor(self._border_color))
-            pen.setWidth(self._side_border_width)
-            painter.setPen(pen)
-            half = self._side_border_width // 2
-            painter.drawLine(half, 0, half, h)
-            painter.drawLine(w - half, 0, w - half, h)
-            painter.restore()
-
-        if not self._items:
-            return
-
-        cy, cx    = h / 2, w / 2
-        item_half_w: float = cx - 12
-        h_half    = self._center_item_height / 2
-
-        # 中心高亮背景：仅 hover 时显示
-        if self._hover_index == self._current_index:
-            cr = QRectF(cx - item_half_w, cy - h_half,
-                        item_half_w * 2, self._center_item_height)
-            painter.setBrush(QColor(self._hover_bg))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(cr, self._center_item_radius, self._center_item_radius)
-
-        for i in range(-(self.visible_count // 2), self.visible_count // 2 + 1):
-            idx = self._current_index + i
-            if 0 <= idx < len(self._items):
-                self._draw_item(painter, idx, i + self._offset, cx, cy, item_half_w)
-
-    def _draw_item(self, painter, index, offset, cx, cy, item_half_w):
-        theta = offset * self._angle_step
-        if abs(theta) > math.pi / 2:
-            return
-        y       = cy + math.sin(theta) * self.radius
-        scale   = max(0.65, 1.0 - abs(offset) * 0.18)
-        opacity = max(0.20, 1.0 - abs(offset) * 0.28)
-        is_current = (index == self._current_index and abs(offset) < 0.01)
-        is_hovered = (index == self._hover_index)
-        h_half     = self._center_item_height / 2
-
-        painter.save()
-        painter.translate(cx, y)
-        painter.scale(scale, scale)
-        painter.setOpacity(opacity)
-
-        if is_hovered and not is_current:
-            painter.save()
-            hb = QColor(self._hover_bg)
-            hb.setAlpha(60)
-            painter.setBrush(QBrush(hb))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(
-                QRectF(-item_half_w, -h_half, item_half_w * 2, self._center_item_height),
-                self._center_item_radius, self._center_item_radius,
-            )
-            painter.restore()
-
-        font = QFont(self.font())
-        font.setBold(is_current)
-        fs = self._custom_font_size if self._custom_font_size else self._theme_font_size
-        font.setPointSize(max(1, int(fs)))
-        painter.setFont(font)
-
-        if is_current:
-            color = QColor(self._text_hover if is_hovered else self._text_main)
-        elif is_hovered:
-            color = QColor(self._text_main)
-            color.setAlpha(190)
-        else:
-            color = QColor(self._text_sec)
-
-        painter.setPen(color)
-        painter.drawText(
-            QRectF(-item_half_w - 10, -h_half, (item_half_w + 10) * 2, self._center_item_height),
-            Qt.AlignmentFlag.AlignCenter, self._items[index],
-        )
-        painter.restore()
-
-    # ── Theme ────────────────────────────────────────────────────────────────
-
-    def apply_theme(self):
-        self._text_main  = get_color("home_text_main",  "#ffffff")
-        self._text_sec   = get_color("home_text_sec",   "#888888")
-        self._text_hover = get_color("home_text_hover", "#F6D393")
-        self._hover_bg   = get_color("home_hover_bg",   "#F6D393")
-        self._bg_color   = "transparent"
-        self._border_color = self._hover_bg
-        self._theme_font_size = get_font_size("size_normal") or 12
-
-        self._side_border_width   = 0
-        self._center_item_radius  = 8
-
-        fs = self._custom_font_size if self._custom_font_size else self._theme_font_size
-        f  = QFont()
-        f.setPointSize(max(1, int(fs)))
-        f.setBold(True)
-        self._center_item_height = float(QFontMetrics(f).height() + 18)
-        self.update()
-
-    def refresh_style(self):
-        self.apply_theme()
-
-
-# ===========================================================================
 # PageSelector — 主页三区布局组件
 # ===========================================================================
 
@@ -543,13 +219,14 @@ def _read_version_display() -> str:
 class _MenuButton(QWidget):
     """
     单个菜单项按钮。
-    - 普通态：24pt，home_text_sec 颜色，无背景
-    - hover 态：28pt，home_text_main 颜色，home_hover_bg 半透明圆角背景
+    - 普通态：20pt，home_text_main 颜色，无背景
+    - hover 态：21pt，home_text_hover 颜色，home_hover_bg 半透明圆角背景
+    - active 态：21pt + bold，home_hover_bg 背景常驻
     - 点击：emit clicked
     """
 
     clicked = Signal()
-    entered = Signal()   # 鼠标首次进入时（供父级播放音效）
+    entered = Signal()
 
     _FONT_NORMAL = 20
     _FONT_HOVER  = 21
@@ -560,6 +237,7 @@ class _MenuButton(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._hovered = False
+        self._active = False
 
         self._label = QLabel(text, self)
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -569,30 +247,51 @@ class _MenuButton(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.addWidget(self._label)
 
-        # 固定高度以防止 hover 时字体放大导致布局跳动；最小宽度保证背景色块有足够空间
         big_f = QFont()
         big_f.setPointSize(self._FONT_HOVER)
         self.setFixedHeight(QFontMetrics(big_f).height() + 20)
         self.setMinimumWidth(300)
 
-        self._apply_state(hovered=False)
+        self._apply_state()
 
-    def _apply_state(self, hovered: bool):
-        self._hovered = hovered
-        fs    = self._FONT_HOVER if hovered else self._FONT_NORMAL
-        color = get_color("home_text_hover") if hovered \
-                else get_color("home_text_main")
-        f = QFont()
-        f.setPointSize(fs)
-        self._label.setFont(f)
+    def set_active(self, active: bool):
+        self._active = active
+        self._apply_state()
+
+    def is_active(self) -> bool:
+        return self._active
+
+    def _apply_state(self):
+        if self._active:
+            fs = self._FONT_HOVER
+            color = get_color("home_text_hover")
+            f = QFont()
+            f.setPointSize(fs)
+            f.setBold(True)
+            self._label.setFont(f)
+        elif self._hovered:
+            fs = self._FONT_HOVER
+            color = get_color("home_text_hover")
+            f = QFont()
+            f.setPointSize(fs)
+            self._label.setFont(f)
+        else:
+            fs = self._FONT_NORMAL
+            color = get_color("home_text_main")
+            f = QFont()
+            f.setPointSize(fs)
+            self._label.setFont(f)
         self._label.setStyleSheet(f"color: {color}; background: transparent;")
-        self.update()   # 触发 paintEvent 刷新背景
+        self.update()
 
     def paintEvent(self, event):
-        if self._hovered:
+        if self._active or self._hovered:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setBrush(QBrush(QColor(get_color("home_hover_bg", "#F6D393"))))
+            bg_color = QColor(get_color("home_hover_bg", "#F6D393"))
+            if self._hovered and not self._active:
+                bg_color.setAlpha(180)
+            painter.setBrush(QBrush(bg_color))
             painter.setPen(Qt.PenStyle.NoPen)
             cx = self.rect().center().x()
             r = QRectF(cx - 150, 2, 300, self.height() - 4)
@@ -600,12 +299,14 @@ class _MenuButton(QWidget):
         super().paintEvent(event)
 
     def enterEvent(self, event):
-        self._apply_state(hovered=True)
+        self._hovered = True
+        self._apply_state()
         self.entered.emit()
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self._apply_state(hovered=False)
+        self._hovered = False
+        self._apply_state()
         super().leaveEvent(event)
 
     def mousePressEvent(self, event):
@@ -628,24 +329,172 @@ class _SeparatorLine(QWidget):
         painter.drawRect(self.rect())
 
 
-class PageSelector(QWidget):
+class _VerticalDivider(QWidget):
+    """纵向分割线，高度由父级设置。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(1)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(get_color("home_text_sec", "#888888")))
+        painter.drawRect(self.rect())
+
+
+class _NewProjectForm(QWidget):
     """
-    主页三区布局：
-      ┌─ Title  ─────────────────┐  Logo SVG
-      ├─ Buttons ────────────────┤  垂直菜单项（24→28pt，hover 音效）
-      └─ Notes  ─────────────────┘  分隔线 + 版本号
+    新建项目表单：居中显示标题、输入框、Confirm / Cancel 按钮。
+    Confirm 后切换为 Loading 文字。
     """
 
-    mission_requested  = Signal()
-    training_requested = Signal()
-    exit_requested     = Signal()
+    confirmed = Signal(str)   # project name
+    cancelled = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._setup_ui()
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addStretch(2)
+
+        # ── 表单容器（confirm 时整体隐藏） ──
+        self._form_container = QWidget()
+        self._form_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        form_lo = QVBoxLayout(self._form_container)
+        form_lo.setContentsMargins(0, 0, 0, 0)
+        form_lo.setSpacing(0)
+
+        title = QLabel("Your Project Name:")
+        title_font = QFont()
+        title_font.setPointSize(20)
+        title.setFont(title_font)
+        title.setStyleSheet(
+            f"color: {get_color('home_text_main', '#ffffff')}; background: transparent;"
+        )
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        form_lo.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
+        form_lo.addSpacing(24)
+
+        self._input = QLineEdit()
+        self._input.setFixedWidth(360)
+        self._input.setFixedHeight(40)
+        input_font = QFont()
+        input_font.setPointSize(14)
+        self._input.setFont(input_font)
+        self._input.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._input.setStyleSheet(
+            f"background: rgba(255,255,255,0.08); "
+            f"color: {get_color('home_text_main', '#ffffff')}; "
+            f"border: 1px solid {get_color('home_text_sec', '#888888')}; "
+            f"border-radius: 6px; padding: 4px 12px;"
+        )
+        self._input.setPlaceholderText("e.g. My Robot Project")
+        form_lo.addWidget(self._input, alignment=Qt.AlignmentFlag.AlignHCenter)
+        form_lo.addSpacing(32)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(20)
+
+        btn_style_base = (
+            "QPushButton {{ "
+            "background: rgba(255,255,255,0.06); "
+            "color: {color}; border: 1px solid {border}; "
+            "border-radius: 6px; padding: 8px 28px; font-size: 14px; }}"
+            "QPushButton:hover {{ background: rgba(255,255,255,0.14); }}"
+        )
+
+        self._confirm_btn = QPushButton("Confirm")
+        self._confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._confirm_btn.setStyleSheet(btn_style_base.format(
+            color=get_color("home_text_hover", "#F6D393"),
+            border=get_color("home_hover_bg", "#F6D393"),
+        ))
+        self._confirm_btn.clicked.connect(self._on_confirm)
+
+        danger_bg = get_color("btn_danger_bg", "#c94f4f")
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._cancel_btn.setStyleSheet(btn_style_base.format(
+            color=danger_bg,
+            border=danger_bg,
+        ))
+        self._cancel_btn.clicked.connect(self.cancelled.emit)
+
+        btn_row.addStretch()
+        btn_row.addWidget(self._confirm_btn)
+        btn_row.addWidget(self._cancel_btn)
+        btn_row.addStretch()
+        form_lo.addLayout(btn_row)
+
+        root.addWidget(self._form_container, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        # ── Loading 文字（初始隐藏） ──
+        self._loading_label = QLabel("Loading")
+        self._loading_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        loading_font = QFont()
+        loading_font.setPointSize(22)
+        self._loading_label.setFont(loading_font)
+        self._loading_label.setStyleSheet(
+            f"color: {get_color('home_text_main', '#ffffff')}; background: transparent;"
+        )
+        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_label.setVisible(False)
+        root.addWidget(self._loading_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        root.addStretch(3)
+
+    def _on_confirm(self):
+        name = self._input.text().strip()
+        if name:
+            self._form_container.setVisible(False)
+            self._loading_label.setVisible(True)
+            self.confirmed.emit(name)
+
+    def reset(self):
+        self._loading_label.setVisible(False)
+        self._form_container.setVisible(True)
+        self._input.clear()
+        self._input.setFocus()
+
+
+class PageSelector(QWidget):
+    """
+    主页层级菜单布局：
+      ┌─ Logo ──────────────────────────────────┐
+      ├─ Primary Menu  │ divider │ WheelSelector ┤  (二级展开时)
+      └─ separator + version ───────────────────┘
+
+    States:
+      - MENU:        仅显示初始菜单
+      - SUBMENU:     初始菜单 + 分割线 + WheelSelector
+      - NEW_PROJECT: 新建项目表单（替换菜单区域）
+    """
+
+    continue_requested    = Signal()
+    new_project_created   = Signal(str)   # project name
+    load_project_selected = Signal(str)   # project_id
+    settings_requested    = Signal()
+    credits_requested     = Signal()
+    exit_requested        = Signal()
 
     def __init__(self, theme: str = "dark", parent=None):
         super().__init__(parent)
         self._theme = theme.lower()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._slip_effect: Optional[QSoundEffect] = None
+        self._active_index: int = -1       # 当前激活的菜单项 index（-1 = 无）
+        self._projects: list = []          # cached ProjectMeta list
+        self._project_ids: list[str] = []  # parallel list of project_id
+        self._buttons: list[_MenuButton] = []
         self._setup_ui()
+        self._refresh_projects()
 
     # ── UI construction ──────────────────────────────────────────────────────
 
@@ -656,31 +505,36 @@ class PageSelector(QWidget):
 
         root.addStretch(2)
 
-        # ── Title: Logo ──────────────────────────────────────────────────────
+        # ── Logo ─────────────────────────────────────────────────────────────
         logo = _svg_logo(self._theme, width=800)
         root.addWidget(logo, alignment=Qt.AlignmentFlag.AlignHCenter)
-
         root.addSpacing(80)
 
-        # ── Buttons ──────────────────────────────────────────────────────────
-        labels = [
-            ("Mission Control",  self.mission_requested),
-            ("Training Ground",  self.training_requested),
-            ("Exit",             self.exit_requested),
-        ]
-        for text, sig in labels:
-            btn = _MenuButton(text)
-            btn.entered.connect(self._play_slip)
-            btn.clicked.connect(sig)
-            root.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
-            root.addSpacing(20)
+        # ── Content stack (menu / new-project form) ──────────────────────────
+        self._content_stack = QStackedWidget()
+        self._content_stack.setFrameShape(QFrame.Shape.NoFrame)
+        self._content_stack.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        root.addWidget(self._content_stack, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        # Page 0: menu area (primary + optional submenu)
+        self._menu_page = QWidget()
+        self._menu_page.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._build_menu_page()
+        self._content_stack.addWidget(self._menu_page)
+
+        # Page 1: new project form
+        self._new_project_form = _NewProjectForm()
+        self._new_project_form.confirmed.connect(self._on_new_project_confirmed)
+        self._new_project_form.cancelled.connect(self._back_to_menu)
+        self._content_stack.addWidget(self._new_project_form)
+
+        self._content_stack.setCurrentIndex(0)
 
         root.addSpacing(40)
 
         # ── Notes: separator + version ───────────────────────────────────────
         sep = _SeparatorLine()
         root.addWidget(sep, alignment=Qt.AlignmentFlag.AlignHCenter)
-
         root.addSpacing(8)
 
         ver_text = _read_version_display()
@@ -695,6 +549,173 @@ class PageSelector(QWidget):
         root.addWidget(ver_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         root.addStretch(3)
+
+    def _build_menu_page(self):
+        """构建菜单页：左侧 primary buttons + 右侧可展开的 submenu panel。"""
+        layout = QHBoxLayout(self._menu_page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # ── 左侧：primary menu column ───────────────────────────────────────
+        self._primary_col = QWidget()
+        self._primary_col.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        primary_lo = QVBoxLayout(self._primary_col)
+        primary_lo.setContentsMargins(0, 0, 0, 0)
+        primary_lo.setSpacing(20)
+
+        menu_items = [
+            (_IDX_CONTINUE,    "Continue"),
+            (_IDX_NEW_PROJECT, "New Project"),
+            (_IDX_LOAD,        "Load Project"),
+            (_IDX_SETTINGS,    "Settings"),
+            (_IDX_CREDITS,     "Credits"),
+            (_IDX_EXIT,        "Exit"),
+        ]
+        self._buttons = []
+        for idx, text in menu_items:
+            btn = _MenuButton(text)
+            btn.entered.connect(self._play_slip)
+            btn.clicked.connect(lambda _idx=idx: self._on_primary_clicked(_idx))
+            primary_lo.addWidget(btn, alignment=Qt.AlignmentFlag.AlignHCenter)
+            self._buttons.append(btn)
+
+        layout.addStretch()
+        layout.addWidget(self._primary_col)
+
+        # ── 右侧：submenu panel (divider + WheelSelector) ───────────────────
+        self._submenu_panel = QWidget()
+        self._submenu_panel.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        sub_lo = QHBoxLayout(self._submenu_panel)
+        sub_lo.setContentsMargins(20, 0, 0, 0)
+        sub_lo.setSpacing(16)
+
+        self._divider = _VerticalDivider()
+        sub_lo.addWidget(self._divider)
+
+        from bin.pages.layout.misc import WheelSelector
+        self._wheel = WheelSelector(
+            items=[],
+            visible_count=5,
+            radius=110,
+            font_size=13,
+        )
+        self._wheel.setMinimumWidth(400)
+        self._wheel.item_activated.connect(self._on_wheel_activated)
+        sub_lo.addWidget(self._wheel)
+
+        self._submenu_panel.setVisible(False)
+        layout.addWidget(self._submenu_panel)
+        layout.addStretch()
+
+    # ── Project data ─────────────────────────────────────────────────────────
+
+    def _refresh_projects(self):
+        """从 ProjectStore 加载项目列表并刷新 UI 可见性。"""
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            self._projects = store.list_projects()
+        except Exception:
+            self._projects = []
+
+        has_projects = len(self._projects) > 0
+
+        # Continue (idx 0) 和 Load Project (idx 2) — 无存档时 hidden
+        if len(self._buttons) > _IDX_CONTINUE:
+            self._buttons[_IDX_CONTINUE].setVisible(has_projects)
+        if len(self._buttons) > _IDX_LOAD:
+            self._buttons[_IDX_LOAD].setVisible(has_projects)
+
+        # 构建 WheelSelector 项和 project_id 映射
+        self._project_ids = []
+        wheel_items = []
+        from datetime import datetime
+        for meta in self._projects:
+            brand = meta.robot.brand or "—"
+            model = meta.robot.model or "—"
+            # 解析 updated_at 时间
+            try:
+                dt = datetime.fromisoformat(meta.updated_at)
+                time_str = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                time_str = meta.updated_at[:16] if meta.updated_at else "?"
+            main_line = f"{meta.name}: {model}({brand})"
+            sub_line = time_str
+            wheel_items.append((main_line, sub_line))
+            self._project_ids.append(meta.project_id)
+        self._wheel.setItems(wheel_items)
+
+    # ── Primary menu click handler ───────────────────────────────────────────
+
+    def _on_primary_clicked(self, idx: int):
+        # 如果二级菜单已展开 → 收起并清除 active
+        if self._active_index >= 0:
+            self._collapse_submenu()
+            # 如果点击的是同一个项，只收起不执行
+            if idx == self._active_index:
+                self._active_index = -1
+                return
+            self._active_index = -1
+
+        # 根据 idx 执行对应动作
+        if idx == _IDX_CONTINUE:
+            self.continue_requested.emit()
+        elif idx == _IDX_NEW_PROJECT:
+            self._show_new_project_form()
+        elif idx == _IDX_LOAD:
+            self._expand_submenu(idx)
+        elif idx == _IDX_SETTINGS:
+            self.settings_requested.emit()
+        elif idx == _IDX_CREDITS:
+            self.credits_requested.emit()
+        elif idx == _IDX_EXIT:
+            self.exit_requested.emit()
+
+    # ── Submenu expand / collapse ────────────────────────────────────────────
+
+    def _expand_submenu(self, idx: int):
+        self._active_index = idx
+        # 激活按钮高亮
+        for i, btn in enumerate(self._buttons):
+            btn.set_active(i == idx)
+        # 设置分割线高度 = primary menu 总高度
+        menu_h = self._primary_col.sizeHint().height()
+        self._divider.setFixedHeight(max(menu_h, 100))
+        self._submenu_panel.setVisible(True)
+
+    def _collapse_submenu(self):
+        self._submenu_panel.setVisible(False)
+        for btn in self._buttons:
+            btn.set_active(False)
+        self._active_index = -1
+
+    # ── WheelSelector activation ─────────────────────────────────────────────
+
+    def _on_wheel_activated(self, idx: int, text: str):
+        if 0 <= idx < len(self._project_ids):
+            project_id = self._project_ids[idx]
+            self._collapse_submenu()
+            self.load_project_selected.emit(project_id)
+
+    # ── New Project form ─────────────────────────────────────────────────────
+
+    def _show_new_project_form(self):
+        self._new_project_form.reset()
+        self._content_stack.setCurrentIndex(1)
+
+    def _back_to_menu(self):
+        self._content_stack.setCurrentIndex(0)
+
+    def _on_new_project_confirmed(self, name: str):
+        # 表单已切换到 Loading 状态（由 _NewProjectForm._on_confirm 处理）
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            store.create_project(name)
+        except Exception:
+            pass
+        self._refresh_projects()
+        self.new_project_created.emit(name)
 
     # ── Sound ────────────────────────────────────────────────────────────────
 
@@ -901,14 +922,20 @@ class HomepageWidget(_GradientBase):
 
     Signals
     -------
-    mission_requested  — user clicked "Mission Control"
-    training_requested — user clicked "Training Ground"
-    exit_requested     — user clicked "Exit"
+    continue_requested    — user clicked "Continue"
+    new_project_created   — user created a new project (name)
+    load_project_selected — user picked a project from Load Project (project_id)
+    settings_requested    — user clicked "Settings"
+    credits_requested     — user clicked "Credits"
+    exit_requested        — user clicked "Exit"
     """
 
-    mission_requested  = Signal()
-    training_requested = Signal()
-    exit_requested     = Signal()
+    continue_requested    = Signal()
+    new_project_created   = Signal(str)
+    load_project_selected = Signal(str)
+    settings_requested    = Signal()
+    credits_requested     = Signal()
+    exit_requested        = Signal()
 
     def __init__(self, theme: str = "dark", parent=None):
         super().__init__(parent)
@@ -920,11 +947,14 @@ class HomepageWidget(_GradientBase):
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 0, 0, 0)
 
-        selector = PageSelector(theme=self._theme)
-        selector.mission_requested.connect(self.mission_requested)
-        selector.training_requested.connect(self.training_requested)
-        selector.exit_requested.connect(self.exit_requested)
-        lo.addWidget(selector)
+        self._selector = PageSelector(theme=self._theme)
+        self._selector.continue_requested.connect(self.continue_requested)
+        self._selector.new_project_created.connect(self.new_project_created)
+        self._selector.load_project_selected.connect(self.load_project_selected)
+        self._selector.settings_requested.connect(self.settings_requested)
+        self._selector.credits_requested.connect(self.credits_requested)
+        self._selector.exit_requested.connect(self.exit_requested)
+        lo.addWidget(self._selector)
 
 
 # ===========================================================================
@@ -940,16 +970,18 @@ class EscOverlay(QWidget):
 
     Signals
     -------
-    closed             — 覆盖层关闭（未选择任何项）
-    mission_requested  — 用户选择 "Mission Control"
-    training_requested — 用户选择 "Training Ground"
-    exit_requested     — 用户选择 "Exit"
+    closed                — 覆盖层关闭（未选择任何项）
+    continue_requested    — 用户选择 "Continue"
+    new_project_created   — 用户新建项目
+    load_project_selected — 用户选择加载项目
+    exit_requested        — 用户选择 "Exit"
     """
 
-    closed             = Signal()
-    mission_requested  = Signal()
-    training_requested = Signal()
-    exit_requested     = Signal()
+    closed                = Signal()
+    continue_requested    = Signal()
+    new_project_created   = Signal(str)
+    load_project_selected = Signal(str)
+    exit_requested        = Signal()
 
     def __init__(self, theme: str = "dark", parent=None):
         super().__init__(parent)
@@ -967,20 +999,25 @@ class EscOverlay(QWidget):
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 0, 0, 0)
         selector = PageSelector(theme=self._theme)
-        selector.mission_requested.connect(self._on_mission)
-        selector.training_requested.connect(self._on_training)
+        selector.continue_requested.connect(self._on_continue)
+        selector.new_project_created.connect(self._on_new_project)
+        selector.load_project_selected.connect(self._on_load_project)
         selector.exit_requested.connect(self._on_exit)
         lo.addWidget(selector)
 
     # ── Navigation handlers ──────────────────────────────────────────────────
 
-    def _on_mission(self):
+    def _on_continue(self):
         self.hide()
-        self.mission_requested.emit()
+        self.continue_requested.emit()
 
-    def _on_training(self):
+    def _on_new_project(self, name: str):
         self.hide()
-        self.training_requested.emit()
+        self.new_project_created.emit(name)
+
+    def _on_load_project(self, project_id: str):
+        self.hide()
+        self.load_project_selected.emit(project_id)
 
     def _on_exit(self):
         self.hide()

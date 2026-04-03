@@ -11,7 +11,7 @@ import os
 import platform
 import sys
 from pathlib import Path
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QTimer, Qt, QThread, Signal, QObject
 from PySide6.QtWidgets import QApplication
 
 # Add project root to path
@@ -60,7 +60,16 @@ from src.system.core.theme_manager import init_theme_manager, set_theme
 from src.system.core.localisation import get_localisation
 from bin.pages.layout.ui import MainWindow
 from src.system.models import get_model
-from src.system.models.sdk_manager import configure_cyclonedds_env, ensure_loco_mujoco, ensure_mujoco_menagerie, verify_registered_sdks
+from src.system.models.sdk_manager import (
+    configure_cyclonedds_env,
+    ensure_loco_mujoco,
+    ensure_mujoco_menagerie,
+    ensure_mujoco_menagerie_selective,
+    ensure_selected_sdks,
+    register_isaaclab_path,
+    verify_registered_sdks,
+)
+from bin.pages.setup.setup_wizard import SetupWizard, load_setup_state, setup_completed
 from src.system.core.utils.logger import setup_logger
 
 _DEV_MODE = os.environ.get("UNITPORT_DEV_MODE", "0") == "1"
@@ -230,41 +239,92 @@ def main():
     window = MainWindow(config)
     window.showFullScreen()
 
-    def _run_startup_sequence() -> None:
-        try:
-            _run_startup_sequence_inner()
-        except Exception as exc:
-            import traceback
-            logger.error(f"[startup:fatal] Startup sequence crashed: {exc}")
-            logger.error(f"[startup:fatal] {traceback.format_exc()}")
-            # Delay exit slightly so the error message renders in the loading overlay
-            QTimer.singleShot(3000, QApplication.instance().quit)
+    # ── Mandatory-task worker (runs in background thread) ────────────────
 
-    def _run_startup_sequence_inner() -> None:
-        # Bridge stdlib logger → LogSignal so all logger.info/warning/error
-        # messages appear on the loading-screen log wallpaper in real time.
-        _bridge = _LogSignalHandler()
-        logger.addHandler(_bridge)
+    class _MandatoryWorker(QThread):
+        """Runs mandatory (non-optional) startup tasks in a background thread.
 
-        try:
-            _run_startup_sequence_body()
-        finally:
-            logger.removeHandler(_bridge)
+        These tasks proceed in parallel while the setup wizard is open so the
+        user's configuration time is not wasted.
+        """
+        finished = Signal()
 
-    def _run_startup_sequence_body() -> None:
-        # ── Project-local CycloneDDS env injection ─────────────────────────
-        cdds_home = configure_cyclonedds_env(PROJECT_ROOT)
-        if not cdds_home:
-            logger.warning("[runtime:cyclonedds] CycloneDDS not configured – Unitree SDK may be unavailable.")
+        def run(self) -> None:
+            try:
+                # CycloneDDS
+                cdds_home = configure_cyclonedds_env(PROJECT_ROOT)
+                if not cdds_home:
+                    logger.warning("[runtime:cyclonedds] CycloneDDS not configured – Unitree SDK may be unavailable.")
 
-        # ── SDK verification (lightweight; no builds) ──────────────────────
-        if _DEV_MODE:
-            _run_sdk_dev_bootstrap(logger)
+                # SDK verification (lightweight; no network)
+                if _DEV_MODE:
+                    _run_sdk_dev_bootstrap(logger)
+                else:
+                    _run_sdk_verification(logger)
+
+                # Localisation
+                loc = get_localisation()
+                loc.set_localisation_dir(str(LOCALISATION_DIR))
+                loc.load_language("en")
+
+                logger.info("[startup] Mandatory tasks complete.")
+            except Exception as exc:
+                logger.error(f"[startup] Mandatory task error: {exc}")
+            finally:
+                self.finished.emit()
+
+    # ── Orchestrator: wizard + mandatory worker in parallel ───────────────
+
+    _mandatory_done = False
+    _wizard_selections: dict = {}
+
+    def _on_mandatory_finished() -> None:
+        nonlocal _mandatory_done
+        _mandatory_done = True
+        logger.info("[startup] Background mandatory tasks finished.")
+
+    def _get_wizard_selections() -> dict:
+        """Show wizard on first launch OR reload previous selections."""
+        if setup_completed():
+            state = load_setup_state()
+            prev = state.get("selections", {})
+            if prev:
+                logger.info("[setup] Using saved setup selections from previous run.")
+            return prev
+        logger.info("[setup] First launch detected — opening setup wizard.")
+        wizard = SetupWizard(window)
+        result_code = wizard.exec()          # modal — blocks this path only
+        if result_code == wizard.DialogCode.Accepted:
+            sel = wizard.get_selections()
+            logger.info(f"[setup] Wizard completed (skipped={sel.get('skipped', False)}).")
+            return sel
+        logger.info("[setup] Wizard dismissed — using defaults.")
+        return {}
+
+    def _run_optional_tasks(selections: dict) -> None:
+        """Run user-selected optional downloads (menagerie, SDKs, loco, isaaclab)."""
+        skipped = not selections or selections.get("skipped")
+
+        # ── SDK downloads (selective) ─────────────────────────────────────
+        if not skipped:
+            sdk_list = selections.get("sdks", [])
+            if sdk_list:
+                logger.info(f"[sdk] Installing {len(sdk_list)} selected SDK package(s) …")
+                ensure_selected_sdks(sdk_list)
+            else:
+                logger.info("[sdk] No SDK packages selected.")
+
+        # ── MuJoCo Menagerie (selective or full) ──────────────────────────
+        if not skipped:
+            menagerie_folders = selections.get("menagerie_folders", [])
+            if menagerie_folders:
+                menagerie_ok = ensure_mujoco_menagerie_selective(menagerie_folders)
+            else:
+                logger.info("[menagerie] No menagerie models selected — skipping.")
+                menagerie_ok = True
         else:
-            _run_sdk_verification(logger)
+            menagerie_ok = ensure_mujoco_menagerie()
 
-        # ── MuJoCo Menagerie asset check / auto-download ───────────────────
-        menagerie_ok = ensure_mujoco_menagerie()
         if menagerie_ok:
             logger.info("[menagerie:ok] mujoco_menagerie assets available.")
         else:
@@ -273,22 +333,31 @@ def main():
                 "MuJoCo simulation assets disabled."
             )
 
-        # ── Loco-MuJoCo reference motion library check / auto-clone ─────────
-        loco_ok = ensure_loco_mujoco()
-        if loco_ok:
-            logger.info("[loco-mujoco:ok] Reference motion library available.")
+        # ── Loco-MuJoCo ──────────────────────────────────────────────────
+        backend_cfg = (selections or {}).get("backend", {})
+        skip_loco = (not skipped) and not backend_cfg.get("loco_mujoco", True)
+
+        if skip_loco:
+            logger.info("[loco-mujoco] Skipped by user selection.")
         else:
-            logger.warning(
-                "[loco-mujoco:unavailable] loco-mujoco not available – "
-                "community reference motions disabled."
-            )
+            loco_ok = ensure_loco_mujoco()
+            if loco_ok:
+                logger.info("[loco-mujoco:ok] Reference motion library available.")
+            else:
+                logger.warning(
+                    "[loco-mujoco:unavailable] loco-mujoco not available – "
+                    "community reference motions disabled."
+                )
 
-        # ── Localisation ───────────────────────────────────────────────────
-        loc = get_localisation()
-        loc.set_localisation_dir(str(LOCALISATION_DIR))
-        loc.load_language("en")
+        # ── Isaac Lab registration ────────────────────────────────────────
+        if backend_cfg.get("isaaclab_locate") and backend_cfg.get("isaaclab_path"):
+            register_isaaclab_path(backend_cfg["isaaclab_path"])
 
-        # ── Robot model ────────────────────────────────────────────────────
+    def _finalize_startup() -> None:
+        """Load robot model and finish the loading screen."""
+        # Re-run SDK verification now that optional SDKs may have been installed
+        _run_sdk_verification(logger)
+
         default_robot = config.get('SIMULATION', 'default_robot', fallback='go2')
         logger.info(f"Loading default robot: {default_robot}")
 
@@ -307,6 +376,47 @@ def main():
         window.run_startup_prewarm()
         window.finish_startup_loading()
         logger.info("App shell displayed (Homepage)")
+
+    # ── Top-level startup entry point ─────────────────────────────────────
+
+    def _run_startup_sequence() -> None:
+        try:
+            _run_startup_sequence_inner()
+        except Exception as exc:
+            import traceback
+            logger.error(f"[startup:fatal] Startup sequence crashed: {exc}")
+            logger.error(f"[startup:fatal] {traceback.format_exc()}")
+            QTimer.singleShot(3000, QApplication.instance().quit)
+
+    def _run_startup_sequence_inner() -> None:
+        _bridge = _LogSignalHandler()
+        logger.addHandler(_bridge)
+
+        try:
+            # 1. Start mandatory tasks in a background thread
+            worker = _MandatoryWorker()
+            worker.finished.connect(_on_mandatory_finished)
+            worker.start()
+
+            # 2. Show wizard (modal) — mandatory tasks keep running behind it.
+            #    If wizard was completed before, this returns immediately.
+            selections = _get_wizard_selections()
+
+            # 3. If the mandatory worker is still running, wait for it.
+            #    processEvents() keeps the UI alive (loading log updates).
+            if not _mandatory_done:
+                logger.info("[startup] Waiting for mandatory tasks to finish …")
+            while not _mandatory_done:
+                QApplication.processEvents()
+                worker.wait(50)
+
+            # 4. Run optional tasks (user-selected downloads) — appended at the end
+            _run_optional_tasks(selections)
+
+            # 5. Finalize
+            _finalize_startup()
+        finally:
+            logger.removeHandler(_bridge)
 
     QTimer.singleShot(50, _run_startup_sequence)
     sys.exit(app.exec())

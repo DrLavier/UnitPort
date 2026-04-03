@@ -102,7 +102,7 @@ if errorlevel 1 (
 
 nvidia-smi >nul 2>&1
 if not errorlevel 1 (
-    echo [install] NVIDIA GPU detected — installing PyTorch with CUDA ...
+    echo [install] NVIDIA GPU detected -- installing PyTorch with CUDA ...
     "%TARGET_PYTHON%" -m pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu124 --quiet
     if errorlevel 1 (
         echo [WARNING] CUDA PyTorch install failed; will fall back to CPU version.
@@ -110,7 +110,7 @@ if not errorlevel 1 (
         echo [install] PyTorch CUDA installed.
     )
 ) else (
-    echo [install] No NVIDIA GPU detected — PyTorch CPU will be installed.
+    echo [install] No NVIDIA GPU detected -- PyTorch CPU will be installed.
 )
 
 :: -------------------------------------------------------

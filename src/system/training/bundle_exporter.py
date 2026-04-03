@@ -35,6 +35,7 @@ import yaml
 from src.system.training.obs_contracts import get_obs_contract
 
 if TYPE_CHECKING:
+    from src.system.core.project_store import ProjectStore
     from src.system.training.training_spec import TrainingJobSpec
 
 
@@ -615,6 +616,8 @@ def export_bundle(
     run_id: str = "",
     output_root: Optional[Path] = None,
     log_fn=None,
+    project_id: Optional[str] = None,
+    project_store: Optional["ProjectStore"] = None,
 ) -> ExportResult:
     """
     Export a trained SB3 model according to ``spec.export_config.export_target``.
@@ -737,7 +740,11 @@ def export_bundle(
 
             validate_manifest(manifest_dict, bundle_path=stage_dir)
 
-            checkpoints_dir = output_root / "custom_mods/training/checkpoints"
+            # Choose output location: project-scoped or legacy
+            if project_id and project_store is not None:
+                checkpoints_dir = project_store._checkpoints_dir(project_id)
+            else:
+                checkpoints_dir = output_root / "custom_mods/training/checkpoints"
             checkpoints_dir.mkdir(parents=True, exist_ok=True)
             final_path = checkpoints_dir / policy_id_out
 
@@ -752,6 +759,19 @@ def export_bundle(
 
             shutil.move(str(stage_dir), str(final_path))
             result.runtime_bundle_path = final_path.resolve()
+
+            # Register in project asset index if project-scoped
+            if project_id and project_store is not None:
+                from src.system.core.project_store import CheckpointRef
+                meta = project_store.open_project(project_id)
+                if meta.assets.find_checkpoint(policy_id_out) is None:
+                    meta.assets.checkpoints.append(
+                        CheckpointRef(
+                            policy_id=policy_id_out,
+                            path=f"checkpoints/{policy_id_out}/",
+                        )
+                    )
+                    project_store.save_meta(meta)
 
         finally:
             try:

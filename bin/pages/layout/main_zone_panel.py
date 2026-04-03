@@ -177,14 +177,6 @@ class MainZonePanel(QWidget):
         canvas_header_layout = QHBoxLayout(self.canvas_header)
         canvas_header_layout.setContentsMargins(10, 6, 10, 6)
         canvas_header_layout.setSpacing(8)
-        self.canvas_file_badge = QPushButton()
-        self.canvas_file_badge.setObjectName("canvasFileBadge")
-        self.canvas_file_badge.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
-        )
-        self.canvas_file_badge.setCursor(Qt.PointingHandCursor)
-        self.canvas_file_badge.clicked.connect(self.workflow_browser_requested.emit)
-        canvas_header_layout.addWidget(self.canvas_file_badge)
         self.canvas_save_btn = QPushButton("Save")
         self.canvas_save_btn.setObjectName("canvasHeaderButton")
         self.canvas_save_btn.clicked.connect(self.workflow_save_requested.emit)
@@ -249,7 +241,6 @@ class MainZonePanel(QWidget):
         self.workspace_tabs.setCornerWidget(_tab_left_spacer, Qt.Corner.TopLeftCorner)
         self._init_workspace_tab_shortcuts()
         self._refresh_workspace_tab_close_buttons()
-        self._set_canvas_file_badge_text("[New File]")
 
         canvas_zone_layout.addWidget(self.workspace_tabs, 1)
 
@@ -359,19 +350,16 @@ class MainZonePanel(QWidget):
         self.scenario_settings_btn.clicked.connect(self._open_scenario_settings)
         mission_control_layout.addWidget(self.scenario_settings_btn)
 
-        # Separator + Control Panel button
+        # Separator + PageSwitcher
         from PySide6.QtWidgets import QFrame as _QFrame
         _mc_sep2 = _QFrame()
         _mc_sep2.setFrameShape(_QFrame.Shape.VLine)
         _mc_sep2.setObjectName("missionControlSep")
         mission_control_layout.addWidget(_mc_sep2)
 
-        self.panel_btn = QPushButton("Control Panel")
-        self.panel_btn.setObjectName("missionControlPanelBtn")
-        self.panel_btn.setCursor(Qt.PointingHandCursor)
-        self.panel_btn.setToolTip("Open the overview control panel")
-        self.panel_btn.clicked.connect(self._toggle_overview_panel)
-        mission_control_layout.addWidget(self.panel_btn)
+        from bin.pages.layout.misc import PageSwitcher
+        self.page_switcher = PageSwitcher(self.mission_control_float)
+        mission_control_layout.addWidget(self.page_switcher)
 
         self._apply_mission_control_button_sizes()
         self._apply_mission_control_icons()
@@ -521,6 +509,25 @@ class MainZonePanel(QWidget):
             self._overview_panel.show()
             self._overview_panel.raise_()
         self.mission_control_float.raise_()
+
+    def set_page_mode(self, page: str) -> None:
+        """Update float bar border color to match the active page accent."""
+        from src.system.core.theme_manager import get_color
+        if page == "training":
+            accent = get_color("tab_bg_training", "#F6D393")
+        else:
+            accent = get_color("tab_bg_checked", "#A390FC")
+        card_bg = get_color("card_bg", "#272829")
+        if hasattr(self, "mission_control_float"):
+            self.mission_control_float.setStyleSheet(
+                f"#missionControlFloat {{"
+                f" background-color: {card_bg};"
+                f" border: 1px solid {accent};"
+                f" border-radius: 10px;"
+                f"}}"
+            )
+        if hasattr(self, "page_switcher"):
+            self.page_switcher.set_current_page(page)
 
     def dock_mission_control_top_right(self) -> None:
         """Force the floating mission control bar to re-dock at the canvas top-right."""
@@ -726,17 +733,6 @@ class MainZonePanel(QWidget):
         if idx >= 0:
             display_title = title or "[New File]"
             self.workspace_tabs.setTabText(idx, display_title)
-            self._set_canvas_file_badge_text(display_title)
-
-    def _set_canvas_file_badge_text(self, title: str) -> None:
-        display_title = title or "[New File]"
-        self.canvas_file_badge.setText(display_title)
-        metrics = self.canvas_file_badge.fontMetrics()
-        badge_width = metrics.horizontalAdvance(display_title) + 16
-        self.canvas_file_badge.setFixedWidth(badge_width)
-        if hasattr(self, "canvas_header") and self.canvas_header is not None:
-            header_height = max(24, self.canvas_header.sizeHint().height() - 12)
-            self.canvas_file_badge.setFixedHeight(header_height)
 
     def _on_workspace_tab_close_requested(self, index: int) -> None:
         page = self.workspace_tabs.widget(index)

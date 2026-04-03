@@ -1746,13 +1746,46 @@ class SB3Trainer:
                             "available in this SB3 version — falling back to uniform replay."
                         )
 
+            # ── Memory-aware buffer / batch cap ──────────────────────────
+            # SAC replay buffer stores (obs, action, reward, next_obs, done)
+            # per transition.  Estimate memory and cap to avoid OOM.
+            effective_buffer = min(buffer_size, total_steps + 10_000)
+            try:
+                import gymnasium as gym
+                obs_shape = vec_env.observation_space.shape or (1,)
+                act_shape = vec_env.action_space.shape or (1,)
+                obs_dim = int(np.prod(obs_shape))
+                act_dim = int(np.prod(act_shape))
+                # bytes per transition: obs + next_obs + action + reward + done
+                bytes_per_transition = (obs_dim * 2 + act_dim + 2) * 8
+                buf_mem_mb = (effective_buffer * bytes_per_transition) / (1024 ** 2)
+                # Cap replay buffer memory at 2 GB
+                max_buf_mb = 2048
+                if buf_mem_mb > max_buf_mb:
+                    effective_buffer = int(max_buf_mb * (1024 ** 2) / bytes_per_transition)
+                    if self._log:
+                        self._log(
+                            f"[SB3] Replay buffer capped: {buffer_size:,} → {effective_buffer:,} "
+                            f"(obs={obs_dim}, act={act_dim}, limit={max_buf_mb}MB)"
+                        )
+                # Also cap batch_size to not exceed buffer
+                if effective_batch > effective_buffer:
+                    effective_batch = max(256, effective_buffer // 4)
+                    if self._log:
+                        self._log(
+                            f"[SB3] batch_size capped to {effective_batch} "
+                            f"(must be ≤ buffer_size={effective_buffer:,})"
+                        )
+            except Exception:
+                pass
+
             sac_kwargs: Dict[str, Any] = dict(
                 policy="MlpPolicy",
                 env=vec_env,
                 learning_rate=learning_rate,
                 batch_size=effective_batch,
                 gamma=gamma,
-                buffer_size=min(buffer_size, total_steps + 10_000),
+                buffer_size=effective_buffer,
                 learning_starts=min(learning_starts, total_steps // 2),
                 ent_coef=ent_coef,
                 gradient_steps=effective_gradient_steps,

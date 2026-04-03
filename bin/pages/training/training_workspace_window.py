@@ -69,7 +69,7 @@ from bin.pages.canvas.graph_scene import GraphScene
 from bin.pages.homepage.homepage import WindowControlButtons
 from bin.pages.layout.sidebar_dock import SidebarDock
 from src.system.core.config_manager import ConfigManager
-from src.system.core.logger import log_error
+from src.system.core.logger import log_error, log_warning
 from src.system.core.theme_manager import get_color_slot
 from src.system.training.robot_family import resolve_robot_family
 from src.system.training.task_template_resolver import resolve_task_template
@@ -1260,19 +1260,16 @@ class TrainingFloatControlBar(QWidget):
         self._sysmon = SysMonitorWidget(self)
         hbox.addWidget(self._sysmon)
 
-        # Separator before Control Panel
+        # Separator before PageSwitcher
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.VLine)
         sep2.setObjectName("trainingFloatSep")
         hbox.addWidget(sep2)
 
-        # Control Panel toggle
-        self._panel_btn = QPushButton("Control Panel")
-        self._panel_btn.setObjectName("trainingFloatPanelBtn")
-        self._panel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._panel_btn.setToolTip("Open the overview control panel")
-        self._panel_btn.clicked.connect(self.panel_clicked.emit)
-        hbox.addWidget(self._panel_btn)
+        # PageSwitcher
+        from bin.pages.layout.misc import PageSwitcher
+        self.page_switcher = PageSwitcher(self)
+        hbox.addWidget(self.page_switcher)
 
         # Load icons (call adjustSize after so bar measures correctly)
         self._apply_icons()
@@ -1408,9 +1405,18 @@ class TrainingFloatControlBar(QWidget):
     # Theme
     # ------------------------------------------------------------------
 
+    def set_page_mode(self, page: str) -> None:
+        """Update border color to match page accent."""
+        self._page_mode = page
+        self.apply_theme()
+
     def apply_theme(self):
+        page = getattr(self, "_page_mode", "training")
         bg        = get_color("training_float_bar_bg",     "#1e2d3d")
-        border    = "#F6D393"
+        if page == "training":
+            border = get_color("tab_bg_training", "#F6D393")
+        else:
+            border = get_color("tab_bg_checked", "#A390FC")
         btn_bg    = get_color("training_float_btn_bg",      "transparent")
         btn_hover = get_color("training_float_btn_hover",   "#374151")
         btn_text  = get_color("training_float_btn_text",    "#d1d5db")
@@ -1474,16 +1480,6 @@ class TrainingFloatControlBar(QWidget):
                 border: 1px solid {combo_border};
                 selection-background-color: {btn_hover};
             }}
-            #trainingFloatPanelBtn {{
-                background: {btn_bg};
-                border: none;
-                border-radius: 4px;
-                color: {btn_text};
-                font-size: 11px;
-                font-weight: bold;
-                padding: 4px 8px;
-            }}
-            #trainingFloatPanelBtn:hover {{ background: {btn_hover}; }}
         """)
         self._sysmon.apply_theme(
             text_color=get_color("training_float_sysmon_text", "#9ca3af"),
@@ -2365,6 +2361,7 @@ class TrainingExportBrowserPanel(QWidget):
     """Tree browser for exported runtime bundles grouped by category and robot model."""
 
     delete_requested = Signal(str)
+    publish_requested = Signal(str)   # emits policy_id to publish to shared
 
     _POLICY_ROLE = Qt.ItemDataRole.UserRole + 21
 
@@ -2411,6 +2408,8 @@ class TrainingExportBrowserPanel(QWidget):
             policy_id = str(entry.get("policy_id") or "")
             leaf_label = str(entry.get("leaf_label") or policy_id or "export")
             tooltip = str(entry.get("tooltip") or leaf_label)
+            scope = str(entry.get("scope") or "legacy")
+            published = bool(entry.get("published", False))
 
             category_item = category_items.get(category)
             if category_item is None:
@@ -2433,7 +2432,9 @@ class TrainingExportBrowserPanel(QWidget):
             leaf.setData(0, self._POLICY_ROLE, policy_id)
             leaf.setToolTip(0, tooltip)
             robot_item.addChild(leaf)
-            leaf_row = self._build_export_row(leaf_label, policy_id)
+            leaf_row = self._build_export_row(
+                leaf_label, policy_id, scope=scope, published=published
+            )
             self._tree.setItemWidget(leaf, 0, leaf_row)
             leaf.setSizeHint(0, leaf_row.sizeHint())
             if current_policy_id and (policy_id == current_policy_id or leaf_label == current_policy_id):
@@ -2444,7 +2445,13 @@ class TrainingExportBrowserPanel(QWidget):
             self._tree.setCurrentItem(current_item)
         self.apply_theme()
 
-    def _build_export_row(self, label_text: str, policy_id: str) -> QWidget:
+    def _build_export_row(
+        self,
+        label_text: str,
+        policy_id: str,
+        scope: str = "legacy",
+        published: bool = False,
+    ) -> QWidget:
         row_height = 26
         row = QWidget(self._tree)
         row.setObjectName("trainingExportRow")
@@ -2452,12 +2459,35 @@ class TrainingExportBrowserPanel(QWidget):
         row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout = QHBoxLayout(row)
         layout.setContentsMargins(4, 0, 2, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(4)
+
+        # Scope badge
+        if scope in ("local", "shared"):
+            badge_text = "LOCAL" if scope == "local" else "GLOB"
+            if published and scope == "local":
+                badge_text = "PUB"
+            badge = QLabel(badge_text)
+            badge.setObjectName("trainingExportScopeBadge")
+            badge.setFixedWidth(34)
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
         label = QLabel(label_text)
         label.setObjectName("trainingExportRowLabel")
         label.setToolTip(label_text)
         layout.addWidget(label, 1, Qt.AlignmentFlag.AlignVCenter)
+
+        # Publish to Global button (only for local, unpublished checkpoints)
+        if scope == "local" and not published:
+            pub_btn = QPushButton("\u2191")  # ↑ arrow
+            pub_btn.setObjectName("trainingExportPublishBtn")
+            pub_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            pub_btn.setFixedSize(row_height, row_height)
+            pub_btn.setToolTip("Publish to Global")
+            pub_btn.clicked.connect(
+                lambda _checked=False, pid=policy_id: self.publish_requested.emit(pid)
+            )
+            layout.addWidget(pub_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         delete_btn = QPushButton("X")
         delete_btn.setObjectName("trainingExportDeleteBtn")
@@ -2497,6 +2527,17 @@ class TrainingExportBrowserPanel(QWidget):
             btn.setStyleSheet(
                 f"QPushButton {{ background: transparent; color: {palette_text}; border: none; border-radius: 1px; padding: 0px; min-width: 0px; min-height: 0px; max-width: 26px; max-height: 26px; }}"
                 f"QPushButton:hover {{ background: {palette_hover}; }}"
+            )
+        for btn in self.findChildren(QPushButton, "trainingExportPublishBtn"):
+            btn.setStyleSheet(
+                f"QPushButton {{ background: transparent; color: {palette_text}; border: none; border-radius: 1px; padding: 0px; min-width: 0px; min-height: 0px; max-width: 26px; max-height: 26px; font-size: 14px; }}"
+                f"QPushButton:hover {{ background: {palette_hover}; }}"
+            )
+        badge_bg = get_color("training_scope_badge_bg", "#374151")
+        badge_text_color = get_color("training_scope_badge_text", "#9ca3af")
+        for badge in self.findChildren(QLabel, "trainingExportScopeBadge"):
+            badge.setStyleSheet(
+                f"QLabel {{ background: {badge_bg}; color: {badge_text_color}; border-radius: 3px; font-size: 9px; font-weight: bold; padding: 1px 2px; }}"
             )
 
         for i in range(self._tree.topLevelItemCount()):
@@ -3118,6 +3159,7 @@ class TrainingWorkspaceWindow(QWidget):
         self._canvas_browser_panel.delete_workspace_requested.connect(self._delete_workspace_by_id)
         self._export_browser_panel = TrainingExportBrowserPanel(None)
         self._export_browser_panel.delete_requested.connect(self._delete_export_by_id)
+        self._export_browser_panel.publish_requested.connect(self._publish_checkpoint_to_shared)
         self._palette_panel = TrainingPalettePanel(None)
 
         # Own sidebar — only used in standalone (non-embedded) mode.
@@ -3252,12 +3294,11 @@ class TrainingWorkspaceWindow(QWidget):
             resolved_policy_id = str(policy_id or self._selected_policy_id or self._policy_id or "").strip()
             if not resolved_policy_id:
                 return {}
-            source_path = get_project_root() / "custom_mods/training/checkpoints" / resolved_policy_id / "source.json"
-            if not source_path.exists():
-                return {}
-            with open(source_path, "r", encoding="utf-8") as fh:
-                data = json.load(fh) or {}
-            return data if isinstance(data, dict) else {}
+            from pathlib import Path
+            from src.system.service.checkpoint_registry import CheckpointRegistry
+            reg = CheckpointRegistry()
+            entry = reg.get(resolved_policy_id)
+            return CheckpointRegistry._read_source_info(Path(entry.bundle_path))
         except Exception:
             return {}
 
@@ -3390,11 +3431,14 @@ class TrainingWorkspaceWindow(QWidget):
                     or policy_id
                     or "export"
                 )
+                scope = str(getattr(checkpoint, "scope", "legacy") or "legacy")
+                published = False
                 tooltip_lines = [
                     f"Category: {category}",
                     f"Robot: {robot_type}",
                     f"Export: {display_name}",
                     f"Policy ID: {policy_id or '-'}",
+                    f"Scope: {scope}",
                     f"Path: {getattr(checkpoint, 'bundle_path', '')}",
                 ]
                 version = str(getattr(checkpoint, "version", "") or "").strip()
@@ -3407,6 +3451,8 @@ class TrainingWorkspaceWindow(QWidget):
                         "policy_id": policy_id,
                         "leaf_label": display_name,
                         "tooltip": "\n".join(tooltip_lines),
+                        "scope": scope,
+                        "published": published,
                     }
                 )
         except Exception:
@@ -3626,6 +3672,58 @@ class TrainingWorkspaceWindow(QWidget):
             self._refresh_export_browser()
         except Exception as exc:
             QMessageBox.warning(self, "Delete Export Failed", str(exc))
+
+    def _publish_checkpoint_to_shared(self, policy_id: str) -> None:
+        """Publish a local checkpoint to the global shared space."""
+        if not policy_id:
+            return
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+
+            # Check if shared already has this policy_id
+            shared_dir = store._shared_checkpoints_dir() / policy_id
+            action = "created"
+            if shared_dir.exists():
+                reply = QMessageBox.question(
+                    self,
+                    "Publish to Global",
+                    f"'{policy_id}' already exists in shared space.\n"
+                    "Overwrite or publish as new version?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                    | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if reply == QMessageBox.StandardButton.Cancel:
+                    return
+                action = "overwritten" if reply == QMessageBox.StandardButton.Yes else "versioned"
+
+            # Find which project owns this checkpoint
+            project_id = ""
+            for proj in store.list_projects():
+                ckpt = store.get_checkpoint(proj.project_id, policy_id)
+                if ckpt is not None:
+                    project_id = proj.project_id
+                    break
+
+            if not project_id:
+                QMessageBox.warning(
+                    self,
+                    "Publish Failed",
+                    f"Checkpoint '{policy_id}' not found in any project.",
+                )
+                return
+
+            result = store.publish_to_shared(project_id, policy_id, action=action)
+            QMessageBox.information(
+                self,
+                "Published",
+                f"'{result.policy_id}' published to shared space.\n"
+                f"Action: {result.action}",
+            )
+            self._refresh_export_browser()
+        except Exception as exc:
+            QMessageBox.warning(self, "Publish Failed", str(exc))
 
     def _build_toolbar_row(self) -> QWidget:
         """
@@ -4669,7 +4767,20 @@ class TrainingWorkspaceWindow(QWidget):
         except Exception:
             pass
 
-        candidate = get_project_root() / "custom_mods/training/checkpoints" / str(policy_id_out)
+        # Project-local checkpoint fallback
+        if self._workspace_policy_id:
+            try:
+                from src.system.core.project_store import ProjectStore
+                store = ProjectStore()
+                pid = self._ws_store._resolve_project_id(self._workspace_policy_id) if self._ws_store else ""
+                if pid:
+                    candidate = store._checkpoints_dir(pid) / str(policy_id_out)
+                    if candidate.exists():
+                        return candidate
+            except Exception:
+                pass
+        # Legacy fallback
+        candidate = get_project_root() / "custom_mods" / "training" / "checkpoints" / str(policy_id_out)
         if candidate.exists():
             return candidate
         raise FileNotFoundError(
@@ -4839,10 +4950,21 @@ class TrainingWorkspaceWindow(QWidget):
         try:
             self._ws_store = _get_workspace_store()
             if self._workspace_policy_id:
-                meta = self._ws_store.ensure_workspace(self._workspace_policy_id)
-                self._populate_lists(meta)
-                self._refresh_canvas_browser(meta)
-            else:
+                # Only open existing workspaces — never auto-create from a
+                # cached policy_id.  If the workspace was deleted externally
+                # we fall through to the "no policy" branch instead of
+                # silently recreating it.
+                if not self._ws_store.workspace_exists(self._workspace_policy_id):
+                    log_warning(
+                        f"Workspace '{self._workspace_policy_id}' no longer exists, "
+                        "resetting to empty state."
+                    )
+                    self._workspace_policy_id = ""
+                else:
+                    meta = self._ws_store.ensure_workspace(self._workspace_policy_id)
+                    self._populate_lists(meta)
+                    self._refresh_canvas_browser(meta)
+            if not self._workspace_policy_id:
                 # No policy pre-selected 鈥?show the workspace browser only.
                 self._refresh_canvas_browser(None)
                 self._populate_training_assets()

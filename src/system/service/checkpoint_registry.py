@@ -86,6 +86,9 @@ class CheckpointEntry:
     Populated by Phase C TrainRunThread when writing the bundle.
     """
 
+    scope: str = "legacy"
+    """Asset scope: 'local' | 'shared' | 'legacy' (pre-project-workspace)."""
+
     skill_manifest: object = None
     """Populated with a :class:`SkillManifest` on discovery (lazy v1→v2 migration)."""
 
@@ -644,3 +647,74 @@ class CheckpointRegistry:
         finally:
             if tmp_dir is not None and tmp_dir != src_path and tmp_dir.exists():
                 shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # ------------------------------------------------------------------
+    # Project-aware discovery (delegates to AssetResolver)
+    # ------------------------------------------------------------------
+
+    def discover_for_project(
+        self,
+        project_store: "ProjectStore",
+        project_id: str,
+    ) -> List[CheckpointEntry]:
+        """Discover checkpoints merged from project-local + shared.
+
+        Uses :class:`AssetResolver` to combine both scopes.  Each returned
+        ``CheckpointEntry`` has its ``scope`` field set to ``"local"`` or
+        ``"shared"``, and shared entries that collide with local ones have
+        ``display_name`` suffixed with ``(GLOB)``.
+
+        This does NOT update the internal ``_cache`` — the legacy cache
+        continues to serve callers that use ``discover()`` / ``list_checkpoints()``
+        without a project context.
+
+        Parameters
+        ----------
+        project_store : ProjectStore
+            The store that owns path layout.
+        project_id : str
+            Active project to resolve against.
+        """
+        from src.system.core.asset_resolver import AssetResolver
+
+        resolver = AssetResolver(project_store, project_id)
+        resolved = resolver.list_available_checkpoints()
+
+        entries: List[CheckpointEntry] = []
+        for asset in resolved:
+            manifest_path = asset.path / "manifest.yaml"
+            if manifest_path.exists():
+                entry = self._parse_entry(asset.policy_id, asset.path, manifest_path)
+            else:
+                entry = CheckpointEntry(
+                    policy_id=asset.policy_id,
+                    bundle_path=asset.path,
+                    display_name=asset.display_name,
+                    is_valid=False,
+                    error="manifest.yaml not found",
+                )
+            entry.scope = asset.scope
+            entry.display_name = asset.display_name
+            entries.append(entry)
+
+        return entries
+
+    def list_checkpoints_for_project(
+        self,
+        project_store: "ProjectStore",
+        project_id: str,
+        robot_brand: Optional[str] = None,
+    ) -> List[CheckpointEntry]:
+        """Project-aware version of :meth:`list_checkpoints`.
+
+        Merges project-local + shared checkpoints.  Optionally filters by
+        robot brand.
+        """
+        entries = self.discover_for_project(project_store, project_id)
+        if robot_brand is None:
+            return entries
+        brand_lower = robot_brand.lower()
+        return [
+            e for e in entries
+            if e.is_valid and e.robot_brand.lower() == brand_lower
+        ]
