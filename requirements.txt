@@ -15,6 +15,7 @@ torch>=2.0.0
 huggingface_hub==1.7.1
 psutil>=5.9
 loguru>=0.7.0
+rlottie-python>=1.3.0
 gymnasium
 stable-baselines3>=2.0.0
 
@@ -34,3 +35,7 @@ pytest>=7.4.0
 # for Windows/Python 3.11 and is API-compatible for the channel primitives used
 # here.  Install with --only-binary :all: to avoid the C-build path.
 cyclonedds>=0.10.2
+pyqtgraph>=0.13
+
+# Remote training (cloud SSH backend)
+paramiko>=3.0

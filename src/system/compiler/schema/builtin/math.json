@@ -1,0 +1,30 @@
+{
+  "schema_id": "builtin.math",
+  "display_name": "Math",
+  "node_type": "math",
+  "kind": "math",
+  "ports": [
+    {"name": "flow_in",  "direction": "input",  "data_type": "void"},
+    {"name": "a",        "direction": "input",  "data_type": "any"},
+    {"name": "b",        "direction": "input",  "data_type": "any"},
+    {"name": "result",   "direction": "output", "data_type": "any", "required": true},
+    {"name": "flow_out", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {
+      "name": "operation",
+      "param_type": "string",
+      "default": "add",
+      "constraints": {
+        "choices": [
+          "add", "subtract", "multiply", "divide", "power", "modulo",
+          "min", "max", "abs", "sum", "average"
+        ]
+      }
+    }
+  ],
+  "code_template": "",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

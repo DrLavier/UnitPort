@@ -109,6 +109,18 @@ class DiagnosticsKey:
     # Empty list when resolution was skipped (no brand / no timeline data).
     SEMANTIC_RESOLUTION = "semantic_resolution"  # List[dict]
 
+    # P3 (mission_design.yaml §5) — Mission runtime per-behavior diagnostics.
+    # Dict[behavior_node_id, dict] populated by node_executor while threading
+    # sim_env through the DFS. Each entry carries:
+    #   - field_id            : str  (MjField.field_id, e.g. "flat_ground")
+    #   - actor_id            : str  (MjActor.robot_id, e.g. "go2")
+    #   - sim_env_source      : str  ("port" | "from_start" | "bridge" | "")
+    #                                 "from_start" is the canonical path —
+    #                                 see node_executor._resolve_sim_env_for_behavior
+    #   - obs_remap_warnings  : List[str] (populated by P4 obs_adapter)
+    # Empty dict when the run had no behavior nodes.
+    MISSION_RUNTIME_DIAGNOSTICS = "mission_runtime_diagnostics"  # Dict[str, dict]
+
     # Phase 5 Task A4 — DAG transition pre-flight validation
     # TRANSITION_VALIDATION_REPORT: serialised TransitionValidationReport
     #   (list of per-pair dicts with status, reason, transition_id, warnings).
@@ -119,6 +131,18 @@ class DiagnosticsKey:
     TRANSITION_VALIDATION_REPORT = "transition_validation_report"   # List[dict]
     TRANSITION_INSERTED_NODES    = "transition_inserted_nodes"      # List[str]
     TRANSITION_VALIDATION_STATUS = "transition_validation_status"   # str
+
+    # sim2sim_design.yaml Stage F2 — MuJoCo sim2sim per-step telemetry.
+    # Populated by PolicyRunner.run_episode via the optional telemetry_fn
+    # callback when a deploy_contract-driven sim2sim run is in progress.
+    # Consumers (BehaviorNode → event_bus → UI charts) read these to
+    # render live obs/action/command streams. Empty / absent on legacy runs.
+    MUJOCO_SIM2SIM_STEPS_HEALTHY   = "mujoco_sim2sim/steps_healthy"   # int
+    MUJOCO_SIM2SIM_STEPS_UNHEALTHY = "mujoco_sim2sim/steps_unhealthy" # int
+    MUJOCO_SIM2SIM_LAST_OBS        = "mujoco_sim2sim/last_obs"        # np.ndarray
+    MUJOCO_SIM2SIM_LAST_ACTION     = "mujoco_sim2sim/last_action"     # np.ndarray (RAW network output)
+    MUJOCO_SIM2SIM_COMMAND         = "mujoco_sim2sim/command"         # np.ndarray ([vx, vy, wz])
+    MUJOCO_SIM2SIM_STEP_INDEX      = "mujoco_sim2sim/step_index"      # int (0-based policy step counter)
 
 
 class ExecutionPath:
@@ -184,6 +208,7 @@ class RuntimeResult:
         heartbeat_diagnostics: List[Dict[str, Any]] | None = None,  # Circle 2 Step 2.3
         timeline_diagnostics: List[Dict[str, Any]] | None = None,   # Fix 4
         protocol_diagnostics: List[Dict[str, Any]] | None = None,   # Step 1
+        mission_runtime_diagnostics: Dict[str, Dict[str, Any]] | None = None,  # P3
     ) -> "RuntimeResult":
         _bdiags = behavior_diagnostics or []
         return cls(
@@ -206,6 +231,7 @@ class RuntimeResult:
                 DiagnosticsKey.HEARTBEAT_STATUS: "",  # Circle 2 Step 2.3: populated in Circle 3
                 DiagnosticsKey.TIMELINE_DIAGNOSTICS: timeline_diagnostics or [],    # Fix 4
                 DiagnosticsKey.PROTOCOL_DIAGNOSTICS: protocol_diagnostics or [],    # Step 1
+                DiagnosticsKey.MISSION_RUNTIME_DIAGNOSTICS: mission_runtime_diagnostics or {},  # P3
             },
         )
 
@@ -227,6 +253,7 @@ class RuntimeResult:
         heartbeat_diagnostics: List[Dict[str, Any]] | None = None,  # Circle 2 Step 2.3
         timeline_diagnostics: List[Dict[str, Any]] | None = None,   # Fix 4
         protocol_diagnostics: List[Dict[str, Any]] | None = None,   # Step 1
+        mission_runtime_diagnostics: Dict[str, Dict[str, Any]] | None = None,  # P3
     ) -> "RuntimeResult":
         _bdiags = behavior_diagnostics or []
         return cls(
@@ -249,6 +276,7 @@ class RuntimeResult:
                 DiagnosticsKey.HEARTBEAT_STATUS: "",  # Circle 2 Step 2.3: populated in Circle 3
                 DiagnosticsKey.TIMELINE_DIAGNOSTICS: timeline_diagnostics or [],    # Fix 4
                 DiagnosticsKey.PROTOCOL_DIAGNOSTICS: protocol_diagnostics or [],    # Step 1
+                DiagnosticsKey.MISSION_RUNTIME_DIAGNOSTICS: mission_runtime_diagnostics or {},  # P3
             },
         )
 

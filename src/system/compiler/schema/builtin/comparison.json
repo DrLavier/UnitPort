@@ -1,0 +1,28 @@
+{
+  "schema_id": "builtin.comparison",
+  "display_name": "Comparison",
+  "node_type": "comparison",
+  "kind": "comparison",
+  "ports": [
+    {"name": "flow_in",  "direction": "input",  "data_type": "void"},
+    {"name": "left",     "direction": "input",  "data_type": "any"},
+    {"name": "right",    "direction": "input",  "data_type": "any"},
+    {"name": "result",   "direction": "output", "data_type": "bool", "required": true},
+    {"name": "flow_out", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {
+      "name": "operator",
+      "param_type": "string",
+      "default": "==",
+      "constraints": {"choices": ["==", "!=", ">", "<", ">=", "<="]}
+    },
+    {"name": "input_expr",    "param_type": "string", "default": ""},
+    {"name": "compare_value", "param_type": "string", "default": "0"},
+    {"name": "output_name",   "param_type": "string", "default": "condition"}
+  ],
+  "code_template": "{output_name} = ({input_expr}) {operator} ({compare_value})",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

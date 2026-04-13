@@ -1,0 +1,72 @@
+# ==============================================================================
+# UnitPort Isaac Lab — Docker Compose
+# ==============================================================================
+#
+#   docker compose build            — build the image
+#   docker compose up train         — start training
+#   docker compose run --rm shell   — interactive shell
+#   docker compose up tensorboard   — TensorBoard (:6006)
+#
+# ==============================================================================
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+x-volumes: &volumes
+  - ./runs:/workspace/unitport_run
+  - isaac-cache-kit:/isaac-sim/kit/cache
+  - isaac-cache-ov:/root/.cache/ov
+  - isaac-cache-compute:/root/.nv/ComputeCache
+
+x-environment: &environment
+  - OMNI_KIT_ACCEPT_EULA=YES
+  - PYTHONUNBUFFERED=1
+
+services:
+  train:
+    build: .
+    image: unitport/isaaclab:latest
+    command: >
+      /workspace/isaaclab/isaaclab.sh -p
+      /workspace/isaaclab/scripts/reinforcement_learning/rsl_rl/train.py
+      --task Isaac-Velocity-Flat-Unitree-Go2-v0
+      --num_envs 4096
+      --max_iterations 1500
+      --headless
+      --log_dir /workspace/unitport_run/logs
+    <<: *gpu
+    volumes: *volumes
+    environment: *environment
+    network_mode: host
+
+  shell:
+    image: unitport/isaaclab:latest
+    entrypoint: /bin/bash
+    <<: *gpu
+    volumes: *volumes
+    environment: *environment
+    stdin_open: true
+    tty: true
+
+  tensorboard:
+    image: unitport/isaaclab:latest
+    entrypoint: python3
+    command: >
+      -m tensorboard.main
+      --logdir /workspace/unitport_run
+      --host 0.0.0.0 --port 6006
+    ports:
+      - "6006:6006"
+    volumes:
+      - ./runs:/workspace/unitport_run
+
+volumes:
+  isaac-cache-kit:
+  isaac-cache-ov:
+  isaac-cache-compute:

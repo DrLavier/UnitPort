@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QScrollArea,
     QSizePolicy,
     QSpacerItem,
@@ -597,50 +598,229 @@ class BackendPage(QWidget):
         self._cb_isaaclab.setChecked(False)
         self._cb_isaaclab.setToolTip(
             "Isaac Lab provides GPU-accelerated simulation via NVIDIA Isaac Sim.\n"
-            "Requires a separate Isaac Sim installation."
+            "You can install it now or point to an existing installation."
         )
         self._cb_isaaclab.toggled.connect(self._on_isaaclab_toggled)
         isaac_layout.addWidget(self._cb_isaaclab)
 
-        # Sub-options: install new vs locate existing
+        # Sub-options panel (shown after enable)
         self._isaac_options = QWidget()
         opts_layout = QVBoxLayout(self._isaac_options)
         opts_layout.setContentsMargins(24, 4, 0, 0)
         opts_layout.setSpacing(8)
 
-        self._rb_isaac_install = QCheckBox("Download & install Isaac Lab")
-        self._rb_isaac_install.setChecked(False)
-        self._rb_isaac_install.setToolTip("Clone Isaac Lab from GitHub and set up in project.")
-        self._rb_isaac_install.toggled.connect(self._on_isaac_install_toggled)
+        # Option A: Install from scratch (radio button)
+        self._rb_isaac_install = QRadioButton(
+            "Install Isaac Lab + Isaac Sim (from scratch)"
+        )
+        self._rb_isaac_install.setToolTip(
+            "Automatically download and install Isaac Lab + Isaac Sim 5.1\n"
+            "into a dedicated directory with its own Python virtual environment.\n"
+            "Requires ~30 GB disk space, NVIDIA GPU, and internet connection."
+        )
+        self._rb_isaac_install.toggled.connect(self._on_isaac_mode_toggled)
         opts_layout.addWidget(self._rb_isaac_install)
 
-        self._rb_isaac_locate = QCheckBox("Locate existing Isaac Lab installation")
-        self._rb_isaac_locate.setChecked(False)
+        # Install-path sub-panel (shown when "install" radio is selected)
+        self._install_path_panel = QWidget()
+        install_path_layout = QVBoxLayout(self._install_path_panel)
+        install_path_layout.setContentsMargins(24, 0, 0, 0)
+        install_path_layout.setSpacing(4)
+
+        install_hint = QLabel(
+            "Choose the installation directory. Isaac Lab + Isaac Sim will be "
+            "installed with a dedicated venv inside this directory."
+        )
+        install_hint.setObjectName("pageHint")
+        install_hint.setWordWrap(True)
+        install_path_layout.addWidget(install_hint)
+
+        install_row = QHBoxLayout()
+        install_row.setSpacing(6)
+        self._install_dir_edit = QLineEdit()
+        self._install_dir_edit.setText(
+            str(Path.home() / "UnitPort" / "engines" / "isaac")
+        )
+        self._install_dir_edit.setPlaceholderText("Installation directory ...")
+        install_row.addWidget(self._install_dir_edit, 1)
+        self._btn_browse_install = QPushButton("Browse ...")
+        self._btn_browse_install.setStyleSheet("padding: 0px;")
+        self._btn_browse_install.setFixedWidth(90)
+        self._btn_browse_install.clicked.connect(self._browse_install_dir)
+        install_row.addWidget(self._btn_browse_install)
+        install_path_layout.addLayout(install_row)
+
+        install_note = QLabel(
+            "Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128\n"
+            "Disk: ~30 GB | Requires: NVIDIA GPU with CUDA 12.x driver"
+        )
+        install_note.setObjectName("pageHint")
+        install_note.setStyleSheet("color: #888; font-size: 11px;")
+        install_note.setWordWrap(True)
+        install_path_layout.addWidget(install_note)
+
+        self._install_path_panel.hide()
+        opts_layout.addWidget(self._install_path_panel)
+
+        # Option B: Locate existing (radio button)
+        self._rb_isaac_locate = QRadioButton(
+            "Locate existing Isaac Lab installation"
+        )
         self._rb_isaac_locate.setToolTip(
             "Point to an existing Isaac Lab root directory.\n"
             "The path will be registered for training calls."
         )
-        self._rb_isaac_locate.toggled.connect(self._on_isaac_locate_toggled)
+        self._rb_isaac_locate.toggled.connect(self._on_isaac_mode_toggled)
         opts_layout.addWidget(self._rb_isaac_locate)
 
-        # Path selector for existing Isaac Lab
-        path_row = QHBoxLayout()
-        path_row.setSpacing(6)
+        # Locate-path sub-panel (shown when "locate" radio is selected)
+        self._locate_path_panel = QWidget()
+        locate_path_layout = QVBoxLayout(self._locate_path_panel)
+        locate_path_layout.setContentsMargins(24, 0, 0, 0)
+        locate_path_layout.setSpacing(4)
+
+        locate_row = QHBoxLayout()
+        locate_row.setSpacing(6)
         self._isaac_path_edit = QLineEdit()
-        self._isaac_path_edit.setPlaceholderText("Isaac Lab root directory …")
-        self._isaac_path_edit.setEnabled(False)
-        path_row.addWidget(self._isaac_path_edit, 1)
-        self._btn_browse_isaac = QPushButton("Browse …")
+        self._isaac_path_edit.setPlaceholderText("Isaac Lab root directory ...")
+        locate_row.addWidget(self._isaac_path_edit, 1)
+        self._btn_browse_isaac = QPushButton("Browse ...")
         self._btn_browse_isaac.setStyleSheet("padding: 0px;")
         self._btn_browse_isaac.setFixedWidth(90)
-        self._btn_browse_isaac.setEnabled(False)
         self._btn_browse_isaac.clicked.connect(self._browse_isaaclab)
-        path_row.addWidget(self._btn_browse_isaac)
-        opts_layout.addLayout(path_row)
+        locate_row.addWidget(self._btn_browse_isaac)
+        locate_path_layout.addLayout(locate_row)
 
         self._isaac_path_status = QLabel("")
         self._isaac_path_status.setObjectName("pageHint")
-        opts_layout.addWidget(self._isaac_path_status)
+        locate_path_layout.addWidget(self._isaac_path_status)
+
+        self._locate_path_panel.hide()
+        opts_layout.addWidget(self._locate_path_panel)
+
+        # Option C: Deploy to remote server via SSH (radio button)
+        self._rb_isaac_cloud = QRadioButton(
+            "Deploy Isaac Lab to remote Linux server (SSH)"
+        )
+        self._rb_isaac_cloud.setToolTip(
+            "Automatically install Isaac Lab + Isaac Sim on a remote GPU server\n"
+            "via SSH. The server will be registered for cloud training.\n"
+            "Requires: SSH access, Python 3.11 + NVIDIA GPU on remote host."
+        )
+        self._rb_isaac_cloud.toggled.connect(self._on_isaac_mode_toggled)
+        opts_layout.addWidget(self._rb_isaac_cloud)
+
+        # Cloud-deploy sub-panel (shown when "cloud" radio is selected)
+        self._cloud_panel = QWidget()
+        cloud_layout = QVBoxLayout(self._cloud_panel)
+        cloud_layout.setContentsMargins(24, 0, 0, 0)
+        cloud_layout.setSpacing(4)
+
+        cloud_hint = QLabel(
+            "Enter SSH connection details for the remote GPU server.\n"
+            "Isaac Lab will be installed via SSH + SFTP."
+        )
+        cloud_hint.setObjectName("pageHint")
+        cloud_hint.setWordWrap(True)
+        cloud_layout.addWidget(cloud_hint)
+
+        # Server name
+        name_row = QHBoxLayout()
+        name_row.setSpacing(6)
+        name_row.addWidget(QLabel("Server name:"))
+        self._cloud_name_edit = QLineEdit()
+        self._cloud_name_edit.setPlaceholderText("My GPU Server")
+        name_row.addWidget(self._cloud_name_edit, 1)
+        cloud_layout.addLayout(name_row)
+
+        # Host + port
+        host_row = QHBoxLayout()
+        host_row.setSpacing(6)
+        host_row.addWidget(QLabel("Host:"))
+        self._cloud_host_edit = QLineEdit()
+        self._cloud_host_edit.setPlaceholderText("10.0.0.1 or gpu-server.example.com")
+        host_row.addWidget(self._cloud_host_edit, 1)
+        host_row.addWidget(QLabel("Port:"))
+        self._cloud_port_edit = QLineEdit()
+        self._cloud_port_edit.setText("22")
+        self._cloud_port_edit.setFixedWidth(60)
+        host_row.addWidget(self._cloud_port_edit)
+        cloud_layout.addLayout(host_row)
+
+        # Username
+        user_row = QHBoxLayout()
+        user_row.setSpacing(6)
+        user_row.addWidget(QLabel("Username:"))
+        self._cloud_user_edit = QLineEdit()
+        self._cloud_user_edit.setPlaceholderText("root")
+        user_row.addWidget(self._cloud_user_edit, 1)
+        cloud_layout.addLayout(user_row)
+
+        # Auth method
+        auth_row = QHBoxLayout()
+        auth_row.setSpacing(6)
+        auth_row.addWidget(QLabel("Auth:"))
+        self._cloud_auth_key = QRadioButton("SSH Key")
+        self._cloud_auth_key.setChecked(True)
+        self._cloud_auth_pwd = QRadioButton("Password")
+        auth_row.addWidget(self._cloud_auth_key)
+        auth_row.addWidget(self._cloud_auth_pwd)
+        auth_row.addStretch()
+        cloud_layout.addLayout(auth_row)
+
+        # Key path
+        key_row = QHBoxLayout()
+        key_row.setSpacing(6)
+        key_row.addWidget(QLabel("Key file:"))
+        self._cloud_key_edit = QLineEdit()
+        self._cloud_key_edit.setPlaceholderText("~/.ssh/id_rsa")
+        self._cloud_key_edit.setText("~/.ssh/id_rsa")
+        key_row.addWidget(self._cloud_key_edit, 1)
+        self._btn_browse_key = QPushButton("Browse ...")
+        self._btn_browse_key.setStyleSheet("padding: 0px;")
+        self._btn_browse_key.setFixedWidth(90)
+        self._btn_browse_key.clicked.connect(self._browse_ssh_key)
+        key_row.addWidget(self._btn_browse_key)
+        cloud_layout.addLayout(key_row)
+
+        # Password (shown only when password auth selected)
+        self._cloud_pwd_row = QWidget()
+        pwd_row_layout = QHBoxLayout(self._cloud_pwd_row)
+        pwd_row_layout.setContentsMargins(0, 0, 0, 0)
+        pwd_row_layout.setSpacing(6)
+        pwd_row_layout.addWidget(QLabel("Password:"))
+        self._cloud_pwd_edit = QLineEdit()
+        self._cloud_pwd_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        pwd_row_layout.addWidget(self._cloud_pwd_edit, 1)
+        self._cloud_pwd_row.hide()
+        cloud_layout.addWidget(self._cloud_pwd_row)
+
+        # Toggle key/password visibility
+        self._cloud_auth_key.toggled.connect(self._on_cloud_auth_toggled)
+
+        # Remote install dir
+        remote_row = QHBoxLayout()
+        remote_row.setSpacing(6)
+        remote_row.addWidget(QLabel("Remote path:"))
+        self._cloud_remote_dir_edit = QLineEdit()
+        self._cloud_remote_dir_edit.setText("~/UnitPort/engines/isaac")
+        self._cloud_remote_dir_edit.setPlaceholderText(
+            "~/UnitPort/engines/isaac"
+        )
+        remote_row.addWidget(self._cloud_remote_dir_edit, 1)
+        cloud_layout.addLayout(remote_row)
+
+        cloud_note = QLabel(
+            "Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128\n"
+            "Requires: Ubuntu 22.04+, NVIDIA GPU, CUDA 12.x, ~30 GB disk"
+        )
+        cloud_note.setObjectName("pageHint")
+        cloud_note.setStyleSheet("color: #888; font-size: 11px;")
+        cloud_note.setWordWrap(True)
+        cloud_layout.addWidget(cloud_note)
+
+        self._cloud_panel.hide()
+        opts_layout.addWidget(self._cloud_panel)
 
         self._isaac_options.hide()
         isaac_layout.addWidget(self._isaac_options)
@@ -653,16 +833,38 @@ class BackendPage(QWidget):
 
     def _on_isaaclab_toggled(self, checked: bool) -> None:
         self._isaac_options.setVisible(checked)
-
-    def _on_isaac_install_toggled(self, checked: bool) -> None:
-        if checked:
+        if not checked:
+            self._rb_isaac_install.setChecked(False)
             self._rb_isaac_locate.setChecked(False)
 
-    def _on_isaac_locate_toggled(self, checked: bool) -> None:
-        if checked:
-            self._rb_isaac_install.setChecked(False)
-        self._isaac_path_edit.setEnabled(checked)
-        self._btn_browse_isaac.setEnabled(checked)
+    def _on_isaac_mode_toggled(self, _checked: bool) -> None:
+        """Show/hide sub-panels based on which radio button is active."""
+        self._install_path_panel.setVisible(self._rb_isaac_install.isChecked())
+        self._locate_path_panel.setVisible(self._rb_isaac_locate.isChecked())
+        self._cloud_panel.setVisible(self._rb_isaac_cloud.isChecked())
+
+    def _on_cloud_auth_toggled(self, key_checked: bool) -> None:
+        """Toggle key-file vs password fields."""
+        self._cloud_key_edit.setVisible(key_checked)
+        self._btn_browse_key.setVisible(key_checked)
+        self._cloud_pwd_row.setVisible(not key_checked)
+
+    def _browse_ssh_key(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select SSH Private Key",
+            str(Path.home() / ".ssh"),
+            "All Files (*)",
+        )
+        if path:
+            self._cloud_key_edit.setText(path)
+
+    def _browse_install_dir(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self, "Choose Isaac Lab Installation Directory",
+            self._install_dir_edit.text() or str(Path.home()),
+        )
+        if path:
+            self._install_dir_edit.setText(path)
 
     def _browse_isaaclab(self) -> None:
         path = QFileDialog.getExistingDirectory(
@@ -674,28 +876,60 @@ class BackendPage(QWidget):
 
     def _validate_isaaclab_path(self, path: str) -> None:
         p = Path(path)
-        # Basic validation: look for IsaacLab marker files
-        markers = ["setup.py", "pyproject.toml", "isaaclab"]
+        # Validate: look for IsaacLab marker files
+        markers = ["setup.py", "pyproject.toml", "isaaclab", "source",
+                    "isaaclab.sh", "isaaclab.bat"]
         found = [m for m in markers if (p / m).exists()]
         if found:
-            self._isaac_path_status.setText(f"✓ Valid Isaac Lab installation detected")
+            self._isaac_path_status.setText("Valid Isaac Lab installation detected")
             self._isaac_path_status.setStyleSheet("color: #00D26A; font-size: 12px;")
+            self._cb_isaaclab.setChecked(True)
+            self._rb_isaac_locate.setChecked(True)
         else:
             self._isaac_path_status.setText(
-                "⚠ Could not verify Isaac Lab at this path — "
-                "expected setup.py or isaaclab/ directory"
+                "Could not verify Isaac Lab at this path -- "
+                "expected isaaclab.sh/bat or source/ directory"
             )
             self._isaac_path_status.setStyleSheet("color: #FFC107; font-size: 12px;")
 
     def get_config(self) -> Dict[str, Any]:
+        is_install = self._rb_isaac_install.isChecked()
+        is_locate = self._rb_isaac_locate.isChecked()
+        is_cloud = self._rb_isaac_cloud.isChecked()
+
         cfg: Dict[str, Any] = {
             "mujoco_pip": self._cb_mujoco.isChecked(),
             "loco_mujoco": self._cb_loco_mujoco.isChecked(),
             "isaaclab_enabled": self._cb_isaaclab.isChecked(),
-            "isaaclab_install": self._rb_isaac_install.isChecked(),
-            "isaaclab_locate": self._rb_isaac_locate.isChecked(),
-            "isaaclab_path": self._isaac_path_edit.text().strip(),
+            "isaaclab_install": is_install,
+            "isaaclab_locate": is_locate,
+            "isaaclab_cloud_deploy": is_cloud,
+            # For "install" mode: the local target directory
+            # For "locate" mode: the existing Isaac Lab root directory
+            "isaaclab_path": (
+                self._install_dir_edit.text().strip() if is_install
+                else self._isaac_path_edit.text().strip()
+            ),
         }
+
+        # Cloud deploy SSH config (only populated when Option C is selected)
+        if is_cloud:
+            cfg["cloud_ssh"] = {
+                "server_name": self._cloud_name_edit.text().strip()
+                               or self._cloud_host_edit.text().strip(),
+                "host": self._cloud_host_edit.text().strip(),
+                "port": int(self._cloud_port_edit.text() or 22),
+                "username": self._cloud_user_edit.text().strip(),
+                "auth_method": "key" if self._cloud_auth_key.isChecked()
+                               else "password",
+                "private_key_path": self._cloud_key_edit.text().strip(),
+                "password": self._cloud_pwd_edit.text(),
+                "remote_install_dir": (
+                    self._cloud_remote_dir_edit.text().strip()
+                    or "~/UnitPort/engines/isaac"
+                ),
+            }
+
         return cfg
 
 

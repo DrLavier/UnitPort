@@ -238,14 +238,35 @@ class TrainingCompatibilityChecker:
                 pass
 
         if canvas_obs_dim == 0:
-            # Fall back to component-based estimation
-            canvas_obs_dim = compute_canvas_obs_dim(
-                spec.obs_action_config.obs_components,
-                spec.robot_spec.robot_type,
-                action_dim=spec.robot_spec.action_dim,
-            )
+            # Fall back to component-based estimation. Use the same helper the
+            # exporter uses (`resolve_obs_dim_from_components`) so canvas-side
+            # and asset-side obs_dim can never disagree just because they were
+            # computed by two slightly different lookup tables.
             frame_stack = max(1, int(getattr(spec.obs_action_config, "frame_stack", 1) or 1))
-            canvas_obs_dim *= frame_stack
+            try:
+                from src.system.training.unitree_gym_env import (
+                    resolve_obs_dim_from_components,
+                )
+                action_dim_for_calc = (
+                    int(spec.robot_spec.action_dim)
+                    if int(spec.robot_spec.action_dim or 0) > 0
+                    else _ACTION_DIM_BY_ROBOT.get(
+                        (spec.robot_spec.robot_type or "").lower(), 12
+                    )
+                )
+                canvas_obs_dim = resolve_obs_dim_from_components(
+                    list(spec.obs_action_config.obs_components or []),
+                    num_joints=action_dim_for_calc,
+                    action_dim=action_dim_for_calc,
+                    frame_stack=frame_stack,
+                )
+            except ImportError:
+                canvas_obs_dim = compute_canvas_obs_dim(
+                    spec.obs_action_config.obs_components,
+                    spec.robot_spec.robot_type,
+                    action_dim=spec.robot_spec.action_dim,
+                )
+                canvas_obs_dim *= frame_stack
 
         if canvas_obs_dim == 0:
             return CompatResult(

@@ -45,7 +45,8 @@ from PySide6.QtWidgets import (
 
 class CheckpointImportDialog(QDialog):
     """
-    Modal dialog for importing a checkpoint bundle into ``custom_mods/training/checkpoints/``.
+    Modal dialog for importing a checkpoint bundle into the active project's
+    ``training/exported/<policy_id>/`` directory (Project Layout v2).
 
     Signals
     -------
@@ -150,6 +151,13 @@ class CheckpointImportDialog(QDialog):
         self.hf_btn.setCursor(Qt.PointingHandCursor)
         self.hf_btn.clicked.connect(self._on_source_hf)
         layout.addWidget(self.hf_btn, 1)
+
+        self.isaac_lab_btn = QPushButton("🔬  Isaac Lab")
+        self.isaac_lab_btn.setObjectName("importSourceButton")
+        self.isaac_lab_btn.setCheckable(True)
+        self.isaac_lab_btn.setCursor(Qt.PointingHandCursor)
+        self.isaac_lab_btn.clicked.connect(self._on_source_isaac_lab)
+        layout.addWidget(self.isaac_lab_btn, 1)
 
         return container
 
@@ -394,6 +402,7 @@ class CheckpointImportDialog(QDialog):
         self._mode = "local"
         self.local_btn.setChecked(True)
         self.hf_btn.setChecked(False)
+        self.isaac_lab_btn.setChecked(False)
         self._input_stack.setCurrentIndex(0)
         self._clear_preview()
         self.status_label.setText("")
@@ -405,10 +414,24 @@ class CheckpointImportDialog(QDialog):
         self._mode = "hf"
         self.hf_btn.setChecked(True)
         self.local_btn.setChecked(False)
+        self.isaac_lab_btn.setChecked(False)
         self._input_stack.setCurrentIndex(1)
         self._clear_preview()
         self.status_label.setText("")
         self._hf_bundle_path = None
+        self._preview_data = None
+        self._update_state()
+
+    def _on_source_isaac_lab(self) -> None:
+        """Switch to Isaac Lab import mode (reuses local file browser for exported/ dir)."""
+        self._mode = "isaac_lab"
+        self.isaac_lab_btn.setChecked(True)
+        self.local_btn.setChecked(False)
+        self.hf_btn.setChecked(False)
+        self._input_stack.setCurrentIndex(0)
+        self._clear_preview()
+        self.status_label.setText("Select an Isaac Lab exported/ directory (contains policy.onnx + env.yaml)")
+        self._src_path = None
         self._preview_data = None
         self._update_state()
 
@@ -572,6 +595,18 @@ class CheckpointImportDialog(QDialog):
             self.hf_import_confirmed.emit(str(self._hf_bundle_path))
             self._hf_bundle_path = None   # ownership transferred to caller
             self.accept()
+        elif self._mode == "isaac_lab":
+            if self._src_path is None:
+                return
+            try:
+                from pathlib import Path
+                from src.system.service.checkpoint_registry import CheckpointRegistry
+                registry = CheckpointRegistry()
+                entry = registry.import_isaac_lab_bundle(Path(self._src_path))
+                self.import_confirmed.emit(str(entry.bundle_path))
+                self.accept()
+            except Exception as exc:
+                self.status_label.setText(f"Isaac Lab import failed: {exc}")
 
     # ------------------------------------------------------------------
     # Preview helpers

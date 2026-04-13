@@ -1,0 +1,693 @@
+# =============================================================================
+# STAGE_NODE_DESIGN.yaml — Training Stage 编排节点设计
+# -----------------------------------------------------------------------------
+# 解决问题：当前 Canvas 无法表达分阶段训练，用户被迫一次性配置所有参数。
+# 本文件评估 3 种方案并给出推荐设计。
+#
+# 作者：claude-opus-4-6 (with DrLavier)
+# 日期：2026-04-12
+# =============================================================================
+
+# =============================================================================
+# 1. 方案对比
+# =============================================================================
+options:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Option A: 独立 Stage Pipeline Node
+  # ─────────────────────────────────────────────────────────────────────────
+  - id: A
+    name: "TrainingPipelineNode（独立编排节点）"
+    summary: >
+      新增一个 training_pipeline 节点，持有 N 个 Stage 配置项。
+      每个 Stage 是一组参数覆盖（override dict）。
+      通过 stage_pipeline 输出槽连接到 Trainer 的新输入。
+      Runner 在运行时按条件切换 Stage。
+
+    canvas_layout: |
+      ┌─────────────┐        ┌───────────────────┐        ┌──────────┐
+      │  Rewards     │──┐     │ Training Pipeline  │        │ Trainer  │
+      │  Commands    │──┤     │ ┌───────────────┐  │  stage │          │
+      │  DomainRand  │──┤     │ │ Stage 0: PPO  │  ├───────→│          │
+      │  Obs         │──┤     │ │ Stage 1: AMP  │  │pipeline│          │
+      │  Policy Net  │──┼────→│ │ Stage 2: Anneal│ │        │          │
+      │  RefMotion   │──┤     │ │ Stage 3: DR   │  │        │          │
+      │  Termination │──┘     │ └───────────────┘  │        │          │
+      │              │        │ [+Add Stage]       │        │          │
+      └──────────────┘        └───────────────────┘        └──────────┘
+
+    pros:
+      - 关注点分离：Trainer 保持纯粹，Pipeline 独立管理阶段
+      - 可视化清晰：用户一眼看到 N 个阶段
+      - 复用 _RegistryModuleEditor 的动态列表 UI 模式
+      - Pipeline Node 可独立迭代，不影响现有 Trainer
+    cons:
+      - 数据流变复杂：Pipeline 需要聚合上游所有配置，再传给 Trainer
+      - 新增节点类型 + 编译路径
+      - Stage 内的参数覆盖 UI 设计复杂（需要嵌套展开面板）
+    complexity: HIGH
+    verdict: 过度设计——Pipeline 本质上在 Trainer 外面包了一层调度
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Option B: 多个 Trainer Node 串联
+  # ─────────────────────────────────────────────────────────────────────────
+  - id: B
+    name: "多 Trainer 串联（用户手动布置 N 个 Trainer）"
+    summary: >
+      用户在画布上放置 N 个 ILPPOTrainerNode，每个配置一个 Stage。
+      Stage N 的 checkpoint 输出连接到 Stage N+1 的 checkpoint 输入。
+      每个 Trainer 独立连接自己的 Rewards / DR / Commands 等上游节点。
+
+    canvas_layout: |
+      ┌─────────┐   ┌─────────┐   ┌─────────┐   ┌─────────┐
+      │Trainer 0│──→│Trainer 1│──→│Trainer 2│──→│Trainer 3│──→ Export
+      │  PPO    │ck │ AMP_PPO │ck │ AMP_PPO │ck │ AMP_PPO │
+      │ 2000iter│   │ 2000iter│   │ 2000iter│   │ 2000iter│
+      └────┬────┘   └────┬────┘   └────┬────┘   └────┬────┘
+           │              │              │              │
+        Rewards_0      Rewards_1      Rewards_2      Rewards_2
+        Commands_0     Commands_1     Commands_2     Commands_2
+        (no DR)        (no DR)        (no DR)        DomainRand
+        (no RefMot)    RefMotion      RefMotion      RefMotion
+
+    pros:
+      - 零新代码：完全复用现有节点
+      - 每个 Stage 的配置完全可见、可独立调试
+      - Checkpoint 链接已有支持（BaseAsset → Trainer.checkpoint）
+    cons:
+      - 画布极度拥挤：4 个 Trainer + 各自上游 ≈ 20+ 个节点
+      - 无自动切换：用户必须手动依次运行每个 Trainer
+      - 大量重复配置：共享参数（PPO基线、网络结构）在每个 Trainer 重复
+      - 无法在单次训练运行中自动完成 4 阶段
+    complexity: LOW (implementation) / HIGH (user experience)
+    verdict: 可作为 MVP 临时方案，但长期不可接受
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Option C: 集成到 Trainer Node 内部（推荐）★
+  # ─────────────────────────────────────────────────────────────────────────
+  - id: C
+    name: "Trainer 内置 Stage 编排（扩展 ILPPOTrainerNode）"
+    summary: >
+      在 ILPPOTrainerNode 内部新增 "Stages" 面板。
+      用户在 Trainer 中定义 N 个 Stage，每个 Stage 是一组参数覆盖。
+      基线参数 = Trainer 现有参数 + 上游节点输入。
+      Stage 覆盖只需声明与基线不同的字段。
+      Runner 在单次训练运行中按条件自动切换。
+
+    canvas_layout: |
+      ┌─────────┐
+      │ Rewards  │──┐
+      │ Commands │──┤     ┌──────────────────────────────────┐
+      │ DR       │──┤     │       IL Trainer (AMP_PPO)       │
+      │ Obs      │──┼────→│  ┌──────────────────────────┐    │
+      │ PolicyNet│──┤     │  │ Stages [4]          [+]  │    │──→ Export
+      │ RefMotion│──┤     │  │ ▸ 0: PPO Warmup  2000it  │    │
+      │ Termin   │──┘     │  │ ▸ 1: AMP On      2000it  │    │
+      │ Scene    │───────→│  │ ▸ 2: Style Anneal 2000it │    │
+      │ Ckpt     │───────→│  │ ▸ 3: DR Robust   2000it  │    │
+      └─────────┘         │  └──────────────────────────┘    │
+                          │  [Auto ▾] [▶ Advance] [Reset]    │
+                          └──────────────────────────────────┘
+
+    pros:
+      - 画布简洁：节点数不变，Stage 在 Trainer 内部管理
+      - 单次运行自动完成：Runner 内循环处理 Stage 切换
+      - 基线 + 覆盖模式：减少重复配置，只声明变化项
+      - 复用现有 UI 模式：_RegistryModuleEditor 的动态列表
+      - 上游节点提供"基线"，Stage 覆盖仅存储 delta
+      - 编译路径改动小：TrainingJobSpec 新增 stages 字段即可
+    cons:
+      - Trainer Node 变得更复杂（但这是合理的复杂度增长）
+      - Stage UI 需要嵌套展开面板（可控）
+      - Runner 需要新增 Stage 循环逻辑
+    complexity: MEDIUM
+    verdict: ★ 推荐方案
+
+# =============================================================================
+# 2. 推荐方案详细设计：Option C — Trainer 内置 Stage
+# =============================================================================
+recommended_design:
+  option: C
+  title: "ILPPOTrainerNode Stage Extension"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.1 核心概念
+  # ─────────────────────────────────────────────────────────────────────────
+  concepts:
+    baseline: >
+      Trainer 现有参数 + 上游节点输入构成"基线配置"（Stage 0 的隐式配置）。
+      当 stages=[] 时，行为与当前完全一致（向后兼容）。
+
+    stage_override: >
+      每个 Stage 是一个 override dict，仅包含与基线不同的字段。
+      运行时：effective_config = deep_merge(baseline, stage[i].overrides)
+
+    stage_lifecycle: |
+      ┌─────────┐    advance     ┌─────────┐    advance     ┌─────────┐
+      │ Stage 0  │──────────────→│ Stage 1  │──────────────→│ Stage 2  │ ...
+      │ (active) │  save ckpt    │ (active) │  save ckpt    │ (active) │
+      └─────────┘               └─────────┘               └─────────┘
+           │                          │                          │
+      advance_criteria          advance_criteria          advance_criteria
+      evaluated per             evaluated per             evaluated per
+      eval_interval iters       eval_interval iters       eval_interval iters
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.2 数据模型
+  # ─────────────────────────────────────────────────────────────────────────
+  data_model:
+
+    # ── TrainingStage dataclass (新增, training_config.py) ──
+    TrainingStage:
+      fields:
+        - name: stage_id
+          type: str
+          description: "唯一标识, e.g. '0_ppo_warmup'"
+        - name: display_name
+          type: str
+          description: "UI 显示名, e.g. 'PPO 热身'"
+        - name: iterations
+          type: int
+          description: "本 Stage 的训练迭代数"
+        - name: overrides
+          type: "Dict[str, Any]"
+          description: >
+            参数覆盖字典。key 路径使用点号分隔。
+            覆盖范围包括但不限于：
+            - training_mode: "PPO" | "AMP_PPO"
+            - reward_terms: {key: weight, ...}
+            - amp.*: AMP 相关参数
+            - domain_rand.*: 域随机化参数
+            - commands.*: 指令范围参数
+            - termination.*: 终止条件参数
+            - learning_rate, entropy_coef 等 PPO 超参
+        - name: advance_mode
+          type: str
+          enum: [auto, manual, hybrid]
+          default: auto
+          description: "切换模式"
+        - name: advance_criteria
+          type: "Optional[Dict[str, Any]]"
+          description: >
+            自动切换条件：
+            - min_iterations: int — 最少迭代数
+            - min_mean_episode_length: float
+            - min_mean_reward: float
+            - disc_accuracy_range: [lo, hi] — 判别器精度范围
+            - visual_check_required: bool — 暂停等待用户确认
+        - name: eval_interval
+          type: int
+          default: 50
+          description: "每 N iter 评估一次切换条件"
+
+    # ── StageSchedule (新增, training_config.py) ──
+    StageSchedule:
+      fields:
+        - name: stages
+          type: "List[TrainingStage]"
+          description: "有序 Stage 列表"
+        - name: checkpoint_strategy
+          type: str
+          enum: [save_on_advance, save_best_per_stage, both]
+          default: both
+        - name: global_max_iterations
+          type: int
+          description: "所有 Stage 总迭代上限（安全阀）"
+          note: "= sum(stage.iterations) 自动计算，可手动覆盖"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.3 Node 层改动
+  # ─────────────────────────────────────────────────────────────────────────
+  node_changes:
+
+    ILPPOTrainerNode:
+      new_parameters:
+        - key: stages_enabled
+          type: bool
+          default: false
+          description: "启用分阶段训练"
+          ui_widget: toggle
+          note: "关闭时完全向后兼容"
+
+        - key: stages_json
+          type: str
+          default: "[]"
+          description: "Stage 定义列表的 JSON 序列化"
+          ui_widget: stage_editor    # 新 widget 类型
+          condition:
+            key: stages_enabled
+            op: "=="
+            value: true
+
+        - key: stage_checkpoint_strategy
+          type: str
+          default: both
+          enum: [save_on_advance, save_best_per_stage, both]
+          ui_widget: dropdown
+          condition:
+            key: stages_enabled
+            op: "=="
+            value: true
+
+      modified_execute: |
+        def execute(self, inputs):
+            cfg = self._build_base_config(inputs)  # 现有逻辑
+            if self.parameters.get("stages_enabled") == "true":
+                stages = json.loads(self.parameters.get("stages_json", "[]"))
+                cfg["stage_schedule"] = {
+                    "stages": stages,
+                    "checkpoint_strategy": self.parameters.get("stage_checkpoint_strategy", "both"),
+                    "global_max_iterations": sum(s.get("iterations", 0) for s in stages),
+                }
+                # max_iterations 被 stage_schedule 接管
+                cfg["max_iterations"] = cfg["stage_schedule"]["global_max_iterations"]
+            return {"train_pipe": cfg, "training_metrics": {"status": cfg["status"]}}
+
+      modified_validation: |
+        # 当 stages_enabled=true 且 training_mode=AMP_PPO 时：
+        # 如果任何 stage.overrides.training_mode == "AMP_PPO"
+        # 则 reference_motion_config 必须连接
+        # 但 Stage 0 可以是纯 PPO（不需要 ref motion）
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.4 UI 设计
+  # ─────────────────────────────────────────────────────────────────────────
+  ui_design:
+
+    stage_editor_widget:
+      description: >
+        新增 stage_editor widget，基于 _RegistryModuleEditor 模式。
+        位于 Trainer Node 底部，condition 依赖 stages_enabled=true。
+
+      layout: |
+        ┌──────────────────────────────────────────────────────┐
+        │ Stages                                    [+ Add]    │
+        │──────────────────────────────────────────────────────│
+        │ ▾ 0: PPO Warmup                    2000 iters   [×] │
+        │   ┌────────────────────────────────────────────────┐ │
+        │   │ training_mode: [PPO ▾]                         │ │
+        │   │ domain_rand:   [disabled ▾]                    │ │
+        │   │ reward_terms:  [Edit Overrides...]             │ │
+        │   │ commands:      [Edit Overrides...]             │ │
+        │   │ ── Advance ──                                  │ │
+        │   │ mode: [auto ▾]  min_iter: [1500]               │ │
+        │   │ min_ep_len: [800]  min_reward: [1.5]           │ │
+        │   └────────────────────────────────────────────────┘ │
+        │                                                      │
+        │ ▸ 1: AMP On                        2000 iters   [×] │
+        │ ▸ 2: Style Anneal                  2000 iters   [×] │
+        │ ▸ 3: DR Robustness                 2000 iters   [×] │
+        │──────────────────────────────────────────────────────│
+        │ Total: 8000 iters | Checkpoint: [save both ▾]       │
+        └──────────────────────────────────────────────────────┘
+
+      interactions:
+        - "[+ Add]": 在列表末尾添加空 Stage，自动编号
+        - "[×]": 删除 Stage（需确认）
+        - "▾/▸": 展开/折叠 Stage 详情面板
+        - "拖拽排序": Stage 支持拖拽重新排序
+        - "Edit Overrides...": 打开对话框编辑该 Stage 的参数覆盖
+
+      override_editor_dialog: |
+        ┌─────────────────────────────────────────────┐
+        │ Stage 1: AMP On — Parameter Overrides       │
+        │─────────────────────────────────────────────│
+        │                                             │
+        │ ☑ training_mode    [AMP_PPO ▾]              │
+        │ ☑ amp_reward_coef  [====●=========] 2.0     │
+        │ ☑ disc_lr          [1e-4        ]           │
+        │ ☑ task_reward_lerp [====●=========] 0.75    │
+        │ ☑ lerp_schedule    [Edit JSON...]           │
+        │ ☐ domain_rand      (use baseline)           │
+        │ ☑ reward_terms     [Edit...]                │
+        │ ☐ entropy_coef     (use baseline)           │
+        │                                             │
+        │ Checkbox = override. Unchecked = use baseline│
+        │                                             │
+        │              [Cancel]  [Apply]              │
+        └─────────────────────────────────────────────┘
+      note: >
+        每个参数前有 checkbox。勾选 = 覆盖基线值，未勾选 = 继承基线。
+        这让用户只需关注每个 Stage 与基线的差异，大幅减少配置量。
+
+    runtime_ui:
+      description: >
+        训练运行时，Training Ground 的进度条和状态区需要显示当前 Stage。
+
+      progress_strip: |
+        ┌──────────────────────────────────────────────────────────┐
+        │ Stage 1/4: AMP On  │  iter 450/2000  │  22.5%  │ ▶ Running │
+        │ [████████░░░░░░░░░░░░░░░░░░░░░░]                         │
+        │ [■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] Global 30%  │
+        │                                                           │
+        │ [◀ Prev Stage] [Advance Now ▶] [⏸ Pause]                 │
+        └──────────────────────────────────────────────────────────┘
+
+      controls:
+        - "Advance Now": 手动跳到下一 Stage（保存 checkpoint + 加载新配置）
+        - "Prev Stage": 回退到上一 Stage（从其 checkpoint 重启）
+        - "Pause": 暂停训练（不影响 Stage 状态）
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.5 Runner 层改动
+  # ─────────────────────────────────────────────────────────────────────────
+  runner_changes:
+
+    AMPOnPolicyRunner:
+      description: >
+        Runner 主循环需要感知 Stage 边界。核心改动在 learn() 方法中。
+
+      pseudocode: |
+        def learn(self, ...):
+            stages = self.cfg.get("stage_schedule", {}).get("stages", [])
+            if not stages:
+                # 向后兼容：无 Stage，走原逻辑
+                return self._learn_single_stage(...)
+
+            current_stage_idx = 0
+            global_iter = 0
+
+            for stage_idx, stage in enumerate(stages):
+                current_stage_idx = stage_idx
+                overrides = stage.get("overrides", {})
+                stage_iters = stage.get("iterations", 1000)
+
+                # ── 应用参数覆盖 ──
+                self._apply_stage_overrides(overrides)
+                self._log_stage_transition(stage_idx, stage)
+
+                # ── Stage 内训练循环 ──
+                for local_iter in range(stage_iters):
+                    self._train_one_iteration(global_iter)
+                    global_iter += 1
+
+                    # ── 检查切换条件 ──
+                    if local_iter % stage["eval_interval"] == 0:
+                        if self._check_advance_criteria(stage, local_iter):
+                            break
+
+                # ── Stage 结束 → 保存 checkpoint ──
+                self._save_stage_checkpoint(stage_idx, global_iter)
+
+      apply_overrides_detail: |
+        def _apply_stage_overrides(self, overrides):
+            """在 Stage 切换时动态修改运行时参数。"""
+
+            # 1. training_mode 切换 (PPO ↔ AMP_PPO)
+            if "training_mode" in overrides:
+                new_mode = overrides["training_mode"]
+                if new_mode == "PPO" and self._amp_active:
+                    self._disable_amp()     # 关闭判别器 + style reward
+                elif new_mode == "AMP_PPO" and not self._amp_active:
+                    self._enable_amp()      # 启动判别器 + replay buffer
+
+            # 2. AMP 参数热更新
+            for key in ["amp_reward_coef", "task_reward_lerp", "disc_lr",
+                        "disc_grad_penalty", "disc_label_smoothing"]:
+                if key in overrides:
+                    self._update_amp_param(key, overrides[key])
+
+            # 3. Lerp schedule 重置
+            if "lerp_schedule" in overrides:
+                self._lerp_schedule = self._parse_lerp_schedule(overrides["lerp_schedule"])
+
+            # 4. PPO 超参热更新 (lr, entropy_coef, etc.)
+            for key in ["learning_rate", "entropy_coef", "clip_param"]:
+                if key in overrides:
+                    self._update_ppo_param(key, overrides[key])
+
+            # 5. Domain Randomization 开关
+            if "domain_rand" in overrides:
+                self._env.update_domain_rand(overrides["domain_rand"])
+
+            # 6. Reward terms 更新
+            if "reward_terms" in overrides:
+                self._env.update_reward_terms(overrides["reward_terms"])
+
+            # 7. Command ranges 更新
+            if "commands" in overrides:
+                self._env.update_command_ranges(overrides["commands"])
+
+      check_advance_detail: |
+        def _check_advance_criteria(self, stage, local_iter):
+            criteria = stage.get("advance_criteria", {})
+            mode = stage.get("advance_mode", "auto")
+
+            if mode == "manual":
+                return False  # 只能手动 advance
+
+            # 数值条件检查
+            if local_iter < criteria.get("min_iterations", 0):
+                return False
+            if self._mean_ep_len < criteria.get("min_mean_episode_length", 0):
+                return False
+            if self._mean_reward < criteria.get("min_mean_reward", float("-inf")):
+                return False
+
+            # 判别器精度检查
+            disc_range = criteria.get("disc_accuracy_range")
+            if disc_range and not (disc_range[0] <= self._disc_accuracy <= disc_range[1]):
+                return False
+
+            # Hybrid: 需要用户确认
+            if mode == "hybrid" and criteria.get("visual_check_required"):
+                self._request_user_confirmation()  # emit signal → UI
+                return False  # 等 UI callback
+
+            return True
+
+    tensorboard_logging: |
+      # Stage 边界在 TensorBoard 中标记
+      self.writer.add_scalar("Stage/current_stage", stage_idx, global_iter)
+      self.writer.add_text("Stage/transition",
+          f"Advanced to Stage {stage_idx}: {stage['display_name']}", global_iter)
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.6 Compiler 层改动
+  # ─────────────────────────────────────────────────────────────────────────
+  compiler_changes:
+
+    TrainingSpecCompiler:
+      description: >
+        编译器需要将 Stage 配置序列化到 TrainingJobSpec 中。
+
+      changes:
+        - file: src/system/training/training_spec.py
+          description: >
+            TrainingJobSpec 新增 stage_schedule: Optional[StageSchedule] 字段。
+            _compile_trainer() 读取 trainer node 的 stages_json 并构建 StageSchedule。
+
+        - file: src/system/training/training_config.py
+          description: >
+            新增 TrainingStage 和 StageSchedule dataclass。
+            StageSchedule.to_dict() / from_dict() 用于序列化。
+
+        - file: src/system/training/isaac_lab_config.py
+          description: >
+            build_command() 将 stage_schedule 序列化为
+            --unitport_stage_schedule <base64_json> CLI 参数。
+
+        - file: src/system/training/il_train_launcher.py
+          description: >
+            解析 --unitport_stage_schedule，构建 Runner 可消费的 stage 配置。
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.7 与现有 MultiGatedRewardNode 的关系
+  # ─────────────────────────────────────────────────────────────────────────
+  multigated_relationship:
+    strategy: coexist_then_deprecate
+    detail: >
+      Phase 1: Stage 系统与 MultiGatedRewardNode 共存。
+        - 如果 stages_enabled=true，Stage 的 reward_terms override 优先
+        - 如果 stages_enabled=false 且 MultiGated 连接，走原有逻辑
+      Phase 2: MultiGatedRewardNode 功能被 Stage 系统完全覆盖后标记 deprecated。
+      Phase 3: 迁移脚本将 MultiGated 画布转换为 Stage 配置。
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.8 向后兼容性
+  # ─────────────────────────────────────────────────────────────────────────
+  backward_compatibility:
+    - stages_enabled 默认 false → 不影响现有画布
+    - stages_json 默认 "[]" → Runner 走原逻辑
+    - 现有 canvas JSON 无 stages_enabled 字段 → 解析时默认关闭
+    - max_iterations 仍可单独设置 → 当 stages_enabled=false 时正常使用
+    - 训练过的 checkpoint 格式不变 → Stage 只是 Runner 调度逻辑
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 2.9 Stage Preset 系统
+  # ─────────────────────────────────────────────────────────────────────────
+  stage_presets:
+    description: >
+      预设 Stage 模板，用户点击即可加载完整的分阶段训练方案。
+      存储在 custom_mods/training/stage_presets/ 下。
+
+    builtin_presets:
+      - id: rsi_amp_quadruped
+        name: "RSI-AMP 四足步态"
+        description: "4 阶段：PPO 热身 → AMP 启动 → 风格退火 → DR 鲁棒性"
+        source: "knowledge_base/RSI-AMP_STAGES.yaml"
+        robot_family: quadruped
+
+      - id: simple_ppo_locomotion
+        name: "简单 PPO 行走"
+        description: "2 阶段：PPO 训练 → DR 强化"
+        robot_family: quadruped
+
+      - id: amp_manipulation
+        name: "AMP 操控任务"
+        description: "3 阶段：任务基线 → AMP 风格 → DR 泛化"
+        robot_family: manipulator
+
+    ui_integration: |
+      [+ Add Stage ▾]
+      ├─ Empty Stage
+      ├─ ─────────────
+      ├─ Load Preset...
+      │   ├─ RSI-AMP 四足步态 (4 stages)
+      │   ├─ 简单 PPO 行走 (2 stages)
+      │   └─ AMP 操控任务 (3 stages)
+      └─ Import from YAML...
+
+# =============================================================================
+# 3. 实施路线图
+# =============================================================================
+implementation_roadmap:
+
+  phase_1:
+    name: "数据模型 + 编译"
+    scope:
+      - TrainingStage / StageSchedule dataclass (training_config.py)
+      - ILPPOTrainerNode 新增 stages_enabled / stages_json / checkpoint_strategy
+      - TrainingSpecCompiler 序列化 stage_schedule
+      - IsaacLabConfig CLI 传递
+    estimate: "中等"
+    tests:
+      - unit: "TrainingStage / StageSchedule round-trip serialization"
+      - unit: "Compiler 生成正确的 CLI args"
+      - unit: "stages_enabled=false 时完全向后兼容"
+
+  phase_2:
+    name: "Runner Stage 循环"
+    scope:
+      - AMPOnPolicyRunner._learn_staged() 方法
+      - _apply_stage_overrides() 参数热更新
+      - _check_advance_criteria() 条件评估
+      - Stage checkpoint 保存 / TensorBoard 标记
+    estimate: "较大"
+    tests:
+      - unit: "Override 应用正确性"
+      - unit: "Advance criteria 评估逻辑"
+      - integration: "2-stage PPO→AMP dry run"
+    risk: >
+      PPO→AMP 模式切换需要动态初始化判别器 + replay buffer。
+      需要验证 optimizer state 在 stage 切换时的处理。
+
+  phase_3:
+    name: "UI: stage_editor widget"
+    scope:
+      - 新增 _StageEditorWidget (training_node_items.py)
+      - Stage 展开/折叠面板
+      - Override editor 对话框
+      - training_node_ui.json 更新
+    estimate: "中等"
+    tests:
+      - manual: "Stage CRUD 操作"
+      - manual: "Override 编辑 + 持久化"
+
+  phase_4:
+    name: "运行时 UI + Preset"
+    scope:
+      - 进度条 Stage 指示器
+      - Advance Now / Prev Stage 按钮
+      - Stage preset 加载系统
+      - RSI-AMP 预设集成
+    estimate: "较小"
+    tests:
+      - manual: "手动 advance + 回退"
+      - manual: "Preset 加载 + 覆盖"
+
+# =============================================================================
+# 4. 可覆盖参数全表
+# =============================================================================
+overridable_parameters:
+  note: >
+    以下参数可在 Stage override 中设置。key 名与 Trainer Node 参数一致。
+
+  training_mode:
+    type: str
+    enum: [PPO, AMP_PPO]
+    effect: "切换是否启用 AMP 判别器"
+    hot_swap: true
+    note: "PPO→AMP 需要初始化 discriminator；AMP→PPO 冻结/禁用 discriminator"
+
+  reward_terms:
+    type: "Dict[str, float]"
+    effect: "完整替换本 Stage 的 reward 权重表"
+    hot_swap: true
+
+  amp_reward_coef:
+    type: float
+    effect: "style reward 缩放系数"
+    hot_swap: true
+
+  task_reward_lerp:
+    type: float
+    effect: "task/style 混合比初始值"
+    hot_swap: true
+
+  lerp_schedule:
+    type: "Dict | str"
+    effect: "本 Stage 的 lerp 退火 schedule（相对于 Stage 起始 iter）"
+    hot_swap: true
+
+  disc_lr:
+    type: float
+    effect: "判别器学习率"
+    hot_swap: true
+    note: "需要更新 optimizer param group lr"
+
+  disc_grad_penalty:
+    type: float
+    effect: "梯度惩罚系数"
+    hot_swap: true
+
+  disc_label_smoothing:
+    type: float
+    effect: "判别器标签平滑值"
+    hot_swap: true
+
+  learning_rate:
+    type: float
+    effect: "PPO 策略 + value 网络学习率"
+    hot_swap: true
+
+  entropy_coef:
+    type: float
+    effect: "熵正则化系数"
+    hot_swap: true
+
+  clip_param:
+    type: float
+    effect: "PPO clip ratio"
+    hot_swap: true
+
+  domain_rand_enabled:
+    type: bool
+    effect: "开关域随机化"
+    hot_swap: true
+    note: "关闭时 DR 参数无效"
+
+  domain_rand:
+    type: "Dict[str, Any]"
+    effect: "DR 参数覆盖（mass_range, friction_range, push 等）"
+    hot_swap: true
+
+  commands:
+    type: "Dict[str, Any]"
+    effect: "指令范围覆盖（gain_lin_forward, gain_yaw 等）"
+    hot_swap: true
+
+  termination:
+    type: "Dict[str, Any]"
+    effect: "终止条件覆盖（base_height 阈值等）"
+    hot_swap: true

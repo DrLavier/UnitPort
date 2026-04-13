@@ -76,7 +76,14 @@ class TrainRunThread(QThread):
         self._cancelled = False
         self._best_reward = -float("inf")
         self._vis_check_count = 0
-        self._cache_run_id = str(run_id or f"run_{uuid.uuid4().hex[:8]}")
+        # Layout v2: human-readable run id  <experiment>__<UTC-timestamp>
+        # falls back to a short uuid only when no experiment context is given.
+        if run_id:
+            self._cache_run_id = str(run_id)
+        else:
+            from datetime import datetime as _dt, timezone as _tz
+            ts = _dt.now(_tz.utc).strftime("%Y%m%dT%H%M%SZ")
+            self._cache_run_id = f"run__{ts}_{uuid.uuid4().hex[:4]}"
         self._last_step = 0
         self._last_total = self._total_timesteps
         self._last_reward_mean = 0.0
@@ -254,6 +261,23 @@ class TrainRunThread(QThread):
         # Attach the run_id so the subprocess can embed it in the export.
         try:
             spec._run_id = self._run_id
+        except Exception:
+            pass
+
+        # Inject the active project context. The training subprocess is
+        # spawned (not forked), so it does not inherit the parent's
+        # ProjectSession module state — bundle_exporter would otherwise
+        # have no way to know which project to write into and would
+        # raise. We snapshot the session here in the parent process and
+        # let the worker reconstruct a ProjectStore from the root path
+        # plus the project_id we hand over via the spec.
+        try:
+            from src.system.core import project_session as _ps
+            store = _ps.get_store()
+            pid = _ps.get_project_id()
+            if store is not None and pid:
+                spec._project_id = pid
+                spec._project_root = str(store.root)
         except Exception:
             pass
 
@@ -464,7 +488,7 @@ class TrainRunThread(QThread):
             self.cancelled.emit()
             return
 
-        bundle_path = f"mock/custom_mods/training/checkpoints/{pid}"
+        bundle_path = f"mock/training/exported/{pid}"
         self.log_line.emit(f"[{algo}] Training complete. Mock bundle: {bundle_path}")
         self._record_progress_sample(total, total, reward_mean, best_reward, 0.0, "Complete")
         self._record_run_event(

@@ -81,8 +81,14 @@ class ProjectFilesPanel(QWidget):
 
     def refresh_files(self):
         self._workflows_root.mkdir(parents=True, exist_ok=True)
-        # Scan both legacy .unitport and new .workflow.json files
-        all_files = list(self._workflows_root.rglob("*.unitport"))
+        # Layout v2 canvas files (*.canvas.json) plus the legacy
+        # .unitport and .workflow.json formats so historical projects
+        # remain visible until migrated.
+        # TODO(layout-v2): drop *.workflow.json + *.unitport enumeration once
+        # all in-tree projects have been migrated via
+        # scripts/migrate_project_layout.py (transitional aid only).
+        all_files = list(self._workflows_root.rglob("*.canvas.json"))
+        all_files.extend(self._workflows_root.rglob("*.unitport"))
         all_files.extend(self._workflows_root.rglob("*.workflow.json"))
         self._all_files = sorted(set(all_files), key=lambda p: p.as_posix().lower())
         self._apply_filter()
@@ -159,8 +165,7 @@ class SidebarDock(QWidget):
     panel_requested = Signal(str)
     panel_changed = Signal(str)
     panel_closed = Signal()
-    theme_toggle_requested = Signal()
-    language_toggle_requested = Signal()
+    page_toggle_requested = Signal(str)   # emitted when the top page-toggle button is clicked
 
     def __init__(
         self,
@@ -200,8 +205,48 @@ class SidebarDock(QWidget):
         self.rail.setObjectName("sidebarRail")
         self.rail.setFixedWidth(self._rail_width)
         rail_layout = QVBoxLayout(self.rail)
-        rail_layout.setContentsMargins(0, h_gap, 1, h_gap)
+        # Top margin dropped so the page-toggle button sits flush at the top.
+        rail_layout.setContentsMargins(0, 0, 1, h_gap)
         rail_layout.setSpacing(spacing)
+
+        # ── 10 px top spacing before the User button ────────────────
+        rail_layout.addSpacing(10)
+
+        # ── Top rail item: 'User' button ─────────────────────────────
+        # Same spec as the other nav buttons (size, objectName, hover, no bg).
+        self.user_top_button = SidebarHoverButton(
+            title="User", base_icon_extent=self._icon_size().width(),
+        )
+        self.user_top_button.setObjectName("sidebarNavButton")
+        self.user_top_button.setCheckable(True)
+        self.user_top_button.setCursor(Qt.PointingHandCursor)
+        self.user_top_button.setFixedSize(self._button_size, self._button_size)
+        self.user_top_button.setIconSize(self._icon_size())
+        self.user_top_button.clicked.connect(lambda checked=False: self._on_nav_clicked("user"))
+        self.user_top_button.hover_changed.connect(
+            lambda hovered: self._on_button_hover_changed(self.user_top_button, hovered)
+        )
+        rail_layout.addWidget(self.user_top_button)
+        self._nav_icon_bindings["user_top"] = "acc"
+
+        # ── Divider below the User button ────────────────────────────
+        self._page_toggle_divider_host = QWidget(self.rail)
+        self._page_toggle_divider_host.setFixedHeight(21)
+        _div_layout = QVBoxLayout(self._page_toggle_divider_host)
+        _div_layout.setContentsMargins(10, 10, 10, 10)
+        _div_layout.setSpacing(0)
+        self._page_toggle_divider = QFrame(self._page_toggle_divider_host)
+        self._page_toggle_divider.setObjectName("sidebarPageToggleDivider")
+        self._page_toggle_divider.setFrameShape(QFrame.Shape.HLine)
+        self._page_toggle_divider.setFixedHeight(1)
+        _div_layout.addWidget(self._page_toggle_divider)
+        rail_layout.addWidget(self._page_toggle_divider_host)
+        self._apply_page_toggle_divider_style()
+
+        # Legacy compat: page_toggle_button attr kept as None so external
+        # callers that check ``hasattr(sidebar, 'page_toggle_button')`` get
+        # a falsy value and know to use MainRow.page_switcher instead.
+        self.page_toggle_button = None
 
         self.content_panel = QFrame()
         self.content_panel.setObjectName("sidebarContentPanel")
@@ -235,6 +280,10 @@ class SidebarDock(QWidget):
         body_layout.addWidget(self.content_stack, 1)
         content_layout.addWidget(body_container, 1)
 
+        # Register the "user" panel so user_top_button can open it
+        # (it is not part of nav_items — no duplicate rail button).
+        self.register_panel("user", "User")
+
         self.hover_tooltip = QLabel("", self)
         self.hover_tooltip.setObjectName("sidebarHoverTooltip")
         self.hover_tooltip.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
@@ -267,29 +316,6 @@ class SidebarDock(QWidget):
             self.register_panel(key, title)
 
         rail_layout.addStretch()
-
-        self.theme_button = SidebarHoverButton(title="Theme", base_icon_extent=self._icon_size().width())
-        self.theme_button.setObjectName("sidebarUtilityButton")
-        self.theme_button.setCursor(Qt.PointingHandCursor)
-        self.theme_button.setFixedSize(self._button_size, self._button_size)
-        self.theme_button.setIconSize(self._icon_size())
-        self.theme_button.clicked.connect(self.theme_toggle_requested.emit)
-        self.theme_button.hover_changed.connect(
-            lambda hovered, button=self.theme_button: self._on_button_hover_changed(button, hovered)
-        )
-        rail_layout.addWidget(self.theme_button)
-        self._apply_theme_toggle_icon("light")
-
-        self.language_button = SidebarHoverButton(title="Language", base_icon_extent=self._icon_size().width())
-        self.language_button.setText("EN")
-        self.language_button.setObjectName("sidebarUtilityButton")
-        self.language_button.setCursor(Qt.PointingHandCursor)
-        self.language_button.setFixedSize(self._button_size, self._button_size)
-        self.language_button.clicked.connect(self.language_toggle_requested.emit)
-        self.language_button.hover_changed.connect(
-            lambda hovered, button=self.language_button: self._on_button_hover_changed(button, hovered)
-        )
-        rail_layout.addWidget(self.language_button)
 
         root_layout.addWidget(self.rail)
         root_layout.addWidget(self.content_panel)
@@ -362,6 +388,11 @@ class SidebarDock(QWidget):
             btn.blockSignals(True)
             btn.setChecked(self._panel_visible and key == self._active_key)
             btn.blockSignals(False)
+        # User top button tracks the "user" panel independently.
+        if hasattr(self, "user_top_button"):
+            self.user_top_button.blockSignals(True)
+            self.user_top_button.setChecked(self._panel_visible and self._active_key == "user")
+            self.user_top_button.blockSignals(False)
 
     def _animate_panel(self, target_width: int):
         self._panel_animation.stop()
@@ -445,14 +476,27 @@ class SidebarDock(QWidget):
                     button.setText("")
                 else:
                     button.setIcon(QIcon())
-        self._apply_theme_toggle_icon(theme)
+        # User top button icon
+        if hasattr(self, "user_top_button"):
+            icon = get_icon("acc")
+            if not icon.isNull():
+                self.user_top_button.setIcon(icon)
+                self.user_top_button.setText("")
+            else:
+                self.user_top_button.setText("U")
+        self._apply_page_toggle_divider_style()
 
-    def _apply_theme_toggle_icon(self, theme: str):
-        from src.system.core.theme_manager import get_icon
-        icon = get_icon("L&D")
-        if not icon.isNull():
-            self.theme_button.setIcon(icon)
-            self.theme_button.setText("")
+    def _apply_page_toggle_divider_style(self) -> None:
+        if not hasattr(self, "_page_toggle_divider"):
+            return
+        from src.system.core.theme_manager import get_color
+        color = get_color("border", "#475569")
+        self._page_toggle_divider.setStyleSheet(
+            f"#sidebarPageToggleDivider {{"
+            f" background-color: {color};"
+            f" border: none;"
+            f"}}"
+        )
 
     def _icon_size(self):
         icon_px = max(20, self._icon_button_extent)

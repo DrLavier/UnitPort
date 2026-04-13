@@ -18,6 +18,7 @@ runtime/env/bootstrap_state.json
 
 # Distribution output
 dist_package/
+projects/
 *.zip
 
 # Byte-compiled / cache

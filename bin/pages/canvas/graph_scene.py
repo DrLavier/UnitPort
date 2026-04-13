@@ -7,6 +7,7 @@ Contains nodes, connections, grid and other elements
 
 import json
 import re
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Callable, Set
 from shiboken6 import isValid
@@ -79,6 +80,17 @@ def _sub_dot_type_color(data_type: str) -> QColor:
     }
     theme_key = f"sub_dot_{t}"
     return QColor(get_color(theme_key, fallback.get(t, fallback["any"])))
+
+
+class _FanInPortItem(QGraphicsEllipseItem):
+    """Port dot with an 'F' label drawn inside, indicating Fan-In capability."""
+
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        super().paint(painter, option, widget)
+        font = QFont("Segoe UI", 7, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor("#ffffff"), 0))
+        painter.drawText(self.boundingRect(), Qt.AlignCenter, "F")
 
 
 class ConnectionItem(QGraphicsPathItem):
@@ -591,6 +603,11 @@ class GraphScene(QGraphicsScene):
     robot_type_changed = Signal(str)
     workspace_open_requested = Signal(str)  # policy_id — emitted by Checkpoint node "Open Training Ground"
 
+    # Emitted whenever the dirty state flips. bool = True when the canvas has
+    # unsaved changes relative to the last mark_clean() / load. Wired by the
+    # main window into ``files_row.mark_dirty(file_id, ...)``.
+    content_changed = Signal(bool)
+
     """Graph Editor Scene"""
 
     def __init__(self, parent=None):
@@ -672,6 +689,7 @@ class GraphScene(QGraphicsScene):
             # Control pipeline nodes
             "Checkpoint": "checkpoint",
             "Behavior":   "behavior",
+            "Reactive Loco": "reactive_loco",
             # Training nodes (Env Config / Train Config / Train / Task Config /
             # Eval Config) are intentionally absent from this map.
             # The Mission Canvas must never create training nodes.
@@ -696,6 +714,8 @@ class GraphScene(QGraphicsScene):
         self._behavior_param_writer: Optional[Callable[..., bool]] = None
         self._robot_brand = "unitree"
         self._robot_type = "go2"
+        self._start_field_id = "flat_ground"   # v1.4: StartNode field selector
+        self._start_render_enabled = True       # v1.5: StartNode viewer toggle
         self._event_symbol_set: Set[str] = set()
         self._script_symbol_set: Set[str] = set()
         self._policy_symbol_set: Set[str] = set()   # policy_id values from CheckpointRegistry
@@ -712,10 +732,240 @@ class GraphScene(QGraphicsScene):
         self._update_timer.timeout.connect(self._update_all_connections)
         self._update_timer.start(16)  # 60fps
 
-        # Place default Start/End nodes
+        # Drag-end detection for the move → dirty pipeline. Populated on
+        # mousePressEvent with {id(item): (item, QPointF(pre_drag_pos))}.
+        self._drag_start_positions: Dict[int, Any] = {}
+
+        # ── History / dirty-state machinery ─────────────────────────────
+        # Snapshot-based undo stack. ``self._history`` is a list of snapshot
+        # dicts; ``self._history_index`` points at the state the scene
+        # currently matches. On mutation we truncate forward history, append
+        # the new snapshot, and compare the index against ``_clean_index``
+        # to decide the dirty flag.
+        #
+        # Mutations are routed through ``self._touch_content()``; programmatic
+        # bulk loads must wrap themselves in ``with self.suppress_history():``
+        # and then call ``self.reset_history(...)`` so the post-load state
+        # becomes the new clean baseline.
+        self._history: List[Dict[str, Any]] = []
+        self._history_index: int = -1
+        self._clean_index: int = -1
+        self._history_max: int = 100
+        self._history_suppress_depth: int = 0
+        self._last_emitted_dirty: bool = False
+
+        # Place default Start/End nodes (must happen BEFORE first snapshot
+        # so the initial history entry already contains the template nodes).
         self._place_initial_nodes()
 
+        # Seed history with the empty template; subclasses that override
+        # _snapshot_for_history() must be ready to serialize at this point.
+        try:
+            initial = self._snapshot_for_history()
+        except Exception:
+            initial = {}
+        self._history = [initial] if initial else []
+        self._history_index = 0 if self._history else -1
+        self._clean_index = self._history_index
+
         log_debug("GraphScene initialized")
+
+    # ------------------------------------------------------------------
+    # History / dirty-state — public + protected API
+    # ------------------------------------------------------------------
+
+    def _snapshot_for_history(self) -> Dict[str, Any]:
+        """Return a full serialized snapshot of the canvas for the undo stack.
+
+        Subclasses should override this to delegate to the most complete
+        snapshot method they have (e.g. the Mission canvas uses
+        ``serialize_workflow`` and the Training canvas overrides this to
+        return ``serialize_training_graph(for_compiler=False)``).
+
+        The default implementation prefers ``serialize_workflow`` when
+        available so plain Mission scenes work without additional wiring.
+        """
+        fn = getattr(self, "serialize_workflow", None)
+        if callable(fn):
+            try:
+                return fn()
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"_snapshot_for_history: serialize_workflow failed — {exc}")
+                return {}
+        return {}
+
+    def _restore_from_history(self, snapshot: Dict[str, Any]) -> None:
+        """Restore the canvas from a snapshot produced by ``_snapshot_for_history``.
+
+        Subclasses override when they use a different serializer. The load
+        path is always wrapped in ``suppress_history`` by ``undo()`` /
+        ``redo()`` so the restore itself cannot re-enter the history stack.
+        """
+        fn = getattr(self, "load_workflow", None)
+        if callable(fn):
+            try:
+                fn(snapshot)
+            except Exception as exc:  # noqa: BLE001
+                log_error(f"_restore_from_history: load_workflow failed — {exc}")
+
+    @contextmanager
+    def suppress_history(self):
+        """Context manager that disables history pushes for its body.
+
+        Re-entrant via a depth counter. Use this around programmatic loads,
+        preset applications, backend layer restores, and any other bulk
+        mutation that must not generate undo entries.
+        """
+        self._history_suppress_depth += 1
+        try:
+            yield
+        finally:
+            self._history_suppress_depth = max(0, self._history_suppress_depth - 1)
+
+    def _touch_content(self) -> None:
+        """Record a history entry for a fresh mutation and flip dirty.
+
+        Call after a user-initiated change (node create/delete/move/param,
+        connection create/delete, paste, group/ungroup). A no-op while
+        ``suppress_history`` is active. Consecutive identical snapshots are
+        deduplicated so that a single logical edit that fans out into
+        multiple internal hooks (e.g. create_node → regenerate_code → touch,
+        then explicit touch at the callsite → would otherwise push twice)
+        only produces one undo entry.
+        """
+        if self._history_suppress_depth > 0:
+            return
+        try:
+            snap = self._snapshot_for_history()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"_touch_content: snapshot failed — {exc}")
+            return
+        if not snap:
+            return
+
+        # Dedup: if the fresh snapshot matches the one at the current index,
+        # this touch is a no-op (same logical state as before). Cheap equality
+        # check on dict is O(n) in the graph size but avoids an undo-stack
+        # polluted with duplicate states.
+        if 0 <= self._history_index < len(self._history):
+            try:
+                if self._history[self._history_index] == snap:
+                    return
+            except Exception:
+                pass
+
+        # Truncate any forward (redo) history — new branching work discards
+        # the old redo path.
+        if self._history_index < len(self._history) - 1:
+            self._history = self._history[: self._history_index + 1]
+            # If the clean index was in the discarded tail, the file can
+            # never return to a non-dirty state by undo alone.
+            if self._clean_index > self._history_index:
+                self._clean_index = -1
+
+        self._history.append(snap)
+        self._history_index = len(self._history) - 1
+
+        # Cap depth to avoid unbounded memory growth on long editing sessions.
+        if len(self._history) > self._history_max:
+            drop = len(self._history) - self._history_max
+            self._history = self._history[drop:]
+            self._history_index -= drop
+            if self._clean_index >= 0:
+                self._clean_index -= drop
+                if self._clean_index < 0:
+                    # The clean baseline fell off the back of the stack; from
+                    # here we can no longer tell when we'd be "clean again".
+                    self._clean_index = -1
+
+        self._emit_dirty_if_changed()
+
+    def can_undo(self) -> bool:
+        return self._history_index > 0
+
+    def can_redo(self) -> bool:
+        return 0 <= self._history_index < len(self._history) - 1
+
+    def undo(self) -> bool:
+        """Step one state backwards. Returns True on success."""
+        if not self.can_undo():
+            return False
+        self._history_index -= 1
+        snap = self._history[self._history_index]
+        with self.suppress_history():
+            self._restore_from_history(snap)
+        self._emit_dirty_if_changed()
+        return True
+
+    def redo(self) -> bool:
+        """Step one state forwards. Returns True on success."""
+        if not self.can_redo():
+            return False
+        self._history_index += 1
+        snap = self._history[self._history_index]
+        with self.suppress_history():
+            self._restore_from_history(snap)
+        self._emit_dirty_if_changed()
+        return True
+
+    def is_dirty(self) -> bool:
+        if self._clean_index < 0:
+            return True  # baseline lost (e.g. stack overflowed past it)
+        return self._history_index != self._clean_index
+
+    def mark_clean(self) -> None:
+        """Pin the current state as the new clean baseline (post-save)."""
+        self._clean_index = self._history_index
+        self._emit_dirty_if_changed()
+
+    def reset_history(self, initial_snapshot: Optional[Dict[str, Any]] = None) -> None:
+        """Wipe the undo stack and seed it with a fresh clean baseline.
+
+        Called after programmatic loads (open file, reset template, backend
+        layer restore) so the history does not carry state from whatever
+        canvas content was showing before the load.
+        """
+        if initial_snapshot is None:
+            try:
+                initial_snapshot = self._snapshot_for_history()
+            except Exception:
+                initial_snapshot = {}
+        self._history = [initial_snapshot] if initial_snapshot else []
+        self._history_index = 0 if self._history else -1
+        self._clean_index = self._history_index
+        self._emit_dirty_if_changed()
+
+    def export_history_state(self) -> Dict[str, Any]:
+        """Serialize the undo stack so it can be stashed per-file/per-layer."""
+        return {
+            "history": list(self._history),
+            "history_index": self._history_index,
+            "clean_index": self._clean_index,
+        }
+
+    def import_history_state(self, state: Optional[Dict[str, Any]]) -> None:
+        """Restore a previously exported history state."""
+        if not state:
+            self.reset_history()
+            return
+        self._history = list(state.get("history") or [])
+        self._history_index = int(state.get("history_index", -1))
+        self._clean_index = int(state.get("clean_index", -1))
+        # Clamp in case the serialized state is stale.
+        if self._history_index >= len(self._history):
+            self._history_index = len(self._history) - 1
+        if self._clean_index >= len(self._history):
+            self._clean_index = -1
+        self._emit_dirty_if_changed()
+
+    def _emit_dirty_if_changed(self) -> None:
+        dirty = self.is_dirty()
+        if dirty != self._last_emitted_dirty:
+            self._last_emitted_dirty = dirty
+            try:
+                self.content_changed.emit(dirty)
+            except Exception:
+                pass
 
     def set_code_editor(self, editor):
         """Set code editor reference"""
@@ -1534,6 +1784,8 @@ class GraphScene(QGraphicsScene):
             return get_node_color_pair("logic", fallback_start, fallback_end)
         if any(k in name_l for k in ("condition", "compare", "checkstate", "check state")):
             return get_node_color_pair("condition", fallback_start, fallback_end)
+        if any(k in name_l for k in ("reactive loco", "reactive_loco", "reactive locomotion")):
+            return get_node_color_pair("transition", fallback_start, fallback_end)
         if any(k in name_l for k in ("action execution", "behavior", "executebehavior", "callservice", "sendcommand", "movetopose", "gripper", "triggerplugin", "abort", "cancel", "end", "start")):
             return get_node_color_pair("action", fallback_start, fallback_end)
         if any(k in name_l for k in ("sensor input", "readsensor", "sensor", "trigger", "event", "on event", "publishevent", "humanconfirm", "alert")):
@@ -1649,6 +1901,19 @@ class GraphScene(QGraphicsScene):
         pos = event.scenePos()
         item = self.itemAt(pos, self.views()[0].transform() if self.views() else None)
 
+        # Capture pre-drag positions of selected nodes so mouseReleaseEvent
+        # can decide whether to push an undo entry for the move. Only record
+        # positions on left-button presses that land on something selectable;
+        # other cases (e.g. right-click panning, port drags) ignore this.
+        self._drag_start_positions = {}
+        try:
+            if event.button() == Qt.LeftButton:
+                for sel in self.selectedItems():
+                    if isValid(sel) and sel.data(10) in ("node", "group"):
+                        self._drag_start_positions[id(sel)] = (sel, QPointF(sel.pos()))
+        except Exception:
+            self._drag_start_positions = {}
+
         # Check if clicked on connection marker (endpoint)
         if item and item.data(0) == "connection_marker":
             connection = item.data(2)
@@ -1707,6 +1972,7 @@ class GraphScene(QGraphicsScene):
                 self._finish_reconnection(target_port)
             else:
                 self._cancel_reconnection()
+            self._drag_start_positions = {}
             return
 
         if self._temp_connection:
@@ -1718,9 +1984,30 @@ class GraphScene(QGraphicsScene):
             else:
                 self._cancel_connection()
 
+            self._drag_start_positions = {}
             return
 
         super().mouseReleaseEvent(event)
+
+        # Detect node/group drag: compare recorded pre-drag positions with
+        # current positions. If any item moved by more than a pixel, count it
+        # as a single undoable step. This catches both plain node drags and
+        # multi-selection moves in one entry.
+        moved = False
+        try:
+            for _key, (item, old_pos) in (self._drag_start_positions or {}).items():
+                if not isValid(item):
+                    continue
+                delta = item.pos() - old_pos
+                if abs(delta.x()) > 0.5 or abs(delta.y()) > 0.5:
+                    moved = True
+                    break
+        except Exception:
+            moved = False
+        finally:
+            self._drag_start_positions = {}
+        if moved:
+            self._touch_content()
 
     def _cancel_sub_dot_tooltip(self):
         """Stop pending sub_dot tooltip and hide active tooltip."""
@@ -1750,29 +2037,30 @@ class GraphScene(QGraphicsScene):
         if not self._is_port(port_item):
             self._cancel_sub_dot_tooltip()
             return
-        meta = self._port_meta(port_item)
-        if meta.get("dot_kind") != "sub_dot" or meta.get("io") != "in":
-            self._cancel_sub_dot_tooltip()
-            return
         self._schedule_sub_dot_tooltip(port_item, scene_pos)
 
+    @staticmethod
+    def _port_tooltip_text(meta: Dict[str, Any]) -> str:
+        """Build human-readable tooltip text for a port."""
+        data_type = _normalize_data_type(meta.get("data_type", "any"))
+        max_conn = meta.get("max_connections")
+        if max_conn is not None and max_conn < 0:
+            return f"Fan-In  [{data_type}]"
+        return data_type
+
     def _show_sub_dot_tooltip(self):
-        """Render tooltip for sub_dot input port after delayed hover."""
+        """Render tooltip for a port after delayed hover."""
         port_item = self._sub_dot_tooltip_port
         if not port_item or not isValid(port_item):
             self._cancel_sub_dot_tooltip()
             return
         meta = self._port_meta(port_item)
-        if meta.get("dot_kind") != "sub_dot" or meta.get("io") != "in":
-            self._cancel_sub_dot_tooltip()
-            return
-        data_type = _normalize_data_type(meta.get("data_type", "any"))
         if not self.views():
             self._cancel_sub_dot_tooltip()
             return
         view = self.views()[0]
         global_pos = view.mapToGlobal(view.mapFromScene(self._sub_dot_tooltip_scene_pos))
-        QToolTip.showText(global_pos, f"Data Type: {data_type}", view)
+        QToolTip.showText(global_pos, self._port_tooltip_text(meta), view)
         self._sub_dot_tooltip_visible = True
 
     def keyPressEvent(self, event):
@@ -1804,6 +2092,41 @@ class GraphScene(QGraphicsScene):
                 self.ungroup_selected_groups()
             else:
                 self.group_selected_nodes()
+            event.accept()
+            return
+
+        # ── Undo (Ctrl+Z) / Redo (Ctrl+Y or Ctrl+Shift+Z) ───────────────
+        # Only act on the canvas when the focus is NOT inside a text-editing
+        # widget — those widgets already have their own native undo stacks
+        # and stealing the shortcut would break editing inside node params.
+        elif event.key() == Qt.Key_Z and event.modifiers() & Qt.ControlModifier:
+            focused = QApplication.focusWidget()
+            if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                super().keyPressEvent(event)
+                return
+            if isinstance(focused, QComboBox) and focused.isEditable():
+                le = focused.lineEdit()
+                if le is not None and le.hasFocus():
+                    super().keyPressEvent(event)
+                    return
+            if event.modifiers() & Qt.ShiftModifier:
+                self.redo()
+            else:
+                self.undo()
+            event.accept()
+            return
+
+        elif event.key() == Qt.Key_Y and event.modifiers() & Qt.ControlModifier:
+            focused = QApplication.focusWidget()
+            if isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                super().keyPressEvent(event)
+                return
+            if isinstance(focused, QComboBox) and focused.isEditable():
+                le = focused.lineEdit()
+                if le is not None and le.hasFocus():
+                    super().keyPressEvent(event)
+                    return
+            self.redo()
             event.accept()
             return
 
@@ -1880,6 +2203,10 @@ class GraphScene(QGraphicsScene):
         # Regenerate code
         self.regenerate_code()
 
+        # Dirty + undo history
+        if deleted_nodes or deleted_connections:
+            self._touch_content()
+
     def duplicate_selected_nodes(self):
         """Duplicate currently selected (non-protected) nodes, placing copies offset by (30, 30)."""
         selected = [item for item in self.selectedItems()
@@ -1925,6 +2252,7 @@ class GraphScene(QGraphicsScene):
 
         self.regenerate_code()
         log_info(f"Duplicated {len(nodes_to_dup)} node(s)")
+        self._touch_content()
 
     # ------------------------------------------------------------------
     # Group / Ungroup
@@ -1968,6 +2296,7 @@ class GraphScene(QGraphicsScene):
         group_item.setSelected(True)
 
         log_info(f"Grouped {len(candidates)} node(s) into group {gid!r} ({group_item._title!r})")
+        self._touch_content()
         return group_item
 
     def ungroup_selected_groups(self):
@@ -1998,6 +2327,8 @@ class GraphScene(QGraphicsScene):
                 self.removeItem(g_item)
             self._groups.pop(gid, None)
             log_info(f"Ungrouped group {gid!r}")
+
+        self._touch_content()
 
     def _fit_group_to_members(self, group_item) -> None:
         """Resize and reposition group_item to tightly enclose its member nodes.
@@ -2243,11 +2574,14 @@ class GraphScene(QGraphicsScene):
 
         log_info("Reconnection successful")
         self.regenerate_code()
+        # Dirty + undo history
+        self._touch_content()
 
     def _cancel_reconnection(self):
         """Cancel reconnection 鈥?dropping without a target deletes the connection."""
         conn = self._reconnect_connection
         original_port = self._reconnect_original_port
+        removed_conn = False
 
         if conn:
             # Restore port ref temporarily so _detach_connection can clean both ends
@@ -2261,6 +2595,7 @@ class GraphScene(QGraphicsScene):
             if conn.scene() is not None:
                 self.removeItem(conn)
             log_debug("Reconnection cancelled 鈥?connection removed")
+            removed_conn = True
 
         self._reconnect_connection = None
         self._reconnect_original_port = None
@@ -2273,6 +2608,9 @@ class GraphScene(QGraphicsScene):
         self._reconnecting = False
         self._reset_connection_preview()
         self.regenerate_code()
+        # Drop-to-empty is a destructive edit (the old connection is gone).
+        if removed_conn:
+            self._touch_content()
 
     def _start_connection(self, port_item, pos):
         """Start creating connection"""
@@ -2343,6 +2681,9 @@ class GraphScene(QGraphicsScene):
 
         # Update code
         self.regenerate_code()
+
+        # Dirty + undo history
+        self._touch_content()
 
     def _cancel_connection(self):
         """Cancel connection"""
@@ -2643,6 +2984,101 @@ class GraphScene(QGraphicsScene):
             if isValid(item) and item.data(10) == "node" and item.data(12) == node_id:
                 return item
         return None
+
+    # ------------------------------------------------------------------
+    # P6-T5: region warning badges
+    # ------------------------------------------------------------------
+
+    # Marker text for region warning badges. A unicode triangle is more
+    # legible at small sizes than a full ⚠ glyph.
+    _REGION_BADGE_TEXT = "▲"
+
+    def set_region_warnings(self, warnings_by_node_id: dict) -> None:
+        """Display a yellow ▲ badge on every node whose id appears in
+        ``warnings_by_node_id``. Removes badges from any node that has
+        no entry. Tooltip on the node carries the joined warning
+        messages.
+
+        Args:
+            warnings_by_node_id: ``{node_id: [str, str, ...]}``. The
+                node id type matches whatever item.data(12) holds (int
+                or str). The validator emits string node ids; the
+                canvas stores int ids — callers should normalize via
+                ``int(...)`` when feeding the dict in.
+        """
+        # Sweep + apply. We do BOTH passes in one loop because the same
+        # node item satisfies "needs badge" or "needs cleanup" exactly
+        # once, and the items list is not huge.
+        for item in list(self.items()):
+            if not isValid(item):
+                continue
+            if item.data(10) != "node":
+                continue
+            node_id = item.data(12)
+            warnings = warnings_by_node_id.get(node_id) or warnings_by_node_id.get(str(node_id))
+            self._apply_region_badge(item, warnings)
+
+    def clear_region_warnings(self) -> None:
+        """Remove every region warning badge from the canvas."""
+        self.set_region_warnings({})
+
+    def _apply_region_badge(self, node_item, warnings) -> None:
+        """Attach or remove a region warning badge child on *node_item*."""
+        try:
+            existing = getattr(node_item, "_region_badge_item", None)
+        except Exception:
+            existing = None
+
+        if not warnings:
+            if existing is not None:
+                try:
+                    if isValid(existing):
+                        self.removeItem(existing)
+                except Exception:
+                    pass
+                try:
+                    node_item._region_badge_item = None
+                except Exception:
+                    pass
+                try:
+                    node_item.setToolTip("")
+                except Exception:
+                    pass
+            return
+
+        # Reuse the existing badge child if we already created one.
+        if existing is not None and isValid(existing):
+            badge = existing
+        else:
+            from PySide6.QtWidgets import QGraphicsSimpleTextItem
+            badge = QGraphicsSimpleTextItem(self._REGION_BADGE_TEXT, parent=node_item)
+            try:
+                badge.setBrush(QColor(250, 200, 60))
+                f = QFont()
+                f.setPointSize(13)
+                f.setBold(True)
+                badge.setFont(f)
+            except Exception:
+                pass
+            try:
+                node_item._region_badge_item = badge
+            except Exception:
+                pass
+
+        # Anchor the badge to the top-right of the node rect.
+        try:
+            br = node_item.boundingRect()
+            badge.setPos(br.right() - 18, br.top() + 2)
+        except Exception:
+            pass
+
+        # Tooltip carries the joined warning messages so a hover surfaces
+        # the actual problem text.
+        try:
+            tooltip = "Region warnings:\n" + "\n".join(f"• {w}" for w in warnings)
+            node_item.setToolTip(tooltip)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Protocol sub_dot border states (Step 4)
@@ -3104,16 +3540,20 @@ class GraphScene(QGraphicsScene):
         ):
             resolved_channel = channel or ("flow" if slot in _FLOW_SLOTS or slot.startswith("out_elif") or slot.startswith("branch_") or slot.startswith("case_") else "data")
             resolved_dot = dot_kind or ("main_dot" if resolved_channel == "flow" else "sub_dot")
+            resolved_max = max_connections
+            if resolved_max is None and io == "in":
+                resolved_max = 1
+            is_fan_in = (resolved_max is not None and resolved_max < 0)
             resolved_radius = radius if radius is not None else (port_r if resolved_dot == "main_dot" else 4)
-            p = QGraphicsEllipseItem(-resolved_radius, -resolved_radius, resolved_radius * 2, resolved_radius * 2, rect)
+            if is_fan_in:
+                resolved_radius += 1
+            port_cls = _FanInPortItem if is_fan_in else QGraphicsEllipseItem
+            p = port_cls(-resolved_radius, -resolved_radius, resolved_radius * 2, resolved_radius * 2, rect)
             p.setPos(x, y)
             p.setData(0, "port")
             p.setData(1, io)
             p.setData(2, [])
             p.setData(3, slot)
-            resolved_max = max_connections
-            if resolved_max is None and io == "in":
-                resolved_max = 1
             p.setData(self._port_meta_key, {
                 "channel": resolved_channel,
                 "data_type": data_type,
@@ -3733,7 +4173,8 @@ class GraphScene(QGraphicsScene):
             condition_set.button.clicked.connect(lambda: self._update_node_params(rect))
 
         elif name == "Start":
-            # Start node: brand picker (row 1) + model picker (row 2) + flow_out
+            # Start node: brand picker (row 1) + model picker (row 2)
+            #             + field picker (row 3, v1.4) + flow_out
             brand_items = list(list_brand_items())
             if not brand_items:
                 brand_items = [("unitree", "Unitree")]
@@ -3744,7 +4185,7 @@ class GraphScene(QGraphicsScene):
                 initial_brand_id = brand_items[0][0]
             model_list = get_model_ids(initial_brand_id) or ["go2"]
 
-            # Row 1 鈥?Brand
+            # Row 1 — Brand
             brand_row, brand_picker_widget = _make_combo_setting_row(
                 "brand_row",
                 tr("node_content.start_brand_label", "Brand"),
@@ -3759,7 +4200,7 @@ class GraphScene(QGraphicsScene):
             brand_combo.setCurrentIndex(brand_idx if brand_idx >= 0 else 0)
             self._robot_brand = initial_brand_id
 
-            # Row 2 鈥?Model
+            # Row 2 — Model
             model_row, model_picker_widget = _make_combo_setting_row(
                 "model_row",
                 tr("node_content.start_model_label", "Model"),
@@ -3774,13 +4215,65 @@ class GraphScene(QGraphicsScene):
                 model_combo.setCurrentIndex(0)
                 self._robot_type = model_combo.currentText()
 
+            # Row 3 — Field (v1.4: mission_design.yaml — field selection
+            # lives on the StartNode itself, not as a separate node).
+            # Lists project-local + shared fields via field_loader; the
+            # active project (when set via project_session) wins on
+            # name collisions. Falls back to ["flat_ground"] when no
+            # field library is reachable so the row never disappears.
+            try:
+                from src.system.runtime.simulation.mujoco import (
+                    list_all_fields,
+                )
+                from src.system.core import project_session
+                _proj_root = project_session.get_active_project_root()
+                _field_choices = list_all_fields(_proj_root) or ["flat_ground"]
+            except Exception:
+                _field_choices = ["flat_ground"]
+            if "flat_ground" not in _field_choices:
+                _field_choices = ["flat_ground"] + _field_choices
+            field_row, field_picker_widget = _make_combo_setting_row(
+                "field_row",
+                tr("node_content.start_field_label", "Field"),
+                items=_field_choices,
+                show_left_dot=False,
+                show_right_dot=False,
+            )
+            field_combo = field_picker_widget.combo
+            # Default selection: "flat_ground" unless the StartNode
+            # already has a different field_id stamped on it.
+            _initial_field = getattr(self, "_start_field_id", "") or "flat_ground"
+            if _initial_field in _field_choices:
+                field_combo.setCurrentText(_initial_field)
+            else:
+                field_combo.setCurrentIndex(0)
+
+            # Row 4 — Render (v1.5: viewer toggle)
+            # 2-item combo doubles as a checkbox without a new widget
+            # type. Default "On" — interactive Mission canvases get
+            # the MuJoCo passive viewer; pick "Off" to run headless.
+            _render_choices = ["On", "Off"]
+            render_row, render_picker_widget = _make_combo_setting_row(
+                "render_row",
+                tr("node_content.start_render_label", "Render"),
+                items=_render_choices,
+                show_left_dot=False,
+                show_right_dot=False,
+            )
+            render_combo = render_picker_widget.combo
+            _initial_render = getattr(self, "_start_render_enabled", True)
+            render_combo.setCurrentText("On" if _initial_render else "Off")
+
             flow_out = _mk_port(w, h / 2, "out", "flow_out", radius=6, channel="flow")
 
             def _sync_ports_start():
                 if not isValid(rect):
                     return
                 w_now = rect.rect().width()
-                y = _port_y(model_row)
+                # Anchor flow_out to the lowest content row so the port
+                # stays at the visual edge of the node body regardless
+                # of how tall the editor grew.
+                y = _port_y(render_row) or _port_y(field_row) or _port_y(model_row)
                 if y is not None:
                     flow_out.setPos(w_now, y)
 
@@ -3793,6 +4286,8 @@ class GraphScene(QGraphicsScene):
             resize_ports_cb = _sync_ports_start
             rect._brand_picker = brand_combo
             rect._model_picker = model_combo
+            rect._field_picker = field_combo   # v1.4: field_id selector
+            rect._render_picker = render_combo   # v1.5: viewer toggle
             # Keep legacy alias for backward compat in serialization helpers
             rect._is_protected = True
             header_title.setText("START")
@@ -3832,8 +4327,25 @@ class GraphScene(QGraphicsScene):
                 self._sync_node_parameters(rect)
                 self.regenerate_code()
 
+            def _on_field_changed(text):
+                # v1.4: track the selected field_id on the scene so the
+                # canvas-wide CanvasToIR conversion picks it up via
+                # _sync_node_parameters / serialize_workflow.
+                self._start_field_id = str(text or "flat_ground")
+                self._sync_node_parameters(rect)
+                self.regenerate_code()
+
+            def _on_render_changed(text):
+                # v1.5: viewer toggle. Stored as a bool on the scene so
+                # serialize_workflow can write it into the canvas json.
+                self._start_render_enabled = (str(text or "On").strip().lower() == "on")
+                self._sync_node_parameters(rect)
+                self.regenerate_code()
+
             brand_combo.currentTextChanged.connect(_on_brand_changed)
             model_combo.currentTextChanged.connect(_on_model_changed)
+            field_combo.currentTextChanged.connect(_on_field_changed)
+            render_combo.currentTextChanged.connect(_on_render_changed)
 
         elif name == "End":
             # End node: only flow_in, no internal components
@@ -5787,7 +6299,7 @@ class GraphScene(QGraphicsScene):
             ev_thresh_setting.input_edit.textChanged.connect(lambda _t: _on_ev_change())
             ev_det_setting.combo.currentIndexChanged.connect(lambda _i: _on_ev_change())
 
-        elif name == "Train":
+        elif name == "SB3 Train":
             # Minimal shell: input port (train_config) + output port (result)
             train_tag_row, train_tag_layout = _make_row("none")
             train_tag_layout.addWidget(make_tag("train_config \u2192 result", self._tag_style))
@@ -5964,6 +6476,9 @@ class GraphScene(QGraphicsScene):
 
         self.regenerate_code()
         log_info(f"Node created: {name} (ID: {node_id})")
+
+        # Dirty + undo history (no-op during bulk load / suppress_history)
+        self._touch_content()
 
         return rect
 
@@ -6280,7 +6795,7 @@ class GraphScene(QGraphicsScene):
             if pid_inp:
                 logic_node.set_parameter("policy_id_out", pid_inp.text())
 
-        elif name == "Train":
+        elif name == "SB3 Train":
             pass  # No user-editable parameters in S1
 
         elif name == "Task Config":
@@ -6430,8 +6945,15 @@ class GraphScene(QGraphicsScene):
         if not node_item or not isValid(node_item):
             return None
         resolved_dot = dot_kind or ("main_dot" if channel == "flow" else "sub_dot")
+        resolved_max = max_connections
+        if resolved_max is None and io == "in":
+            resolved_max = 1
+        is_fan_in = (resolved_max is not None and resolved_max < 0)
         resolved_radius = radius if radius is not None else (6 if resolved_dot == "main_dot" else 4)
-        p = QGraphicsEllipseItem(
+        if is_fan_in:
+            resolved_radius += 1
+        port_cls = _FanInPortItem if is_fan_in else QGraphicsEllipseItem
+        p = port_cls(
             -resolved_radius, -resolved_radius, resolved_radius * 2, resolved_radius * 2, node_item
         )
         p.setPos(x, y)
@@ -6439,9 +6961,6 @@ class GraphScene(QGraphicsScene):
         p.setData(1, io)
         p.setData(2, [])
         p.setData(3, slot)
-        resolved_max = max_connections
-        if resolved_max is None and io == "in":
-            resolved_max = 1
         p.setData(self._port_meta_key, {
             "channel": channel,
             "data_type": _normalize_data_type(data_type),
@@ -7099,6 +7618,12 @@ class GraphScene(QGraphicsScene):
 
     @staticmethod
     def _is_data_type_compatible(source_type: str, target_type: str) -> bool:
+        # IL training port compatibility: fan-in and semantic aliases.
+        _il_compat = {
+            ("actuator_config", "actuator_configs"),
+            ("velocity_command","command_source"),
+            ("action_entity",   "action_source"),
+        }
         src = _normalize_data_type(source_type)
         tgt = _normalize_data_type(target_type)
         if src == tgt:
@@ -7108,6 +7633,9 @@ class GraphScene(QGraphicsScene):
             return False
         # "any" behaves as wildcard for regular data channels.
         if src == "any" or tgt == "any":
+            return True
+        # IL training port fan-in / semantic alias compatibility.
+        if (src, tgt) in _il_compat:
             return True
         return False
 
@@ -7916,6 +8444,16 @@ class GraphScene(QGraphicsScene):
         finally:
             self._regenerating = False
 
+        # Mission-canvas dirty-state hook: the regenerate_code() path is the
+        # only unified flow for widget-driven parameter edits, so touching
+        # here gives us parameter-change dirty tracking without instrumenting
+        # every individual _on_*_change callback. Structural mutations
+        # (create/delete/connect/move/...) also call regenerate_code() but
+        # _touch_content has a snapshot dedup guard that prevents double
+        # entries. Load paths are protected upstream by ``_loading_workflow``
+        # (short-circuited above) and by ``suppress_history`` wrappers.
+        self._touch_content()
+
     def export_graph_data(self) -> Dict[str, Any]:
         """
         Export graph data as a Qt-independent dict for the compiler pipeline.
@@ -8111,9 +8649,13 @@ class GraphScene(QGraphicsScene):
                 }
                 node_entry["behavior_extension_notes"] = getattr(item, "_behavior_extension_notes", {})
 
-            # Start node: serialize brand and robot_type from pickers
+            # Start node: serialize brand, robot_type, field_id, and
+            # the v1.5 render_enabled viewer toggle. v1.4 collapsed
+            # actor + field selection onto StartNode itself.
             brand_combo = getattr(item, '_brand_picker', None)
             model_combo = getattr(item, '_model_picker', None)
+            field_combo = getattr(item, '_field_picker', None)
+            render_combo = getattr(item, '_render_picker', None)
             if brand_combo:
                 node_entry["robot_brand"] = (
                     brand_combo.currentData(Qt.ItemDataRole.UserRole) or brand_combo.currentText()
@@ -8121,6 +8663,12 @@ class GraphScene(QGraphicsScene):
             if model_combo:
                 node_entry["ui_selection"] = model_combo.currentText()
                 node_entry["robot_type"] = model_combo.currentText()
+            if field_combo:
+                node_entry["field_id"] = field_combo.currentText()
+            if render_combo:
+                node_entry["render_enabled"] = (
+                    str(render_combo.currentText() or "On").strip().lower() == "on"
+                )
 
             # ConditionSet text as ui_selection
             cond_set = getattr(item, '_condition_set', None)
@@ -8346,17 +8894,31 @@ class GraphScene(QGraphicsScene):
         Args:
             data: Workflow dict with nodes and connections.
         """
-        # Suppress regenerate_code during batch loading
-        self._loading_workflow = True
-        try:
-            self._load_workflow_impl(data)
-        finally:
-            self._loading_workflow = False
+        # Detect whether this load is the user opening a file (top-level) or
+        # an internal restore called from undo()/redo() (already inside a
+        # suppress_history frame). Only the top-level case should seed a
+        # fresh clean baseline — undo restores must keep the existing
+        # history/clean indices intact.
+        seed_baseline = self._history_suppress_depth == 0
 
-        # Single regenerate at the end
-        self.regenerate_code()
-        log_info(f"Workflow loaded: {len(data.get('nodes', []))} nodes, "
-                 f"{len(data.get('connections', []))} connections")
+        # Suppress history pushes for the entire load path.
+        with self.suppress_history():
+            # Suppress regenerate_code during batch loading
+            self._loading_workflow = True
+            try:
+                self._load_workflow_impl(data)
+            finally:
+                self._loading_workflow = False
+
+            # Single regenerate at the end
+            self.regenerate_code()
+            log_info(f"Workflow loaded: {len(data.get('nodes', []))} nodes, "
+                     f"{len(data.get('connections', []))} connections")
+
+        if seed_baseline:
+            # Top-level load: the freshly loaded canvas becomes the new
+            # clean baseline and wipes any stale undo stack.
+            self.reset_history()
 
     def _apply_node_data(self, rect, node_data: Dict[str, Any]):
         """Apply serialized node_data parameters to an existing node item.
@@ -8706,6 +9268,26 @@ class GraphScene(QGraphicsScene):
             if idx >= 0:
                 model_combo.setCurrentIndex(idx)
             self._robot_type = robot_type_val
+
+        # v1.4: restore field_id selection. Tolerates the legacy
+        # ``default_field_id`` key for canvases saved pre-v1.4.
+        field_val = node_data.get("field_id") or node_data.get("default_field_id")
+        field_combo = getattr(rect, '_field_picker', None)
+        if field_val and field_combo:
+            idx = field_combo.findText(str(field_val))
+            if idx >= 0:
+                field_combo.setCurrentIndex(idx)
+            self._start_field_id = str(field_val)
+
+        # v1.5: restore render_enabled toggle. Missing key → True
+        # (matches the v1.5 default for legacy canvases).
+        render_combo = getattr(rect, '_render_picker', None)
+        if render_combo is not None:
+            render_val = node_data.get("render_enabled", True)
+            if isinstance(render_val, str):
+                render_val = render_val.strip().lower() in ("true", "1", "yes", "on")
+            render_combo.setCurrentText("On" if bool(render_val) else "Off")
+            self._start_render_enabled = bool(render_val)
 
     def _load_workflow_impl(self, data: Dict[str, Any]):
         """Internal implementation of workflow loading (signals suppressed)."""

@@ -29,32 +29,163 @@ echo [install] Project root: %PROJECT_ROOT%
 :: -------------------------------------------------------
 :: Step 1: resolve Python 3.11 for env creation
 :: -------------------------------------------------------
+:: Strategy (in order, most reliable first):
+::   1) py -3.11 launcher (official Windows multi-version tool)
+::   2) Common install locations (per-user, all-users, C:\Python311)
+::   3) PATH commands: python, python3.11, python3
 
-:: Use system Python 3.11 only to create/repair .venv311.
-set "SYS_PY311=%LocalAppData%\Programs\Python\Python311\python.exe"
-if exist "!SYS_PY311!" (
-    set "BASE_PYTHON=!SYS_PY311!"
-    set "INSTALL_MODE=venv311"
-    echo [install] Mode: project-local .venv311 via system Python 3.11
-    goto :base_python_found
-)
+set "INSTALL_MODE=venv311"
+set "BASE_PYTHON="
 
-:: Try PATH
-where python >nul 2>&1
+:: 1) py launcher
+where py >nul 2>&1
 if not errorlevel 1 (
-    for /f "tokens=*" %%p in ('where python 2^>nul') do (
-        "%%p" -c "import sys; exit(0 if sys.version_info[:2]==(3,11) else 1)" >nul 2>&1
-        if not errorlevel 1 (
+    py -3.11 -c "import sys" >nul 2>&1
+    if not errorlevel 1 (
+        for /f "delims=" %%p in ('py -3.11 -c "import sys; print(sys.executable)" 2^>nul') do (
             set "BASE_PYTHON=%%p"
-            set "INSTALL_MODE=venv311"
-            echo [install] Mode: project-local .venv311 via Python 3.11 in PATH
+            echo [install] Mode: project-local .venv311 via py -3.11 launcher
             goto :base_python_found
         )
     )
 )
 
-echo [ERROR] Python 3.11 not found.
-echo [ERROR] Install Python 3.11 for the current user.
+:: 2) Common install locations
+for %%P in (
+    "%LocalAppData%\Programs\Python\Python311\python.exe"
+    "%ProgramFiles%\Python311\python.exe"
+    "%ProgramFiles(x86)%\Python311\python.exe"
+    "C:\Python311\python.exe"
+    "C:\Python\Python311\python.exe"
+) do (
+    if exist %%P (
+        set "BASE_PYTHON=%%~P"
+        echo [install] Mode: project-local .venv311 via %%~P
+        goto :base_python_found
+    )
+)
+
+:: 3) PATH commands
+for %%C in (python python3.11 python3) do (
+    where %%C >nul 2>&1
+    if not errorlevel 1 (
+        for /f "delims=" %%p in ('where %%C 2^>nul') do (
+            "%%p" -c "import sys; exit(0 if sys.version_info[:2]==(3,11) else 1)" >nul 2>&1
+            if not errorlevel 1 (
+                set "BASE_PYTHON=%%p"
+                echo [install] Mode: project-local .venv311 via %%C in PATH
+                goto :base_python_found
+            )
+        )
+    )
+)
+
+:: 4) Conda environments (base + envs) - scan common install roots
+set "CONDA_PY="
+set "CONDA_NAME="
+for %%R in (
+    "%USERPROFILE%\miniconda3"
+    "%USERPROFILE%\anaconda3"
+    "%USERPROFILE%\miniforge3"
+    "%USERPROFILE%\mambaforge"
+    "%ProgramData%\miniconda3"
+    "%ProgramData%\anaconda3"
+    "%ProgramData%\miniforge3"
+) do (
+    if not defined CONDA_PY (
+        if exist "%%~R\python.exe" (
+            "%%~R\python.exe" -c "import sys; exit(0 if sys.version_info[:2]==(3,11) else 1)" >nul 2>&1
+            if not errorlevel 1 (
+                set "CONDA_PY=%%~R\python.exe"
+                set "CONDA_NAME=%%~nxR-base"
+            )
+        )
+    )
+    if not defined CONDA_PY (
+        if exist "%%~R\envs" (
+            for /d %%E in ("%%~R\envs\*") do (
+                if not defined CONDA_PY (
+                    if exist "%%~E\python.exe" (
+                        "%%~E\python.exe" -c "import sys; exit(0 if sys.version_info[:2]==(3,11) else 1)" >nul 2>&1
+                        if not errorlevel 1 (
+                            set "CONDA_PY=%%~E\python.exe"
+                            set "CONDA_NAME=%%~nxE"
+                        )
+                    )
+                )
+            )
+        )
+    )
+)
+
+if defined CONDA_PY (
+    echo.
+    echo [install] Found conda environment "!CONDA_NAME!" with Python 3.11:
+    echo [install]   !CONDA_PY!
+    set /p "USE_CONDA=Use this conda environment to create .venv311? [y/N]: "
+    if /i "!USE_CONDA!"=="y" (
+        set "BASE_PYTHON=!CONDA_PY!"
+        echo [install] Mode: project-local .venv311 via conda env "!CONDA_NAME!"
+        goto :base_python_found
+    )
+    echo [install] Skipping conda environment.
+)
+
+:: 5) Offer to auto-download Python 3.11.9 (official installer, per-user, no admin)
+echo.
+echo [install] Python 3.11 not found on this system.
+set /p "DL_CONFIRM=Download and install Python 3.11.9 now? (~25 MB, per-user, no admin required) [y/N]: "
+if /i not "!DL_CONFIRM!"=="y" goto :install_failed
+
+set "DL_URL=https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+set "DL_DEST=%TEMP%\unitport-python-3.11.9-amd64.exe"
+echo [install] Downloading %DL_URL% ...
+
+where curl >nul 2>&1
+if not errorlevel 1 (
+    curl -fL --retry 3 -o "%DL_DEST%" "%DL_URL%"
+) else (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; try { Invoke-WebRequest -Uri '%DL_URL%' -OutFile '%DL_DEST%' -UseBasicParsing } catch { Write-Host $_.Exception.Message; exit 1 }"
+)
+if errorlevel 1 (
+    echo [ERROR] Download failed. Check network connectivity.
+    goto :install_failed
+)
+if not exist "%DL_DEST%" (
+    echo [ERROR] Downloaded file missing: %DL_DEST%
+    goto :install_failed
+)
+
+echo [install] Running Python 3.11.9 silent installer (per-user) ...
+"%DL_DEST%" /quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 Include_test=0 AssociateFiles=0 Shortcuts=0
+set "DL_RC=!errorlevel!"
+del "%DL_DEST%" >nul 2>&1
+if not "!DL_RC!"=="0" (
+    echo [ERROR] Python installer exited with code !DL_RC!
+    goto :install_failed
+)
+
+set "NEW_PY=%LocalAppData%\Programs\Python\Python311\python.exe"
+if not exist "!NEW_PY!" (
+    echo [ERROR] Install finished but python.exe not found at !NEW_PY!
+    goto :install_failed
+)
+set "BASE_PYTHON=!NEW_PY!"
+echo [install] Python 3.11.9 installed successfully.
+echo [install] Mode: project-local .venv311 via freshly installed Python 3.11.9
+goto :base_python_found
+
+:install_failed
+echo.
+echo [ERROR] Python 3.11 not available.
+echo [ERROR] UnitPort requires Python 3.11 specifically (not 3.10, 3.12, or 3.13).
+echo [ERROR]
+echo [ERROR] Install manually from:
+echo [ERROR]   - https://www.python.org/downloads/release/python-3119/
+echo [ERROR]   - Microsoft Store: search "Python 3.11"
+echo [ERROR]
+echo [ERROR] During installation, check "Add python.exe to PATH" and "py launcher".
+echo [ERROR] Then reopen the terminal and run install.bat again.
 exit /b 1
 
 :base_python_found

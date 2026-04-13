@@ -138,6 +138,15 @@ class NodeExecutor:
     )
 
     # Node types that need sim_env injected (Phase F — checkpoint-runner path).
+    #
+    # P3 (mission_design.yaml §5a): sim_env is now a first-class canvas port
+    # value produced by StartNode (and threaded through MjActorNode/MjFieldNode).
+    # The legacy "context-bridge" injection at _execute_node() survives ONLY as
+    # a fallback for canvases that lack an explicit edge — see
+    # _resolve_sim_env_for_behavior() which orders the sources as:
+    #   (1) inputs["sim_env"]      — port-based (primary)
+    #   (2) results[start].sim_env — auto-injection (backward-compat shim)
+    #   (3) context.scenario.sim_env — legacy bridge (last resort)
     _SIM_ENV_AWARE_TYPES: FrozenSet[str] = frozenset({"behavior"})
 
     # Output port names that identify a loop node.
@@ -182,6 +191,14 @@ class NodeExecutor:
         # Checked at the start of each node visit — None means no cancel check.
         self._cancel_fn = None
         self._cancelled: bool = False
+
+        # P3 (mission_design.yaml §5): per-behavior-node runtime diagnostics
+        # populated as we resolve sim_env for each behavior node visit.
+        # Keyed by node_id; values are dicts with keys
+        #   field_id / actor_id / sim_env_source / obs_remap_warnings.
+        # RuntimeEngine reads this after execute() and forwards into
+        # RuntimeResult.diagnostics[MISSION_RUNTIME_DIAGNOSTICS].
+        self._mission_runtime_diagnostics: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public graph-building API
@@ -284,6 +301,7 @@ class NodeExecutor:
         self._last_executed_count = 0
         self._loop_limit_exceeded = False
         self._cancelled = False   # Cycle 2 STAGE-06
+        self._mission_runtime_diagnostics = {}   # P3
         # Store callback for use by traversal helpers (closures access via self).
         self._node_status_callback = node_status_callback
 
@@ -393,9 +411,11 @@ class NodeExecutor:
                 _cb(node_id, "running")
 
             inputs = self._collect_inputs(node_id, results)
+            inputs = self._inject_sim_env_into_inputs(node, inputs, results, context)
             try:
                 output = self._execute_node(node, inputs, context)
                 results[node_id] = output
+                self._collect_obs_remap_warnings(node, output)
                 if is_failure_result(output):
                     log_error(f"node {node_id} output indicates failure: {output}")
                     if _cb is not None:
@@ -533,9 +553,11 @@ class NodeExecutor:
 
                     # Re-evaluate the loop condition for next iteration.
                     re_inputs = self._collect_inputs(node_id, results)
+                    re_inputs = self._inject_sim_env_into_inputs(node, re_inputs, results, context)
                     try:
                         current_output = self._execute_node(node, re_inputs, context)
                         results[node_id] = current_output
+                        self._collect_obs_remap_warnings(node, current_output)
                     except Exception as exc:
                         log_error(
                             f"loop re-evaluation at {node_id} failed: {exc}"
@@ -808,9 +830,11 @@ class NodeExecutor:
             if _cb is not None:
                 _cb(node_id, "running")
             inputs = self._collect_inputs(node_id, results)
+            inputs = self._inject_sim_env_into_inputs(node, inputs, results, context)
             try:
                 output = self._execute_node(node, inputs, context)
                 results[node_id] = output
+                self._collect_obs_remap_warnings(node, output)
                 self._last_executed_count += 1
                 if is_failure_result(output):
                     log_error(f"node {node_id} output indicates failure: {output}")
@@ -875,6 +899,189 @@ class NodeExecutor:
                         val = val["value"]
                     inputs[to_port] = val
         return inputs
+
+    # ------------------------------------------------------------------
+    # P3: sim_env resolution for behavior nodes
+    # ------------------------------------------------------------------
+
+    def _resolve_sim_env_for_behavior(
+        self,
+        node_id: str,
+        inputs: Dict[str, Any],
+        results: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Tuple[Any, str]:
+        """Locate the sim_env for a behavior node, in priority order.
+
+        Per principle P6 (single sim_env per canvas) + the v1.4 design
+        decision to fold actor + field selection into StartNode itself,
+        the StartNode → BehaviorNode sim_env relationship is IMPLICIT
+        infrastructure — there is intentionally no visible canvas edge
+        for it (just like ``RobotContext.set_robot_type`` is an
+        implicit side effect of StartNode that downstream nodes read
+        without an explicit wire). The "from_start" source is therefore
+        the CANONICAL path, not a backward-compat shim.
+
+        Sources (in priority order):
+          1. ``inputs["sim_env"]`` — explicit port edge. In practice
+             reserved for tests / scripted callers; the canvas does
+             not currently render a visible sim_env port.
+          2. ``"from_start"`` — scan ``results`` for any upstream node
+             whose output dict carries a ``sim_env`` key (typically
+             the canvas's StartNode). THIS IS THE NORMAL PATH for
+             every interactive Mission canvas. Silent — no warning.
+          3. ``"bridge"`` — ``context["scenario"]["sim_env"]`` or
+             ``context["sim_env"]``. Used by tests that pre-inject a
+             sim_env via the scenario dict.
+
+        Returns ``(sim_env, source_label)`` where source_label is one
+        of ``"port"``, ``"from_start"``, ``"bridge"``, or ``""``. The
+        label feeds the diagnostics dict so you can still tell HOW
+        the sim_env reached BehaviorNode at debug time, even though
+        the normal path no longer emits a warning.
+        """
+        # (1) Explicit canvas port edge (rare — no visible UI port)
+        sim_env = inputs.get("sim_env") if isinstance(inputs, dict) else None
+        if sim_env is not None:
+            return sim_env, "port"
+
+        # (2) Canonical path: borrow sim_env from any upstream node
+        # that produced one. In a normal Mission canvas this is the
+        # StartNode. NO warning — this is the intended flow.
+        for _upstream_id, upstream_out in results.items():
+            if not isinstance(upstream_out, dict):
+                continue
+            candidate = upstream_out.get("sim_env")
+            if candidate is not None:
+                return candidate, "from_start"
+
+        # (3) Legacy / test context bridge
+        sim_env = (
+            (context.get("scenario") or {}).get("sim_env")
+            if isinstance(context, dict)
+            else None
+        )
+        if sim_env is None and isinstance(context, dict):
+            sim_env = context.get("sim_env")
+        if sim_env is not None:
+            return sim_env, "bridge"
+
+        return None, ""
+
+    @staticmethod
+    def _node_needs_sim_env(node: Dict[str, Any]) -> bool:
+        """True for the new BehaviorNode (type='behavior').
+
+        Does NOT match the legacy ``behavior_call`` (BehaviorSubgraphInvoker
+        path) — that runs through ``_execute_behavior_node`` and has its
+        own dispatch contract.
+        """
+        if not isinstance(node, dict):
+            return False
+        if node.get("type") == "behavior":
+            return True
+        # Some IR producers stash the schema_id under data.schema_id; check
+        # both so we cover canvas-origin nodes too.
+        data = node.get("data") or {}
+        return str(data.get("schema_id", "")).strip().lower() == "behavior"
+
+    def _inject_sim_env_into_inputs(
+        self,
+        node: Dict[str, Any],
+        inputs: Dict[str, Any],
+        results: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Side-effect: ensures BehaviorNode inputs carry a live sim_env.
+
+        Called right after :meth:`_collect_inputs` at every node-visit
+        site so the BehaviorNode never fails BUG-1 fallthrough. Also
+        records per-node diagnostics for the RuntimeResult.
+
+        For non-behavior nodes this is a no-op (just returns ``inputs``).
+        """
+        if not self._node_needs_sim_env(node):
+            return inputs
+        sim_env, source = self._resolve_sim_env_for_behavior(
+            node_id=node.get("id", ""),
+            inputs=inputs,
+            results=results,
+            context=context,
+        )
+        if sim_env is not None and "sim_env" not in inputs:
+            inputs["sim_env"] = sim_env
+        self._record_behavior_runtime_diagnostics(
+            node_id=node.get("id", ""),
+            sim_env=sim_env,
+            source=source,
+        )
+        return inputs
+
+    def _record_behavior_runtime_diagnostics(
+        self,
+        node_id: str,
+        sim_env: Any,
+        source: str,
+    ) -> None:
+        """Populate the per-behavior diagnostics entry BEFORE node visit.
+
+        Pulls field_id / actor_id off the resolved sim_env (if it is an
+        :class:`MjSimEnv` — which it always is in the production path).
+        ``obs_remap_warnings`` starts empty here; the post-pass
+        :meth:`_collect_obs_remap_warnings` updates it from the
+        BehaviorNode's result dict after execute() returns.
+        """
+        field_id = ""
+        actor_id = ""
+        if sim_env is not None:
+            try:
+                field_spec = getattr(sim_env, "field_spec", None)
+                if field_spec is not None:
+                    field_id = str(getattr(field_spec, "field_id", "") or "")
+                actor_obj = getattr(sim_env, "actor", None)
+                if actor_obj is not None:
+                    actor_id = str(getattr(actor_obj, "robot_id", "") or "")
+            except Exception:
+                pass
+        self._mission_runtime_diagnostics[node_id] = {
+            "field_id": field_id,
+            "actor_id": actor_id,
+            "sim_env_source": source,
+            "obs_remap_warnings": [],
+        }
+
+    def _collect_obs_remap_warnings(
+        self,
+        node: Dict[str, Any],
+        output: Any,
+    ) -> None:
+        """P4 post-pass: pull ``obs_remap_warnings`` off the BehaviorNode
+        output and merge into the per-node diagnostics entry.
+
+        Called once per behavior-node visit AFTER _execute_node()
+        returns, regardless of success/failure (warnings are still
+        valuable on the load_failed path so users can see WHY the
+        manifest mismatch caused the failure).
+        """
+        if not self._node_needs_sim_env(node):
+            return
+        node_id = node.get("id", "")
+        if not node_id or not isinstance(output, dict):
+            return
+        result_block = output.get("result")
+        if not isinstance(result_block, dict):
+            return
+        warnings = result_block.get("obs_remap_warnings")
+        if not warnings:
+            return
+        entry = self._mission_runtime_diagnostics.setdefault(
+            node_id,
+            {"field_id": "", "actor_id": "", "sim_env_source": "", "obs_remap_warnings": []},
+        )
+        try:
+            entry["obs_remap_warnings"] = list(warnings)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Node dispatch (schema_id → registry lookup + execute)
@@ -973,8 +1180,15 @@ class NodeExecutor:
             if robot_model is not None:
                 logic_node.set_parameter("robot_model", robot_model)
 
-        # Inject sim_env for behavior nodes (Phase F checkpoint-runner path).
-        if registry_type in self._SIM_ENV_AWARE_TYPES:
+        # Inject sim_env for behavior nodes — LEGACY parameter-bridge path.
+        # P3: BehaviorNode now reads sim_env from inputs["sim_env"] first
+        # (port-based, populated by _inject_sim_env_into_inputs from
+        # StartNode's output). This block survives ONLY as a backstop
+        # for tests / scripted contexts that pass sim_env via the
+        # scenario dict instead of via canvas wiring. When the input
+        # port already has sim_env, we skip parameter injection so the
+        # BehaviorNode never sees two competing sources.
+        if registry_type in self._SIM_ENV_AWARE_TYPES and "sim_env" not in inputs:
             sim_env = (
                 (context.get("scenario") or {}).get("sim_env")
                 or context.get("sim_env")

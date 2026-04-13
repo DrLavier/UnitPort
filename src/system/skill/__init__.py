@@ -6,6 +6,8 @@ Central normalisation layer that makes heterogeneous behaviour policies
 
 from src.system.skill.skill_manifest import (
     ActionSpaceType,
+    CommandField,
+    CommandInterface,
     InferenceBackend,
     Postcondition,
     Precondition,
@@ -30,6 +32,8 @@ from src.system.skill.transition_library import (
 
 __all__ = [
     "ActionSpaceType",
+    "CommandField",
+    "CommandInterface",
     "infer_skill_manifest_fields",
     "InferenceBackend",
     "list_transitions",

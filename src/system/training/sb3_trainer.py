@@ -1476,7 +1476,7 @@ class SB3Trainer:
                               parameters only from checkpoint; optimizer starts
                               fresh, replay buffer is NOT restored
         """
-        if resume_mode == "resume_sb3" and base_asset_path:
+        if resume_mode in ("resume_sb3", "resume") and base_asset_path:
             if self._log:
                 self._log(
                     f"[SB3] resume_sb3 閳?loading checkpoint: {base_asset_path}"

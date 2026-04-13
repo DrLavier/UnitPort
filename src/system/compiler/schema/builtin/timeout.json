@@ -1,0 +1,30 @@
+{
+  "schema_id": "builtin.timeout",
+  "display_name": "Timeout",
+  "node_type": "timeout",
+  "kind": "timeout",
+  "ports": [
+    {"name": "flow_in",     "direction": "input",  "data_type": "void", "required": true},
+    {"name": "flow_out",    "direction": "output", "data_type": "void", "required": true},
+    {"name": "out_timeout", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {
+      "name": "duration",
+      "param_type": "float",
+      "default": 5.0,
+      "unit": "seconds",
+      "constraints": {"min_value": 0.0}
+    },
+    {
+      "name": "on",
+      "param_type": "string",
+      "default": "next_step",
+      "constraints": {"choices": ["next_step", "abort", "retry"]}
+    }
+  ],
+  "code_template": "",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

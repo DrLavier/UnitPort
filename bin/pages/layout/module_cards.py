@@ -268,6 +268,13 @@ class ModulePalette(QWidget):
         root.setExpanded(True)
         self.tree.addTopLevelItem(root)
 
+        # mission_design.yaml v1.4: the [setup → logic → output]
+        # taxonomy is a USER-FACING THINKING FRAMEWORK, not a literal
+        # canvas partition. The palette therefore stays as a flat
+        # alphabetical-ish grouping; the validator (region_validator.py)
+        # still emits soft warnings when wiring obviously violates the
+        # mental model. Mission runtime is consolidated on the
+        # StartNode itself — there are no separate Actor/Field nodes.
         groups = [
             (tr("modules.group_action", "Action"), [
                 "Sensor",

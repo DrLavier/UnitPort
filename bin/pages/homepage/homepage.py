@@ -417,6 +417,7 @@ class _NewProjectForm(QWidget):
             border=get_color("home_hover_bg", "#F6D393"),
         ))
         self._confirm_btn.clicked.connect(self._on_confirm)
+        self._input.returnPressed.connect(self._on_confirm)
 
         danger_bg = get_color("btn_danger_bg", "#c94f4f")
         self._cancel_btn = QPushButton("Cancel")

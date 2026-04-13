@@ -12,9 +12,9 @@ get_model) is preserved unchanged and continues to work without modification.
 
 from __future__ import annotations
 
-import importlib
 from typing import Any, Dict, Optional
 
+from src.system.brand_packages import get_brand_model_class
 from src.system.service.adapters.base_adapter import BaseAdapter
 from src.system.service.lifecycle import LifecycleReason, LifecycleResult
 from .mapper import ACTION_MAP, map_action
@@ -65,20 +65,9 @@ class UnitreeAdapter(BaseAdapter):
         return True
 
     def _create_model_instance(self, robot_type: str) -> Any:
-        """Try each module in order; return the first successfully instantiated model."""
-        module_names = [
-            "system.brand_packages.unitree",
-            "models.Unitree",  # legacy/test fallback
-        ]
-        for module_name in module_names:
-            try:
-                module = importlib.import_module(module_name)
-                model_class = getattr(module, "UnitreeModel", None)
-                if model_class is not None:
-                    return model_class(robot_type)
-            except Exception:
-                continue
-        return None
+        """Instantiate the Unitree brand model via the central brand registry."""
+        model_class = get_brand_model_class("unitree")
+        return model_class(robot_type)
 
     def get_model(self) -> Optional[Any]:
         """Compatibility helper for legacy callers that still need model instance."""
@@ -407,19 +396,157 @@ class UnitreeAdapter(BaseAdapter):
         model = self.get_model()
         return model is not None
 
+    # ── Phase V2: Reactive low-level control ─────────────────────────────
+
+    def accept_reactive_action(
+        self,
+        joint_position_targets: Any,
+        pd_params: Optional[Dict[str, Any]] = None,
+        *,
+        reorder_indices: Any = None,
+    ) -> Dict[str, Any]:
+        """Send low-level joint position targets for reactive policy deployment.
+
+        Uses Unitree SDK2 LowCmd to send per-joint targets with PD parameters.
+        The SDK expects commands at ~500 Hz; the policy runs at ~50 Hz, so the
+        caller should repeat the last command between policy steps.
+
+        Parameters
+        ----------
+        joint_position_targets:
+            Array of joint position targets (12 for Go2).
+        pd_params:
+            Optional dict with ``kp``, ``kd`` per-joint arrays.
+            If None, uses defaults from the model.
+        reorder_indices:
+            Index array to reorder policy joint order → SDK joint order.
+
+        Returns
+        -------
+        dict with "ok" and "reason" keys.
+        """
+        import numpy as np
+
+        targets = np.asarray(joint_position_targets, dtype=np.float32).flatten()
+
+        # Reorder from policy joint order to SDK joint order
+        if reorder_indices is not None:
+            inv_indices = np.argsort(reorder_indices)
+            targets = targets[inv_indices]
+
+        model = self.get_model()
+        if model is None:
+            return {"ok": False, "reason": _REASON_MODEL_UNAVAILABLE}
+
+        # Try low-level joint command API
+        low_cmd_fn = getattr(model, "set_low_level_cmd", None)
+        if callable(low_cmd_fn):
+            try:
+                kw = {}
+                if pd_params:
+                    kw["kp"] = pd_params.get("kp")
+                    kw["kd"] = pd_params.get("kd")
+                low_cmd_fn(targets, **kw)
+                return {"ok": True, "reason": ""}
+            except Exception as exc:
+                return {"ok": False, "reason": str(exc)}
+
+        # Fallback to general set_joint_command
+        ctrl_fn = getattr(model, "set_joint_command", None)
+        if callable(ctrl_fn):
+            try:
+                ctrl_fn(targets, mode="joint_position")
+                return {"ok": True, "reason": ""}
+            except Exception as exc:
+                return {"ok": False, "reason": str(exc)}
+
+        return {"ok": False, "reason": "No low-level command API available"}
+
+    def provide_observation(
+        self,
+        required_keys: list,
+    ) -> Dict[str, Any]:
+        """Read real sensor data for reactive policy observation assembly.
+
+        Maps observation term names to real hardware readings:
+          - base_lin_vel → IMU linear velocity
+          - base_ang_vel → IMU gyroscope
+          - projected_gravity → computed from IMU quaternion
+          - joint_pos → encoder positions
+          - joint_vel → encoder velocities
+
+        Parameters
+        ----------
+        required_keys:
+            List of observation term names needed by the policy.
+
+        Returns
+        -------
+        dict mapping each key to its sensor reading (numpy array or None).
+        """
+        import numpy as np
+
+        result: Dict[str, Any] = {}
+        sensor_data = self.get_sensor_data()
+        imu_data = sensor_data.get("imu", {})
+
+        for key in required_keys:
+            if key in ("base_lin_vel",):
+                # IMU linear velocity (body frame)
+                acc = imu_data.get("accelerometer", [0, 0, 0])
+                result[key] = np.array(acc, dtype=np.float32)[:3]
+            elif key in ("base_ang_vel",):
+                gyro = imu_data.get("gyroscope", [0, 0, 0])
+                result[key] = np.array(gyro, dtype=np.float32)[:3]
+            elif key == "projected_gravity":
+                quat = imu_data.get("quaternion", [1, 0, 0, 0])
+                result[key] = self._project_gravity_from_quat(quat)
+            elif key in ("joint_pos", "joint_pos_rel"):
+                qpos = sensor_data.get("qpos", [])
+                result[key] = np.array(qpos, dtype=np.float32)
+            elif key in ("joint_vel", "joint_vel_rel"):
+                qvel = sensor_data.get("qvel", [])
+                result[key] = np.array(qvel, dtype=np.float32)
+            else:
+                result[key] = None
+
+        return result
+
+    @staticmethod
+    def _project_gravity_from_quat(quat) -> Any:
+        """Project world gravity into body frame from quaternion [w,x,y,z].
+
+        Computes ``R^T @ [0, 0, -1]`` where R is the body-to-world rotation
+        built from the (w,x,y,z) quaternion. Equivalent to IsaacLab's
+        ``quat_rotate_inverse(quat, [0,0,-1])`` and matches the unit-vector
+        convention required by sim2sim policies (see SIM2SIM/report.yaml
+        rule_5_projected_gravity).
+
+        Closed form (derived from negating row 2 of R):
+            gx =  2 * (w*y - x*z)
+            gy = -2 * (w*x + y*z)
+            gz =  2 * (x*x + y*y) - 1
+
+        WARNING: a previous implementation flipped the sign of the w*x and
+        w*y cross terms, which left identity (w=1) correct but produced the
+        wrong projected_gravity on every non-trivial roll/pitch — leading to
+        immediate balance failure on real hardware. Do not "simplify" this
+        function without re-deriving from R^T @ [0,0,-1] first. The
+        bit-identical reference is ``_project_gravity`` in
+        src/system/policy/obs_builder.py, which builds R explicitly and
+        multiplies — slower but obviously correct.
+        """
+        import numpy as np
+        q = np.array(quat, dtype=np.float32)
+        if q.shape[0] < 4:
+            return np.array([0, 0, -1], dtype=np.float32)
+        w, x, y, z = q[:4]
+        gx = 2.0 * (w * y - x * z)
+        gy = -2.0 * (w * x + y * z)
+        gz = 2.0 * (x * x + y * y) - 1.0
+        return np.array([gx, gy, gz], dtype=np.float32)
+
     @staticmethod
     def _load_model_class():
-        module_names = [
-            "system.brand_packages.unitree",
-            "models.Unitree",  # legacy/test fallback
-        ]
-        for module_name in module_names:
-            try:
-                module = importlib.import_module(module_name)
-            except Exception:
-                continue
-            model_class = getattr(module, "UnitreeModel", None)
-            if model_class is not None:
-                return model_class
-        return None
+        return get_brand_model_class("unitree")
 

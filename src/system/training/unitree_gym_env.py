@@ -861,12 +861,22 @@ class UnitreeGymEnv(gymnasium.Env):
 
         # ── mode: reference_frame_0 ────────────────────────────────────────
         if mode == "reference_frame_0":
-            if self._ref_frames is not None and len(self._ref_frames) > 0:
-                frame = self._ref_frames[0]
+            rsi_prob = float(getattr(cfg, "rsi_prob", 1.0) if cfg is not None else 1.0)
+            use_ref = rsi_prob >= 1.0 or float(rng.random()) < rsi_prob
+            if use_ref and self._ref_frames is not None and len(self._ref_frames) > 0:
+                sample_mode = str(
+                    getattr(cfg, "rsi_sample_mode", "frame_0") if cfg is not None else "frame_0"
+                ).strip().lower()
+                if sample_mode == "uniform_phase":
+                    idx = int(rng.integers(0, len(self._ref_frames)))
+                else:
+                    idx = 0
+                frame = self._ref_frames[idx]
                 n = min(n_joints, len(frame))
                 target_joints = np.zeros(n_joints, dtype=np.float32)
                 target_joints[:n] = frame[:n]
-            # base_height: stay at auto (0.32) unless user overrode
+            # When the coin flip rejects RSI, target_joints stays None
+            # and the fallback section below will use default_qpos.
 
         # ── mode: keyframe ─────────────────────────────────────────────────
         elif mode == "keyframe":
@@ -1174,6 +1184,46 @@ class UnitreeGymEnv(gymnasium.Env):
             return out
         return self._default_qpos.copy()
 
+    def set_default_qpos(self, values_in_qpos_order: np.ndarray) -> None:
+        """Override the env's reset/standing pose for the joint block.
+
+        Public contract used by ``PolicyRunner._align_env_default_pose``
+        when an IL bundle ships its own training-time standing pose.
+        ``values_in_qpos_order`` is the per-joint default vector aligned
+        to MuJoCo's ``qpos[7:]`` slot order (NOT bundle order — the
+        permutation is the caller's responsibility, since only the
+        caller knows the bundle joint space).
+
+        This is the supported way for an out-of-process loader to set
+        the standing pose. Reaching directly into ``_default_qpos`` /
+        ``_default_qpos_full`` still works for legacy callers but is no
+        longer the recommended path; new code should call this method
+        so that any future changes to the internal storage layout
+        remain transparent.
+        """
+        try:
+            arr = np.asarray(values_in_qpos_order, dtype=np.float32).flatten()
+        except Exception:
+            return
+        if arr.size == 0:
+            return
+        # _default_qpos_full is the full joint block (length n_qpos);
+        # _default_qpos is the policy-controlled prefix (length act_dim).
+        # We update both so reset() and any internal helper that reads
+        # either field stays consistent.
+        existing_full = getattr(self, "_default_qpos_full", None)
+        if existing_full is not None:
+            full = np.asarray(existing_full, dtype=np.float32).copy()
+            n = min(arr.shape[0], full.shape[0])
+            full[:n] = arr[:n]
+            self._default_qpos_full = full
+            self._default_qpos = full[:int(self._act_dim)].astype(np.float32)
+        else:
+            n = min(arr.shape[0], int(self._act_dim))
+            new_sub = np.zeros(int(self._act_dim), dtype=np.float32)
+            new_sub[:n] = arr[:n]
+            self._default_qpos = new_sub
+
     def _get_ref_joint_velocities(self) -> np.ndarray:
         """Current reference frame joint velocities (num_joints,).
 
@@ -1330,6 +1380,21 @@ class UnitreeGymEnv(gymnasium.Env):
         cfg = self._domain_rand
         if cfg is None or not bool(getattr(cfg, "enabled", False)):
             return
+        # Delayed DR activation (RSI-AMP staged training): skip DR
+        # until the global step reaches rand_schedule_start_step.
+        start_step = int(getattr(cfg, "rand_schedule_start_step", 0) or 0)
+        if start_step > 0 and self._global_step < start_step:
+            return
+
+        # Linear intensity ramp: when rand_schedule == "linear", DR
+        # range scales from 0→1 between start_step and end_step.
+        sched = str(getattr(cfg, "rand_schedule", "none") or "none").strip().lower()
+        dr_intensity = 1.0
+        if sched == "linear":
+            end_step = int(getattr(cfg, "rand_schedule_end_step", 500000) or 500000)
+            span = max(1, end_step - start_step)
+            dr_intensity = min(1.0, max(0.0,
+                (self._global_step - start_step) / float(span)))
 
         def _sample_range(value, default_low=1.0, default_high=1.0):
             try:
@@ -1337,6 +1402,13 @@ class UnitreeGymEnv(gymnasium.Env):
                 high = float(value[1])
             except Exception:
                 low, high = default_low, default_high
+            # Apply intensity: lerp the range toward [1.0, 1.0] (neutral)
+            # when dr_intensity < 1.0.
+            if dr_intensity < 1.0:
+                mid = (low + high) * 0.5
+                neutral = 1.0
+                low = neutral + (low - neutral) * dr_intensity
+                high = neutral + (high - neutral) * dr_intensity
             return float(rng.uniform(low, high))
 
         self._model.body_mass[:] = self._base_body_mass * _sample_range(getattr(cfg, "mass_range", [1.0, 1.0]))

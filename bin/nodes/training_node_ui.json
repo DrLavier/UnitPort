@@ -1,33 +1,660 @@
 {
-  "robot_mjcf": [
+  "training_commands": [
     {
       "kind": "param",
-      "key": "robot_type",
-      "display_name": "Robot Type",
-      "widget": "dropdown",
-      "choices": [
-        "a1",
-        "b2",
-        "b2w",
-        "g1",
-        "go2",
-        "go2w",
-        "h1",
-        "h1_2",
-        "spot"
-      ],
-      "default": "go2",
-      "tooltip": "Robot model — populated dynamically from mujoco_asset_registry at runtime. Determines mock action_dim and available obs_components in Phase A; Phase D reads actuator count directly from MJCF."
+      "key": "controller_status",
+      "display_name": "Controller",
+      "widget": "controller_status_panel",
+      "default": "",
+      "full_width_widget": true,
+      "row_height": 24,
+      "tooltip": "Live read-out of the sidebar Controller panel settings (mode + invert_vy) plus the fixed gamepad → command bindings. Ranges shown below are derived from the gain sliders on this node — sim and sim2real both read the same four numbers."
     },
     {
       "kind": "param",
-      "key": "mjcf_path",
-      "display_name": "MJCF Overwrite",
-      "widget": "path_browse",
-      "mode": "file",
-      "filter": "MuJoCo XML (*.xml);;All files (*.*)",
+      "key": "gain_lin_forward",
+      "display_name": "Fwd Gain",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 5.0,
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "m/s",
+      "default": "2.0",
+      "tooltip": "Forward velocity at stick=+1. This is ALSO the training sampler's upper bound on lin_vel_x — training and runtime read the same value. Keep it realistic for the robot's mechanical limits."
+    },
+    {
+      "kind": "param",
+      "key": "gain_lin_backward",
+      "display_name": "Bwd Gain",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 5.0,
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "m/s",
+      "default": "1.0",
+      "tooltip": "Backward velocity at stick=-1 (positive magnitude). Usually lower than forward for quadrupeds."
+    },
+    {
+      "kind": "param",
+      "key": "gain_lin_lateral",
+      "display_name": "Lat Gain",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 3.0,
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "m/s",
+      "default": "0.5",
+      "tooltip": "Lateral (strafe) velocity at |stick_x|=1. Symmetric."
+    },
+    {
+      "kind": "param",
+      "key": "gain_yaw",
+      "display_name": "Yaw Gain",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 4.0,
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "rad/s",
+      "default": "1.5",
+      "tooltip": "Yaw rate at |stick_x|=1 on the right stick. Symmetric."
+    },
+    {
+      "kind": "param",
+      "key": "mapping_mode",
+      "display_name": "Mapping",
+      "widget": "dropdown",
+      "choices": [
+        "linear",
+        "deadzone",
+        "exponential"
+      ],
+      "default": "linear",
+      "tooltip": "Deployment-side stick → velocity curve. 'linear' = direct scaling (most common). 'deadzone' = ignore micro-jitter around stick=0 (production grade for worn sticks). 'exponential' = power curve for finer low-speed control. Training sampling is always uniform over the full range — the curve only shapes runtime UX feel, it does NOT change what the policy learns. Custom functions entry will be added later."
+    },
+    {
+      "kind": "param",
+      "key": "deadzone",
+      "display_name": "Dead Zone",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 0.3,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "0.10",
+      "tooltip": "Absolute stick threshold below which the output snaps to zero. Above the threshold the curve is remapped linearly to cover the full gain range. Typical values 0.05–0.15 for worn sticks.",
+      "condition": {
+        "key": "mapping_mode",
+        "op": "==",
+        "value": "deadzone"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "curve_exponent",
+      "display_name": "Exponent",
+      "widget": "slider_float",
+      "min": 0.3,
+      "max": 3.0,
+      "step": 0.05,
+      "decimals": 2,
+      "default": "2.00",
+      "tooltip": "Power-curve exponent p in vel = sign(stick) × gain × |stick|^p. p=1 is linear; p=2 (squared) is the common 'fine low / aggressive high' feel; p=0.5 (sqrt) is the opposite.",
+      "condition": {
+        "key": "mapping_mode",
+        "op": "==",
+        "value": "exponential"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "gait_enabled",
+      "display_name": "Gait",
+      "widget": "toggle",
+      "default": "false",
+      "tooltip": "Walk These Ways gait parameterisation. When ON, the policy obs vector gains 7 extra dimensions (gait_frequency, 4 per-foot phase offsets, body_height, step_height) and training samples them uniformly. Runtime CommandBus uses the preset table below for D-pad shortcuts with continuous interpolation between picks — a single policy covers walk / trot / bound / pace / pronk without discrete mode switching."
+    },
+    {
+      "kind": "param",
+      "key": "gait_frequency_range",
+      "display_name": "Freq Range",
+      "widget": "range_slider",
+      "range": [
+        0.5,
+        5.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "default": "[1.5, 3.5]",
+      "full_width_widget": true,
+      "tooltip": "Foot stepping frequency range (Hz). Training sampler draws uniformly from this interval.",
+      "condition": {
+        "key": "gait_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "body_height_range",
+      "display_name": "Body H Range",
+      "widget": "range_slider",
+      "range": [
+        0.15,
+        0.6
+      ],
+      "step": 0.005,
+      "decimals": 3,
+      "default": "[0.28, 0.40]",
+      "full_width_widget": true,
+      "tooltip": "Commanded base height range (m). Policy learns to track heights in this interval.",
+      "condition": {
+        "key": "gait_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "step_height_range",
+      "display_name": "Step H Range",
+      "widget": "range_slider",
+      "range": [
+        0.01,
+        0.3
+      ],
+      "step": 0.005,
+      "decimals": 3,
+      "default": "[0.03, 0.15]",
+      "full_width_widget": true,
+      "tooltip": "Commanded swing-foot clearance range (m).",
+      "condition": {
+        "key": "gait_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "gait_presets",
+      "display_name": "Presets",
+      "widget": "gait_preset_table",
       "default": "",
-      "tooltip": "Manual MJCF override path. When empty the system auto-resolves the scene from mujoco_asset_registry (shown by the ✔/❌ indicator on Robot Type)."
+      "tooltip": "Table of gait presets used by the runtime CommandBus as D-pad shortcuts. Click to open the editor; leave empty to use the bundled defaults (walk / trot / bound / pace / pronk).",
+      "condition": {
+        "key": "gait_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "resampling_time_range",
+      "display_name": "Resample Every",
+      "widget": "range_slider",
+      "range": [
+        0.5,
+        60.0
+      ],
+      "step": 0.5,
+      "decimals": 1,
+      "default": "[10.0, 10.0]",
+      "full_width_widget": true,
+      "tooltip": "Seconds between fresh command samples during an episode (uniform in range). Keep tight for policies that should hold commands; widen for randomisation."
+    },
+    {
+      "kind": "param",
+      "key": "zero_command_probability",
+      "display_name": "Zero Cmd Prob",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "0.1",
+      "tooltip": "Fraction of episodes that use the all-zero command (stand still) instead of a random sample. Forces the policy to learn stationary stance."
+    },
+    {
+      "kind": "param",
+      "key": "runtime_clip",
+      "display_name": "Clip at Deploy",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "When ON, the deployment CommandBus clips incoming commands to the training range, protecting the policy from out-of-distribution stick input. Strongly recommended on."
+    }
+  ],
+  "play_ground_setting": [
+    {
+      "kind": "param",
+      "key": "scene_id",
+      "display_name": "Scene",
+      "widget": "scene_dropdown",
+      "default": "flat_ground",
+      "tooltip": "Pick a scene from the registry. Options are filtered by current training backend (SB3 / Isaac Lab) and robot family (quadruped / biped). Selecting a scene auto-writes scene_type plus any recommended defaults from the registry entry."
+    },
+    {
+      "kind": "param",
+      "key": "gravity_z",
+      "display_name": "Gravity Z",
+      "widget": "slider_float",
+      "min": -20.0,
+      "max": 0.0,
+      "step": 0.01,
+      "decimals": 2,
+      "unit": "m/s²",
+      "default": "-9.81",
+      "tooltip": "World gravity on the Z axis. Earth = -9.81."
+    },
+    {
+      "kind": "param",
+      "key": "arena_extent_x",
+      "display_name": "Arena X",
+      "widget": "slider_float",
+      "min": 1.0,
+      "max": 200.0,
+      "step": 0.5,
+      "decimals": 1,
+      "unit": "m",
+      "default": "10.0",
+      "tooltip": "Ground plane extent along X."
+    },
+    {
+      "kind": "param",
+      "key": "arena_extent_y",
+      "display_name": "Arena Y",
+      "widget": "slider_float",
+      "min": 1.0,
+      "max": 200.0,
+      "step": 0.5,
+      "decimals": 1,
+      "unit": "m",
+      "default": "10.0",
+      "tooltip": "Ground plane extent along Y."
+    },
+    {
+      "kind": "param",
+      "key": "friction_static",
+      "display_name": "μ static",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "1.0",
+      "tooltip": "Ground static friction coefficient."
+    },
+    {
+      "kind": "param",
+      "key": "friction_dynamic",
+      "display_name": "μ dynamic",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "0.8",
+      "tooltip": "Ground dynamic (sliding) friction coefficient."
+    },
+    {
+      "kind": "param",
+      "key": "roughness_amplitude",
+      "display_name": "Roughness",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 0.5,
+      "step": 0.005,
+      "decimals": 3,
+      "unit": "m",
+      "default": "0.08",
+      "tooltip": "Height-field amplitude for rough terrain. Ignored unless scene_type is 'rough'.",
+      "condition": {
+        "key": "scene_type",
+        "op": "==",
+        "value": "rough"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "slope_max",
+      "display_name": "Slope Max",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 45.0,
+      "step": 0.5,
+      "decimals": 1,
+      "unit": "°",
+      "default": "20.0",
+      "tooltip": "Maximum incline for rough terrain generator.",
+      "condition": {
+        "key": "scene_type",
+        "op": "==",
+        "value": "rough"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "curriculum_enabled",
+      "display_name": "Curriculum",
+      "widget": "dropdown",
+      "choices": [
+        "true",
+        "false"
+      ],
+      "default": "false",
+      "tooltip": "Enable terrain difficulty curriculum (rough terrain only).",
+      "condition": {
+        "key": "scene_type",
+        "op": "==",
+        "value": "rough"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "difficulty_levels",
+      "display_name": "Levels",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "default": "10",
+      "tooltip": "Number of curriculum difficulty levels.",
+      "condition": {
+        "key": "curriculum_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "height_scan_enabled",
+      "display_name": "Height Scan",
+      "widget": "dropdown",
+      "choices": [
+        "true",
+        "false"
+      ],
+      "default": "false",
+      "tooltip": "Toggle heightfield ray-cast sensor on the policy observation. Backend-agnostic — Isaac Lab ships it out-of-the-box, MuJoCo will add it in a future pass."
+    },
+    {
+      "kind": "param",
+      "key": "scan_resolution",
+      "display_name": "Scan Res",
+      "widget": "slider_float",
+      "min": 0.02,
+      "max": 0.5,
+      "step": 0.01,
+      "decimals": 3,
+      "unit": "m",
+      "default": "0.1",
+      "tooltip": "Ray-cast grid resolution.",
+      "condition": {
+        "key": "height_scan_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "scan_size_x",
+      "display_name": "Scan X",
+      "widget": "slider_float",
+      "min": 0.2,
+      "max": 5.0,
+      "step": 0.1,
+      "decimals": 2,
+      "unit": "m",
+      "default": "1.6",
+      "tooltip": "Scan region size along X.",
+      "condition": {
+        "key": "height_scan_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "scan_size_y",
+      "display_name": "Scan Y",
+      "widget": "slider_float",
+      "min": 0.2,
+      "max": 5.0,
+      "step": 0.1,
+      "decimals": 2,
+      "unit": "m",
+      "default": "1.0",
+      "tooltip": "Scan region size along Y.",
+      "condition": {
+        "key": "height_scan_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "sim_dt",
+      "display_name": "Sim dt",
+      "widget": "slider_float",
+      "min": 0.0001,
+      "max": 0.05,
+      "step": 0.0001,
+      "decimals": 4,
+      "unit": "s",
+      "default": "0.005",
+      "tooltip": "Physics timestep (seconds). Formerly on IL Simulation Config."
+    },
+    {
+      "kind": "param",
+      "key": "gpu_max_rigid_contact_count",
+      "display_name": "Max Contacts",
+      "widget": "int_spinbox",
+      "min": 1024,
+      "max": 2097152,
+      "step": 65536,
+      "default": "524288",
+      "tooltip": "Isaac Lab PhysX rigid-body contact budget."
+    },
+    {
+      "kind": "param",
+      "key": "gpu_max_rigid_patch_count",
+      "display_name": "Max Patches",
+      "widget": "int_spinbox",
+      "min": 1024,
+      "max": 524288,
+      "step": 8192,
+      "default": "81920",
+      "tooltip": "Isaac Lab PhysX rigid-body patch budget."
+    }
+  ],
+  "joint_init": [
+    {
+      "kind": "param",
+      "key": "angles",
+      "display_name": "Angles",
+      "widget": "joint_init_editor",
+      "default": "{}",
+      "full_width_widget": true,
+      "row_height": 24,
+      "tooltip": "Visual per-joint init angle editor. Opens a popup with one spinbox per joint sourced from the connected Robot node. Output feeds ActorSetting.joint_init."
+    }
+  ],
+  "robot": [
+    {
+      "kind": "param",
+      "key": "asset_id",
+      "display_name": "Asset",
+      "widget": "asset_dropdown",
+      "default": "",
+      "tooltip": "Registered robot asset (from robot_assets registry). The ONLY editable field on this node. Everything below is a read-only information panel sourced from the selected asset — all user settings live on the paired Actor Setting node."
+    },
+    {
+      "kind": "param",
+      "key": "active_override",
+      "display_name": "Files",
+      "widget": "active_file_table",
+      "default": "auto",
+      "full_width_widget": true,
+      "row_height": 24,
+      "tooltip": "Flat table of detected asset files (MJCF / USD / URDF). The active file for the current run is marked with ✔. Click a Loaded row to override the automatic selection; click the active row again to revert to 'auto' (backend-derived)."
+    },
+    {
+      "kind": "param",
+      "key": "body_mapping",
+      "display_name": "Joints & IR",
+      "widget": "body_ir_validator",
+      "default": "",
+      "full_width_widget": true,
+      "row_height": 24,
+      "tooltip": "Read-only structural view: every body of the selected asset with its auto-resolved IR role. Shows the complete joint/body list of the robot — single source of truth used by compilers and the Actor Setting node's contact body picker."
+    }
+  ],
+  "actor_setting": [
+    {
+      "kind": "param",
+      "key": "init_pos_x",
+      "display_name": "Init X",
+      "widget": "slider_float",
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.05,
+      "decimals": 3,
+      "unit": "m",
+      "default": "0.0",
+      "tooltip": "World-frame spawn position X."
+    },
+    {
+      "kind": "param",
+      "key": "init_pos_y",
+      "display_name": "Init Y",
+      "widget": "slider_float",
+      "min": -10.0,
+      "max": 10.0,
+      "step": 0.05,
+      "decimals": 3,
+      "unit": "m",
+      "default": "0.0",
+      "tooltip": "World-frame spawn position Y."
+    },
+    {
+      "kind": "param",
+      "key": "init_pos_z",
+      "display_name": "Init Z",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 3.0,
+      "step": 0.01,
+      "decimals": 3,
+      "unit": "m",
+      "default": "0.4",
+      "tooltip": "World-frame spawn position Z (height above ground)."
+    },
+    {
+      "kind": "param",
+      "key": "contact_body_names",
+      "display_name": "Contact Bodies",
+      "widget": "contact_body_picker",
+      "default": "[]",
+      "tooltip": "Which bodies emit contact-sensor readings. Click to open a multi-select picker sourced from the connected Robot node's body list."
+    },
+    {
+      "kind": "param",
+      "key": "contact_history_length",
+      "display_name": "Contact History",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "default": "3",
+      "tooltip": "How many past contact frames the sensor keeps in its history buffer."
+    },
+    {
+      "kind": "param",
+      "key": "contact_track_air_time",
+      "display_name": "Track Air Time",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Enable feet_air_time tracking for reward terms."
+    },
+    {
+      "kind": "param",
+      "key": "stiffness",
+      "display_name": "Stiffness",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 200.0,
+      "step": 1.0,
+      "decimals": 1,
+      "default": "25.0",
+      "tooltip": "Actuator P gain (uniform across joints). For per-joint overrides use the JSON editor on the Actuator Config node (future)."
+    },
+    {
+      "kind": "param",
+      "key": "damping",
+      "display_name": "Damping",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "decimals": 2,
+      "default": "0.5",
+      "tooltip": "Actuator D gain (uniform across joints)."
+    },
+    {
+      "kind": "param",
+      "key": "effort_limit",
+      "display_name": "Effort Limit",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 200.0,
+      "step": 1.0,
+      "decimals": 0,
+      "unit": "Nm",
+      "default": "30.0",
+      "tooltip": "Per-joint torque limit."
+    },
+    {
+      "kind": "param",
+      "key": "velocity_limit",
+      "display_name": "Velocity Limit",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 100.0,
+      "step": 0.5,
+      "decimals": 1,
+      "unit": "rad/s",
+      "default": "30.0",
+      "tooltip": "Per-joint velocity limit."
+    },
+    {
+      "kind": "param",
+      "key": "action_joint_names_expr",
+      "display_name": "Action Joints",
+      "widget": "action_joint_picker",
+      "default": "[]",
+      "tooltip": "Select which joints the policy action vector targets. Empty selection = all joints."
+    },
+    {
+      "kind": "param",
+      "key": "action_scale",
+      "display_name": "Action Scale",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.01,
+      "decimals": 3,
+      "default": "0.25",
+      "tooltip": "Scale applied to the policy output before adding it to the joint target. Lower = finer-grained control. Absorbed from the former IL Action Config node."
+    },
+    {
+      "kind": "param",
+      "key": "action_use_default_offset",
+      "display_name": "Use Default Offset",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "When true, the scaled policy output is added on top of the joint default posture. When false, it is treated as an absolute target."
     }
   ],
   "physics_config": [
@@ -87,12 +714,45 @@
       "key": "reward_terms",
       "display_name": "Reward Terms",
       "widget": "module_registry_editor",
-      "registry": "rewards",
+      "registry": "rewards_auto",
       "selector_title": "Rewards",
       "default": "{\"velocity_tracking\": 1.0, \"alive\": 0.5, \"energy\": -0.01}",
       "row_height": 24,
       "full_width_widget": true,
-      "tooltip": "Select supported reward modules from the registry, then tune each selected weight with the inline slider rows."
+      "tooltip": "Select reward modules from the registry, then tune weights with inline sliders. Registry switches automatically based on backend."
+    },
+    {
+      "kind": "param",
+      "key": "std",
+      "display_name": "Tracking Std",
+      "widget": "float_input",
+      "min": 0.001,
+      "max": 5.0,
+      "decimals": 3,
+      "default": "0.25",
+      "tooltip": "Exponential kernel std for IL tracking rewards (track_lin_vel_xy / track_ang_vel_z)",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "isaac_lab"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "threshold",
+      "display_name": "Air Time Thr",
+      "widget": "float_input",
+      "min": 0.0,
+      "max": 5.0,
+      "decimals": 2,
+      "unit": "s",
+      "default": "0.5",
+      "tooltip": "Threshold for IL feet_air_time reward",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "isaac_lab"
+      }
     }
   ],
   "terminations": [
@@ -101,53 +761,12 @@
       "key": "termination_conditions",
       "display_name": "Termination",
       "widget": "module_registry_editor",
-      "registry": "terminations",
+      "registry": "terminations_auto",
       "selector_title": "Terminations",
       "default": "{\"fall_threshold_roll\": 1.2, \"min_height\": 0.15}",
       "row_height": 24,
       "full_width_widget": true,
-      "tooltip": "Select supported termination modules from the registry, then tune each selected threshold with the inline slider rows."
-    }
-  ],
-  "scene_config": [
-    {
-      "kind": "param",
-      "key": "scene_type",
-      "display_name": "Scene Type",
-      "widget": "dropdown",
-      "choices": [
-        "flat",
-        "terrain",
-        "custom"
-      ],
-      "default": "flat",
-      "tooltip": "flat: scene.xml — flat ground + lights + skybox.\nterrain: scene_terrain.xml — adds heightfield and obstacle geometry.\ncustom: provide your own scene XML path below."
-    },
-    {
-      "kind": "param",
-      "key": "custom_scene_path",
-      "display_name": "Scene XML Path",
-      "widget": "path_browse",
-      "mode": "file",
-      "filter": "MuJoCo XML (*.xml);;All files (*.*)",
-      "default": "",
-      "tooltip": "Absolute path to a custom MuJoCo scene XML. Only active when Scene Type is \"custom\".",
-      "condition": {
-        "key": "scene_type",
-        "op": "==",
-        "value": "custom"
-      }
-    },
-    {
-      "kind": "param",
-      "key": "gravity_z",
-      "display_name": "Gravity (Z)",
-      "widget": "slider_float",
-      "min": -50.0,
-      "max": 0.0,
-      "step": 0.1,
-      "default": "-9.81",
-      "tooltip": "World gravity on the Z axis. Default inherits the runtime scenario value."
+      "tooltip": "Select supported termination modules from the registry, then tune each selected threshold with the inline slider rows. Registry switches automatically based on backend (SB3 vs Isaac Lab)."
     }
   ],
   "task_config": [
@@ -264,7 +883,12 @@
       "display_name": "Enabled",
       "widget": "toggle",
       "default": "true",
-      "tooltip": "Master switch. When OFF, all randomization is disabled and the environment uses fixed nominal parameters."
+      "tooltip": "Master switch. When OFF, all randomization is disabled and the environment uses fixed nominal parameters.",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -278,7 +902,12 @@
       "step": 0.05,
       "decimals": 2,
       "default": "[0.8, 1.2]",
-      "tooltip": "Body mass multiplier range [min, max]. At each reset, a multiplier is sampled uniformly and applied to all link masses."
+      "tooltip": "Body mass multiplier range [min, max]. At each reset, a multiplier is sampled uniformly and applied to all link masses.",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -292,7 +921,12 @@
       "step": 0.1,
       "decimals": 2,
       "default": "[0.5, 1.5]",
-      "tooltip": "Floor friction coefficient multiplier range [min, max]. Sampled per reset."
+      "tooltip": "Floor friction coefficient multiplier range [min, max]. Sampled per reset.",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -306,7 +940,12 @@
       "step": 0.05,
       "decimals": 2,
       "default": "[0.9, 1.1]",
-      "tooltip": "Motor torque limit multiplier range [min, max]. Simulates actuator wear and manufacturing variance."
+      "tooltip": "Motor torque limit multiplier range [min, max]. Simulates actuator wear and manufacturing variance.",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -320,7 +959,12 @@
       "step": 0.05,
       "decimals": 2,
       "default": "[0.95, 1.05]",
-      "tooltip": "Joint damping coefficient multiplier range [min, max]."
+      "tooltip": "Joint damping coefficient multiplier range [min, max].",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -331,7 +975,12 @@
       "max": 0.2,
       "step": 0.005,
       "default": "0.01",
-      "tooltip": "Standard deviation of additive Gaussian noise applied to each observation element. 0 = no noise."
+      "tooltip": "Standard deviation of additive Gaussian noise applied to each observation element. 0 = no noise.",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -339,7 +988,12 @@
       "display_name": "Push Robot",
       "widget": "toggle",
       "default": "false",
-      "tooltip": "When ON, applies random force impulses to the robot base at regular intervals. Tests balance recovery."
+      "tooltip": "When ON, applies random force impulses to the robot base at regular intervals. Tests balance recovery.",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -389,7 +1043,12 @@
         "exponential"
       ],
       "default": "none",
-      "tooltip": "Curriculum domain randomization: gradually increase randomization intensity from 0 to full scale over training. none = fixed intensity from step 0. linear = linearly ramps up. exponential = slow start, fast ramp. Implements ADR-style scheduling for better sim-to-real transfer."
+      "tooltip": "Curriculum domain randomization: gradually increase randomization intensity from 0 to full scale over training. none = fixed intensity from step 0. linear = linearly ramps up. exponential = slow start, fast ramp. Implements ADR-style scheduling for better sim-to-real transfer.",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "sb3"
+      }
     },
     {
       "kind": "param",
@@ -407,6 +1066,458 @@
         "value": "none"
       },
       "tooltip": "Training step at which DR schedule reaches full intensity. Before this step, randomization ranges are linearly/exponentially scaled from 0 to the configured values. Active only when DR Schedule is not 'none'."
+    },
+    {
+      "kind": "param",
+      "key": "enable_friction_rand",
+      "display_name": "Friction",
+      "widget": "toggle",
+      "default": "true",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "isaac_lab"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "friction_mode",
+      "display_name": "Friction Mode",
+      "widget": "dropdown",
+      "choices": [
+        "reset",
+        "interval",
+        "startup"
+      ],
+      "default": "reset",
+      "condition": {
+        "key": "enable_friction_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "static_friction_range",
+      "display_name": "Static Fric",
+      "widget": "range_slider",
+      "range": [
+        0.0,
+        3.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "default": "[0.5, 1.25]",
+      "tooltip": "Static friction multiplier range [min, max] sampled per reset.",
+      "condition": {
+        "key": "enable_friction_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "dynamic_friction_range",
+      "display_name": "Dyn Fric",
+      "widget": "range_slider",
+      "range": [
+        0.0,
+        3.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "default": "[0.5, 1.25]",
+      "tooltip": "Dynamic friction multiplier range [min, max] sampled per reset.",
+      "condition": {
+        "key": "enable_friction_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "restitution_range",
+      "display_name": "Restitution",
+      "widget": "range_slider",
+      "range": [
+        0.0,
+        1.0
+      ],
+      "step": 0.02,
+      "decimals": 2,
+      "default": "[0.0, 0.4]",
+      "tooltip": "Surface restitution (bounciness) range [min, max] sampled per reset.",
+      "condition": {
+        "key": "enable_friction_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "enable_mass_rand",
+      "display_name": "Mass",
+      "widget": "toggle",
+      "default": "true",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "isaac_lab"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "mass_mode",
+      "display_name": "Mass Mode",
+      "widget": "dropdown",
+      "choices": [
+        "reset",
+        "interval",
+        "startup"
+      ],
+      "default": "reset",
+      "condition": {
+        "key": "enable_mass_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "mass_target_body",
+      "display_name": "Mass Body",
+      "widget": "dropdown",
+      "choices": [
+        "base",
+        "trunk",
+        "body",
+        ".*"
+      ],
+      "choice_meta": {
+        "base": {
+          "title": "Base Link",
+          "desc": "Randomize mass of the floating base link (standard Unitree naming)."
+        },
+        "trunk": {
+          "title": "Trunk Link",
+          "desc": "Randomize mass of the trunk link (Boston Dynamics / common biped naming)."
+        },
+        "body": {
+          "title": "Body Link",
+          "desc": "Randomize mass of the body link (alternate root naming)."
+        },
+        ".*": {
+          "title": "All Bodies",
+          "desc": "Randomize mass across every body on the articulation."
+        }
+      },
+      "default": "base",
+      "tooltip": "Target body (regex) whose mass is randomized by this event term.",
+      "condition": {
+        "key": "enable_mass_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "mass_offset_range",
+      "display_name": "Mass Offset",
+      "widget": "range_slider",
+      "range": [
+        -5.0,
+        5.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "default": "[-0.5, 0.5]",
+      "unit": "kg",
+      "tooltip": "Additive mass offset range [min, max] applied to the target body.",
+      "condition": {
+        "key": "enable_mass_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "enable_external_push",
+      "display_name": "Ext Push",
+      "widget": "toggle",
+      "default": "true",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "isaac_lab"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "push_mode",
+      "display_name": "Push Mode",
+      "widget": "dropdown",
+      "choices": [
+        "reset",
+        "interval",
+        "startup"
+      ],
+      "default": "interval",
+      "condition": {
+        "key": "enable_external_push",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "push_interval_range_s",
+      "display_name": "Push Interval",
+      "widget": "range_slider",
+      "range": [
+        0.5,
+        60.0
+      ],
+      "step": 0.5,
+      "decimals": 1,
+      "default": "[10.0, 15.0]",
+      "unit": "s",
+      "tooltip": "Interval range between push events (seconds).",
+      "condition": {
+        "key": "enable_external_push",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "push_velocity_x_range",
+      "display_name": "Push Vel X",
+      "widget": "range_slider",
+      "range": [
+        -3.0,
+        3.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "m/s",
+      "default": "[-0.5, 0.5]",
+      "tooltip": "Push velocity range along world X axis [min, max].",
+      "condition": {
+        "key": "enable_external_push",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "push_velocity_y_range",
+      "display_name": "Push Vel Y",
+      "widget": "range_slider",
+      "range": [
+        -3.0,
+        3.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "m/s",
+      "default": "[-0.5, 0.5]",
+      "tooltip": "Push velocity range along world Y axis [min, max].",
+      "condition": {
+        "key": "enable_external_push",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "enable_init_pose_rand",
+      "display_name": "Init Pose",
+      "widget": "toggle",
+      "default": "true",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "isaac_lab"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "init_pose_mode",
+      "display_name": "Pose Mode",
+      "widget": "dropdown",
+      "choices": [
+        "reset",
+        "interval",
+        "startup"
+      ],
+      "default": "reset",
+      "condition": {
+        "key": "enable_init_pose_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "init_pos_x_range",
+      "display_name": "Pos X Range",
+      "widget": "range_slider",
+      "range": [
+        -5.0,
+        5.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "m",
+      "default": "[-0.5, 0.5]",
+      "tooltip": "Initial base X position offset range [min, max] at reset.",
+      "condition": {
+        "key": "enable_init_pose_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "init_pos_y_range",
+      "display_name": "Pos Y Range",
+      "widget": "range_slider",
+      "range": [
+        -5.0,
+        5.0
+      ],
+      "step": 0.05,
+      "decimals": 2,
+      "unit": "m",
+      "default": "[-0.5, 0.5]",
+      "tooltip": "Initial base Y position offset range [min, max] at reset.",
+      "condition": {
+        "key": "enable_init_pose_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "init_yaw_range",
+      "display_name": "Yaw Range",
+      "widget": "range_slider",
+      "range": [
+        -3.1416,
+        3.1416
+      ],
+      "step": 0.01,
+      "decimals": 3,
+      "unit": "rad",
+      "default": "[-3.14, 3.14]",
+      "tooltip": "Initial base yaw angle range [min, max] at reset (radians).",
+      "condition": {
+        "key": "enable_init_pose_rand",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "enable_joint_noise",
+      "display_name": "Joint Noise",
+      "widget": "toggle",
+      "default": "true",
+      "condition": {
+        "key": "backend",
+        "op": "==",
+        "value": "isaac_lab"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "joint_noise_mode",
+      "display_name": "Noise Mode",
+      "widget": "dropdown",
+      "choices": [
+        "reset",
+        "interval",
+        "startup"
+      ],
+      "default": "reset",
+      "condition": {
+        "key": "enable_joint_noise",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "joint_pos_noise",
+      "display_name": "Pos Noise",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.005,
+      "decimals": 3,
+      "unit": "rad",
+      "default": "0.25",
+      "condition": {
+        "key": "enable_joint_noise",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "joint_vel_noise",
+      "display_name": "Vel Noise",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 2.0,
+      "step": 0.005,
+      "decimals": 3,
+      "unit": "rad/s",
+      "default": "0.1",
+      "condition": {
+        "key": "enable_joint_noise",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "separator",
+      "label": "DR Schedule"
+    },
+    {
+      "kind": "param",
+      "key": "rand_schedule",
+      "display_name": "Schedule",
+      "widget": "dropdown",
+      "choices": ["none", "linear"],
+      "default": "none",
+      "tooltip": "none = full DR from step 0. linear = ramp intensity from 0 to 1 between start_step and end_step."
+    },
+    {
+      "kind": "param",
+      "key": "rand_schedule_start_step",
+      "display_name": "Start Step",
+      "widget": "int_input",
+      "default": "0",
+      "tooltip": "Global training step at which DR activates. DR is OFF before this step.",
+      "condition": {
+        "key": "rand_schedule",
+        "op": "!=",
+        "value": "none"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "rand_schedule_end_step",
+      "display_name": "End Step",
+      "widget": "int_input",
+      "default": "500000",
+      "tooltip": "Global training step at which DR reaches full intensity.",
+      "condition": {
+        "key": "rand_schedule",
+        "op": "!=",
+        "value": "none"
+      }
     }
   ],
   "obs_action_config": [
@@ -428,7 +1539,9 @@
       "key": "obs_components",
       "display_name": "Obs Components",
       "widget": "multiselect_tags",
-      "options": [
+      "default": "joint_pos joint_vel imu command previous_action",
+      "tooltip": "Observation vector components. Selected items are concatenated in order to form the obs array. Order matters: network input shape = sum of component dims.",
+      "choices": [
         "joint_pos",
         "joint_vel",
         "imu",
@@ -437,9 +1550,7 @@
         "base_lin_vel",
         "base_ang_vel",
         "gravity_vec"
-      ],
-      "default": "joint_pos joint_vel imu command previous_action",
-      "tooltip": "Observation vector components. Selected items are concatenated in order to form the obs array. Order matters: network input shape = sum of component dims."
+      ]
     },
     {
       "kind": "param",
@@ -613,11 +1724,11 @@
       "widget": "dropdown",
       "choices": [
         "scratch",
-        "resume_sb3",
+        "resume",
         "warm_start_actor"
       ],
       "default": "scratch",
-      "tooltip": "scratch: train from random init.\nresume_sb3: restore weights + optimizer state (continue a run).\nwarm_start_actor: copy actor weights only, reset optimizer (transfer learning)."
+      "tooltip": "scratch: train from random init.\nresume: restore weights + optimizer state (continue a run).\nwarm_start_actor: copy actor weights only, reset optimizer (transfer learning)."
     },
     {
       "kind": "param",
@@ -1139,60 +2250,101 @@
     {
       "kind": "param",
       "key": "bundle_name",
-      "display_name": "名称",
-      "widget": "text_input_with_button",
-      "placeholder": "trained_policy",
-      "default": "trained_policy",
-      "button_text": "Folder",
-      "button_width": 52,
-      "button_action": "open_export_dir",
-      "button_tooltip": "Open checkpoint save folder",
-      "tooltip": "Checkpoint 保存名。最终导出到 custom_checkpoints/<名称>/。"
-    },
-    {
-      "kind": "param",
-      "key": "export_target",
-      "display_name": "Export Target",
-      "widget": "dropdown",
-      "choices": [
-        "runtime_bundle",
-        "training_artifact",
-        "both"
-      ],
-      "default": "runtime_bundle",
-      "tooltip": "'runtime_bundle' = ONNX/JIT bundle to custom_checkpoints/ (usable by main canvas). 'training_artifact' = SB3 zip to training_assets/ (resumable in Training Ground, NOT listed in main canvas). 'both' = produce both outputs."
-    },
-    {
-      "kind": "param",
-      "key": "export_onnx",
-      "display_name": "Export ONNX",
-      "widget": "toggle",
-      "default": "true",
-      "tooltip": "Export policy network to ONNX format. Required for UnitPort deployment on real hardware via ONNX Runtime inference."
-    },
-    {
-      "kind": "param",
-      "key": "export_torchscript",
-      "display_name": "TorchScript",
-      "widget": "toggle",
-      "default": "true",
-      "tooltip": "Export policy network as TorchScript (torch.jit.script). Enables C++ inference deployment and serves as a backup to ONNX."
-    },
-    {
-      "kind": "param",
-      "key": "include_norm_stats",
-      "display_name": "Norm Stats",
-      "widget": "toggle",
-      "default": "true",
-      "tooltip": "Bundle VecNormalize running mean/std statistics alongside the policy. Mandatory for correct inference if obs_normalize was ON during training."
+      "display_name": "Checkpoint",
+      "widget": "string_input",
+      "default": "<NEW>",
+      "tooltip": "Bundle / checkpoint directory name. Must be set to a non-default value before training can proceed (SafetyReview blocks training when this is still the <NEW> sentinel). Final output path: projects/<workspace>/training/exported/<bundle_name>/ when overwrite is ON, or <bundle_name>_<version>/ when OFF."
     },
     {
       "kind": "param",
       "key": "overwrite",
       "display_name": "Overwrite",
       "widget": "toggle",
-      "default": "false",
-      "tooltip": "When OFF (default), creates a new derived checkpoint with an incremented version suffix if policy_id_out already exists. When ON, overwrites the existing bundle in-place."
+      "default": "true",
+      "tooltip": "ON (default): successive runs overwrite the same bundle directory. OFF: append a version tag so each run produces a fresh directory — the Version field below appears so you can bump it manually (v1 → v2 → …)."
+    },
+    {
+      "kind": "param",
+      "key": "version",
+      "display_name": "Version",
+      "widget": "string_input",
+      "default": "v1",
+      "tooltip": "Version tag appended to the bundle directory name when Overwrite is OFF. Free-form string — users commonly use v1 / v2 / stable / demo. Hidden when Overwrite is ON.",
+      "condition": {
+        "key": "overwrite",
+        "op": "==",
+        "value": "false"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "include_onnx",
+      "display_name": "ONNX",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Include policy.onnx in the bundle. Required for UnitPort deployment on real hardware via ONNX Runtime inference."
+    },
+    {
+      "kind": "param",
+      "key": "include_torchscript",
+      "display_name": "TorchScript",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Include policy.pt (TorchScript) in the bundle. Enables C++ inference deployment and serves as a backup to ONNX."
+    },
+    {
+      "kind": "param",
+      "key": "include_normalization",
+      "display_name": "Norm Stats",
+      "widget": "toggle",
+      "default": "true",
+      "tooltip": "Include VecNormalize running mean/std (normalization.pkl). Required for correct inference if obs_normalize was ON during training."
+    },
+    {
+      "kind": "param",
+      "key": "output_files",
+      "display_name": "Outputs",
+      "widget": "output_file_list",
+      "default": "",
+      "full_width_widget": true,
+      "row_height": 24,
+      "tooltip": "Every file the next training run will produce, with Open buttons and ⚠ 'Will Overwrite' tags on files that already exist. Auto-refreshes when bundle_name / version / include_* change."
+    },
+    {
+      "kind": "param",
+      "key": "start_point_compat",
+      "display_name": "Start Point",
+      "widget": "start_point_compat_panel",
+      "default": "",
+      "full_width_widget": true,
+      "row_height": 24,
+      "tooltip": "Structured compatibility diff between the connected Start Point bundle and the current canvas (framework / action dim / decimation / joint order). Green ✓ = ok, ⚠ = warm-start will reindex, ✗ = not compatible. Same data SafetyReview uses for the S2–S5 blockers."
+    },
+    {
+      "kind": "param",
+      "key": "review_backend",
+      "display_name": "Review Engine",
+      "widget": "review_backend_picker",
+      "default": "mujoco",
+      "tooltip": "Which physics engine runs the trained brain during Review. MuJoCo is the fast default; Isaac Sim matches the training renderer 1:1. Review happens in a separate subprocess owned by the workspace. Newton is reserved for a future UnitPort release."
+    },
+    {
+      "kind": "param",
+      "key": "review_scene_id",
+      "display_name": "Review Scene",
+      "widget": "review_scene_picker",
+      "default": "flat_ground",
+      "tooltip": "Which arena the trained brain is tested in. Decoupled from the training PlayGround Setting — most of the time you review a trained policy in a DIFFERENT scene than it was trained in. The dropdown is filtered to scenes that the chosen Review Engine can actually load."
+    },
+    {
+      "kind": "param",
+      "key": "review_launch",
+      "display_name": "",
+      "widget": "review_launch_button",
+      "default": "",
+      "full_width_widget": true,
+      "row_height": 28,
+      "tooltip": "Run SafetyReview and launch a review session. Any error-severity issue on the canvas stops the launch — see the red borders and log for details."
     }
   ],
   "vis_check": [
@@ -1274,6 +2426,603 @@
       "widget": "toggle",
       "default": "true",
       "tooltip": "When ON the viewer runs the deterministic policy (no exploration noise)."
+    }
+  ],
+  "il_observation": [
+    {
+      "kind": "param",
+      "key": "obs_terms",
+      "display_name": "Obs Terms",
+      "widget": "module_registry_editor",
+      "registry": "il_observations",
+      "selector_title": "Observations",
+      "default": "{\"base_lin_vel\": 1.0, \"base_ang_vel\": 1.0, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 1.0, \"last_action\": 1.0}",
+      "row_height": 24,
+      "full_width_widget": true,
+      "tooltip": "Select observation terms from the registry. Order determines obs vector dimension layout."
+    },
+    {
+      "kind": "param",
+      "key": "group_name",
+      "display_name": "Group Name",
+      "widget": "text_input",
+      "default": "policy"
+    },
+    {
+      "kind": "param",
+      "key": "enable_corruption",
+      "display_name": "Noise",
+      "widget": "toggle",
+      "default": "true"
+    },
+    {
+      "kind": "param",
+      "key": "corruption_noise_std",
+      "display_name": "Noise Std",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.005,
+      "decimals": 3,
+      "default": "0.05",
+      "condition": {
+        "key": "enable_corruption",
+        "op": "==",
+        "value": "true"
+      }
+    }
+  ],
+  "il_policy_network": [
+    {
+      "kind": "param",
+      "key": "actor_hidden_dims",
+      "display_name": "Actor Dims",
+      "widget": "int_tuple",
+      "count": 3,
+      "min": 1,
+      "max": 4096,
+      "step": 1,
+      "default": "[128, 64, 32]",
+      "tooltip": "Hidden layer widths for the actor MLP (layer 1 → 2 → 3)."
+    },
+    {
+      "kind": "param",
+      "key": "critic_hidden_dims",
+      "display_name": "Critic Dims",
+      "widget": "int_tuple",
+      "count": 3,
+      "min": 1,
+      "max": 4096,
+      "step": 1,
+      "default": "[128, 64, 32]",
+      "tooltip": "Hidden layer widths for the critic MLP (layer 1 → 2 → 3)."
+    },
+    {
+      "kind": "param",
+      "key": "activation",
+      "display_name": "Activation",
+      "widget": "dropdown",
+      "choices": [
+        "elu",
+        "relu",
+        "tanh",
+        "selu"
+      ],
+      "default": "elu"
+    },
+    {
+      "kind": "param",
+      "key": "init_noise_std",
+      "display_name": "Init Log Std",
+      "widget": "slider_float",
+      "min": -3.0,
+      "max": 2.0,
+      "step": 0.1,
+      "decimals": 1,
+      "default": "-1.0",
+      "tooltip": "Initial log-std for the Gaussian policy. Community default -1.0 (std ≈ 0.37). Larger values = more exploration noise."
+    },
+    {
+      "kind": "param",
+      "key": "disc_hidden_dims",
+      "display_name": "Disc Dims",
+      "widget": "int_tuple",
+      "count": 2,
+      "min": 1,
+      "max": 4096,
+      "step": 1,
+      "default": "[1024, 512]",
+      "tooltip": "Hidden layer widths for the AMP discriminator MLP (layer 1 → 2). Only used when an AMP PPO Trainer is present. Community default [1024, 512]."
+    }
+  ],
+  "il_ppo_trainer": [
+    {
+      "kind": "param",
+      "key": "training_mode",
+      "display_name": "Training Mode",
+      "widget": "dropdown",
+      "choices": [
+        "PPO",
+        "AMP_PPO"
+      ],
+      "default": "PPO",
+      "tooltip": "PPO = vanilla RL. AMP_PPO = style imitation — requires a ReferenceMotion node upstream with consumer_mode in {'amp','both'} and reveals the 7 AMP-specific hyperparameter rows below."
+    },
+    {
+      "kind": "param",
+      "key": "max_iterations",
+      "display_name": "Max Iter",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 100000,
+      "step": 100,
+      "default": "1500"
+    },
+    {
+      "kind": "param",
+      "key": "num_steps_per_env",
+      "display_name": "Steps/Env",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 256,
+      "step": 4,
+      "default": "24"
+    },
+    {
+      "kind": "param",
+      "key": "num_learning_epochs",
+      "display_name": "Epochs",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 50,
+      "step": 1,
+      "default": "5"
+    },
+    {
+      "kind": "param",
+      "key": "num_minibatches",
+      "display_name": "Minibatches",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 64,
+      "step": 1,
+      "default": "4"
+    },
+    {
+      "kind": "param",
+      "key": "learning_rate",
+      "display_name": "LR",
+      "widget": "slider_float",
+      "min": 1e-05,
+      "max": 0.01,
+      "step": 1e-05,
+      "decimals": 5,
+      "default": "0.001",
+      "tooltip": "PPO optimizer learning rate. Typical range 1e-5 to 1e-2."
+    },
+    {
+      "kind": "param",
+      "key": "discount_factor",
+      "display_name": "Gamma",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.001,
+      "decimals": 4,
+      "default": "0.99"
+    },
+    {
+      "kind": "param",
+      "key": "gae_lambda",
+      "display_name": "GAE Lambda",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.005,
+      "decimals": 3,
+      "default": "0.95"
+    },
+    {
+      "kind": "param",
+      "key": "clip_param",
+      "display_name": "Clip Param",
+      "widget": "slider_float",
+      "min": 0.01,
+      "max": 1.0,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "0.2"
+    },
+    {
+      "kind": "param",
+      "key": "entropy_coef",
+      "display_name": "Entropy Coef",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.001,
+      "decimals": 4,
+      "default": "0.01"
+    },
+    {
+      "kind": "param",
+      "key": "value_loss_coef",
+      "display_name": "Val Loss Coef",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 5.0,
+      "step": 0.05,
+      "decimals": 2,
+      "default": "1.0"
+    },
+    {
+      "kind": "param",
+      "key": "max_grad_norm",
+      "display_name": "Max Grad Norm",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "decimals": 2,
+      "default": "1.0"
+    },
+    {
+      "kind": "param",
+      "key": "schedule",
+      "display_name": "LR Schedule",
+      "widget": "dropdown",
+      "choices": [
+        "fixed",
+        "adaptive"
+      ],
+      "default": "adaptive"
+    },
+    {
+      "kind": "param",
+      "key": "desired_kl",
+      "display_name": "Desired KL",
+      "widget": "slider_float",
+      "min": 0.001,
+      "max": 0.5,
+      "step": 0.001,
+      "decimals": 3,
+      "default": "0.01",
+      "condition": {
+        "key": "schedule",
+        "op": "==",
+        "value": "adaptive"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "save_interval",
+      "display_name": "Save Interval",
+      "widget": "int_spinbox",
+      "min": 1,
+      "max": 10000,
+      "step": 50,
+      "default": "100"
+    },
+    {
+      "kind": "param",
+      "key": "seed",
+      "display_name": "Seed",
+      "widget": "int_spinbox",
+      "min": 0,
+      "max": 99999,
+      "step": 1,
+      "default": "42"
+    },
+    {
+      "kind": "param",
+      "key": "headless",
+      "display_name": "Headless",
+      "widget": "toggle",
+      "default": "true"
+    },
+    {
+      "kind": "param",
+      "key": "amp_reward_coef",
+      "display_name": "AMP Reward Coef",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.1,
+      "decimals": 2,
+      "default": "2.0",
+      "tooltip": "Scale on the clipped discriminator reward.",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "task_reward_lerp",
+      "display_name": "Task Reward Lerp",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.05,
+      "decimals": 2,
+      "default": "0.5",
+      "tooltip": "Blend r = (1-l)*style + l*task. 0 = pure style imitation, 1 = pure task (AMP disabled). Default 0.5.",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "disc_grad_penalty",
+      "display_name": "Disc Grad Penalty",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 50.0,
+      "step": 0.5,
+      "decimals": 2,
+      "default": "10.0",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "disc_label_smoothing",
+      "display_name": "Disc Label Smooth",
+      "widget": "slider_float",
+      "min": 0.7,
+      "max": 1.0,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "0.9",
+      "tooltip": "Two-sided label smoothing for the discriminator BCE loss.",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "amp_replay_buffer_size",
+      "display_name": "Replay Buffer Size",
+      "widget": "int_spinbox",
+      "min": 1000,
+      "max": 10000000,
+      "step": 10000,
+      "default": "1000000",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "num_preload_transitions",
+      "display_name": "Preload Transitions",
+      "widget": "int_spinbox",
+      "min": 0,
+      "max": 10000000,
+      "step": 100000,
+      "default": "2000000",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "disc_lr",
+      "display_name": "Disc LR",
+      "widget": "slider_float",
+      "min": 1e-05,
+      "max": 0.01,
+      "step": 1e-05,
+      "decimals": 5,
+      "default": "0.0001",
+      "tooltip": "Discriminator optimizer learning rate. Typical range 1e-5 to 1e-2.",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "lerp_schedule",
+      "display_name": "Lerp Schedule",
+      "widget": "dropdown",
+      "choices": [
+        "none",
+        "slow_anneal",
+        "fast_anneal",
+        "warmup_then_anneal",
+        "custom"
+      ],
+      "choice_meta": {
+        "none":                {"title": "None",               "desc": "Constant lerp — no annealing."},
+        "slow_anneal":         {"title": "Slow Anneal",        "desc": "{start:0.75, end:0.3, over_iters:3000}. Gradually shift from style to task over 3k iters."},
+        "fast_anneal":         {"title": "Fast Anneal",        "desc": "{start:0.75, end:0.3, over_iters:1000}. Quick shift from style to task in 1k iters."},
+        "warmup_then_anneal":  {"title": "Warmup → Anneal",   "desc": "{start:0.2, end:0.6, over_iters:2000}. Start style-heavy, ramp up task reward."},
+        "custom":              {"title": "Custom",             "desc": "Enter a custom JSON schedule via the editor below."}
+      },
+      "default": "none",
+      "tooltip": "Anneal schedule for task_reward_lerp. 'None' = constant lerp. Presets provide common ramp profiles. 'Custom' enables the JSON editor.",
+      "condition": {
+        "key": "training_mode",
+        "op": "==",
+        "value": "AMP_PPO"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "lerp_schedule_json",
+      "display_name": "Schedule JSON",
+      "widget": "text_input",
+      "placeholder": "{\"start\":0.75,\"end\":0.3,\"over_iters\":2000}",
+      "default": "",
+      "tooltip": "Custom JSON anneal schedule. Format: {\"start\":float, \"end\":float, \"over_iters\":int}.",
+      "condition": {
+        "key": "lerp_schedule",
+        "op": "==",
+        "value": "custom"
+      }
+    },
+    {"kind": "separator", "row_height": 8},
+    {
+      "kind": "param",
+      "key": "stages_enabled",
+      "display_name": "Staged Training",
+      "widget": "toggle",
+      "default": "false",
+      "tooltip": "Enable multi-stage training pipeline. Each stage applies parameter overrides on top of the baseline config above. Stages execute in order with auto/manual advancement."
+    },
+    {
+      "kind": "param",
+      "key": "stages_json",
+      "display_name": "Stages",
+      "widget": "stage_editor",
+      "default": "[]",
+      "full_width_widget": true,
+      "tooltip": "Define training stages. Each stage overrides specific parameters (training_mode, rewards, AMP config, DR, commands) and has advancement criteria.",
+      "condition": {
+        "key": "stages_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "stage_checkpoint_strategy",
+      "display_name": "Stage Checkpoints",
+      "widget": "dropdown",
+      "choices": ["both", "save_on_advance", "save_best_per_stage"],
+      "default": "both",
+      "tooltip": "How to save checkpoints at stage transitions. 'both' = save on advance + keep best per stage.",
+      "condition": {
+        "key": "stages_enabled",
+        "op": "==",
+        "value": "true"
+      }
+    }
+  ],
+  "init_pose": [
+    {
+      "kind": "param",
+      "key": "mode",
+      "display_name": "Init Mode",
+      "widget": "dropdown",
+      "choices": [
+        "default",
+        "reference_frame_0",
+        "keyframe",
+        "custom"
+      ],
+      "choice_meta": {
+        "default":           {"title": "Default",    "desc": "GO2 standing pose + Gaussian noise. No dependencies."},
+        "reference_frame_0": {"title": "Ref Frame 0", "desc": "First frame of the Reference Motion clip. Requires a ReferenceMotion node."},
+        "keyframe":          {"title": "Keyframe",    "desc": "Named MJCF keyframe (e.g. 'home'). Falls back to default if not found."},
+        "custom":            {"title": "Custom",      "desc": "Explicit 12-joint angle array supplied below."}
+      },
+      "default": "default",
+      "tooltip": "How the robot is initialised at each episode reset."
+    },
+    {
+      "kind": "param",
+      "key": "noise_scale",
+      "display_name": "Init Noise",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 0.5,
+      "step": 0.005,
+      "decimals": 3,
+      "default": "0.05",
+      "tooltip": "Per-joint Gaussian noise (rad) added on top of the init pose. 0 = fully deterministic reset."
+    },
+    {
+      "kind": "param",
+      "key": "base_height",
+      "display_name": "Base Height",
+      "widget": "slider_float",
+      "min": -1.0,
+      "max": 1.0,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "-1.0",
+      "tooltip": "Override robot Z position at reset (m). -1.0 = auto (0.32 for GO2 default/custom; inferred from keyframe/ref-frame)."
+    },
+    {
+      "kind": "param",
+      "key": "keyframe_name",
+      "display_name": "Keyframe",
+      "widget": "text_input",
+      "placeholder": "home",
+      "default": "home",
+      "tooltip": "MJCF keyframe name. Only used when Init Mode = Keyframe.",
+      "condition": {
+        "key": "mode",
+        "op": "==",
+        "value": "keyframe"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "custom_qpos",
+      "display_name": "Custom Qpos",
+      "widget": "text_input",
+      "placeholder": "[0,0,0,0,0,0,0,0,0,0,0,0]",
+      "default": "[]",
+      "tooltip": "JSON array of 12 joint angles (rad). Only used when Init Mode = Custom.",
+      "condition": {
+        "key": "mode",
+        "op": "==",
+        "value": "custom"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "rsi_prob",
+      "display_name": "RSI Prob",
+      "widget": "slider_float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "decimals": 2,
+      "default": "1.0",
+      "tooltip": "Probability [0,1] that a reset uses reference-state init when mode = ref_frame_0. 1.0 = always, 0.0 = never.",
+      "condition": {
+        "key": "mode",
+        "op": "==",
+        "value": "reference_frame_0"
+      }
+    },
+    {
+      "kind": "param",
+      "key": "rsi_sample_mode",
+      "display_name": "RSI Sample",
+      "widget": "dropdown",
+      "choices": [
+        "frame_0",
+        "uniform_phase"
+      ],
+      "choice_meta": {
+        "frame_0":       {"title": "Frame 0",       "desc": "Always use the first frame of the reference clip."},
+        "uniform_phase": {"title": "Uniform Phase", "desc": "Sample a uniformly random frame each reset (APEX-style kinematic RSI)."}
+      },
+      "default": "frame_0",
+      "tooltip": "How to pick the reference frame for RSI. Only used when mode = ref_frame_0.",
+      "condition": {
+        "key": "mode",
+        "op": "==",
+        "value": "reference_frame_0"
+      }
     }
   ]
 }

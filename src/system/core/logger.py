@@ -414,7 +414,7 @@ class CmdLogWidget(QWidget):
         self.setStyleSheet(f"""
             #cmdLogPanel {{
                 background-color: {panel_bg};
-                border-left: 1px solid {border};
+                border: none;
             }}
             #cmdDebugLabel {{
                 background-color: transparent;

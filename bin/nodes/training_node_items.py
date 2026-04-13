@@ -75,6 +75,7 @@ from PySide6.QtWidgets import (
     QStyleOptionSlider,
     QTableWidget,
     QTableWidgetItem,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -85,6 +86,9 @@ from src.system.training.task_module_registry import (
     TaskModuleItem,
     reward_registry,
     termination_registry,
+    il_reward_registry,
+    il_obs_registry,
+    il_termination_registry,
 )
 
 
@@ -102,22 +106,58 @@ def _training_port_types() -> Dict[str, Dict[str, str]]:
         "robot_spec":         {"color": get_color("training_port_robot_spec", "#FF8C42"), "label": "robot_spec"},
         "physics_config":     {"color": get_color("training_port_physics_config", "#4FC3F7"), "label": "physics_config"},
         "rewards":            {"color": get_color("training_port_rewards", "#38BDF8"), "label": "rewards"},
+        "total_reward":       {"color": get_color("training_port_rewards", "#38BDF8"), "label": "total_reward"},
         "terminations":       {"color": get_color("training_port_terminations", "#F472B6"), "label": "terminations"},
         "task_config":        {"color": get_color("training_port_task_config", "#81C784"), "label": "task_config"},
         "obs_action_config":  {"color": get_color("training_port_obs_action_config", "#FFD54F"), "label": "obs_action_config"},
-        "domain_rand_config": {"color": get_color("training_port_domain_rand_config", "#CE93D8"), "label": "domain_rand_config"},
+        "domain_rand_config": {"color": get_color("training_port_domain_rand_config", "#BA68C8"), "label": "domain_rand_config"},
         "env_config":         {"color": get_color("training_port_env_config", "#4DB6AC"), "label": "env_config"},
         "algo_config":        {"color": get_color("training_port_algo_config", "#F48FB1"), "label": "algo_config"},
         "eval_config":        {"color": get_color("training_port_eval_config", "#A5D6A7"), "label": "eval_config"},
-        "train_result":       {"color": get_color("training_port_train_result", "#FF7043"), "label": "train_result"},
+        "train_pipe":         {"color": get_color("training_port_train_pipe", "#FF7043"), "label": "train_pipe"},
         "bundle_path":        {"color": get_color("training_port_bundle_path", "#90A4AE"), "label": "bundle_path"},
         "vis_check":          {"color": get_color("training_port_vis_check", "#80DEEA"), "label": "vis_check"},
         "scene_config":            {"color": get_color("training_port_scene_config", "#FFD180"), "label": "scene_config"},
-        "base_asset":              {"color": get_color("training_port_base_asset",   "#CE93D8"), "label": "base_asset"},
+        "checkpoint":              {"color": get_color("training_port_checkpoint",   "#CE93D8"), "label": "checkpoint"},
         "reference_motion_config": {"color": get_color("training_port_reference_motion", "#FFB300"), "label": "reference_motion_config"},
         "init_pose_config":        {"color": get_color("training_port_init_pose", "#A5D6A7"),          "label": "init_pose_config"},
         "joint_config":            {"color": get_color("training_port_joint_config", "#BCAAA4"),        "label": "joint_config"},
         "int":                     {"color": get_color("training_port_int", "#FDD835"),                  "label": "int"},
+        # Isaac Lab ports (legacy)
+        "isaac_lab_task_config":   {"color": get_color("training_port_il_task", "#26C6DA"),              "label": "isaac_lab_task_config"},
+        "isaac_lab_result":        {"color": get_color("training_port_il_result", "#00ACC1"),            "label": "isaac_lab_result"},
+        "export_config":           {"color": get_color("training_port_export_config", "#00897B"),        "label": "export_config"},
+        # Isaac Lab granular node ports (IL_A – IL_F)
+        "sim_context":        {"color": "#78909C", "label": "sim_context"},
+        "terrain":            {"color": "#8D6E63", "label": "terrain"},
+        "height_scanner":     {"color": "#A1887F", "label": "height_scanner"},
+        "robot_entity":       {"color": "#EF5350", "label": "robot_entity"},
+        "joint_info":         {"color": "#EF9A9A", "label": "joint_info"},
+        "body_info":          {"color": "#FFCDD2", "label": "body_info"},
+        "actuator_config":    {"color": "#FF8A65", "label": "actuator_config"},
+        "contact_sensor":     {"color": "#CE93D8", "label": "contact_sensor"},
+        "obs_vector":         {"color": "#0288D1", "label": "obs_vector"},
+        "action_entity":      {"color": "#66BB6A", "label": "action_entity"},
+        "velocity_command":   {"color": "#26C6DA", "label": "velocity_command"},
+        "total_reward":       {"color": "#F57C00", "label": "total_reward"},
+        "termination_config": {"color": "#E57373", "label": "termination_config"},
+        "policy":             {"color": "#7E57C2", "label": "policy"},
+        "training_metrics":   {"color": "#9575CD", "label": "training_metrics"},
+        "exported_model":     {"color": "#4DB6AC", "label": "exported_model"},
+        "command_source":     {"color": "#26C6DA", "label": "velocity_command"},
+        "action_source":      {"color": "#66BB6A", "label": "action_entity"},
+        "body_mapping":       {"color": "#FFCDD2", "label": "body_mapping"},
+        # Unified 6-section pipes — colors match their owning node layer.
+        # §1 Actor block uses the IL_A title color (#00695C dark teal) so
+        # the wire matches the Robot / Actor Setting / IL Actuator Config
+        # node bodies. §2 Scene uses the "A" layer title color (#2D6A2D
+        # dark green) matching the Rewards node.
+        "robot_pipe":         {"color": "#00695C", "label": "robot_pipe"},
+        "actor_pipe":         {"color": "#00695C", "label": "actor_pipe"},
+        "joint_init":         {"color": "#26A69A", "label": "joint_init"},
+        "scene_pipe":         {"color": "#2D6A2D", "label": "scene_pipe"},
+        "command_pipe":       {"color": "#1565C0", "label": "command_pipe"},
+        "reference_motion_pipe": {"color": "#7E57C2", "label": "reference_motion"},
     }
 
 # ---------------------------------------------------------------------------
@@ -125,32 +165,56 @@ def _training_port_types() -> Dict[str, Dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 _NODE_LAYER: Dict[str, str] = {
-    "robot_mjcf":        "R",
-    "physics_config":    "A",
-    "rewards":           "A",
-    "terminations":      "A",
-    "task_config":       "A",
-    "domain_rand":       "A",
-    "obs_action_config": "A",
-    "env_assembler":     "B",
-    "algo_config":       "B",
-    "train":             "C",
-    "eval_config":       "D",
-    "export":            "D",
-    "vis_check":         "D",
-    "scene_config":      "A",
-    "base_asset":        "C",
-    "reference_motion":  "A",
-    "init_pose":         "A",
+    # §1 Actor block — shares the IL_A teal palette.
+    "robot":               "IL_A",
+    "actor_setting":       "IL_A",
+    "joint_init":          "IL_A",
+    # §2 Scene block
+    "play_ground_setting": "S",
+    # § Training Commands — IL_B (slightly bluer teal) so commands
+    # read as a sibling of the actor block but visually distinct.
+    "training_commands":   "IL_B",
+    # SB3 core pipeline
+    "physics_config":      "A",
+    "rewards":             "A",
+    "terminations":        "A",
+    "task_config":         "A",
+    "domain_rand":         "A",
+    "obs_action_config":   "A",
+    "env_assembler":       "B",
+    "algo_config":         "B",
+    "train":               "C",
+    "eval_config":         "D",
+    "export":              "D",
+    "vis_check":           "D",
+    "base_asset":          "C",
+    "reference_motion":    "A",
+    "init_pose":           "A",
+    # Isaac Lab granular nodes (remaining after cleanup)
+    "il_observation":      "IL_B",
+    "il_policy_network":   "IL_F",
+    "il_ppo_trainer":      "IL_F",
+    # Legacy alias — canvases saved pre-merge still carry amp_ppo_trainer.
+    "amp_ppo_trainer":     "IL_F",
 }
 
 # Each layer has: bg (node body), title (title bar), text (title label)
 def _layer_colors() -> Dict[str, Dict[str, str]]:
     return {
+        # §1 Robot / Actor / JointInit — teal (blue-green).
+        # Functional-area color rule: §1 = teal, §2 = dark forest green, …
         "R": {
-            "bg": get_color("training_layer_robot_bg", "#2A1B12"),
-            "title": get_color("training_layer_robot_title", "#9A4F1F"),
-            "text": get_color("training_layer_robot_text", "#FFD1B0"),
+            "bg":    get_color("training_layer_robot_bg",    "#0A2A2B"),
+            "title": get_color("training_layer_robot_title", "#0F766E"),
+            "text":  get_color("training_layer_robot_text",  "#99F6E4"),
+        },
+        # §2 Scene (Play Ground) — same dark forest green as the
+        # Rewards node's layer-A palette so §2 matches the visual
+        # weight users already associate with green nodes.
+        "S": {
+            "bg":    get_color("training_layer_scene_bg",    "#1B2E1B"),
+            "title": get_color("training_layer_scene_title", "#2D6A2D"),
+            "text":  get_color("training_layer_scene_text",  "#A5D6A7"),
         },
         "A": {
             "bg": get_color("training_layer_a_bg", "#1B2E1B"),
@@ -171,6 +235,42 @@ def _layer_colors() -> Dict[str, Dict[str, str]]:
             "bg": get_color("training_layer_d_bg", "#2A1B2E"),
             "title": get_color("training_layer_d_title", "#4A1B6B"),
             "text": get_color("training_layer_d_text", "#E1BEE7"),
+        },
+        "IL": {
+            "bg": get_color("training_layer_il_bg", "#0D2B2B"),
+            "title": get_color("training_layer_il_title", "#00796B"),
+            "text": get_color("training_layer_il_text", "#80CBC4"),
+        },
+        # Isaac Lab granular layers (IL_A – IL_F)
+        "IL_A": {
+            "bg": get_color("training_layer_il_a_bg", "#1B2A2A"),
+            "title": get_color("training_layer_il_a_title", "#00695C"),
+            "text": get_color("training_layer_il_a_text", "#B2DFDB"),
+        },
+        "IL_B": {
+            "bg": get_color("training_layer_il_b_bg", "#1A237E"),
+            "title": get_color("training_layer_il_b_title", "#1565C0"),
+            "text": get_color("training_layer_il_b_text", "#BBDEFB"),
+        },
+        "IL_C": {
+            "bg": get_color("training_layer_il_c_bg", "#004D40"),
+            "title": get_color("training_layer_il_c_title", "#00897B"),
+            "text": get_color("training_layer_il_c_text", "#B2DFDB"),
+        },
+        "IL_D": {
+            "bg": get_color("training_layer_il_d_bg", "#3E2723"),
+            "title": get_color("training_layer_il_d_title", "#E65100"),
+            "text": get_color("training_layer_il_d_text", "#FFE0B2"),
+        },
+        "IL_E": {
+            "bg": get_color("training_layer_il_e_bg", "#311B92"),
+            "title": get_color("training_layer_il_e_title", "#7B1FA2"),
+            "text": get_color("training_layer_il_e_text", "#E1BEE7"),
+        },
+        "IL_F": {
+            "bg": get_color("training_layer_il_f_bg", "#1A1A2E"),
+            "title": get_color("training_layer_il_f_title", "#4527A0"),
+            "text": get_color("training_layer_il_f_text", "#D1C4E9"),
         },
     }
 
@@ -255,17 +355,17 @@ NODE_UI_ROWS.setdefault("train", []).append(
         "tooltip": "Open a MuJoCo review viewer using the current training setup.",
     }
 )
-NODE_UI_ROWS.setdefault("export", []).append(
+NODE_UI_ROWS.setdefault("il_policy_exporter", []).append(
     {
         "kind": "param",
-        "key": "__review_export__",
+        "key": "__review_il_export__",
         "display_name": "",
         "widget": "action_button",
         "button_text": "Review",
-        "button_action": "review_export",
+        "button_action": "review_il_export",
         "row_height": 24,
         "full_width_widget": True,
-        "tooltip": "Run one real episode from the exported runtime bundle in MuJoCo.",
+        "tooltip": "Replay the exported Isaac Lab policy in an Isaac Sim viewport (play.py).",
     }
 )
 NODE_UI_ROWS.setdefault("scene_config", []).append(
@@ -308,30 +408,25 @@ NODE_UI_ROWS.setdefault("terminations", []).append(
 )
 
 NODE_UI_ROWS["reference_motion"] = [
-    {
-        "kind": "param",
-        "key": "motion_source",
-        "display_name": "Source",
-        "widget": "dropdown",
-        "choices": [
-            "",
-            "generate:standing",
-            "generate:walk",
-            "loco:UnitreeGo2:walk",
-            "loco:UnitreeGo2:trot",
-            "loco:UnitreeA1:walk",
-        ],
-        "default": "",
-        "row_height": 24,
-        "tooltip": "Select a motion source: procedural generator or loco-mujoco dataset. Leave empty to use a custom .npy file below.",
-    },
+    # Phase_2 of AMP_design.yaml §3 — unified Reference Motion picker.
+    # The picker drives BOTH motion_file and motion_source params; the
+    # legacy "Source" dropdown was merged into this single entry. The
+    # picker writes motion_source for symbolic entries (generate:/loco:/
+    # pack:) and motion_file for single files, mirroring the backend
+    # precedence rule motion_source > motion_file.
     {
         "kind": "param",
         "key": "motion_file",
-        "display_name": "Load Motion",
+        "display_name": "Reference Motion",
         "widget": "motion_library_picker",
         "row_height": 24,
-        "tooltip": "Pick a registered reference motion, or <Add> to import a new .npy file. Overridden when Source is set.",
+        "tooltip": (
+            "Pick a single clip, a procedural generator (⚙), a loco-mujoco "
+            "dataset (📦), or an entire community pack (📦 pack:…) — "
+            "packs are the natural granularity for AMP discriminator "
+            "training. <Import .npy to library> drops a hand-recorded clip "
+            "into the SB3 motion library."
+        ),
     },
     {
         "kind": "param",
@@ -371,6 +466,10 @@ NODE_UI_ROWS["reference_motion"] = [
         "default": "1.0",
         "row_height": 24,
         "tooltip": "Reward scale for the reference tracking term (auto-enabled when connected).",
+        # Phase_2 of AMP_design.yaml §3 — tracking reward is irrelevant
+        # when the user is feeding the motion straight into the AMP
+        # discriminator. Hide the knob in that case to prevent confusion.
+        "condition": {"key": "consumer_mode", "op": "!=", "value": "amp"},
     },
     {
         "kind": "param",
@@ -384,7 +483,101 @@ NODE_UI_ROWS["reference_motion"] = [
         "default": "5.0",
         "row_height": 24,
         "tooltip": "Sharpness of the Gaussian similarity: exp(-sigma * ||q_cur - q_ref||²).",
+        "condition": {"key": "consumer_mode", "op": "!=", "value": "amp"},
     },
+    # ── Phase_2 (AMP_design.yaml §3.reference_motion) additive fields ──
+    # These 4 knobs control how the motion is CONSUMED (tracking reward
+    # vs AMP discriminator). Default values preserve the pre-phase_2
+    # behaviour (tracking only), so old canvases keep working unchanged.
+    {
+        "kind": "separator",
+        "row_height": 6,
+    },
+    {
+        "kind": "param",
+        "key": "format_id",
+        "display_name": "Format",
+        "widget": "dropdown",
+        "choices": ["unitport_npy", "amp_legged_gym"],
+        "default": "unitport_npy",
+        "row_height": 24,
+        "tooltip": (
+            "unitport_npy = legacy tracking .npy files from the SB3 motion "
+            "library.\n"
+            "amp_legged_gym = DeepMimic-style .txt/.json clips from "
+            "community packages (AMP_for_hardware, MetalHead, rl_amp). "
+            "Required when Consumer Mode is 'amp' or 'both'."
+        ),
+    },
+    {
+        "kind": "param",
+        "key": "consumer_mode",
+        "display_name": "Consumer Mode",
+        "widget": "dropdown",
+        "choices": ["tracking", "amp", "both"],
+        "default": "tracking",
+        "row_height": 24,
+        "tooltip": (
+            "tracking  — feed the motion through the legacy PPO + "
+            "reference-tracking reward (the pre-phase_2 path).\n"
+            "amp       — route transitions through the AMP discriminator "
+            "(requires an AMP PPO Trainer downstream).\n"
+            "both      — tracking reward + AMP discriminator simultaneously."
+        ),
+    },
+    {
+        "kind": "param",
+        "key": "amp_obs_fields",
+        "display_name": "AMP Obs Fields",
+        "widget": "multiselect_tags",
+        "storage": "csv",
+        "options": [
+            "joint_pos",
+            "toe_pos_local",
+            "base_lin_vel_local",
+            "base_ang_vel_local",
+            "joint_vel",
+            "root_height",
+        ],
+        "option_meta": {
+            "joint_pos": {
+                "title": "Joint Position",
+                "desc": "Current joint angles for all actuated DoFs.",
+            },
+            "toe_pos_local": {
+                "title": "Toe Position (local)",
+                "desc": "Foot/toe positions in the base frame via forward kinematics.",
+            },
+            "base_lin_vel_local": {
+                "title": "Base Linear Vel (local)",
+                "desc": "Base linear velocity expressed in the body frame.",
+            },
+            "base_ang_vel_local": {
+                "title": "Base Angular Vel (local)",
+                "desc": "Base angular velocity expressed in the body frame.",
+            },
+            "joint_vel": {
+                "title": "Joint Velocity",
+                "desc": "Angular velocity of each actuated joint.",
+            },
+            "root_height": {
+                "title": "Root Height",
+                "desc": "Scalar height of the robot base above the terrain.",
+            },
+        },
+        "default": "",
+        "row_height": 24,
+        "tooltip": (
+            "Select which observation fields feed the AMP discriminator. "
+            "Empty = use the full default set (all 6 fields). "
+            "Only consulted when Consumer Mode is 'amp' or 'both'."
+        ),
+        "condition": {"key": "consumer_mode", "op": "!=", "value": "tracking"},
+    },
+    # amp_reward_coef removed from reference_motion — the authoritative
+    # knob lives on the amp_ppo_trainer node.  Keeping the field here
+    # caused a confusing duplicate that could silently override the
+    # trainer's value downstream.
     # ── Imitation Learning (BC) section ──────────────────────────────
     {
         "kind": "separator",
@@ -509,14 +702,24 @@ NODE_UI_ROWS["reference_motion"] = [
             "manually configure obs components."
         ),
     },
+    # ── Preview physics toggle ───────────────────────────────────────
+    # ON  → _MotionPreviewThread runs PD tracking (the RL agent's view).
+    # OFF → pure kinematic replay — reference pose dropped into qpos,
+    #       showing the motion exactly as authored regardless of gains.
+    {
+        "kind": "param",
+        "key": "preview_physics",
+        "display_name": "Preview physic",
+        "widget": "toggle",
+        "row_height": 24,
+    },
     # ── Preview button (always last) ─────────────────────────────────
     {
         "kind": "param",
         "key": "preview",
-        "display_name": "",
+        "display_name": "Preview",
         "widget": "preview_button",
         "row_height": 24,
-        "full_width_widget": True,
     },
 ]
 
@@ -582,6 +785,38 @@ NODE_UI_ROWS["init_pose"] = [
         "row_height": 24,
         "tooltip": "JSON array of 12 joint angles (rad) used when mode = 'custom'.",
         "condition": {"key": "mode", "value": "custom"},
+    },
+    {
+        "kind": "param",
+        "key": "rsi_prob",
+        "display_name": "RSI Prob",
+        "widget": "slider_float",
+        "min": 0.0,
+        "max": 1.0,
+        "step": 0.05,
+        "decimals": 2,
+        "default": "1.0",
+        "row_height": 24,
+        "tooltip": (
+            "Probability of using reference-state initialization at reset.\n"
+            "1.0 = always reference, 0.0 = always default pose.\n"
+            "Only effective when mode = 'reference_frame_0'."
+        ),
+        "condition": {"key": "mode", "value": "reference_frame_0"},
+    },
+    {
+        "kind": "param",
+        "key": "rsi_sample_mode",
+        "display_name": "RSI Sample",
+        "widget": "dropdown",
+        "choices": ["frame_0", "uniform_phase"],
+        "default": "frame_0",
+        "row_height": 24,
+        "tooltip": (
+            "frame_0 — always use the first motion frame (deterministic)\n"
+            "uniform_phase — sample a random frame each reset (APEX-style)"
+        ),
+        "condition": {"key": "mode", "value": "reference_frame_0"},
     },
     {
         "kind": "param",
@@ -763,6 +998,31 @@ def _override_export_bundle_name_row() -> None:
 
 _override_export_bundle_name_row()
 
+
+def _override_il_export_bundle_name_row() -> None:
+    """Mirror the SB3 export node: replace IL Policy Exporter's plain
+    text bundle_name input with the same ``export_bundle_picker`` widget
+    (``<NEW>`` + an existing-checkpoint dropdown sourced from
+    ``CheckpointRegistry``). After the IL training run finishes the
+    backend auto-imports the exported bundle into the same registry, so
+    SB3 and IL bundles share one namespace and one picker UI."""
+    rows = NODE_UI_ROWS.setdefault("il_policy_exporter", [])
+    for row in rows:
+        if row.get("key") != "bundle_name":
+            continue
+        row["display_name"] = "Checkpoint"
+        row["widget"] = "export_bundle_picker"
+        row["default"] = ""
+        row["placeholder"] = ""
+        row["tooltip"] = (
+            "Choose an existing checkpoint to update, or select <NEW> to register "
+            "a new export name before the Isaac Lab bundle is auto-imported."
+        )
+        break
+
+
+_override_il_export_bundle_name_row()
+
 NODE_UI_ROWS["base_asset"] = [
     {
         "kind": "param",
@@ -777,7 +1037,7 @@ NODE_UI_ROWS["base_asset"] = [
         "key": "load_mode",
         "display_name": "Load Mode",
         "widget": "dropdown",
-        "choices": ["scratch", "resume_sb3", "warm_start_actor"],
+        "choices": ["scratch", "resume", "warm_start_actor"],
         "default": "scratch",
         "tooltip": "scratch: train from random init.\nresume_sb3: restore weights + optimizer state.\nwarm_start_actor: copy actor weights only, reset optimizer.",
         "condition": {
@@ -1189,6 +1449,160 @@ class IndexButton(QPushButton):
 
     def _popup_anchor(self) -> Tuple[QPoint, int]:
         """Return (global_pos, row_height_px) for popup positioning."""
+        try:
+            host = self.window()
+            proxy = host.graphicsProxyWidget() if host is not None else None
+            if proxy is not None:
+                scene = proxy.scene()
+                views = scene.views() if scene is not None else []
+                if views:
+                    view = views[0]
+                    scale = view.transform().m11()
+                    row_h = round(self.height() * scale)
+                    tl = self.mapTo(host, QPoint(0, 0))
+                    br = self.mapTo(host, QPoint(self.width(), 0))
+                    scene_br = proxy.mapToScene(QPointF(br))
+                    scene_tl = proxy.mapToScene(QPointF(tl))
+                    anchor = QPointF(scene_br.x() + 2, scene_tl.y())
+                    view_pt = view.mapFromScene(anchor)
+                    return view.viewport().mapToGlobal(view_pt), row_h
+        except Exception:
+            pass
+        return self.mapToGlobal(QPoint(self.width() + 2, 0)), self.height()
+
+
+class NodeInputer(QPushButton):
+    """Button that displays a text value; click to edit via a popup.
+
+    Replaces bare ``QLineEdit`` inside node cards.  The button never
+    enters an editable focus state on the graphics scene — instead it
+    spawns a :class:`_TextInputPopup` (text mode) or :class:`DataInput`
+    (float mode) popup on click, avoiding the input-lock issue that
+    ``QLineEdit`` causes inside ``QGraphicsProxyWidget``.
+
+    Parameters
+    ----------
+    current_text:
+        Initial display text.
+    placeholder:
+        Placeholder shown in the popup input when empty.
+    mode:
+        ``"text"`` — free-form string (uses ``_TextInputPopup``).
+        ``"float"`` — numeric with optional range (uses ``DataInput``).
+        ``"scientific"`` — like float but accepts scientific notation.
+    min_value, max_value:
+        Range bounds for ``"float"`` / ``"scientific"`` mode.
+    decimals:
+        Display decimal places for ``"float"`` mode.
+    """
+
+    textChanged = Signal(str)
+
+    def __init__(
+        self,
+        *,
+        current_text: str = "",
+        placeholder: str = "",
+        mode: str = "text",
+        min_value: float = -1e15,
+        max_value: float = 1e15,
+        decimals: int = 6,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._text = str(current_text)
+        self._placeholder = placeholder
+        self._mode = mode
+        self._min = float(min_value)
+        self._max = float(max_value)
+        self._decimals = int(decimals)
+        self._popup = None
+
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMaximumWidth(WIDGET_W)
+        self.setFlat(True)
+        self._refresh_display()
+        self.clicked.connect(self._open_popup)
+
+    # ── public API ────────────────────────────────────────────────────
+
+    def text(self) -> str:
+        return self._text
+
+    def setText(self, t: str) -> None:            # noqa: N802  (Qt naming)
+        self._text = str(t)
+        self._refresh_display()
+
+    # ── display ───────────────────────────────────────────────────────
+
+    def _refresh_display(self) -> None:
+        display = self._text if self._text else (self._placeholder or "—")
+        avail = (self.width() or WIDGET_W) - 16
+        elided = QFontMetrics(self.font()).elidedText(
+            display, Qt.TextElideMode.ElideRight, max(30, avail),
+        )
+        QPushButton.setText(self, elided)
+
+    def resizeEvent(self, event) -> None:         # noqa: N802
+        super().resizeEvent(event)
+        self._refresh_display()
+
+    # ── popup lifecycle ───────────────────────────────────────────────
+
+    def _open_popup(self) -> None:
+        if self._popup is not None:
+            self._popup.close()
+            self._popup = None
+            return
+
+        if self._mode == "float":
+            try:
+                cur_v = float(self._text)
+            except (ValueError, TypeError):
+                cur_v = 0.0
+            popup = DataInput(
+                current_value=cur_v,
+                min_value=self._min,
+                max_value=self._max,
+            )
+            self._popup = popup
+            popup.destroyed.connect(self._clear_popup)
+            popup.destroyed.connect(lambda *_a, p=popup: self._apply_float(p))
+            pos, row_h = self._popup_anchor()
+            popup.show_at(pos, row_h)
+        else:
+            # text / scientific
+            popup = _TextInputPopup(placeholder=self._placeholder or "Enter value…")
+            popup._input.setText(self._text)
+            popup._input.selectAll()
+            if self._mode == "scientific":
+                popup._input.setPlaceholderText("e.g. 3e-4")
+            self._popup = popup
+            popup.accepted.connect(self._apply_text)
+            popup.destroyed.connect(self._clear_popup)
+            pos, row_h = self._popup_anchor()
+            popup.show_at(pos, row_h)
+
+    def _apply_float(self, popup: DataInput) -> None:
+        v = popup.accepted_value()
+        new_text = f"{v:.{self._decimals}g}"
+        if new_text != self._text:
+            self._text = new_text
+            self._refresh_display()
+            self.textChanged.emit(self._text)
+
+    def _apply_text(self, value: str) -> None:
+        if value != self._text:
+            self._text = value
+            self._refresh_display()
+            self.textChanged.emit(self._text)
+        if self._popup is not None:
+            self._popup.close()
+
+    def _clear_popup(self, *_a) -> None:
+        self._popup = None
+
+    def _popup_anchor(self) -> Tuple[QPoint, int]:
         try:
             host = self.window()
             proxy = host.graphicsProxyWidget() if host is not None else None
@@ -1696,8 +2110,7 @@ class NodeRow(QWidget):
 
 
 class _TextInputPopup(QFrame):
-    """
-    Compact inline text-input popup — same positioning idiom as _ModuleValuePopup.
+    """Compact inline text-input popup — uses DataInput styling for consistency.
 
     Usage::
 
@@ -1717,35 +2130,46 @@ class _TextInputPopup(QFrame):
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.NoDropShadowWindowHint,
         )
-        self.setObjectName("textInputPopup")
+        self.setObjectName("dataInputPopup")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self._validate_fn: Optional[Callable[[str], Optional[str]]] = None
         self._did_accept = False
 
         border = get_color("training_widget_border", "#3d3d3d")
-        bg     = get_color("training_widget_input_bg", "#1A1A1A")
-        text   = get_color("training_widget_text", "#cccccc")
+        bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text = get_color("training_widget_text", "#cccccc")
         btn_bg = get_color("training_widget_button_bg", get_color("button_bg", "#252525"))
-        hover  = get_color("training_button_hover_bg", get_color("button_hover", "#2e2e2e"))
-        err_c  = get_color("training_widget_error", "#f87171")
+        hover = get_color("training_button_hover_bg", get_color("button_hover", "#2e2e2e"))
+        err_c = get_color("training_widget_error", "#f87171")
 
         self.setStyleSheet(
             f"""
-            #textInputPopup {{ background: transparent; border: none; }}
-            QLineEdit[textInputField="true"] {{
-                background: {bg}; color: {text};
-                border: 1px solid {border}; border-radius: 4px; padding: 0px 4px;
+            #dataInputPopup {{
+                background: transparent;
+                border: none;
             }}
-            QLineEdit[textInputField="true"][invalid="true"] {{
+            QLineEdit[dataInput="true"] {{
+                background: {bg};
+                color: {text};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 0px 4px;
+            }}
+            QLineEdit[dataInput="true"][invalid="true"] {{
                 border-color: {err_c};
             }}
-            QPushButton[textInputBtn="true"] {{
-                background: {btn_bg}; color: {text};
-                border: 1px solid {border}; border-radius: 4px; padding: 0px 2px;
+            QPushButton[dataInputBtn="true"] {{
+                background: {btn_bg};
+                color: {text};
+                border: 1px solid {border};
+                border-radius: 4px;
+                padding: 0px 2px;
             }}
-            QPushButton[textInputBtn="true"]:hover {{ background: {hover}; }}
-            QLabel[textInputError="true"] {{
+            QPushButton[dataInputBtn="true"]:hover {{
+                background: {hover};
+            }}
+            QLabel[dataInputError="true"] {{
                 color: {err_c}; font-size: 10px;
                 background: {bg}; border: 1px solid {border};
                 border-radius: 3px; padding: 1px 4px;
@@ -1763,24 +2187,26 @@ class _TextInputPopup(QFrame):
         col.addLayout(row)
 
         self._input = QLineEdit(self)
-        self._input.setProperty("textInputField", True)
+        self._input.setProperty("dataInput", True)
         self._input.setPlaceholderText(placeholder)
         row.addWidget(self._input, 1)
 
         self._ok_btn = QPushButton("✔", self)
-        self._ok_btn.setProperty("textInputBtn", True)
+        self._ok_btn.setProperty("dataInputBtn", True)
         self._ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ok_btn.clicked.connect(self._accept_if_valid)
         row.addWidget(self._ok_btn, 0)
 
         self._cancel_btn = QPushButton("❌", self)
-        self._cancel_btn.setProperty("textInputBtn", True)
+        self._cancel_btn.setProperty("dataInputBtn", True)
         self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cancel_btn.clicked.connect(self.close)
         row.addWidget(self._cancel_btn, 0)
 
+        row.addStretch(1)
+
         self._error_lbl = QLabel("", self)
-        self._error_lbl.setProperty("textInputError", True)
+        self._error_lbl.setProperty("dataInputError", True)
         self._error_lbl.setVisible(False)
         col.addWidget(self._error_lbl)
 
@@ -1823,20 +2249,19 @@ class _TextInputPopup(QFrame):
         self._error_lbl.setVisible(False)
         self.adjustSize()
 
-    def show_at(self, pos: QPoint, row_height: int = 32) -> None:
-        h = min(50, max(20, row_height))
-        scale = h / 50.0
-        font_px = max(8, round(16 * scale))
-        from PySide6.QtGui import QFont as _QFont
-        font = _QFont()
+    def show_at(self, pos: QPoint, row_height: int = 50) -> None:
+        h = max(24, row_height)
+        font_px = max(12, round(h * 0.45))
+        font = QFont()
         font.setPixelSize(font_px)
-        self._input.setFixedHeight(h)
-        self._input.setFixedWidth(round(140 * scale))
+        input_w = max(96, round(h * 3.2))
+        self._input.setFixedSize(input_w, h)
         self._input.setFont(font)
         self._ok_btn.setFixedSize(h, h)
         self._ok_btn.setFont(font)
         self._cancel_btn.setFixedSize(h, h)
         self._cancel_btn.setFont(font)
+        self.setFixedHeight(h)
         self.adjustSize()
         y_offset = max(0, (row_height - h) // 2)
         self.move(QPoint(pos.x(), pos.y() + y_offset))
@@ -2601,6 +3026,7 @@ class _RegistryModuleEditor(QWidget):
         selector_title: str = "Title",
         sort_mode: str = "registry",
         family_provider: Optional[Callable[[], str]] = None,
+        algorithm_provider: Optional[Callable[[], str]] = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -2611,6 +3037,7 @@ class _RegistryModuleEditor(QWidget):
         self._selector_title = str(selector_title or "Title").strip() or "Title"
         self._sort_mode = self.SORT_REGISTRY.get(str(sort_mode or "").strip().lower(), "registry")
         self._family_provider = family_provider
+        self._algorithm_provider = algorithm_provider
         self._values = self._parse_values(initial_raw)
         self._selected = [key for key in self._ordered_keys(self._registry) if key in self._values]
         self._preferred_height = PARAM_ROW_H
@@ -2861,15 +3288,36 @@ class _RegistryModuleEditor(QWidget):
             ),
         )
 
+    def _resolved_algorithm(self) -> str:
+        try:
+            alg = str(self._algorithm_provider() if self._algorithm_provider is not None else "").strip().upper()
+        except Exception:
+            alg = ""
+        return alg or "ALL"
+
     def _filtered_registry(self) -> Dict[str, TaskModuleItem]:
         family = self._resolved_family()
+        algorithm = self._resolved_algorithm()
         allowed: Dict[str, TaskModuleItem] = {}
         for key in self._order:
             item = self._registry.get(key)
             if item is None:
                 continue
-            if key in self._selected or family in item.applicable_families:
+            # Already-selected items always remain visible so the user
+            # can remove them manually (avoid silently dropping weights).
+            if key in self._selected:
                 allowed[key] = item
+                continue
+            if family not in item.applicable_families:
+                continue
+            # Algorithm compatibility: "ALL" in item.algorithms means
+            # universally applicable; otherwise the canvas algorithm
+            # must be listed, or the canvas algorithm is "ALL" (unknown).
+            item_algs = getattr(item, "algorithms", None)
+            if item_algs:
+                if "ALL" not in item_algs and algorithm != "ALL" and algorithm not in item_algs:
+                    continue
+            allowed[key] = item
         return allowed
 
     def _selector_choices(self) -> Tuple[List[str], Dict[str, Dict[str, str]]]:
@@ -3031,6 +3479,9 @@ class TrainingNodePort(QGraphicsEllipseItem):
     _get_node_port / _create_connection work without modification.
     """
 
+    # Slots that accept unlimited incoming edges (fan-in)
+    _FAN_IN_SLOTS: set = {"actuator_configs"}
+
     def __init__(
         self,
         parent: "TrainingNodeItem",
@@ -3038,8 +3489,19 @@ class TrainingNodePort(QGraphicsEllipseItem):
         io: str,
         data_type: str,
         required: bool = True,
+        max_connections: Optional[int] = None,
     ) -> None:
-        r = PORT_R
+        if max_connections is None:
+            if io == "in" and slot_name in self._FAN_IN_SLOTS:
+                max_connections = -1
+            elif io == "out":
+                max_connections = 8
+            else:
+                max_connections = 1
+
+        self._is_fan_in = (max_connections is not None and max_connections < 0)
+        # Fan-in ports are 1px larger in radius
+        r = PORT_R + 1 if self._is_fan_in else PORT_R
         super().__init__(-r, -r, r * 2, r * 2, parent)
 
         self._slot_name = slot_name
@@ -3059,7 +3521,7 @@ class TrainingNodePort(QGraphicsEllipseItem):
             "channel": "data",
             "data_type": data_type,
             "dot_kind": "sub_dot",
-            "max_connections": 8 if io == "out" else 1,
+            "max_connections": max_connections,
             "type_color": hex_c,
         })
 
@@ -3104,13 +3566,30 @@ class TrainingNodePort(QGraphicsEllipseItem):
             self.setPen(QPen(gray.lighter(110), 1.0))
             self.setBrush(QBrush(QColor(get_color("training_port_invalid_fill", "#2a2a2a"))))
 
+    def paint(self, painter: QPainter, option, widget=None) -> None:
+        super().paint(painter, option, widget)
+        if self._is_fan_in:
+            font = QFont("Segoe UI", 7, QFont.Weight.Bold)
+            painter.setFont(font)
+            painter.setPen(QPen(QColor("#ffffff"), 0))
+            painter.drawText(self.boundingRect(), Qt.AlignCenter, "F")
+
+    def _tooltip_label(self) -> str:
+        """Build a human-readable tooltip for this port."""
+        dt = self._data_type or "any"
+        if self._is_fan_in:
+            return f"Fan-In  [{dt}]"
+        return dt
+
     def hoverEnterEvent(self, event) -> None:
         self._apply_visual("hover")
+        self.setToolTip(self._tooltip_label())
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event) -> None:
         conns = self.data(2)
         self._apply_visual("connected" if conns else "normal")
+        self.setToolTip("")
         super().hoverLeaveEvent(event)
 
 
@@ -3441,6 +3920,61 @@ def _list_training_asset_entries() -> List[object]:
         return []
 
 
+def _list_active_project_run_checkpoints() -> List[Tuple[str, str, str]]:
+    """Scan the active project's ``training/runs/*/model_*.pt`` tree.
+
+    Returns a list of ``(run_slug, ckpt_name, abs_path)`` tuples, sorted
+    with most-recent runs first and the highest iteration checkpoint per
+    run first (``model_1499.pt`` before ``model_100.pt``).
+
+    Returns an empty list when no project is active (e.g. node is being
+    rendered in a preview where the project session hasn't been set up)
+    or when the runs tree does not exist yet.
+    """
+    try:
+        from src.system.core.project_session import get_active_project_root
+        root = get_active_project_root()
+    except Exception:
+        return []
+    if root is None:
+        return []
+    runs_dir = pathlib.Path(root) / "training" / "runs"
+    if not runs_dir.is_dir():
+        return []
+
+    entries: List[Tuple[str, str, str]] = []
+    try:
+        run_dirs = sorted(
+            (d for d in runs_dir.iterdir() if d.is_dir()),
+            key=lambda d: d.name,
+            reverse=True,
+        )
+    except Exception:
+        return []
+
+    def _iter_key(name: str) -> int:
+        # ``model_1499.pt`` → 1499, ``model_.pt`` → -1
+        stem = pathlib.Path(name).stem
+        tail = stem.rsplit("_", 1)[-1]
+        try:
+            return int(tail)
+        except ValueError:
+            return -1
+
+    for run_dir in run_dirs:
+        try:
+            ckpts = sorted(
+                run_dir.glob("model_*.pt"),
+                key=lambda p: _iter_key(p.name),
+                reverse=True,
+            )
+        except Exception:
+            continue
+        for pt in ckpts:
+            entries.append((run_dir.name, pt.name, str(pt.resolve())))
+    return entries
+
+
 def _resolve_start_point_token(params: Dict[str, str]) -> str:
     start_point = str(params.get("start_point", "") or "").strip()
     if start_point:
@@ -3573,6 +4107,28 @@ class _StartPointChoicePicker(_RichChoicePicker):
                 "desc": "Resume from the newest training artifact exported by this workspace.",
             },
         }
+
+        # Run-dir checkpoints from the active project. Listed one entry
+        # per .pt (so users can pick a specific iteration), labeled with
+        # run slug + iteration so the dropdown is self-explanatory.
+        for run_slug, ckpt_name, abs_path in _list_active_project_run_checkpoints():
+            token = f"run:{abs_path}"
+            choices.append(token)
+            # Extract iter number from ``model_1499.pt`` → ``iter 1499``
+            stem = pathlib.Path(ckpt_name).stem
+            tail = stem.rsplit("_", 1)[-1]
+            iter_label = f"iter {tail}" if tail.isdigit() else ckpt_name
+            meta_map[token] = {
+                "title": f"{run_slug}  ·  {iter_label}",
+                "subtitle": ckpt_name,
+                "desc": (
+                    f"Run-dir checkpoint: {abs_path}\n"
+                    f"Use with load_mode='resume' to continue the run, "
+                    f"or 'warm_start_actor' to seed a new run (e.g. "
+                    f"AMP-PPO from a PPO checkpoint)."
+                ),
+            }
+
         for entry in _list_training_asset_entries():
             token = f"asset:{entry.asset_id}"
             choices.append(token)
@@ -3675,7 +4231,7 @@ class SaveListButton(QWidget):
         # Override the base class handler to route through our logic
         try:
             self._picker.selectionChanged.disconnect()
-        except RuntimeError:
+        except (RuntimeError, TypeError):
             pass
         self._picker.selectionChanged.connect(self._on_selection)
 
@@ -3903,40 +4459,664 @@ class _BufferSizePickerWidget(QWidget):
 
 
 # ---------------------------------------------------------------------------
+# Stage Editor — multi-stage training pipeline widget
+# ---------------------------------------------------------------------------
+
+class _StageOverrideDialog(QDialog):
+    """Modal dialog for editing a single stage's overrides and criteria."""
+
+    # Keys that can be overridden per-stage, grouped for UI layout
+    _OVERRIDE_GROUPS = [
+        ("Training Mode", [
+            ("training_mode", "Training Mode", "dropdown", ["PPO", "AMP_PPO"]),
+        ]),
+        ("AMP Parameters", [
+            ("amp_reward_coef", "AMP Reward Coef", "float", (0.0, 10.0, 0.1)),
+            ("task_reward_lerp", "Task Reward Lerp", "float", (0.0, 1.0, 0.05)),
+            ("disc_lr", "Disc LR", "text", None),
+            ("disc_grad_penalty", "Disc Grad Penalty", "float", (0.0, 50.0, 1.0)),
+            ("disc_label_smoothing", "Disc Label Smooth", "float", (0.0, 1.0, 0.05)),
+        ]),
+        ("PPO Hyperparams", [
+            ("learning_rate", "Learning Rate", "text", None),
+            ("entropy_coef", "Entropy Coef", "text", None),
+            ("clip_param", "Clip Param", "float", (0.0, 1.0, 0.05)),
+        ]),
+        ("Domain Randomization", [
+            ("domain_rand_enabled", "DR Enabled", "bool", None),
+        ]),
+        ("Lerp Schedule", [
+            ("lerp_schedule", "Lerp Schedule JSON", "json", None),
+        ]),
+    ]
+
+    def __init__(self, stage_data: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Stage: {stage_data.get('display_name', 'Edit Stage')}")
+        self.setModal(True)
+        self.resize(420, 520)
+
+        self._stage = dict(stage_data)
+        self._overrides = dict(stage_data.get("overrides", {}))
+        self._checks: Dict[str, QCheckBox] = {}
+        self._widgets: Dict[str, QWidget] = {}
+
+        root = QVBoxLayout(self)
+        root.setSpacing(6)
+
+        # ── Stage metadata ──
+        meta_frame = QFrame()
+        meta_layout = QVBoxLayout(meta_frame)
+        meta_layout.setContentsMargins(4, 4, 4, 4)
+        meta_layout.setSpacing(4)
+
+        # Stage ID
+        hl = QHBoxLayout()
+        hl.addWidget(QLabel("ID:"))
+        self._id_edit = QLineEdit(str(stage_data.get("stage_id", "")))
+        self._id_edit.setPlaceholderText("e.g. 0_ppo_warmup")
+        hl.addWidget(self._id_edit)
+        meta_layout.addLayout(hl)
+
+        # Display name
+        hl2 = QHBoxLayout()
+        hl2.addWidget(QLabel("Name:"))
+        self._name_edit = QLineEdit(str(stage_data.get("display_name", "")))
+        self._name_edit.setPlaceholderText("e.g. PPO Warmup")
+        hl2.addWidget(self._name_edit)
+        meta_layout.addLayout(hl2)
+
+        # Iterations
+        hl3 = QHBoxLayout()
+        hl3.addWidget(QLabel("Iterations:"))
+        self._iter_spin = QSpinBox()
+        self._iter_spin.setRange(1, 999999)
+        self._iter_spin.setValue(int(stage_data.get("iterations", 1000)))
+        hl3.addWidget(self._iter_spin)
+        meta_layout.addLayout(hl3)
+
+        root.addWidget(meta_frame)
+
+        # ── Overrides (checkbox-gated) ──
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(4, 4, 4, 4)
+        scroll_layout.setSpacing(2)
+
+        for group_name, items in self._OVERRIDE_GROUPS:
+            grp_label = QLabel(f"── {group_name} ──")
+            grp_label.setStyleSheet("color: #888; font-weight: bold; font-size: 11px;")
+            scroll_layout.addWidget(grp_label)
+
+            for key, label, wtype, opts in items:
+                row_hl = QHBoxLayout()
+                row_hl.setSpacing(4)
+
+                cb = QCheckBox(label)
+                cb.setChecked(key in self._overrides)
+                self._checks[key] = cb
+                row_hl.addWidget(cb)
+
+                if wtype == "dropdown":
+                    w = QComboBox()
+                    for choice in (opts or []):
+                        w.addItem(str(choice))
+                    if key in self._overrides:
+                        idx = w.findText(str(self._overrides[key]))
+                        if idx >= 0:
+                            w.setCurrentIndex(idx)
+                elif wtype == "float":
+                    w = QDoubleSpinBox()
+                    lo, hi, step = opts if opts else (0.0, 100.0, 0.1)
+                    w.setRange(lo, hi)
+                    w.setSingleStep(step)
+                    w.setDecimals(6)
+                    if key in self._overrides:
+                        try:
+                            w.setValue(float(self._overrides[key]))
+                        except (TypeError, ValueError):
+                            pass
+                elif wtype == "bool":
+                    w = QCheckBox("Enabled")
+                    if key in self._overrides:
+                        v = self._overrides[key]
+                        w.setChecked(
+                            str(v).strip().lower() in ("true", "1", "yes")
+                        )
+                elif wtype == "json":
+                    w = QLineEdit()
+                    w.setPlaceholderText('{"start":0.75,"end":0.3,"over_iters":2000}')
+                    if key in self._overrides:
+                        v = self._overrides[key]
+                        w.setText(
+                            json.dumps(v) if isinstance(v, dict) else str(v)
+                        )
+                else:  # text
+                    w = QLineEdit()
+                    if key in self._overrides:
+                        w.setText(str(self._overrides[key]))
+
+                self._widgets[key] = w
+                w.setEnabled(key in self._overrides)
+                cb.toggled.connect(w.setEnabled)
+                row_hl.addWidget(w)
+                scroll_layout.addLayout(row_hl)
+
+        scroll.setWidget(scroll_content)
+        root.addWidget(scroll)
+
+        # ── Advance criteria ──
+        adv_frame = QFrame()
+        adv_layout = QVBoxLayout(adv_frame)
+        adv_layout.setContentsMargins(4, 4, 4, 4)
+        adv_layout.setSpacing(4)
+        adv_label = QLabel("── Advance Criteria ──")
+        adv_label.setStyleSheet("color: #888; font-weight: bold; font-size: 11px;")
+        adv_layout.addWidget(adv_label)
+
+        criteria = stage_data.get("advance_criteria", {})
+        if isinstance(criteria, str):
+            try:
+                criteria = json.loads(criteria)
+            except Exception:
+                criteria = {}
+
+        # Mode
+        hl_mode = QHBoxLayout()
+        hl_mode.addWidget(QLabel("Mode:"))
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItems(["auto", "manual", "hybrid"])
+        idx = self._mode_combo.findText(str(stage_data.get("advance_mode", "auto")))
+        if idx >= 0:
+            self._mode_combo.setCurrentIndex(idx)
+        hl_mode.addWidget(self._mode_combo)
+        adv_layout.addLayout(hl_mode)
+
+        # Min iterations
+        hl_mi = QHBoxLayout()
+        hl_mi.addWidget(QLabel("Min Iters:"))
+        self._min_iter_spin = QSpinBox()
+        self._min_iter_spin.setRange(0, 999999)
+        self._min_iter_spin.setValue(int(criteria.get("min_iterations", 0)))
+        hl_mi.addWidget(self._min_iter_spin)
+        adv_layout.addLayout(hl_mi)
+
+        # Min mean episode length
+        hl_mel = QHBoxLayout()
+        hl_mel.addWidget(QLabel("Min Ep Len:"))
+        self._min_ep_spin = QSpinBox()
+        self._min_ep_spin.setRange(0, 999999)
+        self._min_ep_spin.setValue(int(criteria.get("min_mean_episode_length", 0)))
+        hl_mel.addWidget(self._min_ep_spin)
+        adv_layout.addLayout(hl_mel)
+
+        root.addWidget(adv_frame)
+
+        # ── Buttons ──
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        root.addWidget(buttons)
+
+    def get_result(self) -> dict:
+        """Return the edited stage dict."""
+        overrides = {}
+        for key, cb in self._checks.items():
+            if not cb.isChecked():
+                continue
+            w = self._widgets[key]
+            if isinstance(w, QComboBox):
+                overrides[key] = w.currentText()
+            elif isinstance(w, QDoubleSpinBox):
+                overrides[key] = w.value()
+            elif isinstance(w, QCheckBox):
+                overrides[key] = w.isChecked()
+            elif isinstance(w, QLineEdit):
+                text = w.text().strip()
+                # Try to parse as number or JSON
+                try:
+                    overrides[key] = json.loads(text)
+                except (json.JSONDecodeError, ValueError):
+                    overrides[key] = text
+            else:
+                overrides[key] = str(w.text()) if hasattr(w, "text") else ""
+
+        criteria = {}
+        mi = self._min_iter_spin.value()
+        if mi > 0:
+            criteria["min_iterations"] = mi
+        mel = self._min_ep_spin.value()
+        if mel > 0:
+            criteria["min_mean_episode_length"] = mel
+
+        return {
+            "stage_id": self._id_edit.text().strip() or f"stage_{0}",
+            "display_name": self._name_edit.text().strip() or "Untitled",
+            "iterations": self._iter_spin.value(),
+            "overrides": overrides,
+            "advance_mode": self._mode_combo.currentText(),
+            "advance_criteria": criteria,
+            "eval_interval": 50,
+        }
+
+
+class _StageEditorWidget(QWidget):
+    """Dynamic stage list editor for the ILPPOTrainerNode.
+
+    Displays a compact list of training stages with add/remove/edit controls.
+    Each stage shows: [index] [name] [iterations] [Edit] [x]
+    Stores the full stage list as JSON in the node parameter.
+    """
+
+    height_changed = Signal(int)
+
+    _STAGE_ROW_H = 28
+    _HEADER_H = 28
+    _FOOTER_H = 24
+    _SPACING = 2
+
+    def __init__(self, initial_value: str, write_fn, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._full_row_widget = True  # tells _reflow_layout to use full width + dynamic height
+        self._write_fn = write_fn
+        self._stages: List[dict] = []
+        self._preferred_height = PARAM_ROW_H
+
+        # Parse initial value
+        try:
+            parsed = json.loads(initial_value) if isinstance(initial_value, str) else initial_value
+            if isinstance(parsed, list):
+                self._stages = parsed
+        except Exception:
+            pass
+
+        # Root layout
+        self._root_layout = QVBoxLayout(self)
+        self._root_layout.setContentsMargins(0, 0, 0, 0)
+        self._root_layout.setSpacing(0)
+
+        # Header: label + add button
+        header = QWidget()
+        header.setFixedHeight(self._HEADER_H)
+        hl = QHBoxLayout(header)
+        hl.setContentsMargins(4, 0, 4, 0)
+        hl.setSpacing(4)
+        lbl = QLabel("Stages")
+        lbl.setStyleSheet("font-weight: bold; font-size: 11px;")
+        hl.addWidget(lbl)
+        hl.addStretch()
+        preset_btn = QPushButton("☰")
+        preset_btn.setFixedSize(22, 20)
+        preset_btn.setToolTip("Load stage preset")
+        preset_btn.setCursor(Qt.PointingHandCursor)
+        preset_btn.clicked.connect(self._on_load_preset)
+        hl.addWidget(preset_btn)
+        add_btn = QPushButton("+")
+        add_btn.setFixedSize(22, 20)
+        add_btn.setToolTip("Add new stage")
+        add_btn.setCursor(Qt.PointingHandCursor)
+        add_btn.clicked.connect(self._on_add_stage)
+        hl.addWidget(add_btn)
+        self._root_layout.addWidget(header)
+
+        # Content area for stage rows
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(self._SPACING)
+        self._root_layout.addWidget(self._content)
+
+        # Footer: total iterations
+        self._footer = QLabel("")
+        self._footer.setFixedHeight(self._FOOTER_H)
+        self._footer.setStyleSheet("color: #888; font-size: 10px; padding-left: 4px;")
+        self._root_layout.addWidget(self._footer)
+
+        self._rebuild_rows()
+
+    def _rebuild_rows(self) -> None:
+        """Rebuild all stage row widgets from self._stages."""
+        # Clear existing
+        while self._content_layout.count():
+            item = self._content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        for idx, stage in enumerate(self._stages):
+            row = self._make_stage_row(idx, stage)
+            self._content_layout.addWidget(row)
+
+        # Update footer
+        total = sum(int(s.get("iterations", 0)) for s in self._stages)
+        self._footer.setText(f"Total: {total} iters  |  {len(self._stages)} stage(s)")
+
+        # Recalculate height
+        n = len(self._stages)
+        content_h = n * (self._STAGE_ROW_H + self._SPACING) if n > 0 else 0
+        total_h = self._HEADER_H + content_h + self._FOOTER_H + 4
+        self._preferred_height = max(PARAM_ROW_H, int(total_h))
+        self._content.setFixedHeight(max(0, content_h))
+        self.setMinimumHeight(self._preferred_height)
+        self.setMaximumHeight(self._preferred_height)
+        self.updateGeometry()
+        self.height_changed.emit(self._preferred_height)
+
+    def _make_stage_row(self, idx: int, stage: dict) -> QWidget:
+        """Create a single stage row widget."""
+        row = QWidget()
+        row.setFixedHeight(self._STAGE_ROW_H)
+        hl = QHBoxLayout(row)
+        hl.setContentsMargins(4, 1, 4, 1)
+        hl.setSpacing(3)
+
+        # Index badge
+        idx_lbl = QLabel(f"{idx}")
+        idx_lbl.setFixedWidth(16)
+        idx_lbl.setAlignment(Qt.AlignCenter)
+        idx_lbl.setStyleSheet(
+            "background: #444; color: #ccc; border-radius: 3px; "
+            "font-size: 10px; font-weight: bold;"
+        )
+        hl.addWidget(idx_lbl)
+
+        # Display name (truncated)
+        name = str(stage.get("display_name", stage.get("stage_id", f"Stage {idx}")))
+        name_lbl = QLabel(name)
+        name_lbl.setToolTip(name)
+        name_lbl.setStyleSheet("font-size: 11px;")
+        hl.addWidget(name_lbl, stretch=1)
+
+        # Iterations
+        iters = int(stage.get("iterations", 0))
+        iter_lbl = QLabel(f"{iters}it")
+        iter_lbl.setFixedWidth(38)
+        iter_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        iter_lbl.setStyleSheet("color: #999; font-size: 10px;")
+        hl.addWidget(iter_lbl)
+
+        # Edit button
+        edit_btn = QPushButton("✎")
+        edit_btn.setFixedSize(22, 20)
+        edit_btn.setToolTip("Edit stage overrides")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.clicked.connect(lambda _=False, i=idx: self._on_edit_stage(i))
+        hl.addWidget(edit_btn)
+
+        # Delete button
+        del_btn = QPushButton("×")
+        del_btn.setFixedSize(22, 20)
+        del_btn.setToolTip("Remove stage")
+        del_btn.setCursor(Qt.PointingHandCursor)
+        del_btn.clicked.connect(lambda _=False, i=idx: self._on_remove_stage(i))
+        hl.addWidget(del_btn)
+
+        return row
+
+    def _on_add_stage(self) -> None:
+        """Add a new empty stage."""
+        idx = len(self._stages)
+        new_stage = {
+            "stage_id": f"stage_{idx}",
+            "display_name": f"Stage {idx}",
+            "iterations": 1000,
+            "overrides": {},
+            "advance_mode": "auto",
+            "advance_criteria": {},
+            "eval_interval": 50,
+        }
+        # Open editor immediately
+        dlg = _StageOverrideDialog(new_stage)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._stages.append(dlg.get_result())
+            self._write_back()
+            self._rebuild_rows()
+
+    def _on_edit_stage(self, idx: int) -> None:
+        """Open the stage override editor dialog."""
+        if idx < 0 or idx >= len(self._stages):
+            return
+        dlg = _StageOverrideDialog(self._stages[idx])
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._stages[idx] = dlg.get_result()
+            self._write_back()
+            self._rebuild_rows()
+
+    def _on_remove_stage(self, idx: int) -> None:
+        """Remove a stage by index."""
+        if idx < 0 or idx >= len(self._stages):
+            return
+        self._stages.pop(idx)
+        self._write_back()
+        self._rebuild_rows()
+
+    def _on_load_preset(self) -> None:
+        """Show preset selection menu and load chosen stages."""
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu()
+
+        # Built-in presets
+        presets = self._discover_presets()
+        if presets:
+            for name, path in presets:
+                action = menu.addAction(f"📋 {name}")
+                action.setData(path)
+        else:
+            no_action = menu.addAction("(no presets found)")
+            no_action.setEnabled(False)
+
+        menu.addSeparator()
+        import_action = menu.addAction("📂 Import from YAML…")
+
+        chosen = menu.exec(self.mapToGlobal(self.rect().bottomLeft()))
+        if chosen is None:
+            return
+
+        if chosen is import_action:
+            path, _ = QFileDialog.getOpenFileName(
+                None, "Import Stage Preset", "",
+                "YAML files (*.yaml *.yml);;All files (*)"
+            )
+            if path:
+                stages = self._load_stages_from_yaml(path)
+                if stages:
+                    self._stages = stages
+                    self._write_back()
+                    self._rebuild_rows()
+        elif chosen.data():
+            stages = self._load_stages_from_yaml(str(chosen.data()))
+            if stages:
+                self._stages = stages
+                self._write_back()
+                self._rebuild_rows()
+
+    @staticmethod
+    def _discover_presets() -> List[tuple]:
+        """Find available stage preset YAML files."""
+        import pathlib
+        presets = []
+        # Knowledge base presets
+        kb_dir = pathlib.Path(__file__).parent.parent.parent / "knowledge_base"
+        for f in sorted(kb_dir.glob("*STAGES*.yaml")) if kb_dir.is_dir() else []:
+            presets.append((f.stem, str(f)))
+        # Custom mods presets
+        cm_dir = pathlib.Path(__file__).parent.parent.parent / "custom_mods" / "training" / "stage_presets"
+        if cm_dir.is_dir():
+            for f in sorted(cm_dir.glob("*.yaml")):
+                presets.append((f.stem, str(f)))
+        return presets
+
+    @staticmethod
+    def _load_stages_from_yaml(path: str) -> List[dict]:
+        """Parse a YAML file and extract stage definitions.
+
+        Supports the RSI-AMP_STAGES.yaml format where stages are under
+        the top-level 'stages' key, each with stage_id, display_name,
+        iterations, overrides, advance_mode, advance_criteria, etc.
+        """
+        try:
+            import yaml
+        except ImportError:
+            # Fallback: try to parse as JSON
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    return data
+            except Exception:
+                pass
+            return []
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return []
+
+        if not isinstance(data, dict):
+            return []
+
+        raw_stages = data.get("stages", [])
+        if not isinstance(raw_stages, list):
+            return []
+
+        result = []
+        for s in raw_stages:
+            if not isinstance(s, dict):
+                continue
+            # Build the stage dict matching TrainingStage.from_dict format
+            stage = {
+                "stage_id": str(s.get("id", s.get("stage_id", ""))),
+                "display_name": str(s.get("display_name", s.get("id", "Untitled"))),
+                "iterations": int(s.get("iterations", 1000)),
+                "advance_mode": str(s.get("advance_criteria", {}).get("auto", {}) and "auto" or "auto"),
+                "eval_interval": 50,
+            }
+
+            # Build overrides from stage-level keys
+            overrides = {}
+            if "training_mode" in s:
+                overrides["training_mode"] = str(s["training_mode"])
+            if "domain_rand_enabled" in s:
+                overrides["domain_rand_enabled"] = bool(s["domain_rand_enabled"])
+            # AMP params
+            for key in ("amp_reward_coef", "task_reward_lerp", "disc_lr",
+                        "disc_grad_penalty", "disc_label_smoothing"):
+                if key in s:
+                    overrides[key] = s[key]
+            # Lerp schedule
+            if "lerp_schedule" in s and isinstance(s["lerp_schedule"], dict):
+                overrides["lerp_schedule"] = s["lerp_schedule"]
+            # PPO params
+            for key in ("learning_rate", "entropy_coef", "clip_param"):
+                if key in s:
+                    overrides[key] = s[key]
+
+            stage["overrides"] = overrides
+
+            # Advance criteria
+            criteria = {}
+            adv = s.get("advance_criteria", {})
+            if isinstance(adv, dict):
+                auto = adv.get("auto", {})
+                if isinstance(auto, dict):
+                    if "min_iterations" in auto:
+                        criteria["min_iterations"] = int(auto["min_iterations"])
+                    if "min_mean_episode_length" in auto:
+                        criteria["min_mean_episode_length"] = int(auto["min_mean_episode_length"])
+                    if "min_mean_reward" in auto:
+                        criteria["min_mean_reward"] = float(auto["min_mean_reward"])
+                    if "disc_accuracy_range" in auto:
+                        criteria["disc_accuracy_range"] = auto["disc_accuracy_range"]
+                stage["advance_mode"] = "auto" if auto else "manual"
+                if adv.get("manual"):
+                    stage["advance_mode"] = "hybrid" if auto else "manual"
+            stage["advance_criteria"] = criteria
+
+            result.append(stage)
+
+        return result
+
+    def _write_back(self) -> None:
+        """Persist the current stages list to the node parameter."""
+        self._write_fn(json.dumps(self._stages))
+
+    def preferred_row_height(self) -> int:
+        return self._preferred_height
+
+
+# ---------------------------------------------------------------------------
 # Reference Motion — specialised widgets
 # ---------------------------------------------------------------------------
 
 class _MotionLibraryPicker(_RichChoicePicker):
     """
-    Rich-choice picker for the reference motion library.
+    Unified Reference Motion picker.
 
-    Shows:
-      • <Add>  — browse & import a new .npy into custom_motions/
-      • ★ name — files from the same robot model (pinned first)
-      •   name — other files from the same category
+    Single dropdown that exposes every way the user can supply a reference
+    motion to a ReferenceMotionNode. Five entry classes:
 
-    Emits ``valueChanged(str)`` with the full absolute path, or ``""`` when
-    <Add> is pending / nothing is selected.
+      • 📁  SB3 library files          (custom_mods/training/motions/<cat>/<model>/*.npy)
+            ★-pinned for the current robot_type.
+      • 📁  Single archive clips       (custom_mods/archives/<pkg>/datasets/.../*.{txt,json})
+      • ⚙   Procedural generators      ("generate:standing", "generate:walk")
+      • 📦  Loco-mujoco datasets       ("loco:UnitreeGo2:walk", …)
+      • 📦  Archive packs              ("pack:AMP_for_hardware:mocap_motions", …)
+            Each pack expands at training-launch time to ALL files in its
+            mocap subdir — the natural granularity for AMP discriminator
+            training (the disc learns the joint distribution of a clip pool,
+            not a single file). See AMP_design.yaml §3.
+
+    Plus an ``<Import .npy to library>`` action for SB3 users who still
+    want to drop a hand-recorded clip into the SB3 library.
+
+    The picker writes back via ``write_params({motion_file, motion_source})``
+    so it can correctly distinguish "single file" picks (write motion_file,
+    clear motion_source) from "symbolic" picks (write motion_source, clear
+    motion_file). The downstream ReferenceMotionConfig already understands
+    both fields with the documented "motion_source overrides motion_file"
+    precedence rule.
     """
 
-    valueChanged = Signal(str)
-    ADD_LABEL = "<Add>"
+    ADD_LABEL = "<Import .npy to library>"
+
+    #: Built-in symbolic sources that have always been available via the
+    #: legacy motion_source dropdown. Same set the SB3 backend already
+    #: knows how to resolve via ReferenceMotionNode._resolve_motion_source.
+    _GENERATOR_ENTRIES = (
+        ("generate:standing", "generate:standing", "Procedural standing-pose reference (single frame)."),
+        ("generate:walk",     "generate:walk",     "Procedural sinusoidal walking reference."),
+    )
+    _LOCO_ENTRIES = (
+        ("loco:UnitreeGo2:walk", "loco:UnitreeGo2:walk", "loco-mujoco dataset · Unitree Go2 walking trajectory."),
+        ("loco:UnitreeGo2:trot", "loco:UnitreeGo2:trot", "loco-mujoco dataset · Unitree Go2 trotting trajectory."),
+        ("loco:UnitreeA1:walk",  "loco:UnitreeA1:walk",  "loco-mujoco dataset · Unitree A1 walking trajectory."),
+    )
 
     def __init__(
         self,
-        current_path: str,
+        current_motion_file: str,
+        current_motion_source: str = "",
         robot_type: str = "",
+        write_params: Optional[Callable[[Dict[str, str]], None]] = None,
         parent=None,
     ) -> None:
-        self._current_path = str(current_path or "")
+        self._current_motion_file = str(current_motion_file or "")
+        self._current_motion_source = str(current_motion_source or "")
         self._robot_type = str(robot_type or "").lower().strip()
+        self._write_params = write_params
         self._suspend = False
 
-        choices, meta, c2p, p2c = self._build_state()
-        self._choice_to_path = c2p
-        self._path_to_choice = p2c
+        choices, meta, label_to_payload, payload_to_label = self._build_state()
+        self._label_to_payload = label_to_payload
+        self._payload_to_label = payload_to_label
 
-        initial = p2c.get(self._current_path, self.ADD_LABEL)
+        initial = self._initial_label()
 
         super().__init__(
             choices,
@@ -3952,66 +5132,144 @@ class _MotionLibraryPicker(_RichChoicePicker):
     # State builder
     # ------------------------------------------------------------------
 
+    def _initial_label(self) -> str:
+        """Pick the label that matches the node's current persisted state.
+
+        Source field has precedence over motion_file (matches the backend
+        resolution rule in ``ReferenceMotionNode.execute()``).
+        """
+        if self._current_motion_source:
+            label = self._payload_to_label.get(
+                ("source", self._current_motion_source)
+            )
+            if label:
+                return label
+        if self._current_motion_file:
+            label = self._payload_to_label.get(
+                ("file", self._current_motion_file)
+            )
+            if label:
+                return label
+        return self.ADD_LABEL
+
     def _build_state(self):
-        """Return (choices, meta_map, choice→path, path→choice)."""
-        from src.system.training.motion_library import list_entries, get_category
+        """Return (choices, meta_map, label→(kind, value), (kind, value)→label).
+
+        ``kind`` is one of ``"file"``, ``"source"``, ``"add"``. ``value`` is
+        the absolute path (file kind), the symbolic identifier (source kind),
+        or ``""`` (add kind).
+        """
+        from src.system.training.motion_library import (
+            list_entries, get_category, list_motion_packs,
+        )
 
         cat = get_category(self._robot_type) if self._robot_type else None
         entries = list_entries(category=cat)
+        packs = list_motion_packs()
 
-        # Sort: same model first, then category / model / name
+        # Sort SB3+archive single-file entries: same model first, then by
+        # category/model/name.
         rt = self._robot_type
         entries_sorted = sorted(
             entries,
             key=lambda e: (0 if e.robot_model == rt else 1,
                            e.category, e.robot_model, e.name.lower()),
         )
-
-        # Detect duplicate names so we can add [model] disambiguation
         name_count = Counter(e.name for e in entries_sorted)
 
-        choices = [self.ADD_LABEL]
-        meta: Dict[str, Dict[str, str]] = {
-            self.ADD_LABEL: {
-                "title": self.ADD_LABEL,
-                "desc": "Browse for a .npy file and import it into the motion library.",
-            }
-        }
-        c2p: Dict[str, str] = {}
-        p2c: Dict[str, str] = {}
+        choices: List[str] = []
+        meta: Dict[str, Dict[str, str]] = {}
+        label_to_payload: Dict[str, tuple] = {}
+        payload_to_label: Dict[tuple, str] = {}
 
+        # ── 1. ⚙ Procedural generators ──
+        for label, src_id, desc in self._GENERATOR_ENTRIES:
+            ui_label = f"⚙ {label}"
+            choices.append(ui_label)
+            meta[ui_label] = {"title": ui_label, "desc": desc}
+            label_to_payload[ui_label] = ("source", src_id)
+            payload_to_label[("source", src_id)] = ui_label
+
+        # ── 2. 📦 Loco-mujoco datasets ──
+        for label, src_id, desc in self._LOCO_ENTRIES:
+            ui_label = f"📦 {label}"
+            choices.append(ui_label)
+            meta[ui_label] = {"title": ui_label, "desc": desc}
+            label_to_payload[ui_label] = ("source", src_id)
+            payload_to_label[("source", src_id)] = ui_label
+
+        # ── 3. 📦 Archive packs (the AMP-natural granularity) ──
+        for pack in packs:
+            ui_label = f"📦 {pack.package} / {pack.subdir}"
+            desc = (
+                f"{pack.file_count} clips  ·  recommended for AMP "
+                f"discriminator training (the disc learns this entire "
+                f"motion distribution as the expert pool)."
+            )
+            choices.append(ui_label)
+            meta[ui_label] = {"title": ui_label, "desc": desc}
+            label_to_payload[ui_label] = ("source", pack.pack_id)
+            payload_to_label[("source", pack.pack_id)] = ui_label
+
+        # ── 4. 📁 Single-file entries (SB3 library + individual archive clips) ──
         for e in entries_sorted:
             if name_count[e.name] > 1:
-                label = f"{e.name}  [{e.robot_model}]"
+                ui_label = f"📁 {e.name}  [{e.robot_model}]"
             else:
-                label = e.name
-
+                ui_label = f"📁 {e.name}"
             star = "★ " if e.robot_model == rt else ""
-            meta[label] = {
+            meta[ui_label] = {
                 "title": f"{star}{e.name}",
-                "desc": f"{e.category}  ·  {e.robot_model}",
+                "desc": f"{e.category}  ·  {e.robot_model}  ·  {e.path.name}",
             }
             full = str(e.path)
-            c2p[label] = full
-            p2c[full] = label
-            choices.append(label)
+            choices.append(ui_label)
+            label_to_payload[ui_label] = ("file", full)
+            payload_to_label[("file", full)] = ui_label
 
-        return choices, meta, c2p, p2c
+        # ── 5. <Add> import button ──
+        choices.append(self.ADD_LABEL)
+        meta[self.ADD_LABEL] = {
+            "title": self.ADD_LABEL,
+            "desc": "Browse for a .npy file and import it into the SB3 motion library.",
+        }
+        label_to_payload[self.ADD_LABEL] = ("add", "")
+
+        return choices, meta, label_to_payload, payload_to_label
 
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
+    def _emit(self, motion_file: str, motion_source: str) -> None:
+        """Push the new (file, source) pair to the node parameters."""
+        self._current_motion_file = motion_file
+        self._current_motion_source = motion_source
+        if self._write_params is not None:
+            self._write_params({
+                "motion_file":   motion_file,
+                "motion_source": motion_source,
+            })
+
     def _on_changed(self, label: str) -> None:
         if self._suspend:
             return
-        if label == self.ADD_LABEL:
+        payload = self._label_to_payload.get(label)
+        if payload is None:
+            return
+        kind, value = payload
+        if kind == "add":
             self._do_add()
             return
-        path = self._choice_to_path.get(label, "")
-        if path:
-            self._current_path = path
-            self.valueChanged.emit(path)
+        if kind == "file":
+            # Single file → write motion_file, CLEAR motion_source so the
+            # backend resolution rule (source > file) doesn't shadow us.
+            self._emit(motion_file=value, motion_source="")
+        elif kind == "source":
+            # Symbolic identifier (generate:/loco:/pack:) → write
+            # motion_source, CLEAR motion_file so the legacy SB3 path
+            # doesn't accidentally hit a stale .npy.
+            self._emit(motion_file="", motion_source=value)
 
     def _do_add(self) -> None:
         from src.system.training.motion_library import import_file
@@ -4042,25 +5300,24 @@ class _MotionLibraryPicker(_RichChoicePicker):
             return
 
         # Rebuild and select new entry
-        choices, meta, c2p, p2c = self._build_state()
-        self._choice_to_path = c2p
-        self._path_to_choice = p2c
+        choices, meta, l2p, p2l = self._build_state()
+        self._label_to_payload = l2p
+        self._payload_to_label = p2l
         self._suspend = True
         self.set_choices(choices, meta_map=meta)
         self._suspend = False
 
-        new_label = p2c.get(str(entry.path), "")
+        new_label = p2l.get(("file", str(entry.path)), "")
         if new_label:
-            self._current_path = str(entry.path)
             self.setCurrentText(new_label)
-            self.valueChanged.emit(self._current_path)
+            self._emit(motion_file=str(entry.path), motion_source="")
         else:
             self._revert()
 
     def _revert(self) -> None:
         """Restore the previously selected entry without emitting."""
         self._suspend = True
-        saved = self._path_to_choice.get(self._current_path, self.ADD_LABEL)
+        saved = self._initial_label()
         self.setCurrentText(saved)
         self._suspend = False
 
@@ -4198,20 +5455,58 @@ class _FPSSliderWidget(QWidget):
         self.valueChanged.emit(str(float(v)))
 
     def _on_auto(self) -> None:
+        """Detect FPS from whatever the unified picker produced.
+
+        Sources, in priority order (matches the picker's writeback rule):
+
+          1. ``motion_source = "pack:<pkg>:<subdir>"`` →
+                expand the pack, peek at the first file's FrameDuration.
+          2. ``motion_source = "generate:..."`` / ``"loco:..."`` →
+                no file metadata; suggest control_hz fallback (50 Hz).
+          3. ``motion_file = <abs/path/to/clip.npy>`` →
+                np.load and assume fps = control_hz (legacy SB3 path).
+          4. ``motion_file = <abs/path/to/clip.txt|.json>`` (amp_legged_gym) →
+                read FrameDuration from the JSON header. fps = 1 / dt.
+                This is the *real* native fps of an AMP mocap clip and is
+                much more accurate than the control_hz fallback.
+        """
         params = getattr(self._logic_node, "parameters", None) or {}
-        path = str(params.get("motion_file", "") or "")
-        if not path:
-            self._auto_btn.setToolTip("⚠ Set a Motion File first, then click Auto.")
-            return
+        src = str(params.get("motion_source", "") or "").strip()
+        mf = str(params.get("motion_file", "") or "").strip()
 
-        try:
-            import numpy as np
-            arr = np.load(path, mmap_mode="r")
-            T = int(arr.shape[0])
-        except Exception:
-            self._auto_btn.setToolTip(f"⚠ Could not read file: {pathlib.Path(path).name}")
-            return
+        target_path: Optional[str] = None
+        kind: str = "unknown"      # "amp_json" | "npy" | "synthetic"
 
+        # ── (1) pack: → first file in the pack ──
+        if src.startswith("pack:"):
+            try:
+                from src.system.training.motion_library import expand_motion_pack
+                files = expand_motion_pack(src)
+                if files:
+                    target_path = str(files[0])
+                    kind = "amp_json"
+            except Exception as exc:
+                self._auto_btn.setToolTip(
+                    f"⚠ Could not expand pack {src!r}: {exc}"
+                )
+                return
+
+        # ── (2) generate:/loco: → synthetic, no file metadata ──
+        elif src.startswith(("generate:", "loco:")):
+            kind = "synthetic"
+
+        # ── (3)/(4) explicit file path → infer kind from extension ──
+        elif mf:
+            target_path = mf
+            ext = pathlib.Path(mf).suffix.lower()
+            if ext in (".txt", ".json"):
+                kind = "amp_json"
+            elif ext == ".npy":
+                kind = "npy"
+            else:
+                kind = "unknown"
+
+        # Resolve control_hz from spec params (used as fallback default)
         control_hz = 50.0
         for key in ("control_hz", "control_frequency_hz"):
             raw = params.get(key)
@@ -4222,14 +5517,71 @@ class _FPSSliderWidget(QWidget):
                 except (TypeError, ValueError):
                     pass
 
-        suggested = min(self._MAX_FPS, max(1, round(control_hz)))
-        duration_s = T / suggested if suggested > 0 else 0.0
+        if kind == "amp_json" and target_path:
+            # Real AMP mocap header — extract FrameDuration directly.
+            try:
+                import json
+                with open(target_path, "r", encoding="utf-8") as f:
+                    j = json.load(f)
+                frame_duration = float(j.get("FrameDuration", 0) or 0)
+                n_frames = len(j.get("Frames", []) or [])
+            except Exception as exc:
+                self._auto_btn.setToolTip(
+                    f"⚠ Could not parse {pathlib.Path(target_path).name}: {exc}"
+                )
+                return
+            if frame_duration <= 0 or n_frames < 2:
+                self._auto_btn.setToolTip(
+                    f"⚠ {pathlib.Path(target_path).name} has invalid "
+                    f"FrameDuration={frame_duration} or n_frames={n_frames}."
+                )
+                return
+            suggested = min(self._MAX_FPS, max(1, round(1.0 / frame_duration)))
+            duration_s = n_frames * frame_duration
+            label = pathlib.Path(target_path).name
+            extra = ""
+            if src.startswith("pack:"):
+                extra = f"\nPack: {src} (showing first member)"
+            self._auto_btn.setToolTip(
+                f"File: {label}{extra}\n"
+                f"Frames: {n_frames}  ·  FrameDuration: {frame_duration:.4f}s\n"
+                f"Native FPS: {suggested}  →  clip length {duration_s:.2f}s"
+            )
 
-        self._auto_btn.setToolTip(
-            f"File: {pathlib.Path(path).name}\n"
-            f"Frames: {T}  ·  Control rate: {control_hz:.0f} Hz\n"
-            f"Suggested FPS: {suggested}  →  plays in {duration_s:.2f} s"
-        )
+        elif kind == "npy" and target_path:
+            # Legacy SB3 .npy: no embedded fps, fall back to control_hz.
+            try:
+                import numpy as np
+                arr = np.load(target_path, mmap_mode="r")
+                T = int(arr.shape[0])
+            except Exception:
+                self._auto_btn.setToolTip(
+                    f"⚠ Could not read file: {pathlib.Path(target_path).name}"
+                )
+                return
+            suggested = min(self._MAX_FPS, max(1, round(control_hz)))
+            duration_s = T / suggested if suggested > 0 else 0.0
+            self._auto_btn.setToolTip(
+                f"File: {pathlib.Path(target_path).name}\n"
+                f"Frames: {T}  ·  Control rate: {control_hz:.0f} Hz\n"
+                f"Suggested FPS: {suggested}  →  plays in {duration_s:.2f} s"
+            )
+
+        elif kind == "synthetic":
+            # generate: / loco: are resolved at runtime — no file to peek at.
+            suggested = min(self._MAX_FPS, max(1, round(control_hz)))
+            self._auto_btn.setToolTip(
+                f"Source {src!r}: synthetic / loco-mujoco trajectory has no "
+                f"embedded FPS metadata.\n"
+                f"Suggested FPS = control_hz = {suggested}."
+            )
+
+        else:
+            self._auto_btn.setToolTip(
+                "⚠ No motion source set. Pick a clip / pack first, then click Auto."
+            )
+            return
+
         self._node_slider.set_value(float(suggested))
         self._write_fn(str(float(suggested)))
         self.valueChanged.emit(str(float(suggested)))
@@ -4254,6 +5606,21 @@ def _find_scene_xml_for_preview(robot_type: str) -> Optional[str]:
         return None
 
 
+def _guess_motion_format_id(path: str) -> str:
+    """Map a motion file path to the loader format_id used by ``get_loader``.
+
+    .npy → legacy unitport_npy; .txt/.json → amp_legged_gym DeepMimic layout.
+    Unknown extensions fall back to unitport_npy so pre-phase_2 behavior is
+    preserved when the picker is in legacy mode.
+    """
+    ext = pathlib.Path(str(path or "")).suffix.lower()
+    if ext == ".npy":
+        return "unitport_npy"
+    if ext in (".txt", ".json"):
+        return "amp_legged_gym"
+    return "unitport_npy"
+
+
 class _MotionPreviewThread(QThread):
     """Background thread: physics-based reference motion preview with HUD.
 
@@ -4275,15 +5642,19 @@ class _MotionPreviewThread(QThread):
     def __init__(
         self,
         scene_xml: str,
-        npy_path: str,
+        motion_path: str,
         fps: float,
+        format_id: str = "",
+        mode: str = "physics",
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._scene_xml  = scene_xml
-        self._npy_path   = npy_path
-        self._fps        = max(1.0, float(fps) if fps > 0 else 30.0)
-        self._stop_flag  = False
+        self._scene_xml   = scene_xml
+        self._motion_path = motion_path
+        self._fps_hint    = max(1.0, float(fps) if fps > 0 else 30.0)
+        self._format_id   = format_id or _guess_motion_format_id(motion_path)
+        self._mode        = mode if mode in ("physics", "kinematic") else "physics"
+        self._stop_flag   = False
 
     def request_stop(self) -> None:
         self._stop_flag = True
@@ -4300,11 +5671,43 @@ class _MotionPreviewThread(QThread):
             return
 
         try:
-            frames = np.load(self._npy_path)
-            if frames.ndim != 2:
-                self.error.emit(f"Expected 2-D array, got shape {frames.shape}")
+            # ── Load motion through the unified loader pipeline ──
+            # unitport_npy → .npy joint frames; amp_legged_gym → .txt/.json
+            # with full root+joint DeepMimic layout. Both produce a
+            # MotionClip with joint_pos (and for amp, root_pos/root_quat).
+            try:
+                from src.system.training.motion.loader import get_loader, LoaderError
+                loader = get_loader(self._format_id, fps=self._fps_hint) \
+                    if self._format_id == "unitport_npy" \
+                    else get_loader(self._format_id)
+                clip = loader.load(self._motion_path)
+            except LoaderError as exc:
+                self.error.emit(f"Loader error: {exc}")
                 self.stopped.emit()
                 return
+            except Exception as exc:
+                self.error.emit(f"Failed to load motion: {exc}")
+                self.stopped.emit()
+                return
+
+            frames = np.asarray(clip.joint_pos, dtype=np.float32)
+            if frames.ndim != 2 or frames.shape[0] < 2:
+                self.error.emit(
+                    f"MotionClip {clip.name!r} has invalid joint_pos shape {frames.shape}"
+                )
+                self.stopped.emit()
+                return
+
+            # Clip's own fps is authoritative when the loader parsed it
+            # from file metadata (amp FrameDuration). Fall back to the UI
+            # slider only for unitport_npy which carries no timing header.
+            self._fps = float(clip.fps) if clip.fps > 0 else self._fps_hint
+
+            has_root = (
+                clip.root_pos is not None
+                and clip.root_quat is not None
+                and clip.root_pos.shape[0] == frames.shape[0]
+            )
 
             model = mujoco.MjModel.from_xml_path(self._scene_xml)
             data  = mujoco.MjData(model)
@@ -4320,7 +5723,10 @@ class _MotionPreviewThread(QThread):
             n_act = min(n_actuated, model.nu)
             n_cols = int(frames.shape[1])
 
-            if n_cols >= jnt_offset + n_actuated:
+            # MotionClip.joint_pos is already DOF-only (no root block), so
+            # unlike the old raw-.npy path we don't need to strip a free-joint
+            # prefix — but we still accept legacy npy files that included it.
+            if n_cols >= jnt_offset + n_actuated and self._format_id == "unitport_npy":
                 joint_frames = frames[:, jnt_offset: jnt_offset + n_actuated].copy()
             elif n_cols >= n_actuated:
                 joint_frames = frames[:, :n_actuated].copy()
@@ -4359,8 +5765,14 @@ class _MotionPreviewThread(QThread):
             # ── Initial pose: first reference frame ──────────────────
             mujoco.mj_resetData(model, data)
             if jnt_offset >= 7:
-                data.qpos[2] = 0.35                          # standing height
-                data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]       # upright quat
+                if has_root:
+                    data.qpos[0:3] = np.asarray(clip.root_pos[0], dtype=np.float64)
+                    # MotionClip stores quat as (x,y,z,w); MuJoCo wants (w,x,y,z).
+                    qx, qy, qz, qw = [float(v) for v in clip.root_quat[0]]
+                    data.qpos[3:7] = [qw, qx, qy, qz]
+                else:
+                    data.qpos[2] = 0.35                          # standing height
+                    data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]       # upright quat
             n = min(n_joints, model.nq - jnt_offset)
             data.qpos[jnt_offset: jnt_offset + n] = joint_frames[0, :n]
             mujoco.mj_forward(model, data)
@@ -4377,6 +5789,34 @@ class _MotionPreviewThread(QThread):
                     ref_idx = frame_idx % n_frames
                     q_ref = joint_frames[ref_idx, :n_joints]
                     v_ref = ref_vels[ref_idx, :n_joints]
+
+                    # ── Kinematic replay: no physics, just drop the ──
+                    # reference pose straight into qpos. This shows the
+                    # motion as authored regardless of PD gain/gravity.
+                    if self._mode == "kinematic":
+                        if jnt_offset >= 7 and has_root:
+                            data.qpos[0:3] = np.asarray(clip.root_pos[ref_idx], dtype=np.float64)
+                            qx, qy, qz, qw = [float(v) for v in clip.root_quat[ref_idx]]
+                            data.qpos[3:7] = [qw, qx, qy, qz]
+                        data.qpos[jnt_offset: jnt_offset + n_joints] = q_ref
+                        mujoco.mj_forward(model, data)
+
+                        try:
+                            viewer.set_texts([
+                                (None, None, "Mode", "Kinematic Replay"),
+                                (None, None, "Clip", clip.name),
+                                (None, None, "Phase", f"{ref_idx}/{n_frames} ({100*ref_idx/n_frames:.0f}%)"),
+                                (None, None, "FPS", f"{self._fps:.0f} Hz"),
+                            ])
+                        except Exception:
+                            pass
+                        viewer.sync()
+                        frame_idx += 1
+                        expected = wall_start + frame_idx * control_dt
+                        sleep_t = expected - time.monotonic()
+                        if sleep_t > 0:
+                            time.sleep(sleep_t)
+                        continue
 
                     # ── PD control per actuator ───────────────────
                     # q_ref / v_ref are in qpos order.  For each actuator
@@ -4418,6 +5858,7 @@ class _MotionPreviewThread(QThread):
                     try:
                         viewer.set_texts([
                             (None, None, "Mode", "Physics PD Tracking"),
+                            (None, None, "Clip", clip.name),
                             (None, None, "Phase", f"{ref_idx}/{n_frames} ({100*ref_idx/n_frames:.0f}%)"),
                             (None, None, "Base Vx", f"{base_vel[0]:+.3f} m/s"),
                             (None, None, "Base Vy", f"{base_vel[1]:+.3f} m/s"),
@@ -4445,65 +5886,217 @@ class _MotionPreviewThread(QThread):
 
 
 class _PreviewButtonWidget(QWidget):
-    """▶ Preview / ■ Stop toggle button for the ReferenceMotionNode."""
+    """▶ Preview / ■ Stop toggle button for the ReferenceMotionNode.
+
+    Layout: ``[Clip picker (RichChoicePicker)] [▶]``.
+
+    When the active motion source is a single file, the picker is hidden
+    and the button previews that one file. When the source is a
+    ``pack:<package>:<subdir>`` identifier, the picker lists every clip
+    in the pack (labeled by file stem) and the user can flip through
+    them and preview each clip individually — this matters for AMP
+    packs where the 📦 entry is the *training-time* granularity but
+    users still want eyeballs on individual members before committing.
+
+    Physics-vs-kinematic mode lives on its own row (``preview_physics``
+    toggle) and is read from ``logic_node.parameters`` at click time.
+    """
 
     def __init__(
         self,
-        get_npy_path: Callable[[], str],
+        get_candidates: Callable[[], List[tuple]],
         get_fps: Callable[[], float],
         get_robot_type: Callable[[], str],
+        get_scene_xml_override: Optional[Callable[[], str]] = None,
+        get_mode: Optional[Callable[[], str]] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._get_npy        = get_npy_path
+        # get_candidates() → list of (label, absolute_path) tuples.
+        # Single-file source → 1-element list; pack source → N-element list.
+        self._get_candidates = get_candidates
         self._get_fps        = get_fps
         self._get_robot_type = get_robot_type
+        # Optional: resolve an explicit MJCF path (e.g. from the selected
+        # IL Robot Asset's asset_id). Takes precedence over the generic
+        # robot_type → registered-scene fallback.
+        self._get_scene_xml_override = get_scene_xml_override
+        # Optional: return "physics" or "kinematic" — read from the
+        # sibling preview_physics toggle row.
+        self._get_mode = get_mode
         self._thread: Optional[_MotionPreviewThread] = None
+        self._candidates: List[tuple] = []
+        # choice_label (file stem, possibly disambiguated) → absolute path
+        self._clip_path_by_choice: Dict[str, str] = {}
 
+        # Lock the whole widget to the standard node widget column so the
+        # row stays inside NODE_W like every other parameter row.
+        self.setFixedWidth(WIDGET_W)
+        self.setFixedHeight(max(20, PARAM_ROW_H - 4))
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         hl = QHBoxLayout(self)
         hl.setContentsMargins(0, 0, 0, 0)
-        hl.setSpacing(0)
+        hl.setSpacing(4)
 
-        self._btn = QPushButton("▶  Preview")
+        # ── Clip picker — project's custom _RichChoicePicker ────────
+        # QComboBox misbehaves inside QGraphicsProxyWidget (popup anchor
+        # drifts, styling lost), so every other dropdown on training
+        # nodes uses _RichChoicePicker. Match the convention.
+        #
+        # choices_provider runs every time the popup opens, re-querying
+        # the parent node's current motion_source. That's how we pick up
+        # changes made by the sibling Reference Motion picker without
+        # depending on the proxy being rebuilt.
+        self._clip_picker = _RichChoicePicker(
+            [],
+            current="",
+            leading_mode="checkbox",
+            multi_select=False,
+            choices_provider=self._provide_choices,
+        )
+        self._clip_picker.setToolTip("Pick which clip in the pack to preview.")
+        self._clip_picker.setVisible(False)
+        # Cap width inside the row so the ▶ button always fits.
+        self._clip_picker.setMaximumWidth(WIDGET_W - 22 - 4)
+        self._clip_picker.setFixedHeight(max(18, PARAM_ROW_H - 6))
+        hl.addWidget(self._clip_picker, 1)
+
+        # ── Play / Stop icon button ──────────────────────────────────
+        self._btn = QPushButton("▶")
         self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn.setToolTip(
             "Open a MuJoCo physics simulation with PD tracking.\n"
             "Shows real-time base velocity, tracking error, and height\n"
             "to verify the motion is physically plausible."
         )
+        self._btn.setFixedWidth(22)
+        self._btn.setFixedHeight(max(18, PARAM_ROW_H - 6))
         self._btn.clicked.connect(self._toggle)
-        hl.addWidget(self._btn)
+        hl.addWidget(self._btn, 0)
+
+        self._refresh_candidates()
 
     # ------------------------------------------------------------------
+
+    def _provide_choices(self) -> Tuple[List[str], Dict[str, Dict[str, str]]]:
+        """Build (labels, meta) from the parent node's current candidates.
+
+        This is the ``choices_provider`` wired into ``_RichChoicePicker``
+        — it runs every time the clip popup opens, so the list always
+        reflects the live motion_source even after the sibling Reference
+        Motion picker has changed it. Side effects: updates
+        ``self._candidates`` and ``self._clip_path_by_choice`` so
+        ``_current_path()`` can map the picker's string selection back
+        to an absolute file path.
+        """
+        try:
+            cands = list(self._get_candidates() or [])
+        except Exception:
+            cands = []
+        # Disambiguate same-stem clips from different subdirs with a
+        # trailing "(n)" suffix so the picker's string keys stay unique.
+        labels: List[str] = []
+        seen: Dict[str, int] = {}
+        path_by_choice: Dict[str, str] = {}
+        meta_map: Dict[str, Dict[str, str]] = {}
+        for raw_label, path in cands:
+            base = str(raw_label)
+            if base in seen:
+                seen[base] += 1
+                label = f"{base} ({seen[base]})"
+            else:
+                seen[base] = 1
+                label = base
+            labels.append(label)
+            path_by_choice[label] = str(path)
+            meta_map[label] = {"title": label, "desc": str(path)}
+        self._candidates = cands
+        self._clip_path_by_choice = path_by_choice
+        return labels, meta_map
+
+    def _refresh_candidates(self) -> None:
+        """Synchronously rebuild the picker's choices + visibility.
+
+        Called at construction, on ▶ click, and from the parent node's
+        ``write_params`` whenever motion_file/motion_source mutates.
+        The popup's own just-in-time refresh (via ``choices_provider``)
+        covers the click-the-dropdown case; this method covers the
+        ambient "change the source, see the button relabel itself" case.
+        """
+        labels, meta_map = self._provide_choices()
+
+        # Remember prior selection so an unrelated source change doesn't
+        # stomp a deliberate pack clip pick. Only fall back to labels[0]
+        # when the previous choice is no longer in the list.
+        prev = self._clip_picker.currentText()
+        self._clip_picker.set_choices(labels, meta_map=meta_map)
+        if prev and prev in labels:
+            self._clip_picker.setCurrentText(prev)
+        elif labels:
+            self._clip_picker.setCurrentText(labels[0])
+
+        # Show the picker only when the source is a pack (>1 clip);
+        # single-file sources don't need it and the extra widget would
+        # just steal row width.
+        self._clip_picker.setVisible(len(self._candidates) > 1)
+
+    def _current_path(self) -> str:
+        if not self._candidates:
+            return ""
+        if self._clip_picker.isVisible():
+            choice = self._clip_picker.currentText()
+            if choice and choice in self._clip_path_by_choice:
+                return self._clip_path_by_choice[choice]
+        return str(self._candidates[0][1])
 
     def _toggle(self) -> None:
         if self._thread is not None and self._thread.isRunning():
             self._thread.request_stop()
             return
 
-        npy = self._get_npy()
-        if not npy:
-            self._btn.setToolTip("⚠ Select a motion file first, then click Preview.")
+        # Always re-scan candidates on click so picker changes since the
+        # widget was built are reflected without a panel rebuild.
+        self._refresh_candidates()
+
+        path = self._current_path()
+        if not path:
+            self._btn.setToolTip("⚠ Select a motion file or pack first, then click Preview.")
             return
 
-        xml = _find_scene_xml_for_preview(self._get_robot_type())
+        xml = ""
+        if self._get_scene_xml_override is not None:
+            try:
+                xml = str(self._get_scene_xml_override() or "")
+            except Exception:
+                xml = ""
+        if not xml:
+            xml = _find_scene_xml_for_preview(self._get_robot_type()) or ""
         if not xml:
             self._btn.setToolTip("⚠ Could not locate a MuJoCo scene XML for this robot type.")
             return
 
         fps = self._get_fps()
-        self._thread = _MotionPreviewThread(xml, npy, fps)
+        mode = "physics"
+        if self._get_mode is not None:
+            try:
+                mode = str(self._get_mode() or "physics")
+            except Exception:
+                mode = "physics"
+        self._thread = _MotionPreviewThread(
+            xml, path, fps,
+            format_id=_guess_motion_format_id(path),
+            mode=mode,
+        )
         self._thread.stopped.connect(self._on_stopped)
         self._thread.error.connect(self._on_error)
         self._thread.start()
 
-        self._btn.setText("■  Stop")
+        self._btn.setText("■")
         self._btn.setToolTip("Close the MuJoCo viewer.")
 
     def _on_stopped(self) -> None:
-        self._btn.setText("▶  Preview")
+        self._btn.setText("▶")
         self._btn.setToolTip(
             "Open a MuJoCo physics simulation with PD tracking.\n"
             "Shows real-time base velocity, tracking error, and height\n"
@@ -4511,7 +6104,7 @@ class _PreviewButtonWidget(QWidget):
         )
 
     def _on_error(self, msg: str) -> None:
-        self._btn.setText("▶  Preview")
+        self._btn.setText("▶")
         self._btn.setToolTip(f"⚠ Preview failed: {msg}")
 
 
@@ -4550,11 +6143,21 @@ class TrainingNodeItem(QGraphicsRectItem):
         # Refs used by the Preview button to read sibling widget values
         self._ref_motion_picker_widget: Optional[_MotionLibraryPicker] = None
         self._ref_fps_slider_widget: Optional[_FPSSliderWidget] = None
+        # Ref to the Preview button widget so write_params can push
+        # clip-list refreshes into it when the motion source changes.
+        self._ref_preview_button_widget: Optional[_PreviewButtonWidget] = None
         # Refs used by preset pickers to refresh the module editor
         self._reward_editor_widget: Optional[_RegistryModuleEditor] = None
         self._termination_editor_widget: Optional[_RegistryModuleEditor] = None
 
         self._style: Dict[str, str] = _style_for_node(node_type)
+
+        # SafetyReview overlay status — set by the workspace layer via
+        # :meth:`set_safety_status`. Values: None / "warning" / "error".
+        # Drives a coloured border overlay in :meth:`paint`. Cleared
+        # automatically when SafetyReview re-runs with no issues on
+        # this node.
+        self._safety_status: Optional[str] = None
 
         # Row state
         self._input_order: List[str] = []
@@ -4625,6 +6228,28 @@ class TrainingNodeItem(QGraphicsRectItem):
     # TrainNode double-click trigger
     # ------------------------------------------------------------------
 
+    # Swappable node pairs: node_type → (swap_target_type, swap_target_display_name)
+    _SWAP_TARGETS: Dict[str, Tuple[str, str]] = {
+        "il_velocity_cmd":  ("il_gamepad_input", "IL Gamepad Input"),
+        "il_gamepad_input": ("il_velocity_cmd",  "IL Velocity Command"),
+    }
+
+    def contextMenuEvent(self, event) -> None:
+        swap = self._SWAP_TARGETS.get(self._node_type)
+        if not swap:
+            super().contextMenuEvent(event)
+            return
+        from PySide6.QtWidgets import QMenu
+        menu = QMenu()
+        target_type, target_display = swap
+        act = menu.addAction(f"Replace with {target_display}")
+        chosen = menu.exec(event.screenPos())
+        if chosen == act:
+            scene = self.scene()
+            if scene is not None and hasattr(scene, "_swap_node_type"):
+                scene._swap_node_type(self, target_type, target_display)
+        event.accept()
+
     def mouseDoubleClickEvent(self, event) -> None:
         """Double-clicking a TrainNode emits train_requested on the scene."""
         if self._node_type == "train":
@@ -4668,8 +6293,16 @@ class TrainingNodeItem(QGraphicsRectItem):
         return spec
 
     def _resolve_canvas_robot_type(self) -> str:
-        if self._logic_node is not None and self._node_type == "robot_mjcf":
-            return str((self._logic_node.parameters or {}).get("robot_type", "")).strip()
+        # Prefer the unified Robot node's asset_id (which IS the robot_type
+        # for registry-resolved assets). Fall back to the deprecated
+        # robot_mjcf node's robot_type param for backwards compatibility.
+        if self._logic_node is not None:
+            if self._node_type == "robot":
+                aid = str((self._logic_node.parameters or {}).get("asset_id", "")).strip()
+                if aid:
+                    return aid
+            if self._node_type == "robot_mjcf":
+                return str((self._logic_node.parameters or {}).get("robot_type", "")).strip()
         scene = self.scene()
         if scene is None:
             return ""
@@ -4677,19 +6310,2653 @@ class TrainingNodeItem(QGraphicsRectItem):
             if item is self:
                 continue
             try:
-                if item.data(12) != "robot_mjcf":
+                nt = item.data(12)
+                if nt not in ("robot", "robot_mjcf"):
                     continue
                 logic = item.data(13)
                 params = getattr(logic, "parameters", {}) or {}
-                robot_type = str(params.get("robot_type", "")).strip()
-                if robot_type:
-                    return robot_type
+                if nt == "robot":
+                    aid = str(params.get("asset_id", "")).strip()
+                    if aid:
+                        return aid
+                else:
+                    robot_type = str(params.get("robot_type", "")).strip()
+                    if robot_type:
+                        return robot_type
             except Exception:
                 continue
         return ""
 
     def _resolve_canvas_robot_family(self) -> str:
         return resolve_robot_family(self._resolve_canvas_robot_type())
+
+    def _resolve_canvas_algorithm(self) -> str:
+        """Infer the RL algorithm from whichever trainer node sits on the
+        same canvas.  Returns uppercase string: "PPO", "AMP", "SAC", etc.
+        Falls back to "ALL" when no trainer node is found so nothing is
+        filtered out."""
+        _TRAINER_ALG_MAP = {
+            "amp_ppo_trainer": "AMP",
+            "il_ppo_trainer": "PPO",
+            "train": "PPO",           # SB3 default
+        }
+        scene = self.scene()
+        if scene is None:
+            return "ALL"
+        for item in scene.items():
+            if item is self:
+                continue
+            try:
+                ntype = item.data(12)
+                if ntype in _TRAINER_ALG_MAP:
+                    return _TRAINER_ALG_MAP[ntype]
+                logic = item.data(13)
+                if logic is not None:
+                    p = getattr(logic, "parameters", {}) or {}
+                    alg = str(p.get("algorithm", "")).strip().upper()
+                    if alg in ("PPO", "SAC", "TD3", "AMP"):
+                        return alg
+            except Exception:
+                continue
+        return "ALL"
+
+    # ------------------------------------------------------------------
+    # Body IR validator widget
+    # ------------------------------------------------------------------
+
+    def _make_body_ir_validator(self, key, get_val, write_val, logic):
+        """Build the body-mapping validator for the Joints Mapping node.
+
+        - Each IR role is one body part (``Foot FL``, ``Thigh FR``, …).
+        - Only shows roles **needed** by the rewards/terminations/DR on
+          the current canvas (scans for ``{ir:*}`` in ``il_params``).
+        - Uses ``_RichChoicePicker`` with a ``None`` option.
+        - Defers ``_rebuild`` via ``QTimer`` to avoid deleting a widget
+          from within its own signal handler (Qt crash).
+        """
+        from PySide6.QtCore import QTimer
+        from src.system.training.body_ir import (
+            BodyIRMapper, split_compound_categories, AUTO_FROM_ASSET_CATEGORIES,
+        )
+
+        MAX_W = NODE_W - H_PAD * 2
+        ROW_H = 20
+        HDR_H = 14
+        BTN_H = 18
+        COL_ST = 14
+        COL_IR = 62
+        COL_BD = MAX_W - COL_ST - COL_IR - 12
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+        muted = get_color("training_widget_label_text", "#aaaaaa")
+        ok_c = "#4CAF50"
+        err_c = "#F44336"
+        skip_c = "#777777"
+
+        _self_ref = self
+
+        container = QWidget()
+        container._full_row_widget = True
+        container._preferred_height = PARAM_ROW_H
+
+        root = QVBoxLayout(container)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(1)
+
+        table_wrap = QFrame(container)
+        table_wrap.setStyleSheet(
+            f"background: {input_bg}; border: 1px solid {border}; border-radius: 4px;")
+        tw_layout = QVBoxLayout(table_wrap)
+        tw_layout.setContentsMargins(2, 2, 2, 2)
+        tw_layout.setSpacing(0)
+        root.addWidget(table_wrap)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setFixedHeight(BTN_H)
+        refresh_btn.setStyleSheet(f"color: {text_c}; font-size: 9px;")
+        root.addWidget(refresh_btn)
+
+        _row_widgets: list = []
+        _mapper_ref: list = [None]
+        _rebuild_scheduled: list = [False]
+
+        _height_cbs: list = []
+
+        def _emit_h(h: int):
+            container._preferred_height = h
+            container.setMinimumHeight(h)
+            container.setMaximumHeight(h)
+            container.updateGeometry()
+            for fn in _height_cbs:
+                try:
+                    fn(h)
+                except Exception:
+                    pass
+
+        class _HSig:
+            def connect(self_, fn):
+                _height_cbs.append(fn)
+            def emit(self_, h):
+                _emit_h(h)
+
+        container.height_changed = _HSig()
+        container.preferred_row_height = lambda: max(PARAM_ROW_H, int(container._preferred_height))
+
+        # ── resolve robot asset ──
+        def _resolve_asset():
+            scene = _self_ref.scene()
+            if scene is None:
+                return [], "quadruped"
+            # Prefer the unified Robot node; fall back to the deprecated
+            # il_robot_asset for transitional canvases.
+            # When this widget is hosted on the Robot node itself, read
+            # the asset_id directly off _self_ref.
+            if getattr(_self_ref, "_node_type", "") == "robot":
+                try:
+                    logic = _self_ref._logic_node
+                    p = getattr(logic, "parameters", {}) or {}
+                    aid = str(p.get("asset_id", "")).strip()
+                    if aid:
+                        from src.system.training.robot_assets import get_asset, rescan
+                        rescan()
+                        asset = get_asset(aid)
+                        bodies: list = []
+                        if asset.base_link:
+                            bodies.append(asset.base_link)
+                        for jn in (asset.joint_names or []):
+                            if jn not in bodies:
+                                bodies.append(jn)
+                        for fn in (asset.foot_link_names or []):
+                            if fn not in bodies:
+                                bodies.append(fn)
+                        family = getattr(asset, "family", "quadruped") or "quadruped"
+                        return bodies, family
+                except Exception:
+                    pass
+            for item in scene.items():
+                if item is _self_ref:
+                    continue
+                try:
+                    nt = item.data(12)
+                    if nt not in ("robot", "il_robot_asset"):
+                        continue
+                    nl = item.data(13)
+                    if nl is None:
+                        continue
+                    p = getattr(nl, "parameters", {}) or {}
+                    aid = str(p.get("asset_id", "")).strip()
+                    if not aid:
+                        continue
+                    from src.system.training.robot_assets import get_asset, rescan
+                    rescan()
+                    asset = get_asset(aid)
+                    bodies: list = []
+                    if asset.base_link:
+                        bodies.append(asset.base_link)
+                    for jn in (asset.joint_names or []):
+                        if jn not in bodies:
+                            bodies.append(jn)
+                    for fn in (asset.foot_link_names or []):
+                        if fn not in bodies:
+                            bodies.append(fn)
+                    # Infer foot links from calf joints if parser missed them
+                    if not asset.foot_link_names:
+                        import re as _re
+                        from src.system.training.body_ir import joint_name_to_link_name
+                        for jn in (asset.joint_names or []):
+                            ln = joint_name_to_link_name(jn)
+                            if "calf" in ln.lower() or "shank" in ln.lower():
+                                cand = _re.sub(r"(?i)calf|shank", "foot", ln)
+                                if cand != ln and cand not in bodies:
+                                    bodies.append(cand)
+                    family = getattr(asset, "family", "quadruped") or "quadruped"
+                    return bodies, family
+                except Exception:
+                    continue
+            return [], "quadruped"
+
+        # Hosting on the Robot node means "show the full structural view"
+        # — every body of the selected asset with its auto-resolved IR
+        # role, read-only. When hosted elsewhere (legacy joints_mapping),
+        # the old needed-filter / picker behaviour applies.
+        _display_only = (getattr(_self_ref, "_node_type", "") == "robot")
+
+        # ── scan canvas for needed categories ──
+        def _needed_categories() -> set:
+            """Parse {ir:*} placeholders from rewards + terminations on canvas."""
+            # Display-only mode on the Robot node: no filtering — we
+            # surface every role the mapper built so the user sees the
+            # complete structural view of the asset.
+            if _display_only:
+                return set()
+            import re as _re
+            from src.system.training.task_module_registry import IL_REWARD_REGISTRY
+            needed: set = set()
+            scene = _self_ref.scene()
+            if scene is None:
+                return needed
+            for item in scene.items():
+                if item is _self_ref:
+                    continue
+                try:
+                    ntype = item.data(12)
+                    if ntype != "rewards":
+                        continue
+                    nl = item.data(13)
+                    if nl is None:
+                        continue
+                    p = getattr(nl, "parameters", {}) or {}
+                    if p.get("backend", "sb3") != "isaac_lab":
+                        continue
+                    terms = json.loads(p.get("reward_terms", "{}"))
+                    for rk in terms:
+                        entry = IL_REWARD_REGISTRY.get(rk)
+                        if entry and entry.il_params:
+                            for m in _re.finditer(r"\{ir:(\w+)\}", entry.il_params):
+                                for cat in split_compound_categories(m.group(1)):
+                                    needed.add(cat)
+                except Exception:
+                    continue
+            # base is always needed (mass randomisation, illegal_contact)
+            needed.add("base")
+            return needed
+
+        # ── rebuild ──
+        def _rebuild():
+            _rebuild_scheduled[0] = False
+            # Guard: _rebuild is wired to scene-wide signals (reward edits on
+            # other nodes trigger a re-scan here).  If the containing layout
+            # or table wrapper has been destroyed — e.g. the joints_mapping
+            # node was removed, or the scene is being torn down — touching
+            # tw_layout raises ``RuntimeError: Internal C++ object already
+            # deleted``.  Bail out cleanly in that case.
+            try:
+                tw_layout.count()
+            except RuntimeError:
+                return
+            for w in list(_row_widgets):
+                try:
+                    tw_layout.removeWidget(w)
+                    w.deleteLater()
+                except RuntimeError:
+                    pass
+            _row_widgets.clear()
+
+            body_names, family = _resolve_asset()
+            needed = _needed_categories()
+
+            raw = str((logic.parameters or {}).get(key, ""))
+            if raw:
+                try:
+                    mapper = BodyIRMapper.from_dict(json.loads(raw))
+                    if (set(mapper.body_names) != set(body_names) and body_names) \
+                            or mapper.family != family:
+                        mapper = BodyIRMapper.from_body_list(body_names, family)
+                except Exception:
+                    mapper = BodyIRMapper.from_body_list(body_names, family)
+            else:
+                mapper = BodyIRMapper.from_body_list(body_names, family)
+            _mapper_ref[0] = mapper
+
+            if not body_names:
+                msg = "Select an asset_id" if _display_only else "Connect robot_entity input"
+                empty = QLabel(msg)
+                empty.setFixedHeight(ROW_H)
+                empty.setAlignment(Qt.AlignCenter)
+                empty.setStyleSheet(f"color: {err_c}; font-size: 10px; background: transparent;")
+                _row_widgets.append(empty)
+                tw_layout.addWidget(empty)
+                _write(mapper)
+                table_wrap.setFixedHeight(ROW_H + 4)
+                _emit_h(ROW_H + 4 + BTN_H + 2)
+                return
+
+            # Header — new column order: [Current Body, Role, Status]
+            hdr = QWidget(table_wrap)
+            hdr.setFixedHeight(HDR_H)
+            hl = QHBoxLayout(hdr)
+            hl.setContentsMargins(4, 0, 4, 0)
+            hl.setSpacing(4)
+            for txt, w in [("Current", COL_BD), ("Role", COL_IR), ("", COL_ST)]:
+                lb = QLabel(txt)
+                lb.setFixedWidth(w)
+                lb.setStyleSheet(
+                    f"color: {muted}; font-size: 8px; font-weight: 600; "
+                    f"background: transparent; border: none;"
+                )
+                hl.addWidget(lb)
+            _row_widgets.append(hdr)
+            tw_layout.addWidget(hdr)
+
+            # Display-only mode on the Robot node: show every role the
+            # mapper produced — this is the full structural view of the
+            # asset. Legacy joints_mapping mode filters by rewards-needed
+            # categories and hides auto-populated roles.
+            if _display_only:
+                visible_roles = list(mapper.roles)
+            else:
+                visible_roles = [r for r in mapper.roles
+                                 if (r.category in needed or not r.category)
+                                 and not r.auto_from_asset]
+            if not visible_roles:
+                info = QLabel("No body roles needed")
+                info.setFixedHeight(ROW_H)
+                info.setAlignment(Qt.AlignCenter)
+                info.setStyleSheet(f"color: {muted}; font-size: 9px; background: transparent;")
+                _row_widgets.append(info)
+                tw_layout.addWidget(info)
+                _write(mapper)
+                table_wrap.setFixedHeight(HDR_H + ROW_H + 4)
+                _emit_h(HDR_H + ROW_H + 4 + BTN_H + 2)
+                return
+
+            for idx, role in enumerate(visible_roles):
+                rw = QWidget(table_wrap)
+                rw.setFixedHeight(ROW_H)
+                rl = QHBoxLayout(rw)
+                rl.setContentsMargins(4, 0, 4, 0)
+                rl.setSpacing(4)
+                # Subtle zebra striping for the table feel — no per-cell
+                # borders anywhere, only the outer table_wrap frame.
+                zebra = input_bg if (idx % 2) else "transparent"
+                rw.setStyleSheet(
+                    f"QWidget {{ background: {zebra}; border: none; }}"
+                )
+
+                from src.system.training.body_ir import joint_name_to_link_name
+
+                # Column 1 — Current Body
+                if _display_only:
+                    body_txt = (role.body or "—")
+                    lbl = QLabel(body_txt)
+                    lbl.setFixedWidth(COL_BD)
+                    lbl.setFixedHeight(ROW_H - 2)
+                    lbl.setStyleSheet(
+                        f"color: {text_c}; font-size: 9px; "
+                        f"background: transparent; border: none; padding: 0 2px;"
+                    )
+                    rl.addWidget(lbl)
+                else:
+                    # USD body picker — choices use link names (what the
+                    # compiled config emits), not raw joint names.
+                    link_names = list(dict.fromkeys(
+                        joint_name_to_link_name(b) for b in body_names))
+                    choices = ["None"] + link_names
+                    current = role.body if role.body else "None"
+                    picker = _RichChoicePicker(
+                        choices,
+                        current=current,
+                        parent=rw,
+                    )
+                    picker.setFixedSize(COL_BD, ROW_H - 2)
+
+                    def _on_pick(selected, _rid=role.role_id):
+                        if not selected:
+                            return
+                        val = selected[0] if isinstance(selected, list) else selected
+                        cur = _mapper_ref[0]
+                        cur.override(_rid, None if val == "None" else val)
+                        _write(cur)
+                        _schedule_rebuild()
+
+                    picker.selectionChanged.connect(_on_pick)
+                    rl.addWidget(picker)
+
+                # Column 2 — Role label
+                rlbl = QLabel(role.label)
+                rlbl.setFixedWidth(COL_IR)
+                rlbl.setStyleSheet(
+                    f"color: {text_c}; font-size: 9px; "
+                    f"background: transparent; border: none;"
+                )
+                rl.addWidget(rlbl)
+
+                # Column 3 — Status
+                if role.resolved:
+                    ic, ic_c = "OK", ok_c
+                elif role.required:
+                    ic, ic_c = "!!", err_c
+                else:
+                    ic, ic_c = "--", skip_c
+                sl = QLabel(ic)
+                sl.setFixedWidth(COL_ST)
+                sl.setAlignment(Qt.AlignCenter)
+                sl.setStyleSheet(
+                    f"color: {ic_c}; font-size: 9px; font-weight: bold; "
+                    f"background: transparent; border: none;"
+                )
+                rl.addWidget(sl)
+
+                _row_widgets.append(rw)
+                tw_layout.addWidget(rw)
+
+            _write(mapper)
+
+            table_h = HDR_H + len(visible_roles) * ROW_H + 4
+            table_wrap.setFixedHeight(table_h)
+            _emit_h(table_h + BTN_H + 2)
+
+        def _schedule_rebuild():
+            """Defer _rebuild to next event loop tick (avoids deleting
+            the picker widget from within its own signal handler)."""
+            if not _rebuild_scheduled[0]:
+                _rebuild_scheduled[0] = True
+                QTimer.singleShot(0, _rebuild)
+
+        def _write(mapper):
+            write_val(json.dumps(mapper.to_dict(), ensure_ascii=False))
+
+        # ── auto-refresh when upstream nodes change ──
+        def _on_canvas_param_changed(node_type: str, param_key: str, _value: str):
+            """Rebuild when robot asset or reward selection changes."""
+            if (node_type in ("robot", "il_robot_asset") and param_key == "asset_id") \
+                    or (node_type == "rewards" and param_key == "reward_terms"):
+                _schedule_rebuild()
+
+        def _connect_scene_signal():
+            # Guard against shiboken-deleted C++ items: if the owning
+            # TrainingNodeItem was torn down between QTimer.singleShot
+            # scheduling and firing (common during startup pre-warm),
+            # ``_self_ref.scene()`` raises RuntimeError. Treat it as
+            # "nothing to connect" — the widget is gone anyway.
+            try:
+                scene = _self_ref.scene()
+            except RuntimeError:
+                return
+            if scene is not None and hasattr(scene, "node_param_changed"):
+                try:
+                    scene.node_param_changed.connect(_on_canvas_param_changed)
+                except Exception:
+                    pass
+
+        QTimer.singleShot(0, _rebuild)
+        # Connect scene signal after scene is ready
+        QTimer.singleShot(50, _connect_scene_signal)
+        refresh_btn.clicked.connect(lambda: _schedule_rebuild())
+
+        return container
+
+    # ------------------------------------------------------------------
+    # Controller status panel (TrainingCommands.controller_status)
+    # ------------------------------------------------------------------
+
+    def _make_controller_status_panel(self, key, get_val, write_val, logic):
+        """Read-only sidebar-mirror for the Training Commands node.
+
+        Displays, live:
+
+          * Current :class:`GlobalInputManager` mode (Gamepad / Keyboard
+            / Off) and ``invert_vy`` flag — the same state the sidebar
+            Controller panel edits. The user changes those in the
+            sidebar; this widget only reflects them.
+          * The fixed gamepad binding convention (Left Stick Y → vx,
+            Left Stick X → vy, Right Stick X → vyaw).
+          * The effective velocity ranges derived from the ``gain_*``
+            sliders on the same node. Training sampler and deployment
+            CommandBus both read these same four gains — the panel is
+            the visual proof of that coupling.
+
+        Click the Refresh button to re-query :class:`GlobalInputManager`
+        (cheap — it's a singleton).
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
+
+        _self_ref = self
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+        muted = get_color("training_widget_label_text", "#888888")
+        ok_c = "#4CAF50"
+        warn_c = "#FFB74D"
+
+        MAX_W = NODE_W - H_PAD * 2
+        HDR_H = 14
+        ROW_H = 18
+        BTN_H = 16
+
+        container = QWidget()
+        container._full_row_widget = True
+        container._preferred_height = PARAM_ROW_H
+
+        root = QVBoxLayout(container)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(1)
+
+        table_wrap = QFrame(container)
+        table_wrap.setStyleSheet(
+            f"background: {input_bg}; border: 1px solid {border}; border-radius: 4px;"
+        )
+        tw_layout = QVBoxLayout(table_wrap)
+        tw_layout.setContentsMargins(4, 3, 4, 3)
+        tw_layout.setSpacing(0)
+        root.addWidget(table_wrap)
+
+        _row_widgets: list = []
+        _height_cbs: list = []
+
+        def _emit_h(h: int):
+            container._preferred_height = h
+            container.setMinimumHeight(h)
+            container.setMaximumHeight(h)
+            container.updateGeometry()
+            for fn in _height_cbs:
+                try:
+                    fn(h)
+                except Exception:
+                    pass
+
+        class _HSig:
+            def connect(self_, fn):
+                _height_cbs.append(fn)
+            def emit(self_, h):
+                _emit_h(h)
+
+        container.height_changed = _HSig()
+        container.preferred_row_height = lambda: max(PARAM_ROW_H, int(container._preferred_height))
+
+        def _read_controller_state():
+            """Return (mode_label, invert_vy, mode_ok)."""
+            try:
+                from src.system.runtime.global_input_manager import get_global_input_manager
+                mgr = get_global_input_manager()
+                mode = str(getattr(mgr, "mode", "") or "")
+                if not mode:
+                    # Fallback: query source name
+                    src = getattr(mgr, "active_source", None)
+                    mode = type(src).__name__ if src is not None else "Off"
+                invert = bool(getattr(mgr, "invert_vy", False))
+                return (mode.capitalize(), invert, True)
+            except Exception:
+                return ("Unknown", False, False)
+
+        def _read_gains():
+            """Derive the current (fwd, bwd, lat, yaw) from sibling params."""
+            p = (logic.parameters or {}) if logic is not None else {}
+            def _f(k, d):
+                try:
+                    return float(p.get(k, d))
+                except (TypeError, ValueError):
+                    return d
+            return (
+                _f("gain_lin_forward", 2.0),
+                _f("gain_lin_backward", 1.0),
+                _f("gain_lin_lateral", 0.5),
+                _f("gain_yaw", 1.5),
+            )
+
+        def _read_mapping():
+            """Return a compact label describing the current stick→vel curve."""
+            p = (logic.parameters or {}) if logic is not None else {}
+            mode = str(p.get("mapping_mode", "linear") or "linear").strip().lower()
+            if mode == "deadzone":
+                try:
+                    dz = float(p.get("deadzone", 0.1) or 0.1)
+                except (TypeError, ValueError):
+                    dz = 0.1
+                return f"deadzone({dz:.2f})"
+            if mode == "exponential":
+                try:
+                    exp = float(p.get("curve_exponent", 2.0) or 2.0)
+                except (TypeError, ValueError):
+                    exp = 2.0
+                return f"exp(p={exp:.2f})"
+            return "linear"
+
+        def _row(widgets):
+            rw = QWidget(table_wrap)
+            rw.setFixedHeight(ROW_H)
+            rl = QHBoxLayout(rw)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(4)
+            for w in widgets:
+                rl.addWidget(w)
+            return rw
+
+        def _lbl(text, color=text_c, width=None, bold=False, align=None):
+            lb = QLabel(text)
+            weight = "700" if bold else "400"
+            lb.setStyleSheet(
+                f"color: {color}; font-size: 9px; font-weight: {weight}; "
+                f"background: transparent; border: none;"
+            )
+            if width is not None:
+                lb.setFixedWidth(width)
+            if align is not None:
+                lb.setAlignment(align)
+            return lb
+
+        def _rebuild():
+            # Startup pre-warm / canvas tear-down guard: if the owning
+            # TrainingNodeItem has been destroyed between QTimer.singleShot
+            # scheduling and firing, every Qt-child access below raises
+            # RuntimeError. Check ``tw_layout.count()`` as a cheap liveness
+            # probe and bail out silently — nothing to rebuild on a dead
+            # widget.
+            try:
+                tw_layout.count()
+            except RuntimeError:
+                return
+            for w in list(_row_widgets):
+                try:
+                    tw_layout.removeWidget(w)
+                    w.deleteLater()
+                except RuntimeError:
+                    pass
+            _row_widgets.clear()
+
+            mode, invert, ok = _read_controller_state()
+            fwd, bwd, lat, yaw = _read_gains()
+            map_label = _read_mapping()
+
+            # Header row: mode + invert_vy
+            mode_ok_color = ok_c if ok and mode.lower() in ("gamepad", "keyboard") else warn_c
+            hdr = _row([
+                _lbl("Mode", muted, width=36, bold=True),
+                _lbl(mode, mode_ok_color, bold=True),
+                _lbl("·  Invert Y", muted),
+                _lbl("ON" if invert else "OFF",
+                     ok_c if not invert else warn_c, bold=True),
+            ])
+            _row_widgets.append(hdr)
+            tw_layout.addWidget(hdr)
+
+            # Mapping row — surface the current stick→vel curve so the
+            # status panel also mirrors deployment behaviour at a glance.
+            map_row = _row([
+                _lbl("Curve", muted, width=36, bold=True),
+                _lbl(map_label, ok_c, bold=True),
+            ])
+            _row_widgets.append(map_row)
+            tw_layout.addWidget(map_row)
+
+            # Separator
+            sep = QFrame(table_wrap)
+            sep.setFixedHeight(1)
+            sep.setStyleSheet(f"background: {border}; border: none;")
+            _row_widgets.append(sep)
+            tw_layout.addWidget(sep)
+
+            # Bindings + derived ranges (3 rows, one per axis)
+            binding_rows = [
+                ("L-Y",  "→ Lin X",  f"[-{bwd:.2f}, +{fwd:.2f}]",  "m/s"),
+                ("L-X",  "→ Lin Y",  f"±{lat:.2f}",                "m/s"),
+                ("R-X",  "→ Yaw Z",  f"±{yaw:.2f}",                "rad/s"),
+            ]
+            for stick, axis, rng, unit in binding_rows:
+                row_w = _row([
+                    _lbl(stick,  muted,   width=28, bold=True),
+                    _lbl(axis,   text_c,  width=48),
+                    _lbl(rng,    ok_c,    bold=True),
+                    _lbl(unit,   muted),
+                ])
+                _row_widgets.append(row_w)
+                tw_layout.addWidget(row_w)
+
+            # +1 extra row for the Curve header line
+            total_h = HDR_H + 1 + ROW_H * (len(binding_rows) + 1) + 6
+            table_wrap.setFixedHeight(total_h)
+            _emit_h(total_h + BTN_H + 2)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setFixedHeight(BTN_H)
+        # Match the standard node input surface: input_bg fill + border
+        # frame + rounded corners + text_c label. Same look as the
+        # node's edit rows so the button blends with the rest of the
+        # Training Commands panel instead of sticking out as a plain
+        # Qt-default chrome button.
+        refresh_btn.setStyleSheet(
+            f"QPushButton {{ color: {text_c}; background: {input_bg}; "
+            f"border: 1px solid {border}; border-radius: 3px; "
+            f"font-size: 8px; padding: 0 6px; }}"
+            f"QPushButton:hover {{ border: 1px solid #666; }}"
+            f"QPushButton:pressed {{ background: #111; }}"
+        )
+        refresh_btn.clicked.connect(lambda: QTimer.singleShot(0, _rebuild))
+        root.addWidget(refresh_btn)
+
+        # Rebuild on sibling param edits so the derived-range / curve
+        # read-out tracks the user's changes in real time.
+        _watch_keys = {
+            "gain_lin_forward", "gain_lin_backward",
+            "gain_lin_lateral", "gain_yaw",
+            "mapping_mode", "deadzone", "curve_exponent",
+        }
+
+        def _on_canvas_param_changed(node_type: str, param_key: str, _value: str):
+            if node_type == "training_commands" and param_key in _watch_keys:
+                QTimer.singleShot(0, _rebuild)
+
+        def _connect_scene_signal():
+            # Guard against shiboken-deleted C++ items: if the owning
+            # TrainingNodeItem was torn down between QTimer.singleShot
+            # scheduling and firing (common during startup pre-warm),
+            # ``_self_ref.scene()`` raises RuntimeError. Treat it as
+            # "nothing to connect" — the widget is gone anyway.
+            try:
+                scene = _self_ref.scene()
+            except RuntimeError:
+                return
+            if scene is not None and hasattr(scene, "node_param_changed"):
+                try:
+                    scene.node_param_changed.connect(_on_canvas_param_changed)
+                except Exception:
+                    pass
+
+        QTimer.singleShot(0, _rebuild)
+        QTimer.singleShot(50, _connect_scene_signal)
+        return container
+
+    # ------------------------------------------------------------------
+    # Active file table (Robot.active_override)
+    # ------------------------------------------------------------------
+
+    def _make_active_file_table(self, key, get_val, write_val, logic):
+        """Flat 3-row file-type table for the Robot node.
+
+        Rows: ``MJCF`` / ``USD`` / ``URDF``. Each row shows:
+
+          * file type label (fixed)
+          * resolved path (truncated, or ``—`` when not in registry)
+          * status tag: ``Loaded`` when registered, ``—`` otherwise
+          * ``✔`` marker on the currently-active file
+
+        Clicking a Loaded row writes that file type into the
+        ``active_override`` param. Clicking the active row again reverts
+        to ``auto`` (backend-derived). Unavailable rows are click-locked.
+
+        Re-scans on every refresh (asset_id change, canvas load, and
+        the explicit refresh button).
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QVBoxLayout, QHBoxLayout
+
+        _self_ref = self
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+        muted = get_color("training_widget_label_text", "#aaaaaa")
+        ok_c = "#4CAF50"
+        skip_c = "#555555"
+
+        MAX_W = NODE_W - H_PAD * 2
+        ROW_H = 20
+        HDR_H = 14
+        # Three-column table: Type | Status | ✔
+        COL_CHK = 22
+        COL_STATUS = 60
+        COL_TYPE = MAX_W - COL_CHK - COL_STATUS - 16
+
+        container = QWidget()
+        container._full_row_widget = True
+        container._preferred_height = PARAM_ROW_H
+
+        root = QVBoxLayout(container)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(1)
+
+        table_wrap = QFrame(container)
+        table_wrap.setStyleSheet(
+            f"background: {input_bg}; border: 1px solid {border}; border-radius: 4px;"
+        )
+        tw_layout = QVBoxLayout(table_wrap)
+        tw_layout.setContentsMargins(2, 2, 2, 2)
+        tw_layout.setSpacing(0)
+        root.addWidget(table_wrap)
+
+        _height_cbs: list = []
+
+        def _emit_h(h: int):
+            container._preferred_height = h
+            container.setMinimumHeight(h)
+            container.setMaximumHeight(h)
+            container.updateGeometry()
+            for fn in _height_cbs:
+                try:
+                    fn(h)
+                except Exception:
+                    pass
+
+        class _HSig:
+            def connect(self_, fn):
+                _height_cbs.append(fn)
+            def emit(self_, h):
+                _emit_h(h)
+
+        container.height_changed = _HSig()
+        container.preferred_row_height = lambda: max(PARAM_ROW_H, int(container._preferred_height))
+
+        _row_widgets: list = []
+
+        def _resolve_files():
+            """Pull current asset files from the registry via this node's asset_id."""
+            aid = str((logic.parameters or {}).get("asset_id", "")).strip()
+            if not aid:
+                return None
+            try:
+                from src.system.training.robot_assets import get_asset, rescan
+                rescan()
+                return get_asset(aid)
+            except Exception:
+                return None
+
+        def _normalize_path(p: Any) -> str:
+            """Normalize path separators to forward slashes for display.
+            Nucleus URLs (``nucleus:Robots/...``) and http URLs are
+            returned unchanged."""
+            if p is None:
+                return ""
+            s = str(p)
+            if "://" in s or s.startswith("nucleus:"):
+                return s
+            return s.replace("\\", "/")
+
+        def _current_active(asset) -> str:
+            """Resolve which file is the ✔ row.
+
+            'auto' selects the best file for the current training
+            backend:
+              - SB3 (MuJoCo): MJCF > USD > URDF
+              - Isaac Lab (Isaac Sim): USD > URDF > MJCF
+            An explicit override ('mjcf'/'usd'/'urdf') is honoured
+            unconditionally.
+            """
+            raw = str(get_val() or "auto").strip().lower()
+            if raw in ("mjcf", "usd", "urdf"):
+                return raw
+            if asset is None:
+                return ""
+            # Determine backend from the scene (experiment-bound).
+            backend = "sb3"
+            try:
+                scene = _self_ref.scene()
+                if scene is not None:
+                    backend = str(getattr(scene, "_current_backend", "sb3") or "sb3")
+            except Exception:
+                pass
+            if backend == "isaac_lab":
+                # Isaac Sim prefers USD > URDF > MJCF
+                if asset.usd_path is not None or getattr(asset, "usd_url", ""):
+                    return "usd"
+                if asset.urdf_path is not None:
+                    return "urdf"
+                if asset.mjcf_path is not None:
+                    return "mjcf"
+            else:
+                # MuJoCo prefers MJCF > USD > URDF
+                if asset.mjcf_path is not None:
+                    return "mjcf"
+                if asset.usd_path is not None or getattr(asset, "usd_url", ""):
+                    return "usd"
+                if asset.urdf_path is not None:
+                    return "urdf"
+            return ""
+
+        def _rebuild():
+            # Startup pre-warm / canvas tear-down guard: if the owning
+            # TrainingNodeItem has been destroyed between QTimer.singleShot
+            # scheduling and firing, every Qt-child access below raises
+            # RuntimeError. Check ``tw_layout.count()`` as a cheap liveness
+            # probe and bail out silently — nothing to rebuild on a dead
+            # widget.
+            try:
+                tw_layout.count()
+            except RuntimeError:
+                return
+            for w in list(_row_widgets):
+                try:
+                    tw_layout.removeWidget(w)
+                    w.deleteLater()
+                except RuntimeError:
+                    pass
+            _row_widgets.clear()
+
+            asset = _resolve_files()
+            active = _current_active(asset)
+
+            # Header — Type | Status | ✔ (path moves to row tooltip)
+            hdr = QWidget(table_wrap)
+            hdr.setFixedHeight(HDR_H)
+            hl = QHBoxLayout(hdr)
+            hl.setContentsMargins(4, 0, 4, 0)
+            hl.setSpacing(4)
+            for txt, w in [
+                ("Type", COL_TYPE),
+                ("Status", COL_STATUS),
+                ("", COL_CHK),
+            ]:
+                lb = QLabel(txt)
+                lb.setFixedWidth(w)
+                lb.setStyleSheet(
+                    f"color: {muted}; font-size: 8px; font-weight: 600; "
+                    f"background: transparent; border: none;"
+                )
+                hl.addWidget(lb)
+            _row_widgets.append(hdr)
+            tw_layout.addWidget(hdr)
+
+            rows_spec = [
+                ("MJCF", "mjcf", getattr(asset, "mjcf_path", None) if asset else None),
+                ("USD",  "usd",  (
+                    getattr(asset, "usd_path", None)
+                    or getattr(asset, "usd_url", "")
+                ) if asset else None),
+                ("URDF", "urdf", getattr(asset, "urdf_path", None) if asset else None),
+            ]
+
+            for idx, (label, file_key, path_value) in enumerate(rows_spec):
+                row = QWidget(table_wrap)
+                row.setFixedHeight(ROW_H)
+                rl = QHBoxLayout(row)
+                rl.setContentsMargins(4, 0, 4, 0)
+                rl.setSpacing(4)
+
+                loaded = bool(path_value)
+                is_active = loaded and file_key == active
+                row_bg = input_bg if (idx % 2) else "transparent"
+                row.setStyleSheet(f"QWidget {{ background: {row_bg}; border: none; }}")
+
+                # Row-wide tooltip (normalized path) — hover anywhere
+                # on the row. Children inherit via explicit setToolTip.
+                tip = _normalize_path(path_value) if loaded else "Not in registry"
+                row.setToolTip(tip)
+
+                type_lbl = QLabel(label)
+                type_lbl.setFixedWidth(COL_TYPE)
+                type_lbl.setStyleSheet(
+                    f"color: {text_c if loaded else skip_c}; font-size: 9px; "
+                    f"font-weight: 600; background: transparent; border: none;"
+                )
+                type_lbl.setToolTip(tip)
+                rl.addWidget(type_lbl)
+
+                status_lbl = QLabel("Loaded" if loaded else "—")
+                status_lbl.setFixedWidth(COL_STATUS)
+                status_lbl.setStyleSheet(
+                    f"color: {ok_c if loaded else skip_c}; font-size: 9px; "
+                    f"font-weight: 600; background: transparent; border: none;"
+                )
+                status_lbl.setToolTip(tip)
+                rl.addWidget(status_lbl)
+
+                chk_lbl = QLabel("✔" if is_active else "")
+                chk_lbl.setFixedWidth(COL_CHK)
+                chk_lbl.setAlignment(Qt.AlignCenter)
+                chk_lbl.setStyleSheet(
+                    f"color: {ok_c}; font-size: 11px; font-weight: 900; "
+                    f"background: transparent; border: none;"
+                )
+                chk_lbl.setToolTip(tip)
+                rl.addWidget(chk_lbl)
+
+                # Click-to-select (only when Loaded)
+                if loaded:
+                    def _on_click(_evt=None, _key=file_key, _active=is_active):
+                        if _active:
+                            write_val("auto")
+                        else:
+                            write_val(_key)
+                        QTimer.singleShot(0, _rebuild)
+                    row.mousePressEvent = _on_click  # type: ignore[assignment]
+                    row.setCursor(Qt.PointingHandCursor)
+
+                _row_widgets.append(row)
+                tw_layout.addWidget(row)
+
+            table_h = HDR_H + len(rows_spec) * ROW_H + 4
+            table_wrap.setFixedHeight(table_h)
+            _emit_h(table_h + 2)
+
+        def _on_canvas_param_changed(node_type: str, param_key: str, _value: str):
+            if node_type == "robot" and param_key == "asset_id":
+                QTimer.singleShot(0, _rebuild)
+
+        def _connect_scene_signal():
+            # Guard against shiboken-deleted C++ items: if the owning
+            # TrainingNodeItem was torn down between QTimer.singleShot
+            # scheduling and firing (common during startup pre-warm),
+            # ``_self_ref.scene()`` raises RuntimeError. Treat it as
+            # "nothing to connect" — the widget is gone anyway.
+            try:
+                scene = _self_ref.scene()
+            except RuntimeError:
+                return
+            if scene is not None and hasattr(scene, "node_param_changed"):
+                try:
+                    scene.node_param_changed.connect(_on_canvas_param_changed)
+                except Exception:
+                    pass
+
+        QTimer.singleShot(0, _rebuild)
+        QTimer.singleShot(50, _connect_scene_signal)
+        return container
+
+    # ------------------------------------------------------------------
+    # Scene dropdown (PlayGroundSetting.scene_id)
+    # ------------------------------------------------------------------
+
+    def _make_scene_dropdown(self, key, get_val, write_val, write_params, logic):
+        """Registry-backed scene picker for :class:`PlayGroundSettingNode`.
+
+        Choices are pulled from :mod:`scene_registry` on every popup
+        open and filtered by:
+
+          * ``backend`` — sniffed from the canvas Train node
+            (``train`` / ``il_ppo_trainer`` / ``amp_ppo_trainer``)
+          * ``family`` — sniffed from the Robot node's ``asset_id``
+            → RobotAsset.family
+
+        Selecting a scene writes ``scene_id`` + auto-syncs the hidden
+        ``scene_type`` param and applies the registry entry's
+        ``defaults`` dict onto the node parameters so conditional rows
+        (rough terrain, height-scan) reveal the right values the moment
+        the picker closes.
+        """
+        _self_ref = self
+
+        def _detect_backend() -> Optional[str]:
+            """Walk the scene for a trainer node; return 'sb3' or 'isaac_lab'."""
+            scene = _self_ref.scene()
+            if scene is None:
+                return None
+            for item in scene.items():
+                try:
+                    nt = item.data(12)
+                    if nt in ("il_ppo_trainer", "amp_ppo_trainer"):
+                        return "isaac_lab"
+                    if nt == "train":
+                        return "sb3"
+                except Exception:
+                    continue
+            return None
+
+        def _detect_family() -> Optional[str]:
+            """Walk the scene for the Robot node; resolve family via registry."""
+            scene = _self_ref.scene()
+            if scene is None:
+                return None
+            for item in scene.items():
+                try:
+                    if item.data(12) != "robot":
+                        continue
+                    nl = item.data(13)
+                    if nl is None:
+                        continue
+                    aid = str((getattr(nl, "parameters", {}) or {}).get("asset_id", "")).strip()
+                    if not aid:
+                        continue
+                    from src.system.training.robot_assets import get_asset, rescan
+                    rescan()
+                    return str(getattr(get_asset(aid), "family", "") or "") or None
+                except Exception:
+                    continue
+            return None
+
+        def _scene_choices_provider(
+            _cur_val_fn: Callable[[], str] = get_val,
+        ) -> Tuple[List[str], Dict[str, Dict[str, str]]]:
+            backend = _detect_backend()
+            family = _detect_family()
+            try:
+                from src.system.training.scene_registry import list_scenes, rescan
+                rescan()
+                scenes = list_scenes(backend=backend, family=family)
+            except Exception:
+                scenes = []
+            if not scenes:
+                return (
+                    ["(no scenes)"],
+                    {"(no scenes)": {"title": "(no scenes)",
+                                     "desc": "Scene registry empty for the current backend/family"}},
+                )
+            ids = [s.scene_id for s in scenes]
+            meta: Dict[str, Dict[str, str]] = {}
+            for s in scenes:
+                backends = ", ".join(sorted(s.supported_backends)) or "any"
+                fams = ", ".join(sorted(s.supported_families)) or "any family"
+                meta[s.scene_id] = {
+                    "title": s.name,
+                    "desc": f"{s.description}    ·  {backends}  ·  {fams}",
+                }
+            return ids, meta
+
+        initial_choices, initial_meta = _scene_choices_provider()
+        current_val = get_val()
+        if current_val not in initial_choices:
+            current_val = initial_choices[0] if initial_choices else ""
+
+        w = _RichChoicePicker(
+            initial_choices,
+            current=current_val,
+            meta_map=initial_meta,
+            leading_mode="checkbox",
+            multi_select=False,
+            choices_provider=_scene_choices_provider,
+        )
+
+        def _on_scene_pick(value: str) -> None:
+            if not value or value.startswith("(no "):
+                return
+            updates: Dict[str, str] = {"scene_id": value}
+            try:
+                from src.system.training.scene_registry import get_scene, rescan
+                rescan()
+                s = get_scene(value)
+                updates["scene_type"] = s.scene_type
+                for k, v in (s.defaults or {}).items():
+                    updates[k] = str(v)
+            except Exception:
+                pass
+            write_params(updates)
+
+        w.currentTextChanged.connect(_on_scene_pick)
+        return w
+
+    # ------------------------------------------------------------------
+    # Joint init editor (JointInitNode.angles)
+    # ------------------------------------------------------------------
+
+    def _make_joint_init_editor(self, key, get_val, write_val, logic):
+        """Popup per-joint angle editor.
+
+        Button shows ``N angles set`` / ``none``. Click opens a
+        :class:`QDialog` with a scrollable ``QFormLayout`` of
+        :class:`QDoubleSpinBox` rows, one per joint. Joints are read
+        from the scene's Robot node (``robot.asset_id`` → registry →
+        ``joint_names``). Cancel discards; OK serializes the non-zero
+        (or explicitly-set) entries back into ``key`` as a JSON dict.
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import (
+            QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
+            QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+        )
+        import math
+        import json as _json
+
+        _self_ref = self
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+
+        btn = QPushButton()
+        btn.setFixedSize(WIDGET_W, PARAM_ROW_H - 2)
+        btn.setStyleSheet(
+            f"QPushButton {{ color: {text_c}; background: {input_bg}; "
+            f"border: 1px solid {border}; border-radius: 3px; "
+            f"font-size: 9px; padding: 0 6px; text-align: left; }}"
+            f"QPushButton:hover {{ border: 1px solid #888; }}"
+        )
+
+        def _parse_current() -> Dict[str, float]:
+            raw = str(get_val() or "{}").strip() or "{}"
+            try:
+                parsed = _json.loads(raw)
+                if isinstance(parsed, dict):
+                    return {str(k): float(v) for k, v in parsed.items()}
+            except Exception:
+                pass
+            return {}
+
+        def _resolve_joints() -> Tuple[List[str], str]:
+            """Walk the scene for the Robot node and return its joint_names."""
+            scene = _self_ref.scene()
+            if scene is None:
+                return [], ""
+            for item in scene.items():
+                if item is _self_ref:
+                    continue
+                try:
+                    if item.data(12) != "robot":
+                        continue
+                    nl = item.data(13)
+                    if nl is None:
+                        continue
+                    aid = str((getattr(nl, "parameters", {}) or {}).get("asset_id", "")).strip()
+                    if not aid:
+                        continue
+                    from src.system.training.robot_assets import get_asset, rescan
+                    rescan()
+                    asset = get_asset(aid)
+                    return list(asset.joint_names or []), aid
+                except Exception:
+                    continue
+            return [], ""
+
+        def _refresh_label():
+            n = len(_parse_current())
+            btn.setText(f"{n} angles set" if n else "none")
+
+        def _open_dialog(_checked: bool = False):
+            joints, asset_id = _resolve_joints()
+            if not joints:
+                btn.setText("— connect Robot")
+                QTimer.singleShot(1200, _refresh_label)
+                return
+
+            dlg = QDialog()
+            dlg.setWindowTitle(f"Joint Init — {asset_id or 'robot'}")
+            dlg.setModal(True)
+            dlg.resize(360, min(520, 80 + 30 * len(joints)))
+
+            root = QVBoxLayout(dlg)
+            root.setContentsMargins(8, 8, 8, 8)
+            root.setSpacing(6)
+
+            hint = QLabel(
+                f"{len(joints)} joints — set any in radians (empty cells skipped)"
+            )
+            hint.setStyleSheet("color: #888; font-size: 10px;")
+            root.addWidget(hint)
+
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            form_wrap = QWidget()
+            form = QFormLayout(form_wrap)
+            form.setContentsMargins(4, 4, 4, 4)
+            form.setSpacing(4)
+
+            current = _parse_current()
+            spinboxes: Dict[str, QDoubleSpinBox] = {}
+            PI = math.pi
+            for jn in joints:
+                sb = QDoubleSpinBox()
+                sb.setRange(-PI, PI)
+                sb.setDecimals(3)
+                sb.setSingleStep(0.01)
+                sb.setSuffix(" rad")
+                sb.setValue(float(current.get(jn, 0.0)))
+                sb.setMinimumWidth(120)
+                form.addRow(QLabel(jn), sb)
+                spinboxes[jn] = sb
+
+            scroll.setWidget(form_wrap)
+            root.addWidget(scroll, 1)
+
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok
+                | QDialogButtonBox.StandardButton.Cancel
+                | QDialogButtonBox.StandardButton.Reset
+            )
+            root.addWidget(buttons)
+
+            def _on_reset():
+                for sb in spinboxes.values():
+                    sb.setValue(0.0)
+
+            buttons.button(QDialogButtonBox.StandardButton.Reset).clicked.connect(_on_reset)
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                # Only persist entries that are explicitly non-zero so
+                # an "unset" spinbox doesn't clobber the asset default.
+                result = {
+                    jn: round(sb.value(), 6)
+                    for jn, sb in spinboxes.items()
+                    if abs(sb.value()) > 1e-9
+                }
+                write_val(_json.dumps(result, ensure_ascii=False))
+                _refresh_label()
+
+        btn.clicked.connect(_open_dialog)
+        _refresh_label()
+        return btn
+
+    # ------------------------------------------------------------------
+    # Contact body picker widget (ActorSetting.contact_body_names)
+    # ------------------------------------------------------------------
+
+    def _make_contact_body_picker(self, key, get_val, write_val, logic):
+        """Multi-select picker for contact-sensor body names.
+
+        Button labelled ``Contact Bodies (N)`` that opens the standard
+        ``_RichChoicePicker(multi_select=True)`` popup. Choices come from
+        the connected Robot node's resolved asset:
+
+          * ``base_link``
+          * all bodies derived from ``joint_names`` via
+            :func:`joint_name_to_link_name`
+          * ``foot_link_names``
+
+        Stores the selection as a JSON list in ``key``.
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QPushButton
+        import json as _json
+
+        _self_ref = self
+
+        def _resolve_bodies() -> list:
+            """Find bodies via the connected Robot node or scene scan."""
+            scene = _self_ref.scene()
+            if scene is None:
+                return []
+            from src.system.training.robot_assets import get_asset, rescan
+            from src.system.training.body_ir import joint_name_to_link_name
+
+            def _collect(asset) -> list:
+                bodies: list = []
+                if asset.base_link:
+                    bodies.append(asset.base_link)
+                for jn in (asset.joint_names or []):
+                    ln = joint_name_to_link_name(jn)
+                    if ln and ln not in bodies:
+                        bodies.append(ln)
+                for fn in (asset.foot_link_names or []):
+                    if fn not in bodies:
+                        bodies.append(fn)
+                return bodies
+
+            for item in scene.items():
+                if item is _self_ref:
+                    continue
+                try:
+                    if item.data(12) != "robot":
+                        continue
+                    nl = item.data(13)
+                    if nl is None:
+                        continue
+                    aid = str((getattr(nl, "parameters", {}) or {}).get("asset_id", "")).strip()
+                    if not aid:
+                        continue
+                    rescan()
+                    return _collect(get_asset(aid))
+                except Exception:
+                    continue
+            return []
+
+        def _parse_current() -> list:
+            raw = str(get_val() or "").strip()
+            if not raw:
+                return []
+            try:
+                v = _json.loads(raw)
+                if isinstance(v, list):
+                    return [str(x) for x in v]
+            except Exception:
+                pass
+            return []
+
+        btn = QPushButton()
+        btn.setFixedSize(WIDGET_W, PARAM_ROW_H - 2)
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+        btn.setStyleSheet(
+            f"QPushButton {{ color: {text_c}; background: {input_bg}; "
+            f"border: 1px solid {border}; border-radius: 3px; "
+            f"font-size: 9px; padding: 0 6px; text-align: left; }}"
+            f"QPushButton:hover {{ border: 1px solid #888; }}"
+        )
+
+        def _refresh_label():
+            current = _parse_current()
+            n = len(current)
+            btn.setText(f"{n} selected" if n else "none")
+
+        def _on_click(_checked=False):
+            bodies = _resolve_bodies()
+            if not bodies:
+                btn.setText("— connect Robot")
+                QTimer.singleShot(1200, _refresh_label)
+                return
+            current = _parse_current()
+            picker = _RichChoicePicker(
+                bodies,
+                current_values=current,
+                multi_select=True,
+                # 'checkbox' leading mode uses a native QCheckBox; 'icon'
+                # (the default) loads icon_*.svg per entry which is wrong
+                # for free-form body names.
+                leading_mode="checkbox",
+                parent=btn,
+            )
+            # _RichChoicePicker is itself a QPushButton that opens on click —
+            # trigger its menu programmatically, then listen for the result.
+            def _on_selected(selected):
+                sel = selected if isinstance(selected, list) else [selected]
+                write_val(_json.dumps(sel, ensure_ascii=False))
+                _refresh_label()
+                try:
+                    picker.deleteLater()
+                except Exception:
+                    pass
+
+            picker.selectionChanged.connect(_on_selected)
+            picker.click()
+
+        btn.clicked.connect(_on_click)
+        _refresh_label()
+        return btn
+
+    # ------------------------------------------------------------------
+    # Action joint picker (ActorSetting.action_joint_names_expr)
+    # ------------------------------------------------------------------
+
+    def _make_action_joint_picker(self, key, get_val, write_val, logic):
+        """Multi-select picker for action joint names.
+
+        Button labelled ``N selected`` / ``all`` that opens the standard
+        ``_RichChoicePicker(multi_select=True)`` popup. Choices come from
+        the connected Robot node's resolved asset ``joint_names``.
+
+        Stores the selection as a JSON list in ``key``. An empty list
+        means "all joints" (equivalent to the old ``.*`` regex default).
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QPushButton
+        import json as _json
+
+        _self_ref = self
+
+        def _resolve_joints() -> list:
+            """Find joint names via the connected Robot node."""
+            scene = _self_ref.scene()
+            if scene is None:
+                return []
+            from src.system.training.robot_assets import get_asset, rescan
+
+            for item in scene.items():
+                if item is _self_ref:
+                    continue
+                try:
+                    if item.data(12) != "robot":
+                        continue
+                    nl = item.data(13)
+                    if nl is None:
+                        continue
+                    aid = str((getattr(nl, "parameters", {}) or {}).get("asset_id", "")).strip()
+                    if not aid:
+                        continue
+                    rescan()
+                    asset = get_asset(aid)
+                    return list(asset.joint_names or [])
+                except Exception:
+                    continue
+            return []
+
+        def _parse_current() -> list:
+            raw = str(get_val() or "").strip()
+            if not raw or raw == ".*":
+                return []
+            try:
+                v = _json.loads(raw)
+                if isinstance(v, list):
+                    return [str(x) for x in v]
+            except Exception:
+                pass
+            return []
+
+        btn = QPushButton()
+        btn.setFixedSize(WIDGET_W, PARAM_ROW_H - 2)
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+        btn.setStyleSheet(
+            f"QPushButton {{ color: {text_c}; background: {input_bg}; "
+            f"border: 1px solid {border}; border-radius: 3px; "
+            f"font-size: 9px; padding: 0 6px; text-align: left; }}"
+            f"QPushButton:hover {{ border: 1px solid #888; }}"
+        )
+
+        def _refresh_label():
+            current = _parse_current()
+            n = len(current)
+            btn.setText(f"{n} selected" if n else "all")
+
+        def _on_click(_checked=False):
+            joints = _resolve_joints()
+            if not joints:
+                btn.setText("— connect Robot")
+                QTimer.singleShot(1200, _refresh_label)
+                return
+            current = _parse_current()
+            picker = _RichChoicePicker(
+                joints,
+                current_values=current,
+                multi_select=True,
+                leading_mode="checkbox",
+                parent=btn,
+            )
+
+            def _on_selected(selected):
+                sel = selected if isinstance(selected, list) else [selected]
+                write_val(_json.dumps(sel, ensure_ascii=False))
+                _refresh_label()
+                try:
+                    picker.deleteLater()
+                except Exception:
+                    pass
+
+            picker.selectionChanged.connect(_on_selected)
+            picker.click()
+
+        btn.clicked.connect(_on_click)
+        _refresh_label()
+        return btn
+
+    # ------------------------------------------------------------------
+    # Gait preset table editor (TrainingCommands.gait_presets)
+    # ------------------------------------------------------------------
+
+    def _make_gait_preset_table(self, key, get_val, write_val, logic):
+        """Gait preset table editor — Walk These Ways §3.
+
+        Compact button showing ``N presets``. Click opens a
+        :class:`QDialog` with a :class:`QTableWidget` carrying one row
+        per preset. Columns:
+
+          Name | Freq (Hz) | FL | FR | RL | RR | H_body (m) | H_step (m)
+
+        Rows are editable via :class:`QDoubleSpinBox` / line-edit
+        cells. "Add" appends a new row seeded from the currently-
+        selected row's values; "Remove" deletes the selection; "Reset
+        defaults" re-seeds from :data:`DEFAULT_PRESETS`. On OK the
+        table serialises back into the node param as a JSON list of
+        dicts matching :meth:`GaitPreset.to_dict`.
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import (
+            QDialog, QDialogButtonBox, QDoubleSpinBox, QHBoxLayout,
+            QHeaderView, QLineEdit, QPushButton, QTableWidget,
+            QTableWidgetItem, QVBoxLayout,
+        )
+        import json as _json
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+
+        COL_SPECS = [
+            ("Name",    "str",   None),
+            ("Freq",    "float", (0.5, 6.0, 2, 0.05)),
+            ("FL",      "float", (0.0, 1.0, 3, 0.01)),
+            ("FR",      "float", (0.0, 1.0, 3, 0.01)),
+            ("RL",      "float", (0.0, 1.0, 3, 0.01)),
+            ("RR",      "float", (0.0, 1.0, 3, 0.01)),
+            ("H_body",  "float", (0.10, 0.60, 3, 0.005)),
+            ("H_step",  "float", (0.01, 0.30, 3, 0.005)),
+        ]
+
+        def _parse_current() -> List[Dict[str, Any]]:
+            raw = str(get_val() or "").strip()
+            if not raw:
+                from src.system.training.gait_presets import default_presets_json
+                return default_presets_json()
+            try:
+                parsed = _json.loads(raw)
+                if isinstance(parsed, list):
+                    return [p for p in parsed if isinstance(p, dict)]
+            except Exception:
+                pass
+            from src.system.training.gait_presets import default_presets_json
+            return default_presets_json()
+
+        btn = QPushButton()
+        btn.setFixedSize(WIDGET_W, PARAM_ROW_H - 2)
+        btn.setStyleSheet(
+            f"QPushButton {{ color: {text_c}; background: {input_bg}; "
+            f"border: 1px solid {border}; border-radius: 3px; "
+            f"font-size: 9px; padding: 0 6px; text-align: left; }}"
+            f"QPushButton:hover {{ border: 1px solid #888; }}"
+        )
+
+        def _refresh_label():
+            n = len(_parse_current())
+            btn.setText(f"{n} presets")
+
+        def _populate_row(table: QTableWidget, row_idx: int, preset: Dict[str, Any]):
+            phase = preset.get("phase") or [0.0, 0.5, 0.5, 0.0]
+            if not isinstance(phase, (list, tuple)) or len(phase) != 4:
+                phase = [0.0, 0.5, 0.5, 0.0]
+            values = [
+                str(preset.get("name", "unnamed")),
+                float(preset.get("frequency", 2.5) or 2.5),
+                float(phase[0]),
+                float(phase[1]),
+                float(phase[2]),
+                float(phase[3]),
+                float(preset.get("body_height", 0.35) or 0.35),
+                float(preset.get("step_height", 0.08) or 0.08),
+            ]
+            for col_idx, (label, kind, spin_cfg) in enumerate(COL_SPECS):
+                if kind == "str":
+                    w = QLineEdit()
+                    w.setText(str(values[col_idx]))
+                    table.setCellWidget(row_idx, col_idx, w)
+                else:
+                    lo, hi, dec, step = spin_cfg
+                    sb = QDoubleSpinBox()
+                    sb.setRange(lo, hi)
+                    sb.setDecimals(dec)
+                    sb.setSingleStep(step)
+                    sb.setValue(float(values[col_idx]))
+                    table.setCellWidget(row_idx, col_idx, sb)
+
+        def _row_to_dict(table: QTableWidget, row_idx: int) -> Dict[str, Any]:
+            def _cell(col: int):
+                return table.cellWidget(row_idx, col)
+            name_w = _cell(0)
+            name = name_w.text().strip() if name_w is not None else "unnamed"
+            return {
+                "name": name or "unnamed",
+                "frequency": round(float(_cell(1).value()), 4),
+                "phase": [
+                    round(float(_cell(2).value()), 4),
+                    round(float(_cell(3).value()), 4),
+                    round(float(_cell(4).value()), 4),
+                    round(float(_cell(5).value()), 4),
+                ],
+                "body_height": round(float(_cell(6).value()), 4),
+                "step_height": round(float(_cell(7).value()), 4),
+            }
+
+        def _open_dialog(_checked: bool = False):
+            current = _parse_current()
+
+            dlg = QDialog()
+            dlg.setWindowTitle("Gait Presets — Walk These Ways")
+            dlg.setModal(True)
+            dlg.resize(620, 360)
+
+            root = QVBoxLayout(dlg)
+            root.setContentsMargins(8, 8, 8, 8)
+            root.setSpacing(6)
+
+            table = QTableWidget(len(current), len(COL_SPECS))
+            table.setHorizontalHeaderLabels([c[0] for c in COL_SPECS])
+            table.verticalHeader().setDefaultSectionSize(26)
+            header = table.horizontalHeader()
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+            for i, p in enumerate(current):
+                _populate_row(table, i, p)
+            root.addWidget(table, 1)
+
+            # Toolbar
+            bar = QHBoxLayout()
+            bar.setSpacing(4)
+            add_btn = QPushButton("Add")
+            rm_btn = QPushButton("Remove")
+            reset_btn = QPushButton("Reset defaults")
+            bar.addWidget(add_btn)
+            bar.addWidget(rm_btn)
+            bar.addStretch(1)
+            bar.addWidget(reset_btn)
+            root.addLayout(bar)
+
+            def _on_add():
+                cur_row = table.currentRow()
+                seed: Dict[str, Any]
+                if 0 <= cur_row < table.rowCount():
+                    seed = _row_to_dict(table, cur_row)
+                    seed["name"] = seed["name"] + "_copy"
+                else:
+                    seed = {
+                        "name": "new", "frequency": 2.0,
+                        "phase": [0.0, 0.5, 0.5, 0.0],
+                        "body_height": 0.33, "step_height": 0.08,
+                    }
+                r = table.rowCount()
+                table.insertRow(r)
+                _populate_row(table, r, seed)
+                table.selectRow(r)
+
+            def _on_remove():
+                r = table.currentRow()
+                if 0 <= r < table.rowCount():
+                    table.removeRow(r)
+
+            def _on_reset():
+                from src.system.training.gait_presets import default_presets_json
+                defaults = default_presets_json()
+                table.setRowCount(0)
+                for i, p in enumerate(defaults):
+                    table.insertRow(i)
+                    _populate_row(table, i, p)
+
+            add_btn.clicked.connect(_on_add)
+            rm_btn.clicked.connect(_on_remove)
+            reset_btn.clicked.connect(_on_reset)
+
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok
+                | QDialogButtonBox.StandardButton.Cancel
+            )
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            root.addWidget(buttons)
+
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                out = []
+                for r in range(table.rowCount()):
+                    try:
+                        out.append(_row_to_dict(table, r))
+                    except Exception:
+                        continue
+                write_val(_json.dumps(out, ensure_ascii=False))
+                _refresh_label()
+
+        btn.clicked.connect(_open_dialog)
+        _refresh_label()
+        return btn
+
+    # ------------------------------------------------------------------
+    # Output file list (Export.output_files)
+    # ------------------------------------------------------------------
+
+    def _make_output_file_list(self, key, get_val, write_val, logic):
+        """Read-only bundle output manifest for the Export node.
+
+        Reads sibling params (``bundle_name`` + ``version`` + the three
+        ``include_*`` toggles) from this node's logic instance to
+        compute:
+
+          * the target bundle directory path
+          * the list of files that will be produced
+          * a ⚠ "Will Overwrite" tag on each row whose file already
+            exists on disk
+
+        Every row gets an Open button that hands the path to
+        :class:`QDesktopServices` — it pops the OS file manager on
+        existing files, or silently falls back to the parent directory
+        for files that haven't been generated yet.
+
+        The panel auto-refreshes whenever a sibling param changes by
+        subscribing to ``scene.node_param_changed`` (same pattern as
+        ``controller_status_panel`` / ``active_file_table``).
+        """
+        from PySide6.QtCore import QTimer, QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import (
+            QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+        )
+        from pathlib import Path
+
+        _self_ref = self
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+        muted = get_color("training_widget_label_text", "#888888")
+        ok_c = "#4CAF50"
+        warn_c = "#F59E0B"
+
+        MAX_W = NODE_W - H_PAD * 2
+        ROW_H = 20
+        HDR_H = 14
+
+        container = QWidget()
+        container._full_row_widget = True
+        container._preferred_height = PARAM_ROW_H
+
+        root = QVBoxLayout(container)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(1)
+
+        # No outer border — the Header label + separator line below
+        # already provide enough visual structure; a frame here made
+        # the Export node feel double-bordered against its parent.
+        table_wrap = QFrame(container)
+        table_wrap.setStyleSheet(
+            f"background: transparent; border: none;"
+        )
+        tw_layout = QVBoxLayout(table_wrap)
+        tw_layout.setContentsMargins(2, 2, 2, 2)
+        tw_layout.setSpacing(0)
+        root.addWidget(table_wrap)
+
+        _row_widgets: list = []
+        _height_cbs: list = []
+
+        def _emit_h(h: int):
+            container._preferred_height = h
+            container.setMinimumHeight(h)
+            container.setMaximumHeight(h)
+            container.updateGeometry()
+            for fn in _height_cbs:
+                try:
+                    fn(h)
+                except Exception:
+                    pass
+
+        class _HSig:
+            def connect(self_, fn):
+                _height_cbs.append(fn)
+            def emit(self_, h):
+                _emit_h(h)
+
+        container.height_changed = _HSig()
+        container.preferred_row_height = lambda: max(PARAM_ROW_H, int(container._preferred_height))
+
+        # ── helpers ───────────────────────────────────────────────────
+
+        def _read_params() -> Dict[str, Any]:
+            return (logic.parameters or {}) if logic is not None else {}
+
+        def _resolve_workspace_root() -> Optional[Path]:
+            """Walk up scene → view → parent chain to find the workspace
+            name and compose the project root path. Fallback: cwd."""
+            try:
+                scene = _self_ref.scene()
+            except RuntimeError:
+                return None
+            if scene is None:
+                return None
+            for view in scene.views():
+                w = view
+                while w is not None:
+                    workspace = (
+                        getattr(w, "_workspace_name", None)
+                        or getattr(w, "_current_slug", None)
+                    )
+                    if workspace:
+                        return Path.cwd() / "projects" / str(workspace)
+                    try:
+                        w = w.parentWidget()
+                    except Exception:
+                        break
+            return None
+
+        def _resolve_bundle_dir() -> Path:
+            p = _read_params()
+            bundle = str(p.get("bundle_name", "") or "trained_policy")
+            version = str(p.get("version", "v1") or "v1")
+            overwrite = str(p.get("overwrite", "true") or "true").strip().lower() == "true"
+            if overwrite:
+                full = bundle
+            else:
+                full = f"{bundle}_{version}" if version else bundle
+            root = _resolve_workspace_root()
+            if root is not None:
+                return root / "training" / "exported" / full
+            # Fallback: relative path under cwd so Open still opens
+            # something sensible.
+            return Path.cwd() / "training" / "exported" / full
+
+        def _planned_files(bundle_dir: Path) -> List[Tuple[str, Path, bool]]:
+            """Return [(display_name, abs_path, always_emitted)] for
+            every file the next run will produce. ``always_emitted``
+            is True for files that ship regardless of toggle state."""
+            p = _read_params()
+            def _b(k: str) -> bool:
+                return str(p.get(k, "true") or "true").strip().lower() == "true"
+            out: List[Tuple[str, Path, bool]] = []
+            out.append(("manifest.yaml", bundle_dir / "manifest.yaml", True))
+            out.append(("source.json", bundle_dir / "source.json", True))
+            if _b("include_onnx"):
+                out.append(("policy.onnx", bundle_dir / "policy.onnx", False))
+            if _b("include_torchscript"):
+                out.append(("policy.pt", bundle_dir / "policy.pt", False))
+            if _b("include_normalization"):
+                out.append(("normalization.pkl", bundle_dir / "normalization.pkl", False))
+            return out
+
+        # ── row rendering ─────────────────────────────────────────────
+
+        def _lbl(text: str, color: str, width: Optional[int] = None,
+                 bold: bool = False) -> QLabel:
+            lb = QLabel(text)
+            weight = "700" if bold else "400"
+            lb.setStyleSheet(
+                f"color: {color}; font-size: 9px; font-weight: {weight}; "
+                f"background: transparent; border: none;"
+            )
+            if width is not None:
+                lb.setFixedWidth(width)
+            return lb
+
+        def _open_path(path: Path) -> None:
+            """Open *path* in the OS file manager."""
+            try:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+            except Exception:
+                pass
+
+        def _make_open_button(path: Path) -> Optional[QPushButton]:
+            """Return an Open button only when *path* actually exists
+            on disk. Non-existent files return ``None`` so the caller
+            can skip adding the button — this keeps the visual clean
+            until post-training refresh makes the file appear."""
+            if not path.exists():
+                return None
+            btn = QPushButton("Open")
+            btn.setFixedHeight(ROW_H - 4)
+            btn.setFixedWidth(42)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet(
+                f"QPushButton {{ color: {text_c}; background: {input_bg}; "
+                f"border: 1px solid {border}; border-radius: 2px; "
+                f"font-size: 8px; padding: 0 4px; }}"
+                f"QPushButton:hover {{ border: 1px solid #888; }}"
+            )
+            btn.setToolTip(str(path).replace("\\", "/"))
+            btn.clicked.connect(lambda _=False, p=path: _open_path(p))
+            return btn
+
+        def _rebuild():
+            # Startup pre-warm / canvas tear-down guard: if the owning
+            # TrainingNodeItem has been destroyed between QTimer.singleShot
+            # scheduling and firing, every Qt-child access below raises
+            # RuntimeError. Check ``tw_layout.count()`` as a cheap liveness
+            # probe and bail out silently — nothing to rebuild on a dead
+            # widget.
+            try:
+                tw_layout.count()
+            except RuntimeError:
+                return
+            for w in list(_row_widgets):
+                try:
+                    tw_layout.removeWidget(w)
+                    w.deleteLater()
+                except RuntimeError:
+                    pass
+            _row_widgets.clear()
+
+            bundle_dir = _resolve_bundle_dir()
+
+            # Header — bundle directory label + optional warn + Open.
+            # No border on this row per user direction: the separator
+            # line below already provides the visual break.
+            dir_exists = bundle_dir.exists()
+            hdr = QWidget(table_wrap)
+            hdr.setFixedHeight(HDR_H + 4)
+            hdr.setStyleSheet("QWidget { background: transparent; border: none; }")
+            hl = QHBoxLayout(hdr)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(4)
+            dir_label = _lbl(
+                f"{bundle_dir.name}/", text_c if dir_exists else muted,
+                bold=True,
+            )
+            dir_label.setToolTip(str(bundle_dir).replace("\\", "/"))
+            hl.addWidget(dir_label, 1)
+            if dir_exists:
+                warn_lbl = _lbl("⚠", warn_c, bold=True)
+                warn_lbl.setToolTip("Directory already exists — files below tagged ⚠ will be overwritten.")
+                hl.addWidget(warn_lbl, 0)
+                dir_btn = _make_open_button(bundle_dir)
+                if dir_btn is not None:
+                    hl.addWidget(dir_btn, 0)
+            _row_widgets.append(hdr)
+            tw_layout.addWidget(hdr)
+
+            # Separator
+            sep = QFrame(table_wrap)
+            sep.setFixedHeight(1)
+            sep.setStyleSheet(f"background: {border}; border: none;")
+            _row_widgets.append(sep)
+            tw_layout.addWidget(sep)
+
+            # File rows
+            files = _planned_files(bundle_dir)
+            for idx, (display, path, always) in enumerate(files):
+                row = QWidget(table_wrap)
+                row.setFixedHeight(ROW_H)
+                rl = QHBoxLayout(row)
+                rl.setContentsMargins(0, 0, 0, 0)
+                rl.setSpacing(4)
+
+                exists = path.exists()
+                # Uniform row background — zebra striping was leaving every
+                # other row transparent, which read as "missing entry" at a
+                # glance. Every planned file now paints the input background.
+                row.setStyleSheet(f"QWidget {{ background: {input_bg}; border: none; }}")
+
+                # Name
+                name_lbl = _lbl(display, text_c if exists else muted)
+                name_lbl.setToolTip(str(path).replace("\\", "/"))
+                rl.addWidget(name_lbl, 1)
+
+                # Overwrite warning tag
+                if exists:
+                    tag = _lbl("⚠", warn_c, bold=True, width=14)
+                    tag.setToolTip("Will Overwrite")
+                    rl.addWidget(tag, 0)
+
+                # Status dot
+                status = _lbl(
+                    "Exists" if exists else "Planned",
+                    ok_c if exists else muted,
+                    width=44,
+                )
+                rl.addWidget(status, 0)
+
+                # Open button: shown only when the file actually exists.
+                # Post-training refresh (wired later by the user) will
+                # re-render these rows and populate the buttons.
+                open_btn = _make_open_button(path)
+                if open_btn is not None:
+                    rl.addWidget(open_btn, 0)
+
+                _row_widgets.append(row)
+                tw_layout.addWidget(row)
+
+            total_h = HDR_H + 4 + 1 + ROW_H * len(files) + 6
+            table_wrap.setFixedHeight(total_h)
+            _emit_h(total_h + 2)
+
+        # ── param-change subscription ────────────────────────────────
+
+        _watch_keys = {
+            "bundle_name", "version", "overwrite",
+            "include_onnx", "include_torchscript", "include_normalization",
+        }
+
+        def _on_canvas_param_changed(node_type: str, param_key: str, _v: str):
+            if node_type == "export" and param_key in _watch_keys:
+                QTimer.singleShot(0, _rebuild)
+
+        def _connect_scene_signal():
+            # Guard against shiboken-deleted C++ items: if the owning
+            # TrainingNodeItem was torn down between QTimer.singleShot
+            # scheduling and firing (common during startup pre-warm),
+            # ``_self_ref.scene()`` raises RuntimeError. Treat it as
+            # "nothing to connect" — the widget is gone anyway.
+            try:
+                scene = _self_ref.scene()
+            except RuntimeError:
+                return
+            if scene is not None and hasattr(scene, "node_param_changed"):
+                try:
+                    scene.node_param_changed.connect(_on_canvas_param_changed)
+                except Exception:
+                    pass
+
+        QTimer.singleShot(0, _rebuild)
+        QTimer.singleShot(50, _connect_scene_signal)
+        return container
+
+    # ------------------------------------------------------------------
+    # Start Point compatibility panel (Export §2)
+    # ------------------------------------------------------------------
+
+    def _make_start_point_compat_panel(self, key, get_val, write_val, logic):
+        """Read-only compatibility diff panel for the Export node.
+
+        Renders :class:`StartPointCompatReport` as a compact table:
+
+          * header row — Start Point label, load_mode, overall status dot
+          * separator line
+          * one row per :class:`CompatField` (Framework / Action dim /
+            Decimation / Joint order) with old vs new values and a
+            per-row status icon
+          * footer summary line
+
+        Auto-rebuilds when the canvas changes (subscribes to
+        ``scene.node_param_changed`` which fires on both param edits
+        and edge mutations via the graph_dirty hook). No direct file
+        IO in here — that happens inside
+        :meth:`TrainingContext.compat_report`.
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
+
+        _self_ref = self
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        text_c = get_color("training_widget_text", "#cccccc")
+        muted = get_color("training_widget_label_text", "#888888")
+        ok_c = "#4CAF50"
+        warn_c = "#F59E0B"
+        err_c = "#EF4444"
+        dim_c = "#6B7280"
+
+        MAX_W = NODE_W - H_PAD * 2
+        HDR_H = 14
+        ROW_H = 18
+        FOOTER_H = 26
+
+        container = QWidget()
+        container._full_row_widget = True
+        container._preferred_height = PARAM_ROW_H
+
+        root = QVBoxLayout(container)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(1)
+
+        panel = QFrame(container)
+        # No outer border — matches the §1 output_file_list convention
+        # (user wanted borderless panels inside the Export node body).
+        panel.setStyleSheet("background: transparent; border: none;")
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(2, 2, 2, 2)
+        panel_layout.setSpacing(0)
+        root.addWidget(panel)
+
+        _row_widgets: list = []
+        _height_cbs: list = []
+
+        def _emit_h(h: int):
+            container._preferred_height = h
+            container.setMinimumHeight(h)
+            container.setMaximumHeight(h)
+            container.updateGeometry()
+            for fn in _height_cbs:
+                try:
+                    fn(h)
+                except Exception:
+                    pass
+
+        class _HSig:
+            def connect(self_, fn):
+                _height_cbs.append(fn)
+            def emit(self_, h):
+                _emit_h(h)
+
+        container.height_changed = _HSig()
+        container.preferred_row_height = lambda: max(PARAM_ROW_H, int(container._preferred_height))
+
+        def _lbl(text: str, color: str, width: Optional[int] = None,
+                 bold: bool = False, size_px: int = 9) -> QLabel:
+            lb = QLabel(text)
+            weight = "700" if bold else "400"
+            lb.setStyleSheet(
+                f"color: {color}; font-size: {size_px}px; font-weight: {weight}; "
+                f"background: transparent; border: none;"
+            )
+            if width is not None:
+                lb.setFixedWidth(width)
+            return lb
+
+        def _status_dot(status: str) -> QLabel:
+            mapping = {
+                "ok": ("●", ok_c),
+                "warning": ("●", warn_c),
+                "error": ("●", err_c),
+                "none": ("○", dim_c),
+            }
+            glyph, col = mapping.get(status, ("○", dim_c))
+            return _lbl(glyph, col, width=12, bold=True, size_px=12)
+
+        def _status_icon(status: str) -> QLabel:
+            mapping = {
+                "ok": ("✓", ok_c),
+                "warning": ("⚠", warn_c),
+                "error": ("✗", err_c),
+            }
+            glyph, col = mapping.get(status, ("—", dim_c))
+            return _lbl(glyph, col, width=14, bold=True)
+
+        def _row(widgets, bg: str = "transparent") -> QWidget:
+            rw = QWidget(panel)
+            rw.setFixedHeight(ROW_H)
+            rw.setStyleSheet(f"QWidget {{ background: {bg}; border: none; }}")
+            rl = QHBoxLayout(rw)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(4)
+            for w in widgets:
+                rl.addWidget(w)
+            return rw
+
+        def _separator() -> QFrame:
+            sep = QFrame(panel)
+            sep.setFixedHeight(1)
+            sep.setStyleSheet(f"background: {border}; border: none;")
+            return sep
+
+        def _build_report():
+            """Call TrainingContext.compat_report with the current graph."""
+            try:
+                scene = _self_ref.scene()
+            except RuntimeError:
+                return None
+            if scene is None:
+                return None
+            try:
+                graph = scene.serialize_training_graph(for_compiler=False)
+            except Exception:
+                return None
+            # Walk up to the workspace window to borrow its
+            # TrainingContext instance — that's the one SafetyReview
+            # uses, so the widget displays the same spec the compiler
+            # would see.
+            ctx = None
+            for view in scene.views():
+                w = view
+                while w is not None:
+                    getter = getattr(w, "_get_training_context", None)
+                    if callable(getter):
+                        try:
+                            ctx = getter()
+                            break
+                        except Exception:
+                            pass
+                    try:
+                        w = w.parentWidget()
+                    except Exception:
+                        break
+                if ctx is not None:
+                    break
+            if ctx is None:
+                return None
+            try:
+                return ctx.compat_report(graph)
+            except Exception:
+                return None
+
+        def _rebuild():
+            # Liveness probe — bail if the owning item has been torn
+            # down between timer schedule and fire.
+            try:
+                panel_layout.count()
+            except RuntimeError:
+                return
+            for w in list(_row_widgets):
+                try:
+                    panel_layout.removeWidget(w)
+                    w.deleteLater()
+                except RuntimeError:
+                    pass
+            _row_widgets.clear()
+
+            report = _build_report()
+
+            if report is None:
+                msg = _lbl("(not ready)", muted)
+                row_w = _row([msg])
+                _row_widgets.append(row_w)
+                panel_layout.addWidget(row_w)
+                panel.setFixedHeight(ROW_H + 4)
+                _emit_h(ROW_H + 6)
+                return
+
+            # Header row — label + mode + dot
+            label_text = report.start_point_label or "(none)"
+            hdr = _row([
+                _lbl("Start", muted, width=34, bold=True),
+                _lbl(label_text, text_c, bold=True),
+                _lbl("·", muted),
+                _lbl(report.load_mode, text_c),
+                _status_dot(report.overall_status),
+            ])
+            _row_widgets.append(hdr)
+            panel_layout.addWidget(hdr)
+
+            if report.fields:
+                sep = _separator()
+                _row_widgets.append(sep)
+                panel_layout.addWidget(sep)
+
+                for idx, f in enumerate(report.fields):
+                    row_w = _row([
+                        _lbl(f.label, muted, width=64),
+                        _lbl(str(f.old_value), text_c),
+                        _lbl("→", muted, width=10),
+                        _lbl(str(f.new_value), text_c),
+                        _status_icon(f.status),
+                    ])
+                    if f.detail:
+                        row_w.setToolTip(f.detail)
+                    _row_widgets.append(row_w)
+                    panel_layout.addWidget(row_w)
+
+            if report.manifest_loaded is False and report.manifest_error:
+                sep = _separator()
+                _row_widgets.append(sep)
+                panel_layout.addWidget(sep)
+                err_row = _row([
+                    _lbl("⚠", err_c, width=14, bold=True),
+                    _lbl(report.manifest_error, err_c),
+                ])
+                _row_widgets.append(err_row)
+                panel_layout.addWidget(err_row)
+
+            # Footer summary
+            footer = QLabel(report.summary or "")
+            footer.setWordWrap(True)
+            footer.setStyleSheet(
+                f"color: {muted}; font-size: 8px; background: transparent; "
+                f"border: none; padding: 2px 4px 0 4px;"
+            )
+            footer.setMinimumHeight(FOOTER_H)
+            _row_widgets.append(footer)
+            panel_layout.addWidget(footer)
+
+            # Compute total height — 1 header + optional sep + N fields
+            # + optional manifest err sep+row + footer. Conservative.
+            n_field_rows = len(report.fields)
+            total_h = ROW_H          # header
+            if n_field_rows:
+                total_h += 1 + ROW_H * n_field_rows
+            if report.manifest_error:
+                total_h += 1 + ROW_H
+            total_h += FOOTER_H + 4
+            panel.setFixedHeight(total_h)
+            _emit_h(total_h + 2)
+
+        def _on_canvas_param_changed(_node_type: str, _key: str, _value: str):
+            QTimer.singleShot(0, _rebuild)
+
+        def _connect_scene_signal():
+            # Guard against shiboken-deleted C++ items: if the owning
+            # TrainingNodeItem was torn down between QTimer.singleShot
+            # scheduling and firing (common during startup pre-warm),
+            # ``_self_ref.scene()`` raises RuntimeError. Treat it as
+            # "nothing to connect" — the widget is gone anyway.
+            try:
+                scene = _self_ref.scene()
+            except RuntimeError:
+                return
+            if scene is not None and hasattr(scene, "node_param_changed"):
+                try:
+                    scene.node_param_changed.connect(_on_canvas_param_changed)
+                except Exception:
+                    pass
+
+        QTimer.singleShot(0, _rebuild)
+        QTimer.singleShot(50, _connect_scene_signal)
+        return container
+
+    # ------------------------------------------------------------------
+    # Review backend picker (Export §3)
+    # ------------------------------------------------------------------
+
+    def _make_review_backend_picker(self, key, get_val, write_val, logic):
+        """Node-dedicated picker button for the Review backend.
+
+        Single dropdown button (``_RichChoicePicker``) matching the
+        scene_dropdown / contact_body_picker family. Choices come from
+        :mod:`review_backends`, re-scanned every time the popup opens
+        so that future plugin installs (Newton) surface without a
+        canvas reload. Unavailable backends show in the popup with a
+        disabled marker in their description and cannot be picked.
+        """
+        from src.system.training.review_backends import (
+            list_backends, default_backend_id,
+        )
+
+        def _backend_choices_provider() -> Tuple[List[str], Dict[str, Dict[str, str]]]:
+            try:
+                backends = list_backends(available_only=False)
+            except Exception:
+                backends = []
+            if not backends:
+                return (
+                    ["(none)"],
+                    {"(none)": {"title": "(none)",
+                                "desc": "No review backends registered"}},
+                )
+            ids: List[str] = []
+            meta: Dict[str, Dict[str, str]] = {}
+            for b in backends:
+                ids.append(b.backend_id)
+                desc = b.description
+                if not b.available:
+                    desc += "    ·  (not yet available)"
+                meta[b.backend_id] = {
+                    "title": b.display_name,
+                    "desc": desc,
+                }
+            return ids, meta
+
+        choices, meta = _backend_choices_provider()
+        current = str(get_val() or "").strip()
+        if current not in choices:
+            current = default_backend_id() if default_backend_id() in choices else (choices[0] if choices else "")
+
+        w = _RichChoicePicker(
+            choices,
+            current=current,
+            meta_map=meta,
+            leading_mode="checkbox",
+            multi_select=False,
+            choices_provider=_backend_choices_provider,
+        )
+
+        def _on_pick(value: str) -> None:
+            if not value or value.startswith("(none"):
+                return
+            # Guard against the popup letting through a disabled backend
+            # (the registry says which ones are unavailable).
+            try:
+                backends = {b.backend_id: b for b in list_backends(available_only=False)}
+                entry = backends.get(value)
+                if entry is not None and not entry.available:
+                    return
+            except Exception:
+                pass
+            write_val(value)
+
+        w.currentTextChanged.connect(_on_pick)
+        return w
+
+    # ------------------------------------------------------------------
+    # Review scene picker (Export §3)
+    # ------------------------------------------------------------------
+
+    def _make_review_scene_picker(self, key, get_val, write_val, write_params, logic):
+        """Scene picker filtered by the current ``review_backend``.
+
+        Same ``_RichChoicePicker`` widget the training-side scene
+        picker uses, but points at :func:`scene_registry.list_review_scenes`
+        so Isaac-only scenes disappear when MuJoCo is selected (and
+        vice-versa). Re-scans on every popup open so toggling the
+        backend button row immediately refreshes the available set.
+        """
+        _self_ref = self
+
+        def _detect_family() -> Optional[str]:
+            """Same robot-family probe the training scene picker uses."""
+            scene = _self_ref.scene()
+            if scene is None:
+                return None
+            for item in scene.items():
+                try:
+                    if item.data(12) != "robot":
+                        continue
+                    nl = item.data(13)
+                    if nl is None:
+                        continue
+                    aid = str((getattr(nl, "parameters", {}) or {}).get("asset_id", "")).strip()
+                    if not aid:
+                        continue
+                    from src.system.training.robot_assets import get_asset, rescan
+                    rescan()
+                    return str(getattr(get_asset(aid), "family", "") or "") or None
+                except Exception:
+                    continue
+            return None
+
+        def _current_review_backend() -> str:
+            p = (logic.parameters or {}) if logic is not None else {}
+            val = str(p.get("review_backend", "") or "").strip()
+            if val:
+                return val
+            from src.system.training.review_backends import default_backend_id
+            return default_backend_id()
+
+        def _review_scene_choices(
+            _cur_val_fn: Callable[[], str] = get_val,
+        ) -> Tuple[List[str], Dict[str, Dict[str, str]]]:
+            backend = _current_review_backend()
+            family = _detect_family()
+            try:
+                from src.system.training.scene_registry import (
+                    list_review_scenes, rescan,
+                )
+                rescan()
+                scenes = list_review_scenes(review_backend=backend, family=family)
+            except Exception:
+                scenes = []
+            if not scenes:
+                return (
+                    ["(no scenes)"],
+                    {"(no scenes)": {
+                        "title": "(no scenes)",
+                        "desc": f"No registered scenes support review backend {backend!r}",
+                    }},
+                )
+            ids = [s.scene_id for s in scenes]
+            meta: Dict[str, Dict[str, str]] = {}
+            for s in scenes:
+                fams = ", ".join(sorted(s.supported_families)) or "any family"
+                meta[s.scene_id] = {
+                    "title": s.name,
+                    "desc": f"{s.description}    ·  {fams}",
+                }
+            return ids, meta
+
+        initial_choices, initial_meta = _review_scene_choices()
+        current_val = get_val()
+        if current_val not in initial_choices:
+            current_val = initial_choices[0] if initial_choices else ""
+
+        w = _RichChoicePicker(
+            initial_choices,
+            current=current_val,
+            meta_map=initial_meta,
+            leading_mode="checkbox",
+            multi_select=False,
+            choices_provider=_review_scene_choices,
+        )
+
+        def _on_scene_pick(value: str) -> None:
+            if not value or value.startswith("(no "):
+                return
+            write_val(value)
+
+        w.currentTextChanged.connect(_on_scene_pick)
+        return w
+
+    # ------------------------------------------------------------------
+    # Review launch button (Export §3)
+    # ------------------------------------------------------------------
+
+    def _make_review_launch_button(self, key, get_val, write_val, logic):
+        """SafetyReview-gated "Launch Review" action button.
+
+        Click pipeline:
+
+          1. Walk up to the TrainingWorkspaceWindow (via scene →
+             view → window).
+          2. Call :meth:`_run_safety_review(blocking=True)` — any
+             error-severity issue on the canvas stops here, the
+             button reverts to idle, and the SafetyReview highlight
+             is already painting red borders on the offending nodes.
+          3. If clean, emit the workspace-level
+             ``review_launch_requested`` signal with a payload
+             ``{backend, scene_id, bundle_path}``. The workspace slot
+             dispatches to the matching review session subprocess
+             (isaac_review_session / il_review_session / ...).
+
+        The subprocess lifetime is owned by the workspace — this
+        widget never holds a QProcess / subprocess reference, so a
+        canvas tear-down during review cannot orphan the viewer.
+        """
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QPushButton
+
+        _self_ref = self
+
+        border = get_color("training_widget_border", "#3d3d3d")
+        input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+        text_c = get_color("training_widget_text", "#cccccc")
+        muted = get_color("training_widget_label_text", "#888888")
+        accent_bg = "#00695C"
+
+        btn = QPushButton("▶  Launch Review")
+        btn.setFixedHeight(PARAM_ROW_H)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(
+            "Run SafetyReview, then spawn a review session using the "
+            "selected backend + scene. The trained brain is loaded "
+            "into a separate viewer process owned by the workspace — "
+            "the canvas is safe to tear down mid-review."
+        )
+
+        def _idle_style():
+            btn.setStyleSheet(
+                f"QPushButton {{ color: #fff; background: {accent_bg}; "
+                f"border: 1px solid {accent_bg}; border-radius: 4px; "
+                f"font-size: 10px; font-weight: 600; padding: 4px 10px; }}"
+                f"QPushButton:hover {{ background: #00897B; }}"
+                f"QPushButton:disabled {{ color: {muted}; background: {input_bg}; "
+                f"border: 1px solid {border}; }}"
+            )
+        _idle_style()
+
+        def _walk_to_workspace():
+            scene = _self_ref.scene()
+            if scene is None:
+                return None
+            for view in scene.views():
+                # Walk the parent widget chain from the view upward —
+                # TrainingWorkspaceWindow is an intermediate QWidget,
+                # NOT the top-level QMainWindow that view.window()
+                # returns. The old code only checked the top window
+                # and silently returned None.
+                w = view
+                while w is not None:
+                    if hasattr(w, "_run_safety_review"):
+                        return w
+                    try:
+                        w = w.parentWidget()
+                    except Exception:
+                        break
+            return None
+
+        def _on_click(_checked: bool = False):
+            workspace = _walk_to_workspace()
+            if workspace is None:
+                return
+
+            # SafetyReview gate — blocking, SB3 path only.
+            # The SB3 TrainingSpecCompiler validates against SB3-only
+            # node types (algo_config, env_assembler, …) which don't
+            # exist on Isaac Lab canvases. Running it on an IL graph
+            # always fails with a spurious "missing required node types"
+            # error.  IL has its own validation in the config compiler.
+            _backend = str(
+                getattr(workspace, "_active_backend", "sb3") or "sb3"
+            )
+            if _backend != "isaac_lab":
+                try:
+                    ok = workspace._run_safety_review(blocking=True)
+                except Exception:
+                    ok = False
+                if not ok:
+                    return
+
+            # Pull the current param snapshot from the node.
+            params = (logic.parameters or {}) if logic is not None else {}
+            payload = {
+                "backend": str(params.get("review_backend", "mujoco") or "mujoco"),
+                "scene_id": str(params.get("review_scene_id", "") or ""),
+                "bundle_name": str(params.get("bundle_name", "") or ""),
+                "version": str(params.get("version", "v1") or "v1"),
+                "overwrite": str(params.get("overwrite", "true") or "true").lower() == "true",
+            }
+
+            scene = _self_ref.scene()
+            if scene is None:
+                return
+            emit = getattr(scene, "review_launch_requested", None)
+            if emit is None:
+                # Signal not wired yet — surface a clear notice via
+                # log path so users know the workspace hasn't been
+                # upgraded to the new handler.
+                try:
+                    from src.system.core.logger import log_warning
+                    log_warning(
+                        "[Export] review_launch_requested signal missing — "
+                        "workspace has not been upgraded to the Review Env §3 handler."
+                    )
+                except Exception:
+                    pass
+                return
+            try:
+                emit.emit(payload)
+            except Exception:
+                pass
+
+        btn.clicked.connect(_on_click)
+        return btn
 
     # ------------------------------------------------------------------
     # Serialization API  (Step 3)
@@ -4753,6 +9020,7 @@ class TrainingNodeItem(QGraphicsRectItem):
     # ------------------------------------------------------------------
 
     def _clear_param_proxies(self) -> None:
+        scene = self.scene()
         for _row, proxy, _rh in self._param_proxies:
             try:
                 widget = proxy.widget()
@@ -4765,6 +9033,8 @@ class TrainingNodeItem(QGraphicsRectItem):
                     pass
             try:
                 proxy.setParentItem(None)
+                if scene is not None:
+                    scene.removeItem(proxy)
             except Exception:
                 pass
         self._param_proxies.clear()
@@ -4773,8 +9043,11 @@ class TrainingNodeItem(QGraphicsRectItem):
     def _rebuild_geometry(self, rebuild_ports: bool = True) -> None:
         """Rebuild node geometry; keep existing ports when only params changed."""
         if rebuild_ports:
+            scene = self.scene()
             for child in list(self.childItems()):
                 child.setParentItem(None)
+                if scene is not None:
+                    scene.removeItem(child)
             self._ports.clear()
             self._clear_param_proxies()
         else:
@@ -4934,15 +9207,170 @@ class TrainingNodeItem(QGraphicsRectItem):
             if logic is not None and logic.parameters is not None:
                 logic.parameters.update(updates)
             self._refresh_conditions()
+            # Preview clip list tracks motion_source / motion_file —
+            # push a refresh into the live widget so pack changes are
+            # reflected in the button text and dropdown immediately.
+            if (self._ref_preview_button_widget is not None
+                    and ("motion_source" in updates or "motion_file" in updates)):
+                try:
+                    self._ref_preview_button_widget._refresh_candidates()
+                except Exception:
+                    pass
 
         # ── motion_library_picker ─────────────────────────────────────
+        # Unified Reference Motion picker. Drives BOTH motion_file (for
+        # single-clip picks) and motion_source (for symbolic
+        # generate:/loco:/pack: picks) so we can route everything through
+        # one dropdown — see _MotionLibraryPicker docstring for layout.
         if w_type == "motion_library_picker":
+            params = (logic.parameters or {}) if logic is not None else {}
             w = _MotionLibraryPicker(
-                get_val(),
+                current_motion_file=str(params.get("motion_file", "")),
+                current_motion_source=str(params.get("motion_source", "")),
                 robot_type=self._robot_type_hint,
+                write_params=write_params,
             )
-            w.valueChanged.connect(write_val)
             self._ref_motion_picker_widget = w
+            return w
+
+        # ── asset_dropdown ────────────────────────────────────────────
+        # Phase_1 of AMP_design.yaml §3.custom_robot_assets: a closed
+        # dropdown populated from the phase_1 registry via a live scan
+        # of custom_mods/archives/ + menagerie/. Uses the project's
+        # standard ``_RichChoicePicker`` (same look as IL Terrain Config
+        # Terrain Type) with a ``choices_provider`` so the list
+        # re-scans every time the popup opens — dropping new files
+        # into archives is visible on the next click with no restart.
+        if w_type == "asset_dropdown":
+            family_filter = str(row.get("family_filter", "") or "").strip() or None
+
+            def _has_usd(asset) -> bool:
+                """True iff this asset can be spawned by Isaac Lab.
+
+                Either an on-disk .usd file (rare for menagerie/archives)
+                or a Nucleus URL marker (set by discovery for known
+                menagerie robots). Archive assets that only ship URDF/
+                MJCF return False — they need URDF→USD conversion before
+                they can drive Isaac Lab training.
+                """
+                return asset.usd_path is not None or bool(asset.usd_url)
+
+            def _rel_model_path(asset) -> str:
+                """Short repo-relative description shown under the title.
+
+                Format: ``<usd-source>  ·  <mjcf/urdf-source if any>``
+                When no USD is available, prefix with ⚠ so the user can
+                see at a glance that the asset is NOT Isaac Lab ready.
+                """
+                try:
+                    repo_root = pathlib.Path(__file__).resolve().parents[2]
+                except Exception:
+                    repo_root = pathlib.Path.cwd()
+
+                def _rel(p) -> str:
+                    if p is None:
+                        return ""
+                    try:
+                        return str(pathlib.Path(p).resolve().relative_to(repo_root))
+                    except Exception:
+                        return str(p)
+
+                # ── Primary line: USD source (or warning) ──
+                if asset.usd_path is not None:
+                    primary = _rel(asset.usd_path)
+                elif asset.usd_url:
+                    primary = asset.usd_url
+                else:
+                    primary = "⚠ no USD — not Isaac Lab compatible"
+
+                # ── Secondary line: mjcf/urdf for context ──
+                secondary_bits = []
+                if asset.mjcf_path is not None:
+                    secondary_bits.append("mjcf=" + _rel(asset.mjcf_path))
+                if asset.urdf_path is not None:
+                    secondary_bits.append("urdf=" + _rel(asset.urdf_path))
+                if secondary_bits:
+                    return primary + "    " + " · ".join(secondary_bits)
+                return primary
+
+            def _asset_choices_provider(
+                filt: Optional[str] = family_filter,
+                current_val_fn: Callable[[], str] = get_val,
+            ) -> Tuple[List[str], Dict[str, Dict[str, str]]]:
+                # Live rescan on every popup open — idempotent + cheap.
+                try:
+                    from src.system.training.robot_assets import (
+                        rescan,
+                        list_assets,
+                    )
+                    rescan()
+                    assets = list_assets(family=filt)
+                except Exception:
+                    assets = []
+
+                # Sort: USD-capable first, then USD-less. Within each
+                # group keep alphabetical so users see Isaac-Lab-ready
+                # robots at the top of the list.
+                assets_sorted = sorted(
+                    assets, key=lambda a: (0 if _has_usd(a) else 1, a.asset_id)
+                )
+
+                choices: List[str] = [a.asset_id for a in assets_sorted]
+                meta_map: Dict[str, Dict[str, str]] = {}
+                for a in assets_sorted:
+                    title = a.asset_id if _has_usd(a) else f"⚠ {a.asset_id}"
+                    meta_map[a.asset_id] = {
+                        "title": title,
+                        "desc": _rel_model_path(a),
+                    }
+
+                # Preserve unknown current value (e.g. from an old canvas)
+                # so the node doesn't silently lose data on first render.
+                current = current_val_fn()
+                if current and current not in choices:
+                    choices.append(current)
+                    meta_map[current] = {
+                        "title": current,
+                        "desc": "(unknown — not in registry)",
+                    }
+
+                return choices, meta_map
+
+            # Prime the initial list so the button shows something sensible
+            # before the popup is opened for the first time.
+            initial_choices, initial_meta = _asset_choices_provider()
+            if not initial_choices:
+                # Graceful empty state — single placeholder entry that
+                # tells the user what to do. Picking it writes "" back.
+                placeholder = "(no assets registered)"
+                initial_choices = [placeholder]
+                initial_meta = {
+                    placeholder: {
+                        "title": placeholder,
+                        "desc": "Drop files into custom_mods/archives/<pkg>/resources/robots/",
+                    }
+                }
+
+            current_val = get_val()
+            if current_val not in initial_choices:
+                current_val = initial_choices[0] if initial_choices else ""
+
+            w = _RichChoicePicker(
+                initial_choices,
+                current=current_val,
+                meta_map=initial_meta,
+                leading_mode="checkbox",
+                multi_select=False,
+                choices_provider=_asset_choices_provider,
+            )
+
+            def _on_asset_pick(value: str, fn=write_val) -> None:
+                # Never persist the placeholder sentinel
+                if value.startswith("(no assets") or value.startswith("(unknown"):
+                    return
+                fn(value)
+
+            w.currentTextChanged.connect(_on_asset_pick)
             return w
 
         # ── motion_file_picker ────────────────────────────────────────
@@ -4960,33 +9388,37 @@ class TrainingNodeItem(QGraphicsRectItem):
 
         # ── preview_button ────────────────────────────────────────────
         if w_type == "preview_button":
-            def _get_npy() -> str:
-                # Source 1: explicit .npy from the library picker
-                p = self._ref_motion_picker_widget
-                if p is not None and p._current_path:
-                    return p._current_path
+            def _get_candidates() -> List[tuple]:
+                """Return list of (label, absolute_path) clips to preview.
 
-                # Source 2: resolve motion_source (dropdown) at preview time
-                # This handles "generate:walk", "generate:standing", "loco:..." etc.
-                if self._logic_node is not None:
-                    params = self._logic_node.parameters or {}
-                    # Check motion_file param directly (may have been set by picker
-                    # but picker widget not yet created during deserialise)
-                    mf = str(params.get("motion_file", "") or "").strip()
-                    if mf and pathlib.Path(mf).is_file():
-                        return mf
-                    ms = str(params.get("motion_source", "") or "").strip()
-                    if ms:
-                        try:
-                            from src.system.nodes.sys_nodes.training_nodes import (
-                                ReferenceMotionNode,
-                            )
-                            resolved = ReferenceMotionNode._resolve_motion_source(ms)
-                            if resolved and pathlib.Path(resolved).is_file():
-                                return resolved
-                        except Exception:
-                            pass
-                return ""
+                Phase_2 (AMP_design.yaml §3) — the unified picker writes
+                both motion_file and motion_source. We apply the same
+                precedence the backend uses (motion_source > motion_file)
+                and expand pack: identifiers into their full member list
+                so the user can scrub through individual clips in the UI.
+                """
+                if self._logic_node is None:
+                    return []
+                params = self._logic_node.parameters or {}
+                ms = str(params.get("motion_source", "") or "").strip()
+                if ms:
+                    try:
+                        from src.system.nodes.sys_nodes.training_nodes import (
+                            ReferenceMotionNode,
+                        )
+                        resolved_files = ReferenceMotionNode.resolve_motion_source_files(ms)
+                    except Exception:
+                        return []
+                    return [
+                        (pathlib.Path(p).stem, p)
+                        for p in resolved_files
+                        if pathlib.Path(p).is_file()
+                    ]
+                # Fall through to motion_file when no motion_source set
+                mf = str(params.get("motion_file", "") or "").strip()
+                if mf and pathlib.Path(mf).is_file():
+                    return [(pathlib.Path(mf).stem, mf)]
+                return []
 
             def _get_fps() -> float:
                 s = self._ref_fps_slider_widget
@@ -4997,8 +9429,56 @@ class TrainingNodeItem(QGraphicsRectItem):
                 except Exception:
                     return 30.0
 
-            return _PreviewButtonWidget(_get_npy, _get_fps,
-                                        lambda: self._robot_type_hint)
+            def _get_scene_xml_override() -> str:
+                """Resolve the preview scene XML from the current canvas.
+
+                Prefers the IL Robot Asset node's ``asset_id`` (what the
+                training run will actually spawn) → ``resolve_for_mujoco``.
+                Returns an empty string when no usable asset is on canvas,
+                in which case the widget falls back to the generic
+                robot_type → registered-scene lookup for SB3 canvases.
+                """
+                scene = self.scene()
+                if scene is None:
+                    return ""
+                for it in scene.items():
+                    try:
+                        if it is self:
+                            continue
+                        if it.data(12) != "il_robot_asset":
+                            continue
+                        nl = it.data(13)
+                        if nl is None:
+                            continue
+                        p = getattr(nl, "parameters", {}) or {}
+                        aid = str(p.get("asset_id", "") or "").strip()
+                        if not aid:
+                            continue
+                        from src.system.training.robot_assets import resolve_for_mujoco
+                        mjcf = resolve_for_mujoco(aid)
+                        return str(mjcf) if mjcf else ""
+                    except Exception:
+                        continue
+                return ""
+
+            def _get_mode() -> str:
+                """Read the sibling preview_physics toggle: ON → physics, OFF → kinematic."""
+                if self._logic_node is None:
+                    return "physics"
+                raw = str((self._logic_node.parameters or {}).get("preview_physics", "true") or "true")
+                return "physics" if raw.lower() in ("true", "1", "yes", "on") else "kinematic"
+
+            w = _PreviewButtonWidget(_get_candidates, _get_fps,
+                                     lambda: self._robot_type_hint,
+                                     get_scene_xml_override=_get_scene_xml_override,
+                                     get_mode=_get_mode)
+            # Keep a reference so write_params can re-trigger the clip
+            # refresh whenever the sibling motion picker mutates
+            # motion_file / motion_source (the widget instance stays
+            # alive across param writes — write_params only refreshes
+            # row conditions, it does not rebuild proxies).
+            self._ref_preview_button_widget = w
+            return w
 
         # ── start_point_picker ───────────────────────────────────────
         if w_type == "start_point_picker":
@@ -5020,7 +9500,30 @@ class TrainingNodeItem(QGraphicsRectItem):
                     return
 
                 if choice == _StartPointChoicePicker.LATEST_EXPORT_TOKEN:
-                    load_mode = current_load_mode if current_load_mode != "scratch" else "resume_sb3"
+                    load_mode = current_load_mode if current_load_mode != "scratch" else "resume"
+                    write_params({
+                        "start_point": choice,
+                        "asset_id": "",
+                        "checkpoint_file": "",
+                        "load_mode": load_mode,
+                    })
+                    return
+
+                if choice.startswith("run:"):
+                    # Run-dir checkpoint. Default to warm_start_actor:
+                    # the common use case here is seeding a new
+                    # algorithm / reward layout from an existing
+                    # policy, and warm_start_actor is correct in both
+                    # that case and the pure-resume case (it just
+                    # means "trust the user's reward changes, reset
+                    # the optimizer"). Users who truly want a bitwise
+                    # resume can switch the load_mode dropdown to
+                    # 'resume' afterwards.
+                    load_mode = (
+                        current_load_mode
+                        if current_load_mode in ("resume", "warm_start_actor")
+                        else "warm_start_actor"
+                    )
                     write_params({
                         "start_point": choice,
                         "asset_id": "",
@@ -5038,10 +9541,10 @@ class TrainingNodeItem(QGraphicsRectItem):
                     entry = TrainingAssetRegistry().get(asset_id)
                     checkpoint_file = str(getattr(entry, "primary_checkpoint", "") or "")
                     if load_mode == "scratch":
-                        load_mode = "resume_sb3" if getattr(entry, "framework", "") == "sb3" else "warm_start_actor"
+                        load_mode = "resume" if getattr(entry, "framework", "") == "sb3" else "warm_start_actor"
                 except Exception:
                     if load_mode == "scratch":
-                        load_mode = "resume_sb3"
+                        load_mode = "resume"
 
                 write_params({
                     "start_point": choice,
@@ -5077,9 +9580,11 @@ class TrainingNodeItem(QGraphicsRectItem):
 
         # ── text_input ────────────────────────────────────────────────
         if w_type == "text_input":
-            w = QLineEdit()
-            w.setPlaceholderText(str(row.get("placeholder", "")))
-            w.setText(get_val())
+            w = NodeInputer(
+                current_text=get_val(),
+                placeholder=str(row.get("placeholder", "")),
+                mode="text",
+            )
             w.textChanged.connect(write_val)
             return w
 
@@ -5099,22 +9604,23 @@ class TrainingNodeItem(QGraphicsRectItem):
 
         # ── float_input ───────────────────────────────────────────────
         if w_type == "float_input":
-            w = QLineEdit()
-            validator = QDoubleValidator(
-                float(row.get("min", -1e9)),
-                float(row.get("max", 1e9)),
-                int(row.get("decimals", 6)),
+            w = NodeInputer(
+                current_text=get_val(),
+                mode="float",
+                min_value=float(row.get("min", -1e9)),
+                max_value=float(row.get("max", 1e9)),
+                decimals=int(row.get("decimals", 6)),
             )
-            w.setValidator(validator)
-            w.setText(get_val())
             w.textChanged.connect(write_val)
             return w
 
         # ── scientific_input ──────────────────────────────────────────
         if w_type == "scientific_input":
-            w = QLineEdit()
-            w.setPlaceholderText("e.g. 3e-4")
-            w.setText(get_val())
+            w = NodeInputer(
+                current_text=get_val(),
+                placeholder="e.g. 3e-4",
+                mode="scientific",
+            )
             w.textChanged.connect(write_val)
             return w
 
@@ -5192,23 +9698,60 @@ class TrainingNodeItem(QGraphicsRectItem):
                 w.selectionValueChanged.connect(_on_scene_type_changed)
                 return w
 
-            w = _DropdownChoicePicker(
-                [str(choice) for choice in row.get("choices", [])],
-                get_val(),
-            )
+            choices = [str(choice) for choice in row.get("choices", [])]
+            choice_meta_raw = row.get("choice_meta") or {}
+            if choice_meta_raw:
+                meta_map: Dict[str, Dict[str, str]] = {}
+                for choice in choices:
+                    entry = choice_meta_raw.get(choice) or {}
+                    default_meta = _default_choice_meta(choice)
+                    meta_map[choice] = {
+                        "title": str(entry.get("title", default_meta["title"])),
+                        "desc":  str(entry.get("desc",  default_meta["desc"])),
+                    }
+                w = _RichChoicePicker(
+                    choices,
+                    current=get_val(),
+                    meta_map=meta_map,
+                    leading_mode="checkbox",
+                    multi_select=False,
+                )
+            else:
+                w = _DropdownChoicePicker(choices, get_val())
             w.currentTextChanged.connect(write_val)
             return w
 
         # ── toggle ────────────────────────────────────────────────────
         if w_type == "toggle":
+            border = get_color("training_widget_border", "#3d3d3d")
+            input_bg = get_color("training_widget_input_bg", "#1A1A1A")
+            accent_bg = "#00695C"
             w = QPushButton()
             w.setCheckable(True)
             is_on = get_val().lower() in ("true", "1", "yes")
             w.setChecked(is_on)
             w.setText("ON" if is_on else "OFF")
 
+            def _apply_toggle_style(checked: bool, btn: QPushButton = w) -> None:
+                if checked:
+                    btn.setStyleSheet(
+                        f"QPushButton {{ color: #fff; background: {accent_bg}; "
+                        f"border: 1px solid {accent_bg}; border-radius: 3px; "
+                        f"font-size: 9px; font-weight: 600; padding: 0 6px; }}"
+                        f"QPushButton:hover {{ background: #00897B; }}"
+                    )
+                else:
+                    btn.setStyleSheet(
+                        f"QPushButton {{ color: #888; background: {input_bg}; "
+                        f"border: 1px solid {border}; border-radius: 3px; "
+                        f"font-size: 9px; padding: 0 6px; }}"
+                        f"QPushButton:hover {{ border: 1px solid #888; }}"
+                    )
+            _apply_toggle_style(is_on)
+
             def _on_toggle(checked: bool, btn: QPushButton = w, fn=write_val) -> None:
                 btn.setText("ON" if checked else "OFF")
+                _apply_toggle_style(checked, btn)
                 fn("true" if checked else "false")
 
             w.toggled.connect(_on_toggle)
@@ -5290,11 +9833,30 @@ class TrainingNodeItem(QGraphicsRectItem):
             decimals     = int(row.get("decimals", 2))
             display_name = row.get("display_name", row.get("key", ""))
 
-            try:
-                parts = json.loads(str(get_val()))
-                lo_v  = float(parts[0])
-                hi_v  = float(parts[1])
-            except Exception:
+            # Accept both JSON list "[lo, hi]" and Python tuple "(lo, hi)"
+            # syntax — older presets used tuple repr which json.loads
+            # rejects, causing a silent fallback to the slider's full
+            # range and hiding the real stored value from the user.
+            def _parse_range_pair(raw: str) -> Optional[Tuple[float, float]]:
+                s = str(raw or "").strip()
+                if not s:
+                    return None
+                try:
+                    parts = json.loads(s)
+                    return float(parts[0]), float(parts[1])
+                except Exception:
+                    pass
+                try:
+                    import ast as _ast
+                    parts = _ast.literal_eval(s)
+                    return float(parts[0]), float(parts[1])
+                except Exception:
+                    return None
+
+            parsed = _parse_range_pair(get_val())
+            if parsed is not None:
+                lo_v, hi_v = parsed
+            else:
                 lo_v = float(rng[0])
                 hi_v = float(rng[1])
 
@@ -5325,6 +9887,52 @@ class TrainingNodeItem(QGraphicsRectItem):
 
             hl.addWidget(name_lbl, 0)
             hl.addWidget(ns, 1)
+            return container
+
+        # ── int_tuple ─────────────────────────────────────────────────
+        # N inline integer spinboxes sharing a single WIDGET_W-width row.
+        # Stores the combined value as a JSON list "[a, b, c]".
+        if w_type == "int_tuple":
+            from PySide6.QtWidgets import QAbstractSpinBox
+            count = max(1, int(row.get("count", 3)))
+            min_v = int(row.get("min", 1))
+            max_v = int(row.get("max", 99_999))
+            step  = int(row.get("step", 1))
+
+            try:
+                parts = json.loads(str(get_val()))
+                if not isinstance(parts, list):
+                    parts = []
+            except Exception:
+                parts = []
+            while len(parts) < count:
+                parts.append(min_v)
+            parts = [int(p) for p in parts[:count]]
+
+            container = QWidget()
+            container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            container.setMaximumWidth(WIDGET_W)
+            hl = QHBoxLayout(container)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(2)
+
+            spins: List[QSpinBox] = []
+            for i in range(count):
+                sb = QSpinBox()
+                sb.setRange(min_v, max_v)
+                sb.setSingleStep(step)
+                sb.setValue(parts[i])
+                sb.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+                sb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                hl.addWidget(sb, 1)
+                spins.append(sb)
+
+            def _on_tuple_changed(_v: int = 0, _spins: List[QSpinBox] = spins,
+                                  fn=write_val) -> None:
+                fn("[" + ", ".join(str(s.value()) for s in _spins) + "]")
+
+            for sb in spins:
+                sb.valueChanged.connect(_on_tuple_changed)
             return container
 
         # ── timestep_input ────────────────────────────────────────────
@@ -5386,56 +9994,56 @@ class TrainingNodeItem(QGraphicsRectItem):
                 w.selectionTextChanged.connect(write_val)
                 return w
             options: List[str] = [str(o) for o in row.get("options", [])]
-            cur_set = set(get_val().split())
-            btn = QPushButton(f"{len(cur_set & set(options))} selected — Edit…")
+            storage_mode = str(row.get("storage", "space")).lower()
+            option_meta_raw = row.get("option_meta") or row.get("choice_meta") or {}
 
-            def _on_multiselect(
-                checked: bool = False,
-                btn_: QPushButton = btn,
-                opts: List[str] = options,
-                fn=write_val,
-                _row: dict = row,
-                _logic=logic,
-                _key: str = key,
-            ) -> None:
-                dialog = QDialog()
-                dialog.setWindowTitle(_row.get("display_name", "Select"))
-                dialog.setModal(True)
-                vl = QVBoxLayout(dialog)
+            def _parse_current(raw: str, mode: str = storage_mode) -> List[str]:
+                raw = str(raw or "").strip()
+                if not raw:
+                    return []
+                if mode == "json_list":
+                    try:
+                        parsed = json.loads(raw)
+                        if isinstance(parsed, list):
+                            return [str(item) for item in parsed]
+                    except Exception:
+                        pass
+                    return []
+                if mode == "csv":
+                    return [f.strip() for f in raw.split(",") if f.strip()]
+                return raw.split()
 
-                list_w = QListWidget()
-                list_w.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-                existing = set(str((_logic.parameters or {}).get(_key, "")).split())
-                for opt in opts:
-                    item = QListWidgetItem(opt)
-                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                    item.setCheckState(
-                        Qt.CheckState.Checked if opt in existing
-                        else Qt.CheckState.Unchecked
-                    )
-                    list_w.addItem(item)
-                vl.addWidget(list_w)
+            def _encode_selection(values: List[str], mode: str = storage_mode) -> str:
+                if mode == "json_list":
+                    return json.dumps(values)
+                if mode == "csv":
+                    return ",".join(values)
+                return " ".join(values)
 
-                buttons = QDialogButtonBox(
-                    QDialogButtonBox.StandardButton.Ok |
-                    QDialogButtonBox.StandardButton.Cancel
-                )
-                buttons.accepted.connect(dialog.accept)
-                buttons.rejected.connect(dialog.reject)
-                vl.addWidget(buttons)
-                dialog.resize(200, 220)
+            meta_map: Dict[str, Dict[str, str]] = {}
+            for opt in options:
+                entry = option_meta_raw.get(opt) or {}
+                default_meta = _default_choice_meta(opt)
+                meta_map[opt] = {
+                    "title": str(entry.get("title", default_meta["title"])),
+                    "desc":  str(entry.get("desc",  default_meta["desc"])),
+                }
 
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    selected = [
-                        list_w.item(i).text()
-                        for i in range(list_w.count())
-                        if list_w.item(i).checkState() == Qt.CheckState.Checked
-                    ]
-                    fn(" ".join(selected))
-                    btn_.setText(f"{len(selected)} selected — Edit…")
+            current_values = [v for v in _parse_current(get_val()) if v in options]
+            picker = _RichChoicePicker(
+                options,
+                current_values=current_values,
+                meta_map=meta_map,
+                leading_mode="checkbox",
+                multi_select=True,
+            )
 
-            btn.clicked.connect(_on_multiselect)
-            return btn
+            def _on_picker_changed(values: List[str], fn=write_val,
+                                   _encode=_encode_selection) -> None:
+                fn(_encode(list(values)))
+
+            picker.selectionChanged.connect(_on_picker_changed)
+            return picker
 
         # ── json_kv_editor ────────────────────────────────────────────
         if w_type == "json_kv_editor":
@@ -5512,7 +10120,24 @@ class TrainingNodeItem(QGraphicsRectItem):
         # ── module_registry_editor ────────────────────────────────────
         if w_type == "module_registry_editor":
             registry_kind = str(row.get("registry", "")).strip().lower()
-            registry = reward_registry() if registry_kind == "rewards" else termination_registry()
+            _reg_dispatch = {
+                "rewards": reward_registry,
+                "terminations": termination_registry,
+                "il_rewards": il_reward_registry,
+                "il_observations": il_obs_registry,
+                "il_terminations": il_termination_registry,
+            }
+            # Backend-aware registry: "rewards_auto" / "terminations_auto" pick
+            # SB3 vs IL registry based on the node's backend parameter so the
+            # frontend stays a single items-list widget across both backends.
+            if registry_kind == "rewards_auto":
+                _be = (logic.get_parameter("backend", "sb3") if logic else "sb3")
+                registry = il_reward_registry() if _be == "isaac_lab" else reward_registry()
+            elif registry_kind == "terminations_auto":
+                _be = (logic.get_parameter("backend", "sb3") if logic else "sb3")
+                registry = il_termination_registry() if _be == "isaac_lab" else termination_registry()
+            else:
+                registry = _reg_dispatch.get(registry_kind, termination_registry)()
             editor = _RegistryModuleEditor(
                 registry,
                 get_val(),
@@ -5520,12 +10145,123 @@ class TrainingNodeItem(QGraphicsRectItem):
                 selector_title=str(row.get("selector_title", "Title")),
                 sort_mode=str(row.get("sort_mode", "title_asc")),
                 family_provider=self._resolve_canvas_robot_family,
+                algorithm_provider=self._resolve_canvas_algorithm,
             )
-            if registry_kind == "rewards":
+            if registry_kind in ("rewards", "rewards_auto"):
                 self._reward_editor_widget = editor
             elif registry_kind == "terminations":
                 self._termination_editor_widget = editor
             return editor
+
+        # ── body_ir_validator ─────────────────────────────────────────
+        if w_type == "body_ir_validator":
+            return self._make_body_ir_validator(key, get_val, write_val, logic)
+
+        # ── active_file_table ─────────────────────────────────────────
+        # Flat 3-row file-type table for the Robot node. Shows MJCF /
+        # USD / URDF with Loaded status and a ✔ marker on the currently-
+        # active file. Click a Loaded row to override; click the active
+        # row again to revert to 'auto'.
+        if w_type == "active_file_table":
+            return self._make_active_file_table(key, get_val, write_val, logic)
+
+        # ── controller_status_panel ───────────────────────────────────
+        # Read-only live panel for TrainingCommandsNode. Mirrors the
+        # sidebar Controller panel (mode + invert_vy) and shows the
+        # fixed gamepad binding convention + the effective velocity
+        # ranges derived from the gain sliders on the same node.
+        if w_type == "controller_status_panel":
+            return self._make_controller_status_panel(key, get_val, write_val, logic)
+
+        # ── gait_preset_table ─────────────────────────────────────────
+        # Compact button for TrainingCommandsNode.gait_presets. Click
+        # opens a QDialog with a table editor (Name / Freq / FL / FR
+        # / RL / RR / H_body / H_step). Stores the table as a JSON
+        # list in the param. Seeded from DEFAULT_PRESETS on empty.
+        if w_type == "gait_preset_table":
+            return self._make_gait_preset_table(key, get_val, write_val, logic)
+
+        # ── output_file_list ──────────────────────────────────────────
+        # Read-only table for the unified Export node. Shows every
+        # file the next training run will produce under the bundle
+        # directory (computed from bundle_name + version + include_*),
+        # with an Open button per row and a ⚠ "Will Overwrite" tag
+        # on files that already exist on disk.
+        if w_type == "output_file_list":
+            return self._make_output_file_list(key, get_val, write_val, logic)
+
+        # ── start_point_compat_panel ──────────────────────────────────
+        # Read-only diff panel on the Export node showing whether the
+        # connected Start Point bundle is compatible with the current
+        # canvas. Consumes TrainingContext.compat_report(graph) — the
+        # same source-of-truth SafetyReview's S2–S5 checks use.
+        if w_type == "start_point_compat_panel":
+            return self._make_start_point_compat_panel(key, get_val, write_val, logic)
+
+        # ── review_backend_picker ─────────────────────────────────────
+        # Horizontal button row sourced from review_backends registry.
+        # MuJoCo default, Isaac Sim enabled, Newton placeholder greyed
+        # out. Keeps the list extensible without hardcoding engines.
+        if w_type == "review_backend_picker":
+            return self._make_review_backend_picker(key, get_val, write_val, logic)
+
+        # ── review_scene_picker ───────────────────────────────────────
+        # Scene dropdown filtered by the Export node's current
+        # review_backend selection. Decoupled from training PlayGround
+        # — reviewers frequently test a policy in a fresh scene.
+        if w_type == "review_scene_picker":
+            return self._make_review_scene_picker(key, get_val, write_val, write_params, logic)
+
+        # ── review_launch_button ──────────────────────────────────────
+        # SafetyReview-gated Launch button that emits a workspace-level
+        # signal. Process lifetime is owned by the workspace, not the
+        # node, so a canvas tear-down can't orphan the subprocess.
+        if w_type == "review_launch_button":
+            return self._make_review_launch_button(key, get_val, write_val, logic)
+
+        # ── scene_dropdown ────────────────────────────────────────────
+        # Live-filtered scene registry picker for PlayGroundSettingNode.
+        # Choices are pulled from src.system.training.scene_registry and
+        # filtered by the current canvas backend (detected from the
+        # Train node) and robot family (from the Robot node's asset).
+        # Selecting a scene writes scene_id, auto-syncs scene_type, and
+        # applies the registry entry's ``defaults`` dict.
+        if w_type == "scene_dropdown":
+            return self._make_scene_dropdown(key, get_val, write_val, write_params, logic)
+
+        # ── joint_init_editor ─────────────────────────────────────────
+        # Visual per-joint init angle editor for JointInitNode. Button
+        # label shows "(N angles set)"; click opens a dialog with one
+        # spinbox per joint (joint_names read from the scene's Robot
+        # node). Stores the result as a JSON dict on the ``angles`` param.
+        if w_type == "joint_init_editor":
+            return self._make_joint_init_editor(key, get_val, write_val, logic)
+
+        # ── contact_body_picker ───────────────────────────────────────
+        # Multi-select picker for ActorSetting.contact_body_names.
+        # Choices are sourced from the Robot node's resolved asset
+        # (base_link + joint-derived links + foot_link_names). Stores
+        # selection as a JSON list in the param. Label updates to show
+        # "Contact Bodies (N)" reflecting the current selection count.
+        if w_type == "contact_body_picker":
+            return self._make_contact_body_picker(key, get_val, write_val, logic)
+
+        # ── action_joint_picker ──────────────────────────────────────
+        # Multi-select picker for ActorSetting.action_joint_names_expr.
+        # Choices are sourced from the Robot node's resolved asset
+        # (joint_names). Stores selection as a JSON list in the param.
+        if w_type == "action_joint_picker":
+            return self._make_action_joint_picker(key, get_val, write_val, logic)
+
+        # ── stage_editor ──────────────────────────────────────────────
+        # Dynamic stage list for ILPPOTrainerNode staged training.
+        # Stores/reads a JSON list of stage dicts in the node param.
+        if w_type == "stage_editor":
+            w = _StageEditorWidget(
+                initial_value=get_val(),
+                write_fn=write_val,
+            )
+            return w
 
         # ── json_editor ───────────────────────────────────────────────
         if w_type == "json_editor":
@@ -5634,6 +10370,8 @@ class TrainingNodeItem(QGraphicsRectItem):
                     scene.review_requested.emit(self._build_job_spec())
                 if action == "review_export" and hasattr(scene, "export_review_requested"):
                     scene.export_review_requested.emit(self._build_job_spec())
+                if action == "review_il_export" and hasattr(scene, "il_export_review_requested"):
+                    scene.il_export_review_requested.emit(self.get_parameters())
                 if action == "scene_preview" and hasattr(scene, "scene_preview_requested"):
                     scene.scene_preview_requested.emit(self.get_parameters())
                 if action == "init_pose_preview" and hasattr(scene, "init_pose_preview_requested"):
@@ -5642,9 +10380,8 @@ class TrainingNodeItem(QGraphicsRectItem):
             btn.clicked.connect(_on_action)
             return btn
 
-        # Unknown widget type — fall back to plain text input
-        w = QLineEdit()
-        w.setText(get_val())
+        # Unknown widget type — fall back to NodeInputer
+        w = NodeInputer(current_text=get_val(), mode="text")
         w.textChanged.connect(write_val)
         return w
 
@@ -6118,3 +10855,44 @@ class TrainingNodeItem(QGraphicsRectItem):
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(r, 6.0, 6.0)
+
+        # ── SafetyReview overlay border ───────────────────────────────
+        # Painted last so it sits on top of the node body AND the
+        # selection highlight — users need this signal to be the loudest
+        # thing on the canvas when a pre-flight check fails.
+        if self._safety_status in ("error", "warning"):
+            if self._safety_status == "error":
+                safety_color = QColor("#EF4444")   # bright red
+                glow_color = QColor(239, 68, 68, 90)
+            else:
+                safety_color = QColor("#F59E0B")   # amber
+                glow_color = QColor(245, 158, 11, 80)
+            # Soft halo — 2.5 px outer stroke first so the inner crisp
+            # stroke reads clearly against any background.
+            painter.setPen(QPen(glow_color, 3.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(r.adjusted(-1.5, -1.5, 1.5, 1.5), 7.5, 7.5)
+            # Crisp inner stroke
+            painter.setPen(QPen(safety_color, 2.0))
+            painter.drawRoundedRect(r, 6.0, 6.0)
+
+    # ------------------------------------------------------------------
+    # SafetyReview integration
+    # ------------------------------------------------------------------
+
+    def set_safety_status(self, severity: Optional[str]) -> None:
+        """Paint (or clear) a SafetyReview overlay border on this node.
+
+        Called by TrainingWorkspaceWindow after each :class:`TrainingContext`
+        ``safety_review`` run. ``severity`` must be one of
+        ``None`` (clear) / ``"warning"`` / ``"error"``.
+        """
+        if severity not in (None, "warning", "error"):
+            severity = None
+        if self._safety_status == severity:
+            return
+        self._safety_status = severity
+        try:
+            self.update()
+        except Exception:
+            pass

@@ -35,8 +35,11 @@ import uuid
 from dataclasses import dataclass, field, fields as dataclass_fields
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.system.training.command_schema import CommandSchema
 from src.system.training.training_config import (
+    ActorConfig,
     AlgorithmConfig,
+    AMPConfig,
     DomainRandConfig,
     EnvConfig,
     EvalConfig,
@@ -45,6 +48,7 @@ from src.system.training.training_config import (
     GatedStage,
     ImitationLearningConfig,
     InitPoseConfig,
+    StageSchedule,
     ObsActionConfig,
     PhysicsConfig,
     ReferenceMotionConfig,
@@ -89,6 +93,11 @@ class TrainingJobSpec:
     """Canvas schema version the spec was compiled from."""
 
     robot_spec: RobotSpec = field(default_factory=RobotSpec)
+    actor_config: ActorConfig = field(default_factory=ActorConfig)
+    commands: CommandSchema = field(default_factory=CommandSchema)
+    """§ Training Commands — unified schema shared with the deployment
+    CommandBus. PR-1: velocity-only. Populated from the canvas
+    ``training_commands`` node (required)."""
     physics_config: PhysicsConfig = field(default_factory=PhysicsConfig)
     reward_config: RewardConfig = field(default_factory=RewardConfig)
     termination_config: TerminationConfig = field(default_factory=TerminationConfig)
@@ -107,12 +116,22 @@ class TrainingJobSpec:
     init_pose_config: Optional[InitPoseConfig] = None
     gated_reward_config: Optional[GatedRewardConfig] = None
     imitation_config: Optional[ImitationLearningConfig] = None
+    amp: Optional[AMPConfig] = None
+    """AMP-specific hyperparameters (phase_3 AMP_design.yaml §4).
+    Non-None only when AlgorithmConfig.algorithm == 'AMP_PPO' and the
+    canvas wires an AMPTrainerNode. Legacy PPO/SAC paths leave this None."""
+
+    stage_schedule: Optional[StageSchedule] = None
+    """Multi-stage training pipeline (STAGE_NODE_DESIGN.yaml §2).
+    When non-None, the runner iterates through stages in order, applying
+    each stage's parameter overrides on top of the baseline config.
+    None = single-stage training (backward compatible)."""
 
     base_asset_path: str = ""
     """Absolute path to SB3 .zip used for resume/warm-start; empty = scratch."""
 
     resume_mode: str = "scratch"
-    """Top-level resume mode: 'scratch' | 'resume_sb3' | 'warm_start_actor'."""
+    """Top-level resume mode: 'scratch' | 'resume' | 'warm_start_actor'."""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TrainingJobSpec":
@@ -131,6 +150,9 @@ class TrainingJobSpec:
         )
 
         spec.robot_spec = _build_config(RobotSpec, payload.get("robot_spec"))
+        spec.actor_config = _build_config(ActorConfig, payload.get("actor_config"))
+        if isinstance(payload.get("commands"), dict):
+            spec.commands = CommandSchema.from_dict(payload.get("commands"))
         spec.physics_config = _build_config(
             PhysicsConfig, payload.get("physics_config")
         )
@@ -176,6 +198,12 @@ class TrainingJobSpec:
         if isinstance(payload.get("imitation_config"), dict):
             spec.imitation_config = _build_config(
                 ImitationLearningConfig, payload.get("imitation_config")
+            )
+        if isinstance(payload.get("amp"), dict):
+            spec.amp = _build_config(AMPConfig, payload.get("amp"))
+        if isinstance(payload.get("stage_schedule"), dict):
+            spec.stage_schedule = StageSchedule.from_dict(
+                payload.get("stage_schedule")
             )
 
         reward_terms, termination_conditions = resolve_effective_task_terms(
@@ -293,6 +321,8 @@ class TrainingJobSpec:
             "experiment_id": self.experiment_id,
             "schema_version": self.schema_version,
             "robot_spec": self.robot_spec.to_dict(),
+            "actor_config": self.actor_config.to_dict(),
+            "commands": self.commands.to_dict(),
             "physics_config": self.physics_config.to_dict(),
             "reward_config": self.reward_config.to_dict(),
             "termination_config": self.termination_config.to_dict(),
@@ -319,6 +349,8 @@ class TrainingJobSpec:
             d["gated_reward_config"] = self.gated_reward_config.to_dict()
         if self.imitation_config is not None:
             d["imitation_config"] = self.imitation_config.to_dict()
+        if self.stage_schedule is not None:
+            d["stage_schedule"] = self.stage_schedule.to_dict()
         if self.base_asset_path:
             d["base_asset_path"] = self.base_asset_path
         if self.resume_mode != "scratch":
@@ -527,8 +559,11 @@ def preflight_check(spec: TrainingJobSpec) -> List["PreflightWarning"]:
 # ---------------------------------------------------------------------------
 
 # Node type identifiers (match TrainingGraphScene._TRAINING_NODE_MAP values)
-_NT_ROBOT       = "robot_mjcf"
-_NT_PHYSICS     = "physics_config"
+_NT_ROBOT          = "robot"              # unified RobotNode (was "robot_mjcf")
+_NT_ACTOR_SETTING  = "actor_setting"      # partner of RobotNode — Actor block §2
+_NT_JOINT_INIT     = "joint_init"         # optional delegate for ActorSetting §2
+_NT_COMMANDS       = "training_commands"  # unified command schema (PR-1)
+_NT_PHYSICS        = "physics_config"
 _NT_REWARDS     = "rewards"
 _NT_TERMS       = "terminations"
 _NT_TASK        = "task_config"
@@ -541,7 +576,7 @@ _NT_EVAL        = "eval_config"
 _NT_EXPORT      = "export"
 _NT_VIS_CHECK   = "vis_check"
 _NT_BASE_ASSET  = "base_asset"
-_NT_SCENE            = "scene_config"
+_NT_SCENE            = "play_ground_setting"    # §2 Scene (was "scene_config")
 _NT_REF_MOTION       = "reference_motion"
 _NT_INIT_POSE        = "init_pose"
 _NT_GATED_REWARD     = "multigated_reward"   # drop-in replacement for _NT_REWARDS
@@ -550,8 +585,9 @@ _NT_GATED_REWARD     = "multigated_reward"   # drop-in replacement for _NT_REWAR
 # _NT_REWARDS and _NT_GATED_REWARD are mutually exclusive alternatives —
 # the graph must contain exactly one of them.
 _REQUIRED_NODE_TYPES = {
-    _NT_ROBOT, _NT_PHYSICS, _NT_TERMS, _NT_TASK, _NT_OBS_ACTION,
-    _NT_ENV_ASM, _NT_ALGO, _NT_TRAIN,
+    _NT_ROBOT, _NT_ACTOR_SETTING, _NT_SCENE, _NT_COMMANDS,
+    _NT_PHYSICS, _NT_TERMS, _NT_TASK,
+    _NT_OBS_ACTION, _NT_ENV_ASM, _NT_ALGO, _NT_TRAIN,
     # rewards: validated separately (either "rewards" or "multigated_reward")
 }
 
@@ -622,6 +658,26 @@ class TrainingSpecCompiler:
         spec.robot_spec = RobotSpec.from_node_dict(
             nodes_by_type[_NT_ROBOT]["parameters"]
         )
+        spec.actor_config = ActorConfig.from_node_dict(
+            nodes_by_type[_NT_ACTOR_SETTING]["parameters"]
+        )
+        spec.commands = CommandSchema.from_node_dict(
+            nodes_by_type[_NT_COMMANDS]["parameters"]
+        )
+        # Optional JointInitNode override — when a joint_init node is
+        # connected into ActorSetting.joint_init, its ``angles`` dict
+        # wins over the fallback on the ActorSetting node itself.
+        if _NT_JOINT_INIT in nodes_by_type:
+            import json as _json
+            raw = nodes_by_type[_NT_JOINT_INIT]["parameters"].get("angles", "{}")
+            try:
+                parsed = _json.loads(raw or "{}")
+                if isinstance(parsed, dict) and parsed:
+                    spec.actor_config.init_joint_angles = {
+                        str(k): float(v) for k, v in parsed.items()
+                    }
+            except Exception:
+                pass
         spec.physics_config = PhysicsConfig.from_node_dict(
             nodes_by_type[_NT_PHYSICS]["parameters"]
         )
@@ -963,26 +1019,34 @@ class TrainingSpecCompiler:
         Check that the minimum required connections are present.
 
         Required connections (src_type.slot → dst_type.slot):
-            robot_mjcf.robot_spec          → physics_config.robot_spec
-            physics_config.physics_config  → env_assembler.physics_config
-            rewards.rewards               → task_config.rewards
-            terminations.terminations     → task_config.terminations
-            task_config.task_config       → env_assembler.task_config
-            obs_action_config.obs_action_config → env_assembler.obs_action_config
-            env_assembler.env_config       → train.env_config
-            algo_config.algo_config        → train.algo_config
-            train.train_result             → export.train_result  (if Export present)
+            robot_mjcf.robot_spec                → physics_config.robot_spec
+            physics_config.physics_config        → env_assembler.physics_config
+            rewards.total_reward                 → task_config.total_reward
+            terminations.termination_config      → task_config.termination_config
+            task_config.task_config              → env_assembler.task_config
+            obs_action_config.obs_action_config  → env_assembler.obs_action_config
+            env_assembler.env_config             → train.env_config
+            algo_config.algo_config              → train.algo_config
+            train.train_pipe                     → export.train_pipe    (if Export present)
+
+        NOTE: The rewards/terminations slot names here must match the actual
+        node-level ``self.outputs``/``self.inputs`` dict keys in
+        ``training_nodes.py`` (``total_reward`` and ``termination_config``),
+        not the old legacy names.
         """
         # Build a quick lookup: (src_id, src_slot, dst_id, dst_slot)
         # Index to sets for fast membership test
         required_edges = [
-            (_NT_ROBOT,    "robot_spec",         _NT_PHYSICS,  "robot_spec"),
-            (_NT_PHYSICS,  "physics_config",     _NT_ENV_ASM,  "physics_config"),
-            (_NT_TERMS,    "terminations",       _NT_TASK,     "terminations"),
-            (_NT_TASK,     "task_config",        _NT_ENV_ASM,  "task_config"),
-            (_NT_OBS_ACTION, "obs_action_config", _NT_ENV_ASM, "obs_action_config"),
-            (_NT_ENV_ASM,  "env_config",          _NT_TRAIN,    "env_config"),
-            (_NT_ALGO,     "algo_config",          _NT_TRAIN,    "algo_config"),
+            # Actor block: Robot → ActorSetting is the only required edge
+            # out of the Robot node. Physics is no longer downstream of
+            # Robot — it's robot-agnostic and flows directly to EnvAssembler.
+            (_NT_ROBOT,    "robot_pipe",              _NT_ACTOR_SETTING, "robot_pipe"),
+            (_NT_PHYSICS,  "physics_config",          _NT_ENV_ASM,  "physics_config"),
+            (_NT_TERMS,    "termination_config",      _NT_TASK,     "termination_config"),
+            (_NT_TASK,     "task_config",             _NT_ENV_ASM,  "task_config"),
+            (_NT_OBS_ACTION, "obs_action_config",     _NT_ENV_ASM,  "obs_action_config"),
+            (_NT_ENV_ASM,  "env_config",              _NT_TRAIN,    "env_config"),
+            (_NT_ALGO,     "algo_config",             _NT_TRAIN,    "algo_config"),
         ]
         missing_edges: List[str] = []
         for src_t, src_s, dst_t, dst_s in required_edges:
@@ -993,11 +1057,13 @@ class TrainingSpecCompiler:
 
         # Rewards edge: multigated_reward takes precedence (it is the output node);
         # fall back to the static rewards node when no multigated node is present.
+        # Both reward node types emit on slot ``total_reward``, which TaskConfig
+        # exposes as an input slot of the same name.
         _rewards_src = _NT_GATED_REWARD if _NT_GATED_REWARD in nodes_by_type else _NT_REWARDS
         if not TrainingSpecCompiler._has_edge(
-            nodes_by_type, edges, _rewards_src, "rewards", _NT_TASK, "rewards"
+            nodes_by_type, edges, _rewards_src, "total_reward", _NT_TASK, "total_reward"
         ):
-            missing_edges.append(f"{_rewards_src}.rewards → {_NT_TASK}.rewards")
+            missing_edges.append(f"{_rewards_src}.total_reward → {_NT_TASK}.total_reward")
 
         # Export connection optional, but must be correct when Export node exists
         if _NT_EXPORT in nodes_by_type:
@@ -1005,11 +1071,11 @@ class TrainingSpecCompiler:
                 nodes_by_type,
                 edges,
                 _NT_TRAIN,
-                "train_result",
+                "train_pipe",
                 _NT_EXPORT,
-                "train_result",
+                "train_pipe",
             ):
-                missing_edges.append(f"{_NT_TRAIN}.train_result → {_NT_EXPORT}.train_result")
+                missing_edges.append(f"{_NT_TRAIN}.train_pipe → {_NT_EXPORT}.train_pipe")
 
         if missing_edges:
             raise TrainingSpecError(

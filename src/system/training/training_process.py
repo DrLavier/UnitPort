@@ -197,12 +197,32 @@ def run_training_in_process(
         from src.system.training.bundle_exporter import export_bundle
         from src.system.core.utils.path_helper import get_project_root
 
+        # Reconstruct the active project on the worker side from the
+        # context the parent injected into the spec. This lets the
+        # bundle exporter resolve ``projects/<pid>/checkpoints/`` without
+        # falling back to a global path.
+        _proj_store = None
+        _proj_id = str(getattr(spec, "_project_id", "") or "")
+        _proj_root = getattr(spec, "_project_root", None)
+        if _proj_id and _proj_root:
+            try:
+                from pathlib import Path as _P
+                from src.system.core.project_store import ProjectStore as _PS
+                from src.system.core import project_session as _ps_mod
+                _proj_store = _PS(_P(_proj_root))
+                _ps_mod.set_active(_proj_store, _proj_id)
+            except Exception as _exc:
+                _log(f"[export] Failed to reattach project session: {_exc}")
+                _proj_store = None
+
         export_result = export_bundle(
             model,
             spec,
             run_id=getattr(spec, "_run_id", ""),
             output_root=get_project_root(),
             log_fn=_log,
+            project_id=_proj_id or None,
+            project_store=_proj_store,
         )
 
         algo = getattr(getattr(spec, "algorithm_config", None), "algorithm", "")

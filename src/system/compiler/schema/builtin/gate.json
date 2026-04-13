@@ -1,0 +1,25 @@
+{
+  "schema_id": "builtin.gate",
+  "display_name": "Gate",
+  "node_type": "gate",
+  "kind": "gate",
+  "ports": [
+    {"name": "flow_in",   "direction": "input",  "data_type": "void", "required": true},
+    {"name": "out_pass",  "direction": "output", "data_type": "void", "required": true},
+    {"name": "out_block", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {
+      "name": "mode",
+      "param_type": "string",
+      "default": "condition",
+      "constraints": {"choices": ["condition", "event", "latch"]}
+    },
+    {"name": "condition_expr", "param_type": "string", "default": ""},
+    {"name": "event_name",     "param_type": "string", "default": ""}
+  ],
+  "code_template": "",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

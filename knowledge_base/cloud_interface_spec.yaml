@@ -1,0 +1,396 @@
+# ============================================================================
+# UnitPort Cloud Training Interface Specification
+# ============================================================================
+# This document defines:
+#   1. What files UnitPort uploads to the remote server before training
+#   2. What the remote server must provide (prerequisites)
+#   3. How the remote training command is constructed and executed
+#   4. What stdout protocol the remote process must follow
+#   5. What files UnitPort downloads after training completes
+#
+# Engine: Isaac Lab + Isaac Sim 5.1 (RSL-RL / AMP-PPO)
+# Transport: SSH + SFTP (paramiko)
+# ============================================================================
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 1. REMOTE SERVER PREREQUISITES
+# ────────────────────────────────────────────────────────────────────────────
+#
+# The remote server must have Isaac Lab installed. UnitPort's setup wizard
+# can deploy this automatically via SSH (see cloud_deployer.py), or the
+# user can install manually using deploy/install.sh.
+
+remote_prerequisites:
+  os: "Ubuntu 22.04+"
+  gpu: "NVIDIA with CUDA 12.x driver (550+)"
+  python: "3.11"
+
+  isaac_sim: "5.1.0.0"         # pip: isaacsim[all,extscache]==5.1.0.0
+  isaac_lab:
+    commit: "f4aa17f87e2e5db5484f0b5974918573e8918ce2"
+    packages:                   # all editable (--no-deps)
+      - isaaclab
+      - isaaclab_assets
+      - isaaclab_rl
+      - isaaclab_tasks
+      - isaaclab_mimic
+      - isaaclab_contrib
+  rsl_rl: "5.0.1"              # pip: rsl-rl-lib==5.0.1
+  torch: "2.7.0+cu128"
+
+  # Expected directory layout (default: ~/UnitPort/engines/isaac/)
+  directory_layout:
+    isaac_root: "~/UnitPort/engines/isaac/"
+    isaaclab_path: "~/UnitPort/engines/isaac/IsaacLab/"
+    launcher: "~/UnitPort/engines/isaac/IsaacLab/isaaclab.sh"
+    venv_python: "~/UnitPort/engines/isaac/venv/bin/python"
+
+  # UnitPort registers this info in engine_registry.json:
+  registry_entry:
+    engine_id: "isaac_lab"
+    cloud:
+      name: "user-defined server name"
+      host: "10.0.0.1"
+      port: 22
+      username: "root"
+      auth_method: "key"              # "key" | "password"
+      private_key_path: "~/.ssh/id_rsa"
+      remote_isaac_lab_path: "~/UnitPort/engines/isaac/IsaacLab"
+      remote_isaac_lab_launcher: "~/UnitPort/engines/isaac/IsaacLab/isaaclab.sh"
+      remote_work_dir: "/tmp/unitport_training"
+      conda_env: ""                   # optional
+
+      # Docker mode (alternative to bare-metal):
+      docker_enabled: true
+      docker_image: "nvcr.io/nvidia/isaac-lab:4.2.0"
+      docker_extra_args: "--shm-size=8g"   # optional
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 1.5 DOCKER vs BARE-METAL EXECUTION MODES
+# ────────────────────────────────────────────────────────────────────────────
+#
+# UnitPort supports two execution modes on the remote server:
+#
+# (A) Bare-metal: Isaac Lab installed directly on the host.
+#     - SFTP uploads and SSH commands hit the same filesystem.
+#     - Command: isaaclab.sh -p il_train_launcher.py ...
+#
+# (B) Docker: Official NVIDIA Isaac Lab container.
+#     - SFTP uploads to the HOST filesystem (e.g. /tmp/unitport_training/run_id/)
+#     - SSH executes: docker run --rm --gpus all \
+#         -v /tmp/unitport_training/run_id:/workspace/unitport_run \
+#         -e PYTHONUNBUFFERED=1 -e OMNI_KIT_ACCEPT_EULA=YES \
+#         nvcr.io/nvidia/isaac-lab:4.2.0 \
+#         bash -c "isaaclab.sh -p /workspace/unitport_run/il_train_launcher.py \
+#                  --log_dir /workspace/unitport_run/logs ..."
+#     - Volume mount makes host files visible inside the container.
+#     - Results written to /workspace/unitport_run/logs/ are visible on host
+#       at /tmp/unitport_training/run_id/logs/ for SFTP download.
+#     - Cancel: closing the SSH channel terminates docker run (SIGHUP).
+#
+# Path remapping:
+#   host:      /tmp/unitport_training/{run_id}/<file>
+#   container: /workspace/unitport_run/<file>
+
+docker_mode:
+  host_mount_source: "/tmp/unitport_training/{run_id}"
+  container_mount_target: "/workspace/unitport_run"
+  container_launcher: "/workspace/IsaacLab/isaaclab.sh"
+  container_log_dir: "/workspace/unitport_run/logs"
+
+  # Minimum docker run flags:
+  required_flags:
+    - "--rm"              # auto-remove container after exit
+    - "--gpus all"        # GPU passthrough
+    - "-v {host}:{container}"  # volume mount for files
+    - "-e PYTHONUNBUFFERED=1"
+    - "-e OMNI_KIT_ACCEPT_EULA=YES"
+
+  # Prerequisites on the remote host:
+  host_prerequisites:
+    - "Docker 20.10+ with nvidia-container-toolkit"
+    - "NVIDIA driver 550+ (same as bare-metal)"
+    - "Isaac Lab Docker image pulled: docker pull {docker_image}"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 2. UPLOAD PAYLOAD (local -> remote via SFTP)
+# ────────────────────────────────────────────────────────────────────────────
+#
+# Before training starts, UnitPort creates a per-run directory on the remote
+# server and uploads the following files:
+
+upload:
+  remote_base: "/tmp/unitport_training/{run_id}/"
+
+  files:
+    # (A) Training launcher — UnitPort's single-file bridge script.
+    #     The remote server does NOT have UnitPort source code.
+    #     This script is the only UnitPort code that runs remotely.
+    - name: "il_train_launcher.py"
+      source: "src/system/training/il_train_launcher.py"
+      remote_path: "{remote_base}/il_train_launcher.py"
+      required: true
+      description: |
+        Single-file entry point that:
+        - Accepts EULA, preloads h5py, checks dependencies
+        - Loads compiled @configclass if provided (--unitport_config)
+        - Registers custom Gymnasium env (UnitPort-Custom-v0)
+        - Runs RSL-RL OnPolicyRunner (PPO or AMP-PPO)
+        - Emits structured stdout for progress tracking
+        - Prints "[UnitPort] TRAINING_LOOP_DONE" on completion
+
+    # (B) Compiled training config — the @configclass Python file
+    #     generated from the user's canvas training graph.
+    - name: "unitport_config.py"
+      source: "projects/{slug}/training/configs/{experiment}.py"
+      remote_path: "{remote_base}/unitport_config.py"
+      required: false   # only for custom tasks (not built-in Isaac- tasks)
+      description: |
+        Contains UnitPortEnvCfg dataclass with:
+        - scene config (robot USD, terrain, lights)
+        - observation/action spaces
+        - reward function definitions
+        - command ranges
+        - domain randomization
+
+    # (C) AMP motion files — reference motion clips for AMP-PPO training.
+    - name: "motion/*.txt"
+      source: "user-selected motion files (absolute paths)"
+      remote_path: "{remote_base}/motion/{filename}"
+      required: false   # only for algorithm=AMP_PPO
+      description: |
+        Motion clip files in amp_legged_gym format (.txt/.json).
+        Used by the discriminator for style reward computation.
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 3. REMOTE EXECUTION COMMAND
+# ────────────────────────────────────────────────────────────────────────────
+#
+# UnitPort constructs a shell command and executes it via SSH (PTY mode).
+
+execution:
+  # Environment variables set before command:
+  env:
+    PYTHONUNBUFFERED: "1"
+    OMNI_KIT_ACCEPT_EULA: "YES"
+
+  # Optional conda activation prefix:
+  conda_prefix: "source activate {conda_env} 2>/dev/null || conda activate {conda_env} &&"
+
+  # PID capture for cancellation support:
+  pid_capture: "echo PID=$$ && exec"
+
+  # Command template:
+  command: >
+    {launcher} -p {remote_script}
+    --task {task_name}
+    --num_envs {num_envs}
+    --max_iterations {max_iterations}
+    --seed {seed}
+    --headless
+    [--unitport_config {remote_config_file}]
+    [--log_dir {remote_log_dir}]
+    [--load_run {resume_checkpoint}]
+    [--unitport_warm_start_actor]
+    [--unitport_robot_asset_id {asset_id}]
+    [--unitport_algorithm AMP_PPO]
+    [--unitport_amp_motion_files {comma_separated_paths}]
+    [--unitport_amp_reward_coef {float}]
+    [--unitport_amp_preload {int}]
+    [--unitport_amp_transition_dt {float}]
+    [--unitport_amp_task_reward_lerp {float}]
+    [--unitport_amp_replay_buffer_size {int}]
+    [--unitport_amp_disc_grad_penalty {float}]
+    [--unitport_amp_disc_lr {float}]
+    [--unitport_amp_disc_label_smoothing {float}]
+    [--unitport_amp_lerp_schedule {base64_json}]
+    [--unitport_stage_schedule {base64_json}]
+    [--unitport_stage_checkpoint_strategy {latest|best}]
+
+  # Full CLI argument reference:
+  cli_args:
+    # Core
+    --task:                 { type: str,   required: true,  example: "Isaac-Velocity-Flat-Go2-v0 | UnitPort-Custom-v0" }
+    --num_envs:             { type: int,   required: true,  example: 4096 }
+    --max_iterations:       { type: int,   required: true,  example: 1500 }
+    --seed:                 { type: int,   required: true,  example: 42 }
+    --headless:             { type: flag,  required: true,  note: "always set for cloud" }
+
+    # Config
+    --unitport_config:      { type: str,   required: false, note: "path to uploaded unitport_config.py" }
+    --log_dir:              { type: str,   required: false, note: "remote checkpoint/log output directory" }
+
+    # Resume
+    --load_run:             { type: str,   required: false, note: "remote checkpoint dir or .pt file" }
+    --checkpoint:           { type: str,   required: false, note: "file name inside --load_run" }
+    --unitport_warm_start_actor: { type: flag, required: false, note: "load only actor weights" }
+
+    # Robot asset
+    --unitport_robot_asset_id:  { type: str, required: false }
+    --unitport_robot_usd:       { type: str, required: false, note: "Nucleus USD URL" }
+
+    # Algorithm
+    --unitport_algorithm:   { type: str,   required: false, default: "PPO", enum: ["PPO", "AMP_PPO"] }
+
+    # AMP-PPO specific (all optional, only when algorithm=AMP_PPO)
+    --unitport_amp_motion_files:        { type: str,   note: "comma-separated remote paths" }
+    --unitport_amp_reward_coef:         { type: float, default: 2.0 }
+    --unitport_amp_preload:             { type: int,   default: 2000000 }
+    --unitport_amp_transition_dt:       { type: float, default: 0.02 }
+    --unitport_amp_task_reward_lerp:    { type: float, default: 0.5 }
+    --unitport_amp_replay_buffer_size:  { type: int,   default: 1000000 }
+    --unitport_amp_disc_grad_penalty:   { type: float, default: 10.0 }
+    --unitport_amp_disc_lr:             { type: float, default: 0.0001 }
+    --unitport_amp_disc_label_smoothing: { type: float, default: 0.9 }
+    --unitport_amp_lerp_schedule:       { type: str,   note: "base64-encoded JSON schedule" }
+
+    # Stage training (multi-phase curriculum)
+    --unitport_stage_schedule:             { type: str, note: "base64-encoded JSON stage array" }
+    --unitport_stage_checkpoint_strategy:  { type: str, default: "latest", enum: ["latest", "best"] }
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 4. STDOUT PROTOCOL (remote → UnitPort via SSH channel)
+# ────────────────────────────────────────────────────────────────────────────
+#
+# UnitPort parses the remote process stdout line-by-line to extract:
+#   - Training progress (iteration N/M)
+#   - Metrics (reward, loss, episode length, etc.)
+#   - Checkpoint saves
+#   - Completion signal
+#
+# The remote process (il_train_launcher.py + RSL-RL) emits these naturally.
+# No custom protocol needed — UnitPort reuses the same parsers as local mode.
+
+stdout_protocol:
+
+  # (A) PID line — emitted by the shell wrapper, not the Python process.
+  #     UnitPort captures this to support remote kill (SIGTERM).
+  pid_line:
+    pattern: "PID={integer}"
+    example: "PID=12345"
+
+  # (B) RSL-RL iteration header — progress bar source.
+  iteration_line:
+    pattern: "Learning iteration {current}/{total}"
+    example: "                       Learning iteration 100/1500"
+    parsed_as: { step: 100, total: 1500 }
+
+  # (C) RSL-RL multi-line metrics block — emitted once per iteration.
+  #     UnitPort accumulates lines between separator bars.
+  metrics_block:
+    example: |
+      ################################################################################
+                             Learning iteration 100/1500
+
+                                      Total steps: 2457600
+                                 Steps per second: 50000
+                                  Collection time: 0.123s
+                                    Learning time: 0.456s
+                                Mean policy loss: 0.0123
+                                 Mean value loss: 0.0456
+                                      Mean reward: 12.34
+                                 Mean episode length: 500.00
+                                      Mean action std: 0.50
+      --------------------------------------------------------------------------------
+                                 Iteration time: 0.58s
+                                   Time elapsed: 00:01:23
+
+    fields_extracted:
+      - reward_mean       # "Mean reward: 12.34"
+      - ep_len_mean       # "Mean episode length: 500.00"
+      - policy_loss       # "Mean policy loss: 0.0123"
+      - value_loss        # "Mean value loss: 0.0456"
+      - fps               # "Steps per second: 50000"
+
+  # (D) AMP single-line metrics — alternative format for AMP-PPO.
+  amp_line:
+    pattern: "[AMP] iter {i}/{N} | reward_mean={f} | disc_loss={f} | ..."
+    example: "[AMP] iter 50/500 | reward_mean=3.45 | disc_loss=0.67 | task_reward=1.2 | style_reward=2.3"
+
+  # (E) Checkpoint save notification.
+  checkpoint_line:
+    pattern: "Saving model to {path}"
+    example: "Saving model to /tmp/unitport_training/run_abc/logs/model_500.pt"
+
+  # (F) Training completion sentinel — authoritative "done" signal.
+  #     UnitPort flips the progress bar to 100% upon seeing this.
+  completion_sentinel:
+    exact: "[UnitPort] TRAINING_LOOP_DONE"
+
+  # (G) Environment closed — cleanup confirmation.
+  env_closed:
+    exact: "[UnitPort] ENV_CLOSED"
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 5. DOWNLOAD PAYLOAD (remote → local via SFTP)
+# ────────────────────────────────────────────────────────────────────────────
+#
+# After training completes (exit code 0 or 55), UnitPort recursively
+# downloads the remote log directory to the local project tree.
+
+download:
+  remote_source: "{remote_log_dir}/"
+  local_target: "projects/{slug}/training/runs/{run_id}/"
+
+  # Expected remote directory structure (created by RSL-RL):
+  remote_tree:
+    "{remote_log_dir}/":
+      - "model_*.pt"                  # checkpoints (periodic + final)
+      - "events.out.tfevents.*"       # TensorBoard logs
+      - "config.yaml"                 # RSL-RL serialized config
+      - "git_diff.patch"              # RSL-RL auto-captured git diff
+
+  # What UnitPort looks for after download:
+  post_download:
+    checkpoint_glob: "model_*.pt"
+    tensorboard_glob: "events.out.tfevents.*"
+    export_dir: "exported/"           # if policy export ran
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 6. CANCELLATION PROTOCOL
+# ────────────────────────────────────────────────────────────────────────────
+#
+# UnitPort supports mid-training cancellation via SIGTERM.
+
+cancellation:
+  mechanism: "SSH exec: kill -TERM {pid}; kill -TERM -{pid}"
+  pid_source: "captured from 'echo PID=$$' at session start"
+  behavior: |
+    The remote training process receives SIGTERM.
+    RSL-RL saves a final checkpoint before exiting.
+    UnitPort detects cancellation and emits MSG_CANCELLED.
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# 7. ERROR HANDLING
+# ────────────────────────────────────────────────────────────────────────────
+
+error_handling:
+  exit_codes:
+    0:  "success"
+    55: "success (RSL-RL uses 55 as normal exit in some versions)"
+    1:  "general error"
+    3:  "USD validation failed or nucleus resolution error"
+    5:  "AMP observation alignment error or stage schedule error"
+
+  ssh_errors:
+    authentication_failed: "Bad credentials — prompt user to fix key/password"
+    connection_lost: |
+      Training may still be running on remote.
+      UnitPort warns user to check manually.
+
+  # UnitPort message types (emitted to UI via on_message callback):
+  message_types:
+    log:        "Free-form log text — displayed in training console"
+    progress:   "(step, total, reward, best_reward, ep_len, phase_label)"
+    metrics:    "Dict with reward_mean, ep_len_mean, losses, fps, etc."
+    finished:   "Dict with bundle_path, reward_mean, best_reward"
+    error:      "Error description string"
+    cancelled:  "No payload — training was cancelled by user"

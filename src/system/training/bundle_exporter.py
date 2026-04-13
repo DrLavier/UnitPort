@@ -3,15 +3,23 @@
 """
 Phase D — Checkpoint bundle exporter for trained SB3 policies.
 
-export_bundle(model, spec, run_id, output_root) -> Path
-    1. Creates a temporary staging directory.
-    2. Exports the SB3 policy actor network to ``policy.onnx``.
-    3. Writes ``manifest.yaml`` (all 12 required fields).
-    4. Writes ``source.json`` with type="training" and lineage fields.
-    5. Validates the manifest via ``validate_manifest()``.
-    6. Atomically moves the staged bundle to
-       ``<output_root>/custom_mods/training/checkpoints/<policy_id_out>/``.
-    7. Returns the final bundle path.
+export_bundle(model, spec, run_id, output_root, *, project_store, project_id)
+    1. Resolves the active project (explicit args > spec injection > session).
+    2. Creates a temporary staging directory.
+    3. Exports the SB3 policy actor network to ``policy.onnx``.
+    4. Writes ``manifest.yaml`` (all 12 required fields).
+    5. Writes ``source.json`` with type="training" and lineage fields.
+    6. Validates the manifest via ``validate_manifest()``.
+    7. Atomically moves the staged bundle to
+       ``projects/<slug>/training/exported/<policy_id_out>/`` (Layout v2;
+       resolved through ``ProjectStore._checkpoints_dir`` which now aliases
+       the v2 ``training/exported/`` directory).
+    8. Returns the final bundle path.
+
+Runtime bundles are **always** written into the active project.  Calling
+``export_bundle`` without an active project raises ``RuntimeError`` — the
+legacy ``custom_mods/training/checkpoints`` path is reserved for user-
+imported community resources only and is no longer a valid write target.
 
 The ONNX model exposes:
     input:  "obs"    shape (batch, obs_dim)  float32
@@ -24,12 +32,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 import yaml
 from src.system.training.obs_contracts import get_obs_contract
@@ -52,8 +61,8 @@ class ExportResult:
     access; ``runtime_bundle_path`` and ``artifact_path`` are set only when
     the respective export target was produced.
     """
-    runtime_bundle_path: Optional[Path] = None  # custom_mods/training/checkpoints/<id>/
-    artifact_path:       Optional[Path] = None  # training_assets/<id>/
+    runtime_bundle_path: Optional[Path] = None  # projects/<pid>/training/exported/<id>/
+    artifact_path:       Optional[Path] = None  # custom_mods/training/assets/<id>/
 
     @property
     def primary_path(self) -> Path:
@@ -403,6 +412,13 @@ def build_manifest(
         "runtime": {
             "control_frequency_hz": float(runtime_timing["control_frequency_hz"]),
             "decimation": int(runtime_timing["decimation"]),
+            # Store sim_dt/control_dt explicitly as well — frequency_hz alone
+            # forces sim2sim consumers to recompute decimation from a rounded
+            # value, which silently drifts the PD step interval and degrades
+            # transfer fidelity. Recording the source values lets the loader
+            # cross-check and bail loudly on mismatch.
+            "sim_dt": float(getattr(spec.physics_config, "sim_dt", 0.002) or 0.002),
+            "control_dt": float(getattr(spec.physics_config, "control_dt", 0.02) or 0.02),
             "command_defaults": {
                 "vx": float(getattr(spec.task_config, "target_vx", 0.5) or 0.0),
                 "vy": float(getattr(spec.task_config, "target_vy", 0.0) or 0.0),
@@ -426,6 +442,75 @@ def build_manifest(
             "file": normalization_file,
         }
 
+    # ── AMP observation spec (phase_4 of AMP_design.yaml §4) ─────────
+    # Analysis-only: the PolicyRunner / inference engine do not consume
+    # this block — it exists so tooling (and humans reviewing the bundle)
+    # can see which AMP observation layout the disc was trained against.
+    # Written when:
+    #   1. spec.amp is populated (AlgorithmConfig.algorithm == "AMP_PPO"), or
+    #   2. spec.reference_motion_config.needs_amp_pipeline() is True.
+    amp_cfg = getattr(spec, "amp", None)
+    ref_cfg = getattr(spec, "reference_motion_config", None)
+    amp_pipeline_active = bool(amp_cfg) or (
+        ref_cfg is not None
+        and getattr(ref_cfg, "needs_amp_pipeline", None) is not None
+        and ref_cfg.needs_amp_pipeline()
+    )
+    if amp_pipeline_active:
+        # Canonical field list from §3.reference_motion.data_flow. The
+        # launcher's joint_alignment.verify_alignment uses this same
+        # order — if you change it here, change the default in
+        # il_train_launcher.py too.
+        amp_obs_fields_default = [
+            "joint_pos", "toe_pos", "lin_vel", "ang_vel", "joint_vel", "root_z",
+        ]
+        # Per-field dim hint (amp_legged_gym quadruped schema). Sum = 43.
+        amp_obs_field_dims = {
+            "joint_pos": 12,
+            "toe_pos":   12,
+            "lin_vel":    3,
+            "ang_vel":    3,
+            "joint_vel": 12,
+            "root_z":     1,
+        }
+        # If the user narrowed amp_obs_fields in ReferenceMotionConfig,
+        # honour that selection; otherwise emit the full default.
+        chosen_fields: list = []
+        if ref_cfg is not None:
+            raw = getattr(ref_cfg, "amp_obs_fields", ())
+            chosen_fields = [str(f) for f in raw] if raw else list(amp_obs_fields_default)
+        else:
+            chosen_fields = list(amp_obs_fields_default)
+
+        manifest["amp_obs_spec"] = {
+            "format_id": (
+                getattr(ref_cfg, "format_id", "amp_legged_gym")
+                if ref_cfg is not None
+                else "amp_legged_gym"
+            ),
+            "fields": chosen_fields,
+            "field_dims": {
+                f: amp_obs_field_dims.get(f, 0) for f in chosen_fields
+            },
+            "total_dim": sum(amp_obs_field_dims.get(f, 0) for f in chosen_fields),
+            "amp_reward_coef": (
+                float(amp_cfg.amp_reward_coef) if amp_cfg is not None
+                else float(getattr(ref_cfg, "amp_reward_coef", 0.0) or 0.0)
+            ),
+            "consumer_mode": (
+                getattr(ref_cfg, "consumer_mode", "amp")
+                if ref_cfg is not None
+                else "amp"
+            ),
+            "note": (
+                "This block is ANALYSIS-ONLY. The bundle's ONNX policy "
+                "operates on the standard observation_space layout; AMP "
+                "information is preserved here so reviewers can verify "
+                "which discriminator observation layout was used during "
+                "training."
+            ),
+        }
+
     # ── SkillManifest v2 section ─────────────────────────────────────
     # Derive fields from TrainingJobSpec and fill in runtime-known values.
     try:
@@ -445,6 +530,20 @@ def build_manifest(
         manifest["skill"] = skill_fields
     except Exception:
         pass  # v2 section is best-effort; v1 fields always present
+
+    # ── Command schema (PR-1) ────────────────────────────────────────
+    # Write the unified CommandSchema under the top-level ``commands``
+    # key. The runtime CommandBus (gamepad_source.py) reads this back
+    # at deployment so training and runtime agree byte-for-byte on
+    # channel layout + ranges + clip behaviour. DeployContract.commands
+    # is a free-form dict on the consumer side, so no schema validation
+    # is needed here.
+    try:
+        cmd_schema = getattr(spec, "commands", None)
+        if cmd_schema is not None:
+            manifest["commands"] = cmd_schema.to_dict()
+    except Exception:
+        pass
 
     return manifest
 
@@ -607,6 +706,60 @@ def _warn_if_runtime_unsupported(action_type: str, log_fn=None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Versioned-name resolution
+# ---------------------------------------------------------------------------
+
+_VERSION_SUFFIX_RE = re.compile(r"^(?P<stem>.+)_v(?P<n>\d+)$")
+
+
+def _next_available_policy_id(base_name: str, parent_dirs: List[Path]) -> str:
+    """Return a policy_id_out that does not already exist in any of ``parent_dirs``.
+
+    Policy:
+      - If none of the parent dirs contain ``base_name``, return it unchanged.
+      - Otherwise append ``_v<N>`` with the smallest ``N`` (starting at 2)
+        that is free in *every* parent dir. Both ``runtime_bundle`` and
+        ``training_artifact`` must agree on the same suffix so "Export = Both"
+        never produces mismatched names.
+      - If ``base_name`` already ends in ``_v<N>``, the stem is stripped and
+        counting continues from ``N + 1``. This prevents suffix stacking like
+        ``foo_v2_v2`` on subsequent runs.
+
+    A hard cap of 9999 iterations guards against pathological loops.
+    """
+    base_name = str(base_name or "").strip()
+    if not base_name:
+        return base_name
+
+    def _free_everywhere(name: str) -> bool:
+        return all(not (p / name).exists() for p in parent_dirs)
+
+    # Fast path: base name is still free.
+    if _free_everywhere(base_name):
+        return base_name
+
+    # Strip any existing _v<N> suffix so we count forward rather than nesting.
+    m = _VERSION_SUFFIX_RE.match(base_name)
+    if m:
+        stem = m.group("stem")
+        n = int(m.group("n")) + 1
+    else:
+        stem = base_name
+        n = 2
+
+    while n < 10000:
+        candidate = f"{stem}_v{n}"
+        if _free_everywhere(candidate):
+            return candidate
+        n += 1
+
+    raise RuntimeError(
+        f"Could not find a free version suffix for bundle name '{base_name}' "
+        f"after 9999 attempts. Remove stale bundles or enable overwrite."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main export entry point
 # ---------------------------------------------------------------------------
 
@@ -625,8 +778,8 @@ def export_bundle(
     export_target options
     ---------------------
     ``"runtime_bundle"`` (default)
-        ONNX/JIT + manifest.yaml → ``<output_root>/custom_mods/training/checkpoints/<id>/``
-        Listed by CheckpointRegistry; usable by the main canvas.
+        ONNX/JIT + manifest.yaml → ``projects/<slug>/training/exported/<id>/``
+        (Layout v2). Listed by CheckpointRegistry; usable by the main canvas.
     ``"training_artifact"``
         SB3 zip → ``<output_root>/custom_mods/training/assets/<id>/best/best_model.zip``
         + ``asset_manifest.json``; discoverable by TrainingAssetRegistry as a
@@ -654,6 +807,35 @@ def export_bundle(
         output_root = Path(os.getcwd())
     output_root = Path(output_root)
 
+    # ── Resolve project context (explicit args win over session) ──────────
+    # When the parent process spawns the SB3 training subprocess it
+    # injects ``spec._project_id`` and ``spec._project_root`` so this
+    # branch can rebuild a ProjectStore on the worker side and route the
+    # export into the active project's checkpoints/ directory. Falling
+    # back to ``custom_mods/training/checkpoints`` is intentionally NOT
+    # supported anymore — that path is reserved for user-imported
+    # community resources, not real training products.
+    if project_store is None or not project_id:
+        injected_pid = str(getattr(spec, "_project_id", "") or "")
+        injected_root = getattr(spec, "_project_root", None)
+        if injected_pid and injected_root:
+            try:
+                from src.system.core.project_store import ProjectStore as _PS
+                project_store = _PS(Path(injected_root))
+                project_id = injected_pid
+            except Exception:
+                project_store = None
+                project_id = None
+    if project_store is None or not project_id:
+        # Last-ditch: ask the in-process session.
+        try:
+            from src.system.core import project_session as _ps
+            if _ps.is_active():
+                project_store = _ps.get_store()
+                project_id = _ps.get_project_id()
+        except Exception:
+            pass
+
     # ── P0: Prefer best-model checkpoint over final model ─────────────────
     model, exported_from, best_meta = _try_load_best_model(
         model, spec, output_root, log_fn=log_fn
@@ -680,6 +862,42 @@ def export_bundle(
     want_runtime  = export_target in ("runtime_bundle", "both")
     want_artifact = export_target in ("training_artifact", "both")
     norm_stats = _maybe_collect_norm_stats(model, spec, obs_dim=obs_dim)
+
+    # ── Resolve the final policy_id_out against existing bundles ─────
+    # When overwrite=False we auto-version by suffixing "_v2", "_v3", … so
+    # a second training run on the same workspace does not collide with the
+    # previous export. When overwrite=True we keep the base name and wipe
+    # the existing directory later in the relevant branch.
+    #
+    # Both runtime_bundle and training_artifact use the SAME resolved name so
+    # "Export = Both" never ends up with a v2 checkpoint and a v3 artifact.
+    parent_dirs: List[Path] = []
+    if want_runtime:
+        if project_id and project_store is not None:
+            parent_dirs.append(project_store._checkpoints_dir(project_id))
+        else:
+            raise RuntimeError(
+                "export_bundle: cannot export a runtime bundle without an "
+                "active project. Open or create a project before training, "
+                "or pass project_store/project_id explicitly. The legacy "
+                "custom_mods/training/checkpoints path is no longer a valid "
+                "write target."
+            )
+    if want_artifact:
+        parent_dirs.append(output_root / "custom_mods/training/assets")
+
+    if not overwrite and parent_dirs:
+        policy_id_out = _next_available_policy_id(policy_id_out, parent_dirs)
+        # Propagate the bumped name into the spec so the manifests and the
+        # skill metadata written below reflect the on-disk directory name.
+        # The spec object only lives inside this subprocess, so this mutation
+        # is local and safe.
+        if spec.export_config is not None:
+            spec.export_config.bundle_name = policy_id_out
+        if spec.algorithm_config is not None:
+            spec.algorithm_config.policy_id_out = policy_id_out
+        if log_fn is not None:
+            log_fn(f"[export] Using versioned bundle name: {policy_id_out}")
 
     result = ExportResult()
 
@@ -740,11 +958,8 @@ def export_bundle(
 
             validate_manifest(manifest_dict, bundle_path=stage_dir)
 
-            # Choose output location: project-scoped or legacy
-            if project_id and project_store is not None:
-                checkpoints_dir = project_store._checkpoints_dir(project_id)
-            else:
-                checkpoints_dir = output_root / "custom_mods/training/checkpoints"
+            # Output location is always project-scoped (resolved above).
+            checkpoints_dir = project_store._checkpoints_dir(project_id)
             checkpoints_dir.mkdir(parents=True, exist_ok=True)
             final_path = checkpoints_dir / policy_id_out
 
@@ -752,9 +967,13 @@ def export_bundle(
                 if overwrite:
                     shutil.rmtree(final_path)
                 else:
+                    # Should be unreachable — _next_available_policy_id ran
+                    # earlier and resolved to a free name. Guard against a
+                    # race where another process created the dir in the gap.
                     raise FileExistsError(
-                        f"Runtime bundle already exists at '{final_path}'. "
-                        "Set ExportConfig.overwrite=True to replace it."
+                        f"Runtime bundle appeared at '{final_path}' during "
+                        "export (race). Set ExportConfig.overwrite=True to "
+                        "replace it."
                     )
 
             shutil.move(str(stage_dir), str(final_path))
@@ -768,7 +987,7 @@ def export_bundle(
                     meta.assets.checkpoints.append(
                         CheckpointRef(
                             policy_id=policy_id_out,
-                            path=f"checkpoints/{policy_id_out}/",
+                            path=f"training/exported/{policy_id_out}/",
                         )
                     )
                     project_store.save_meta(meta)
@@ -789,9 +1008,13 @@ def export_bundle(
             if overwrite:
                 shutil.rmtree(artifact_dest)
             else:
+                # Should be unreachable — _next_available_policy_id ran
+                # earlier and resolved to a free name. Guard against a
+                # race where another process created the dir in the gap.
                 raise FileExistsError(
-                    f"Training artifact already exists at '{artifact_dest}'. "
-                    "Set ExportConfig.overwrite=True to replace it."
+                    f"Training artifact appeared at '{artifact_dest}' during "
+                    "export (race). Set ExportConfig.overwrite=True to "
+                    "replace it."
                 )
 
         tmp_art = tempfile.mkdtemp(prefix="unitport_artifact_")

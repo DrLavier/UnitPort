@@ -22,11 +22,13 @@ from typing import Dict, List, Optional
 PRESET_CUSTOM              = "custom"
 PRESET_UNITPORT_GO2_V1     = "unitport_go2_v1"
 PRESET_COMMUNITY_GO2_SAC_34D = "community_go2_sac_34d"
+PRESET_ISAAC_LAB_GO2_VELOCITY_48D = "isaac_lab_go2_velocity_48d"
 
 ALL_PRESET_NAMES: List[str] = [
     PRESET_CUSTOM,
     PRESET_UNITPORT_GO2_V1,
     PRESET_COMMUNITY_GO2_SAC_34D,
+    PRESET_ISAAC_LAB_GO2_VELOCITY_48D,
 ]
 
 # ---------------------------------------------------------------------------
@@ -63,6 +65,20 @@ _CONTRACTS: Dict[str, dict] = {
         "robot_type":  "go2",
         "description": "Community Go2 SAC — 34-d (joint_pos×12 + joint_vel×12 "
                        "+ imu×6 + command×4); matches sac_unitree_go2_mujoco",
+    },
+    PRESET_ISAAC_LAB_GO2_VELOCITY_48D: {
+        "obs_components": [
+            "base_lin_vel", "base_ang_vel", "projected_gravity",
+            "velocity_commands", "joint_pos", "joint_vel", "actions",
+        ],
+        "obs_dim":     48,
+        "action_type": "joint_position",
+        "action_dim":  12,
+        "robot_type":  "go2",
+        "description": "Isaac Lab Go2 velocity-tracking — 48-d "
+                       "(base_lin_vel×3 + base_ang_vel×3 + projected_gravity×3 "
+                       "+ velocity_commands×3 + joint_pos×12 + joint_vel×12 + actions×12)",
+        "command_obs_indices": [9, 10, 11],
     },
 }
 

@@ -161,6 +161,26 @@ class CanvasToIR:
             rb = start_nodes[0].get_param_value("robot_brand", "")
             ir.brand = normalize_brand_id(rb) if rb else self._brand_for(rt)
 
+        # P6 (mission_design.yaml §3, principle P8): soft canvas region
+        # validation. Surfaces region inversions / multi-Start as
+        # WARNING-level diagnostics that the Mission editor can render
+        # next to the offending nodes. NEVER an error — legacy canvases
+        # without region awareness must keep loading.
+        try:
+            from src.system.compiler.semantic.region_validator import RegionValidator
+            region_report = RegionValidator().validate(ir)
+            for w in region_report.warnings:
+                diags.append(make_warning(
+                    w.code,
+                    w.message,
+                    node_id=w.node_id or None,
+                ))
+        except Exception:
+            # Validator must NEVER block compilation. Any failure here
+            # is silently swallowed; the rest of the canvas keeps
+            # lowering.
+            pass
+
         return ir, diags
 
     def _convert_node(self, node_data: Dict[str, Any]) -> Tuple[IRNode, List[Diagnostic]]:
@@ -196,7 +216,14 @@ class CanvasToIR:
         # handle before the schema registry lookup so it never falls back to CUSTOM.
         # Circle 4: protocol_emit similarly bypasses the registry.
         # Circle 6: run_policy and checkpoint also bypass the registry.
-        if node_type == "behavior_call":
+        if node_type == "start":
+            # Structural marker — no schema entry, goes straight to NodeKind.START.
+            schema_id = "builtin.start"
+            kind = NodeKind.START
+        elif node_type == "end":
+            schema_id = "builtin.end"
+            kind = NodeKind.END
+        elif node_type == "behavior_call":
             schema_id = "behavior_call"
             kind = NodeKind.BEHAVIOR_CALL
         elif node_type == "protocol_emit":
@@ -271,6 +298,40 @@ class CanvasToIR:
             params["robot_brand"] = IRParam("robot_brand", robot_brand, "string")
             robot_type = node_data.get("robot_type", ui_selection or "go2")
             params["robot_type"] = IRParam("robot_type", robot_type, "string")
+            # v1.4 (mission_design.yaml): brand+model on StartNode IS
+            # the actor selection (no separate ActorNode). Field is
+            # also a StartNode parameter — backward-compat for old
+            # canvases that persisted the legacy ``default_field_id``
+            # key falls back transparently.
+            params["field_id"] = IRParam(
+                "field_id",
+                str(
+                    node_data.get("field_id")
+                    or node_data.get("default_field_id")
+                    or "flat_ground"
+                ),
+                "string",
+            )
+            # v1.5: default True so canvases that have NEVER serialized
+            # this field (every canvas saved before the v1.5 frontend
+            # checkbox lands) still pop a viewer on Mission run.
+            # NodeExecutor calls set_parameter() with whatever value
+            # ends up here, so this default IS the effective value
+            # whenever node_data lacks the key.
+            render_val = node_data.get("render_enabled", True)
+            if isinstance(render_val, str):
+                render_val = render_val.lower() in ("true", "1", "yes")
+            params["render_enabled"] = IRParam(
+                "render_enabled", bool(render_val), "bool"
+            )
+            mes_raw = node_data.get("max_episode_steps", 1000)
+            try:
+                mes = int(mes_raw)
+            except (ValueError, TypeError):
+                mes = 1000
+            params["max_episode_steps"] = IRParam(
+                "max_episode_steps", mes, "int"
+            )
 
         elif node_type == "end":
             pass  # No parameters

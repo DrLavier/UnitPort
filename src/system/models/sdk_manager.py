@@ -639,8 +639,8 @@ def register_isaaclab_path(
 ) -> bool:
     """Register an existing Isaac Lab installation for training use.
 
-    Writes the path to ``src/config/isaaclab.json`` so the training pipeline
-    can locate the Isaac Lab root at runtime.
+    Writes to the unified engine registry (``src/config/engine_registry.json``)
+    so the training pipeline can locate the Isaac Lab root at runtime.
     Returns True on success.
     """
     p = Path(path)
@@ -648,12 +648,8 @@ def register_isaaclab_path(
         _emit(f"[isaaclab] Path does not exist: {path}", "error", progress)
         return False
 
-    config_path = _REPO_ROOT / "src" / "config" / "isaaclab.json"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-
-    import json as _json
-    data = {"root": str(p.resolve()), "registered": True}
-    config_path.write_text(_json.dumps(data, indent=2), encoding="utf-8")
+    from src.system.engines.registry import get_engine_registry
+    get_engine_registry().register_isaac_local(str(p.resolve()))
     _emit(f"[isaaclab] Registered Isaac Lab path: {p.resolve()}", "success", progress)
     return True
 

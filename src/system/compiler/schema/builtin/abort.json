@@ -1,0 +1,17 @@
+{
+  "schema_id": "builtin.abort",
+  "display_name": "Abort",
+  "node_type": "abort",
+  "kind": "abort",
+  "ports": [
+    {"name": "flow_in", "direction": "input", "data_type": "void", "required": true}
+  ],
+  "parameters": [
+    {"name": "reason",    "param_type": "string", "default": ""},
+    {"name": "emergency", "param_type": "bool",   "default": false}
+  ],
+  "code_template": "raise RuntimeError(\"abort: {reason}\")",
+  "robot_compat": [],
+  "safety": {"halts_execution": true},
+  "version": "1.0"
+}

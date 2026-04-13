@@ -1,0 +1,429 @@
+---
+# ============================================================================
+# AMP + PPO — what we learned the hard way
+# ============================================================================
+# Filename note: APP_PPO_TOKNOW.yaml (typo preserved on purpose — this is the
+# name future-us will search for, since it's how we first asked for it).
+#
+# Read this BEFORE touching anything in:
+#   src/system/training/amp/**
+#   src/system/training/il_train_launcher.py
+#   src/system/training/isaac_lab_config_compiler.py
+#   src/system/training/isaac_lab_backend.py
+#
+# Updated:   2026-04-09
+# Status:    AMP_PPO end-to-end training verified working on Isaac Lab
+#            (Go2 / A1 quadrupeds, headless and viewport modes)
+# Owner:     UnitPort training pipeline
+# ============================================================================
+
+meta:
+  blueprint: knowledge_base/AMP_design.yaml      # the design doc
+  applies_to:
+    - rsl_rl: ">=2.0"                            # ActorCritic god-class removed
+    - isaac_lab: ">=2024.1"                      # ManagerBasedRLEnv era
+    - python: "3.11"
+  parent_runner: src/system/training/amp/runners/amp_on_policy_runner.py
+
+
+# ============================================================================
+# §1  THE WORKING LINE — what production looks like
+# ============================================================================
+working_line:
+
+  ui_origin:
+    - User opens a Canvas training experiment with these nodes wired:
+        il_robot_asset           (asset_id from dropdown — closed selection)
+        il_terrain_config
+        il_observation
+        il_events
+        il_terminations
+        il_rewards
+        reference_motion         (general node, NOT SB3-only)
+        amp_ppo_trainer          (the AMP-flavored PPO trainer node)
+    - Reference Motion node MUST point at a *pack* (multi-clip pool) for AMP,
+      not a single .txt clip — the discriminator needs a distribution to
+      sample expert transitions from. Acceptable identifiers:
+        pack:<pack_id>
+        loco:<dataset_id>
+        Any individual file works only for sanity-check, not real training.
+    - Robot Asset selector is CLOSED (RichChoicePicker), NOT a free-form path
+      input. Manual paths must go through validated registration first.
+
+  compile_step:
+    file: src/system/training/isaac_lab_config_compiler.py
+    emits: a generated UnitPortEnvCfg .py file Isaac Lab can load
+    must_emit_at_root_of_UnitPortEnvCfg:
+      - decimation                             # required by ManagerBasedRLEnvCfg
+      - episode_length_s                       # derived from time_out termination
+      - sim = SimulationCfg(render_interval=decimation)   # NOT inside SceneCfg
+    nucleus_url_marker:
+      pattern: "nucleus:Robots/Unitree/Go2/go2.usd"
+      expansion: f"{ISAAC_NUCLEUS_DIR}/Robots/Unitree/Go2/go2.usd"
+      expanded_at: src/system/training/il_train_launcher.py (Isaac venv only)
+      reason: |
+        ISAAC_NUCLEUS_DIR only exists inside the Isaac Sim venv. The compiler
+        emits a marker; the launcher (which runs *inside* the venv as a
+        subprocess) is the only place that can resolve it.
+
+  launch:
+    file: src/system/training/il_train_launcher.py
+    invocation: |
+      python il_train_launcher.py
+        --headless                              # critical for non-vis runs
+        --task <generated_task>
+        --unitport_algorithm AMP_PPO
+        --unitport_amp_motion_files <space-separated paths>
+        --unitport_amp_reward_coef 2.0
+        --unitport_amp_preload 200000
+        --unitport_amp_transition_dt 0.0166
+        --unitport_robot_usd <resolved abs path or nucleus URL>
+    repo_root_on_sys_path: |
+      The launcher prepends the UnitPort repo root to sys.path so it can
+      import src.system.training.amp.* from inside the Isaac Sim venv.
+      Without this, the deferred USD validation hook crashes with
+      "No module named 'src'".
+    carb_render_settings_when_not_headless: |
+      Force FXAA + RaytracedLighting OFF for performance. Without this,
+      Isaac Sim brings up RTX/Pathtracing on the first viewport frame and
+      training drops to <5 FPS while pegging the GPU.
+
+  rollout_loop:
+    file: src/system/training/amp/runners/amp_on_policy_runner.py
+    obs_source: observation_manager.compute()["policy"]    # NEVER the wrapper
+    obs_source_critic: observation_manager.compute()["critic"]  # if group exists
+    amp_obs_source: |
+      Built directly from env.scene["robot"].data inside
+      il_train_launcher.py::_amp_obs_extractor — joint_pos, joint_vel,
+      root_lin_vel_b, root_ang_vel_b, body_pos_w[foot_ids], root_pos_w.
+      Foot link IDs auto-discovered via robot.find_bodies(".*_foot").
+
+  metrics_emit:
+    file: src/system/training/amp/runners/amp_on_policy_runner.py
+    log_format: |
+      [AMP] it=  24/1500  rew=12.345  style=8.901  task=3.444
+            len=480.0  vf=7.677  surr=-0.005  amp=0.034  gp=0.077
+            pol=-0.89  exp=+0.87  acc_p=0.52  acc_e=0.94  t=2.16s
+      # B4 enhancement: rew broken into style + task components;
+      # acc_p / acc_e (discriminator accuracy) appended.
+    parsed_by:
+      file: src/system/training/isaac_lab_backend.py
+      regex: _AMP_LINE_RE
+      function: parse_amp_line()
+    rendered_by:
+      file: bin/pages/training/training_panel.py
+      function: TrainingPanel.on_metrics
+      ui_swap: |
+        First AMP-tagged metric flips the bottom row from KL/Entropy to
+        AMP Loss / Discriminator (pol vs exp) plots via
+        _switch_to_amp_layout().
+
+
+# ============================================================================
+# §2  TRAPS — pitfalls we keep falling into. Read these before debugging.
+# ============================================================================
+traps:
+
+  - id: WRAPPER_RETURNS_BROKEN_OBS
+    severity: critical
+    discovered: "fixed 2026-04-09"
+    file: src/system/training/amp/runners/amp_on_policy_runner.py
+    symptom: |
+      RuntimeError: mat1 and mat2 shapes cannot be multiplied (1024x0 and 48x256)
+      at iter=0 step=1 (works at step=0 due to init fallback, crashes step=1+).
+    root_cause: |
+      Isaac Lab's RslRlVecEnvWrapper.get_observations() AND env.step()
+      both return a TensorDict of shape (num_envs,) — NOT (num_envs, num_obs).
+      observation_manager.compute()["policy"] returns the correct
+      (num_envs, num_obs) tensor.
+    fix: |
+      Bypass the wrapper entirely. Inside learn() build a closure
+      _read_obs_direct() that reads obs_manager.compute()["policy"] every
+      time. Use it at init AND after every env.step(actions). Discard the
+      wrapper's returned obs (`del _step_obs` immediately).
+    do_not: |
+      DO NOT try to massage the wrapper's broken TensorDict with isinstance
+      checks, .as_subclass(torch.Tensor), or recursive normalization. We
+      tried. It works at init, fails on step 1. The wrapper is fundamentally
+      unreliable in this Isaac Lab release.
+
+  - id: RSL_RL_2X_DROPPED_ACTORCRITIC
+    severity: critical
+    discovered: "fixed 2026-04-09"
+    symptom: |
+      ImportError: cannot import name 'ActorCritic' from 'rsl_rl.modules'
+      dir(rsl_rl.modules) shows only [CNN, Distribution, EmpiricalNormalization,
+      GaussianDistribution, MLP, RNN] — the ActorCritic god-class is gone.
+    root_cause: |
+      rsl_rl 2.x decomposed ActorCritic into smaller pieces. The vendored
+      AMP_for_hardware AMPPPO + runner expect the 1.x god-class.
+    fix: |
+      Vendored ActorCritic + RolloutStorage in-tree under
+      src/system/training/amp/algorithms/actor_critic.py and
+      src/system/training/amp/storage/rollout_storage.py.
+      AMPPPO and AMPOnPolicyRunner import from those local paths.
+    do_not: |
+      DO NOT chase rsl_rl's moving import target across versions. Vendor
+      it. The BSD-3 license allows it; the upstream API is unstable.
+
+  - id: TENSORDICT_BREAKS_TORCH_LINEAR
+    severity: high
+    related_to: WRAPPER_RETURNS_BROKEN_OBS
+    symptom: |
+      "Multiple dispatch failed for 'torch.nn.functional.linear'"
+    root_cause: |
+      Tensor subclasses (TensorDict, etc.) override __torch_function__
+      and break nn.Linear's dispatch when fed straight in.
+    fix: |
+      _normalize_obs() in amp_on_policy_runner.py:
+        - unwraps tuples (rsl_rl 2.x get_observations() returns (tensor, extras))
+        - concats sorted dict keys
+        - calls .as_subclass(torch.Tensor) to drop subclass dispatch
+        - .clone().contiguous() to detach from any obs_manager view
+    note: |
+      _normalize_obs is still useful even after the wrapper bypass — the
+      obs_manager output is *currently* a clean tensor but we keep the
+      normalizer as a defense-in-depth layer.
+
+  - id: OBS_MANAGER_VIEW_REUSE
+    severity: high
+    symptom: |
+      obs.shape == (1024, 48) at start of learn(), then shape becomes
+      (1024, 0) at the first act() call.
+    root_cause: |
+      Isaac Lab's obs_manager hands back tensor *views* into buffers that
+      get rezeroed/resized between env operations.
+    fix: |
+      Always .clone().contiguous() obs the moment you get them.
+      _normalize_obs does this automatically.
+
+  - id: REFERENCE_MOTION_SINGLE_CLIP
+    severity: high
+    symptom: |
+      AMP discriminator collapses to predicting policy=expert immediately;
+      style reward never differentiates.
+    root_cause: |
+      Loading ONE clip into the AMP expert pool means the discriminator
+      sees a degenerate distribution. AMP needs a *pack* of clips.
+    fix: |
+      Reference Motion node binds to a pack (`pack:<id>` or `loco:<id>`),
+      and the loader expands it via expand_motion_pack() before preload.
+    do_not: |
+      DO NOT bind reference motion to a single .txt — that path exists
+      for sanity-check / SB3 imitation only, not for AMP training.
+
+  - id: NUCLEUS_URL_PATH_MANGLING_WIN
+    severity: medium
+    symptom: |
+      USD file not found: https:\\omniverse-content-production...
+      (note the BACKSLASHES — should be forward slashes)
+    root_cause: |
+      pathlib.Path on Windows mangles URL schemes by converting "//" to "\\".
+    fix: |
+      RobotAsset has separate `usd_path` (Path) and `usd_url` (str) fields.
+      USD parser detects http://, https://, omniverse://, nucleus:// and
+      passes them straight to Usd.Stage.Open without is_file() checks.
+
+  - id: COMPILER_OBS_NOISE_AS_TERM
+    severity: medium
+    symptom: |
+      TypeError: Configuration for the term 'corruption_noise_std' is not
+      of type ObservationTermCfg
+    root_cause: |
+      Class-level scalars on an ObsGroup are interpreted as ObsTerms by
+      Isaac Lab. corruption_noise_std looked like a config knob but the
+      framework treats it as a term name.
+    fix: |
+      Compiler emits per-term `noise=Unoise(n_min=-std, n_max=std)`
+      instead of a class-level scalar.
+
+  - id: COMPILER_TERM_PARAMS_INCOMPLETE
+    severity: medium
+    affected_terms:
+      physics_material:
+        required: [static_friction_range, dynamic_friction_range,
+                   restitution_range, num_buckets, asset_cfg]
+      add_base_mass:
+        required: [operation, asset_cfg, mass_distribution_params]
+      track_lin_vel_xy / track_ang_vel_z:
+        required: [std, command_name]      # command_name="base_velocity"
+      feet_air_time:
+        required: [std, threshold, command_name, sensor_cfg]
+      generated_commands (obs term):
+        required: [command_name]
+      illegal_contact (termination):
+        sensor_name: contact_forces        # NOT contact_sensor
+    fix: |
+      isaac_lab_config_compiler.py emits these explicitly. When the canvas
+      uses a "default" body name regex like "base", the compiler now expands
+      to (base|trunk) so A1 (which uses "trunk") matches as well as Go2.
+
+  - id: TERRAIN_TYPE_DISPATCH
+    severity: medium
+    symptom: |
+      ValueError: Terrain type 'rough' not available
+    root_cause: |
+      Isaac Lab's TerrainImporter only accepts {plane, generator, usd}.
+    fix: |
+      Compiler maps {rough, stairs, slopes, stepping_stones} →
+      terrain_type="generator" + ROUGH_TERRAINS_CFG (imported from
+      isaaclab.terrains.config.rough).
+
+  - id: QUADRUPED_JOINT_DEFAULTS_OUT_OF_LIMITS
+    severity: medium
+    symptom: |
+      "joints have default positions out of the limits" on env spawn.
+    root_cause: |
+      Compiler wasn't setting joint_pos in InitialStateCfg, so all joints
+      defaulted to 0 — outside calf joint limits.
+    fix: |
+      Compiler emits a standard quadruped pose dict with hip/thigh/calf
+      regex defaults in InitialStateCfg.joint_pos.
+
+  - id: RENDER_INTERVAL_LT_DECIMATION
+    severity: low
+    symptom: |
+      "Render interval (1) is smaller than the decimation (4)"
+    fix: |
+      Compiler sets render_interval=decimation in SimulationCfg literal.
+
+  - id: HEADLESS_RTX_AUTOSTART
+    severity: low
+    symptom: |
+      Non-headless training drops to <5 FPS, GPU pegged.
+    root_cause: |
+      Isaac Sim defaults to RTX raytraced renderer on first viewport frame.
+    fix: |
+      il_train_launcher.py emits Carb settings (FXAA + RaytracedLighting=False
+      + render_interval increase) when --headless is NOT set.
+
+
+# ============================================================================
+# §3  RULES — non-negotiable invariants
+# ============================================================================
+rules:
+
+  - id: NEVER_TRUST_THE_WRAPPER
+    rule: |
+      Inside AMPOnPolicyRunner.learn(), ALL obs reads must go through
+      _read_obs_direct() (which reads observation_manager.compute()).
+      The wrapper's get_observations() and step()-returned obs are
+      both broken in current Isaac Lab.
+
+  - id: VENDOR_DONT_IMPORT_RSL_RL_CORE
+    rule: |
+      ActorCritic, RolloutStorage live under src/system/training/amp/.
+      DO NOT add `from rsl_rl.modules import ActorCritic` anywhere —
+      that path raises ImportError on rsl_rl 2.x.
+
+  - id: AMP_NEEDS_A_POOL
+    rule: |
+      Reference Motion for AMP must be a pack/dataset, not a single clip.
+      The Canvas Reference Motion picker enforces this by emitting
+      pack:/loco: identifiers; preserve that contract.
+
+  - id: NUCLEUS_URLS_USE_MARKERS
+    rule: |
+      Compiler emits `nucleus:Robots/...` markers as STRING LITERALS.
+      Only the launcher (running inside the Isaac venv) expands them via
+      ISAAC_NUCLEUS_DIR. Never try to resolve nucleus URLs in the main
+      UnitPort process — ISAAC_NUCLEUS_DIR isn't importable there.
+
+  - id: COMPILER_FILLS_REQUIRED_PARAMS
+    rule: |
+      When adding a new mdp.* term to the compiler emit path, look up its
+      required params in Isaac Lab's source FIRST. Missing params surface
+      as opaque "Configuration for term X expects ['a', 'b']" errors at
+      env construction time, long after the compile step.
+
+  - id: AMP_LOG_LINE_FORMAT_IS_LOAD_BEARING
+    rule: |
+      The single-line `[AMP] it=  N/T  rew=  style=  task=  len=  vf=
+      surr=  amp=  gp=  pol=  exp=  acc_p=  acc_e=  t=Ns` format is parsed
+      by isaac_lab_backend._AMP_LINE_RE.
+      If you change field names, order, or add fields, update the regex
+      AND parse_amp_line() AND TrainingPanel.on_metrics() in the same
+      commit. Otherwise the chart goes blank.
+
+
+# ============================================================================
+# §4  DEBUGGING PLAYBOOK — when training won't start
+# ============================================================================
+debugging_playbook:
+
+  symptom_progression:
+    - step: 1
+      check: "Does the subprocess even launch?"
+      look_at: stdout for "[UnitPort] PID:" line
+      common_failures:
+        - "USD file not found: nucleus:..." → marker not expanded; check
+          launcher's expansion block
+        - "No module named 'src'" → repo root not on sys.path; check
+          launcher's sys.path.insert at top of file
+
+    - step: 2
+      check: "Does Isaac Lab construct the env?"
+      look_at: |
+        Errors mentioning ManagerBasedRLEnvCfg, missing fields, or
+        ObservationTermCfg/EventTermCfg validation failures.
+      common_failures:
+        - "missing decimation, episode_length_s" → compiler not emitting
+          at UnitPortEnvCfg root
+        - "term 'X' is not of type ObservationTermCfg" → class-level
+          scalar misinterpreted as a term
+        - "expects mandatory parameters" → compiler missing required params
+          for an mdp.* function
+
+    - step: 3
+      check: "Does the runner reach learn()?"
+      look_at: |
+        [UnitPort][AMP][diag] (a)/(b)/(c)/(d) triangulation dump.
+        Expect (b) obs_manager.compute()['policy'] shape == (num_envs, num_obs).
+      common_failures:
+        - "(b) shape == (1024, 0)" → obs_terms list emitted empty by
+          compiler; check il_observation node JSON
+        - "ImportError ActorCritic" → someone reverted the vendoring
+
+    - step: 4
+      check: "Does the first iteration print [AMP] it=...?"
+      look_at: |
+        First [AMP] it=  0/T line appears within ~30s of "Pre-rollout obs check".
+      common_failures:
+        - mat1/mat2 mismatch → wrapper bypass not in place; check
+          _read_obs_direct() is called both at init AND after env.step()
+        - silent hang → likely AMP discriminator preload; the vectorized
+          sampler should be ~0.16s for 200k transitions, NOT 30+ minutes
+
+    - step: 5
+      check: "Does the chart populate?"
+      look_at: TrainingPanel.on_metrics, _is_amp_run flag flips True
+      common_failures:
+        - chart blank → _AMP_LINE_RE not matching; print one log line and
+          run it through parse_amp_line() in a python REPL
+        - chart shows only 0 reward → reward_valid=False for first N iters
+          is correct (deque empty); should populate once episodes finish
+
+  golden_smoke_test: |
+    .venv311/Scripts/python.exe -c "
+    from src.system.training.isaac_lab_backend import parse_amp_line
+    line = '[AMP] it=  24/1500  rew=12.345  style=8.901  task=3.444  len=480.0  vf=7.677  surr=-0.005  amp=0.034  gp=0.077  pol=-0.89  exp=+0.87  acc_p=0.52  acc_e=0.94  t=2.16s'
+    print(parse_amp_line(line))
+    "
+    # Expect a dict with algorithm='AMP_PPO', reward_valid=True, all fields populated.
+
+
+# ============================================================================
+# §5  TEST COVERAGE — what's actually exercised in CI
+# ============================================================================
+test_coverage:
+  unit:
+    - tests/unit/training/test_amp_backend.py     # AMPPPO + discriminator + normalizer
+  manual_smoke_required:
+    - "Full headless run on Go2 quadruped — until at least it=10/T"
+    - "Full headless run on A1 quadruped — different body regex (trunk vs base)"
+    - "Non-headless run with FXAA renderer — visual sanity check"
+    reason: |
+      These exercise the entire compiler → launcher → Isaac Lab → vendored
+      runner stack. No CI substitute exists because Isaac Sim isn't available
+      in the main venv. Run them after any change in the §1 working_line file
+      list.

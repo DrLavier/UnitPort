@@ -185,6 +185,25 @@ class MainZonePanel(QWidget):
         self.canvas_save_as_btn.setObjectName("canvasHeaderButton")
         self.canvas_save_as_btn.clicked.connect(self.workflow_save_as_requested.emit)
         canvas_header_layout.addWidget(self.canvas_save_as_btn)
+
+        # Ctrl+S / Ctrl+Shift+S — keyboard shortcuts for the Mission canvas.
+        # Scoped to the canvas zone so they only fire while the Mission
+        # workspace is the active page (avoids clashing with other workspaces
+        # that register their own Save shortcuts).
+        self._canvas_save_shortcut = QShortcut(
+            QKeySequence.StandardKey.Save, self.canvas_zone
+        )
+        self._canvas_save_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._canvas_save_shortcut.activated.connect(
+            self.workflow_save_requested.emit
+        )
+        self._canvas_save_as_shortcut = QShortcut(
+            QKeySequence.StandardKey.SaveAs, self.canvas_zone
+        )
+        self._canvas_save_as_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self._canvas_save_as_shortcut.activated.connect(
+            self.workflow_save_as_requested.emit
+        )
         canvas_header_layout.addStretch()
         self.canvas_toggle_btn = QPushButton()
         self.canvas_toggle_btn.setObjectName("zoneToggleButton")
@@ -349,17 +368,6 @@ class MainZonePanel(QWidget):
         self.scenario_settings_btn.setStyleSheet("padding: 0px;")
         self.scenario_settings_btn.clicked.connect(self._open_scenario_settings)
         mission_control_layout.addWidget(self.scenario_settings_btn)
-
-        # Separator + PageSwitcher
-        from PySide6.QtWidgets import QFrame as _QFrame
-        _mc_sep2 = _QFrame()
-        _mc_sep2.setFrameShape(_QFrame.Shape.VLine)
-        _mc_sep2.setObjectName("missionControlSep")
-        mission_control_layout.addWidget(_mc_sep2)
-
-        from bin.pages.layout.misc import PageSwitcher
-        self.page_switcher = PageSwitcher(self.mission_control_float)
-        mission_control_layout.addWidget(self.page_switcher)
 
         self._apply_mission_control_button_sizes()
         self._apply_mission_control_icons()
@@ -526,9 +534,6 @@ class MainZonePanel(QWidget):
                 f" border-radius: 10px;"
                 f"}}"
             )
-        if hasattr(self, "page_switcher"):
-            self.page_switcher.set_current_page(page)
-
     def dock_mission_control_top_right(self) -> None:
         """Force the floating mission control bar to re-dock at the canvas top-right."""
         if not hasattr(self, "mission_control_float"):

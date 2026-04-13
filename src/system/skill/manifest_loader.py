@@ -20,6 +20,8 @@ import yaml
 
 from src.system.skill.skill_manifest import (
     ActionSpaceType,
+    CommandField,
+    CommandInterface,
     InferenceBackend,
     Postcondition,
     Precondition,
@@ -68,6 +70,7 @@ def _parse_v2(raw: Dict[str, Any], bundle_path: Path) -> SkillManifest:
         skill_name=s.get("skill_name", raw.get("name", bundle_path.name)),
         version=s.get("version", raw.get("version", "1.0.0")),
         source_type=_enum_or_default(SourceType, s.get("source_type"), SourceType.SB3_INTERNAL),
+        execution_mode=s.get("execution_mode", "sequential"),
         action_space_type=_enum_or_default(ActionSpaceType, s.get("action_space_type"), ActionSpaceType.JOINT_POSITION),
         action_dim=int(s.get("action_dim", 12)),
         control_frequency_hz=float(s.get("control_frequency_hz", 50.0)),
@@ -84,6 +87,7 @@ def _parse_v2(raw: Dict[str, Any], bundle_path: Path) -> SkillManifest:
         model_path=s.get("model_path", raw.get("policy", {}).get("file", "policy.onnx")),
         normalize_obs=bool(s.get("normalize_obs", False)),
         normalizer_path=s.get("normalizer_path"),
+        command_interface=_parse_command_interface(s.get("command_interface")),
         training_source=s.get("training_source"),
         description=s.get("description", ""),
         tags=s.get("tags", []),
@@ -173,10 +177,23 @@ def _migrate_v1(raw: Dict[str, Any], bundle_path: Path) -> SkillManifest:
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Legacy / training-side aliases for ActionSpaceType. The training stack
+# historically writes "torque" / "position" whereas the enum uses
+# "joint_torque" / "joint_position". Normalize here so existing bundles
+# continue to load cleanly.
+_ACTION_SPACE_ALIASES: Dict[str, str] = {
+    "torque": "joint_torque",
+    "position": "joint_position",
+    "joint_vel": "joint_velocity",
+}
+
+
 def _enum_or_default(enum_cls, value: Optional[str], default):
     """Resolve *value* to an enum member, falling back to *default*."""
     if value is None:
         return default
+    if enum_cls is ActionSpaceType and isinstance(value, str):
+        value = _ACTION_SPACE_ALIASES.get(value, value)
     try:
         return enum_cls(value)
     except ValueError:
@@ -193,4 +210,28 @@ def _parse_condition(data: Optional[Dict[str, Any]], cls):
         posture_tolerance_rad=float(data.get("posture_tolerance_rad", cls().posture_tolerance_rad)),
         velocity_max_mps=float(data.get("velocity_max_mps", cls().velocity_max_mps)),
         custom_check=data.get("custom_check"),
+    )
+
+
+def _parse_command_interface(
+    data: Optional[Dict[str, Any]],
+) -> Optional[CommandInterface]:
+    """Parse a command_interface dict into its frozen dataclass."""
+    if data is None:
+        return None
+    fields_raw = data.get("fields", [])
+    fields = tuple(
+        CommandField(
+            name=f["name"],
+            obs_index=int(f["obs_index"]),
+            range=tuple(f.get("range", (-1.0, 1.0))),
+            default=float(f.get("default", 0.0)),
+        )
+        for f in fields_raw
+    )
+    input_sources = tuple(data.get("input_sources", ("gamepad", "keyboard", "canvas_signal", "api")))
+    return CommandInterface(
+        type=data.get("type", "velocity_2d"),
+        fields=fields,
+        input_sources=input_sources,
     )

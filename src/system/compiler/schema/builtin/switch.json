@@ -1,0 +1,23 @@
+{
+  "schema_id": "builtin.switch",
+  "display_name": "Switch",
+  "node_type": "switch",
+  "kind": "switch",
+  "ports": [
+    {"name": "flow_in",      "direction": "input",  "data_type": "void", "required": true},
+    {"name": "case_default", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {"name": "input_expr", "param_type": "string", "default": ""},
+    {
+      "name": "cases",
+      "param_type": "any",
+      "default": [],
+      "description": "List of case values; each case spawns a matching case_<n> output."
+    }
+  ],
+  "code_template": "",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

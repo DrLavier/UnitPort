@@ -28,10 +28,10 @@ All ``bosdyn.*`` calls stay inside this module.  No caller outside
 
 from __future__ import annotations
 
-import importlib
 import logging as _logging
 from typing import Any, Dict, Optional
 
+from src.system.brand_packages import get_brand_model_class
 from src.system.service.adapters.base_adapter import BaseAdapter
 from src.system.service.lifecycle import LifecycleReason, LifecycleResult
 from .mapper import ACTION_MAP, map_action
@@ -132,18 +132,15 @@ class SpotAdapter(BaseAdapter):
         return True
 
     def _create_model_instance(self, robot_type: str) -> Any:
-        module_names = [
-            "system.brand_packages.boston_dynamics",
-        ]
-        for module_name in module_names:
-            try:
-                module = importlib.import_module(module_name)
-                model_class = getattr(module, "SpotModel", None)
-                if model_class is not None:
-                    return model_class(robot_type)
-            except Exception:
-                continue
-        return None
+        """Instantiate the Spot brand model via the central brand registry."""
+        try:
+            model_class = get_brand_model_class("boston_dynamics")
+        except (KeyError, ImportError):
+            return None
+        try:
+            return model_class(robot_type)
+        except Exception:
+            return None
 
     def get_model(self) -> Optional[Any]:
         if self._model is None:

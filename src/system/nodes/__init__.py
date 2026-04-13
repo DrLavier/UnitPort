@@ -55,6 +55,7 @@ from .sys_nodes import (
     # nodes.sys_nodes.training_nodes and are registered only by the
     # Training Ground canvas — never by the Mission Canvas registry.
 )
+from .sys_nodes.reactive_loco_node import ReactiveLocomotionNode
 
 _logger = logging.getLogger(__name__)
 
@@ -138,7 +139,7 @@ def list_system_nodes() -> List[str]:
         'protocol_emit',
         'math', 'timer', 'variable',
         'wait', 'gate', 'timeout', 'retry', 'cancel', 'abort', 'break',
-        'checkpoint', 'behavior',
+        'checkpoint', 'behavior', 'reactive_loco',
     ]
     return [t for t in system_types if t in REGISTERED_NODES]
 
@@ -192,6 +193,7 @@ register_node("break", BreakNode)
 # Control pipeline nodes
 register_node("checkpoint", CheckpointNode)
 register_node("behavior", BehaviorNode)
+register_node("reactive_loco", ReactiveLocomotionNode)
 # policy / conductor are DEPRECATED — not registered.
 # env_config / train_config / train are NOT registered here.
 # The Training Ground canvas manages its own separate node table.
@@ -343,6 +345,7 @@ __all__ = [
     'BreakNode',
     'CheckpointNode',
     'BehaviorNode',
+    'ReactiveLocomotionNode',
     # PolicyNode / ConductorNode: DEPRECATED, not exported.
     # EnvConfigNode / TrainConfigNode / TrainNode intentionally excluded.
 ]

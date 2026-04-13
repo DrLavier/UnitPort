@@ -1,0 +1,15 @@
+{
+  "schema_id": "builtin.stop",
+  "display_name": "Stop",
+  "node_type": "stop",
+  "kind": "stop",
+  "ports": [
+    {"name": "flow_in",  "direction": "input",  "data_type": "void", "required": true},
+    {"name": "flow_out", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [],
+  "code_template": "robot.stop()",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

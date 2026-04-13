@@ -128,6 +128,8 @@ class ConfigManager:
             'icon_prj_dark': 'bin/assets/icon/icon_prj_w.svg',
             'icon_nod': 'bin/assets/icon/icon_nod.svg',
             'icon_nod_dark': 'bin/assets/icon/icon_nod_w.svg',
+            'icon_controller': 'bin/assets/icon/icon_controller.svg',
+            'icon_controller_dark': 'bin/assets/icon/icon_controller_w.svg',
             'icon_theme_toggle': 'bin/assets/icon/icon_L&D_w.svg',
             'icon_theme_toggle_dark': 'bin/assets/icon/icon_L&D.svg',
             'icon_play': 'bin/assets/icon/icon_play.svg',

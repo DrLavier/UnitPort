@@ -1,0 +1,29 @@
+{
+  "schema_id": "builtin.while_loop",
+  "display_name": "While Loop",
+  "node_type": "while_loop",
+  "kind": "logic",
+  "ports": [
+    {"name": "flow_in",        "direction": "input",  "data_type": "void", "required": true},
+    {"name": "loop_body",      "direction": "output", "data_type": "void", "required": true},
+    {"name": "loop_end",       "direction": "output", "data_type": "void"},
+    {"name": "loop_break_in",  "direction": "input",  "data_type": "void"},
+    {"name": "break_out",      "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {
+      "name": "loop_type",
+      "param_type": "string",
+      "default": "while",
+      "constraints": {"choices": ["while", "for"]}
+    },
+    {"name": "condition_expr", "param_type": "string", "default": ""},
+    {"name": "for_start",      "param_type": "int",    "default": 0},
+    {"name": "for_end",        "param_type": "int",    "default": 10},
+    {"name": "for_step",       "param_type": "int",    "default": 1}
+  ],
+  "code_template": "",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

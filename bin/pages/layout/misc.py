@@ -2,12 +2,13 @@ import math
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PySide6.QtCore import Qt, QUrl, QTimer, Signal, QEasingCurve, QPropertyAnimation, Property, QRectF
+from PySide6.QtCore import Qt, QUrl, QTimer, QSize, Signal, QEasingCurve, QPropertyAnimation, Property, QRectF
 from PySide6.QtGui import QFont, QFontMetrics, QColor, QPainter, QPainterPath, QBrush
 from PySide6.QtMultimedia import QSoundEffect
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
-    QButtonGroup, QHBoxLayout, QMenu, QPushButton,
-    QSizePolicy, QTabBar, QVBoxLayout, QWidget,
+    QButtonGroup, QComboBox, QHBoxLayout, QPushButton,
+    QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from src.system.core.theme_manager import get_color, get_font_size
@@ -517,6 +518,172 @@ class SwitchButton(QWidget):
         self.update()
 
 
+class ThemeSwitchButton(QWidget):
+    """Theme toggle implemented as an animated switch with an SVG icon baked
+    into the slider knob. Colors are delegated to the ``theme_switch_*`` slots
+    in ``ui.ini`` so they can be themed independently of the generic SwitchButton.
+    """
+
+    toggled = Signal(bool)
+
+    def __init__(self, parent=None, checked: bool = False, height: int = 22):
+        super().__init__(parent)
+        self._checked = checked
+        self._slider_pos = 1.0 if checked else 0.0
+
+        # Frame height equals the slider diameter (no vertical margin), and
+        # frame width is exactly twice the height → a compact pill with the
+        # knob traversing the full length. ``height`` is parameterised so the
+        # caller (e.g. MainRow) can match adjacent control sizes.
+        self._height = int(height)
+        self._width = self._height * 2
+        self._slider_margin = 0
+        self._animation_duration = 200
+
+        self._refresh_colors()
+
+        self.setFixedSize(self._width, self._height)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._animation = QPropertyAnimation(self, b"sliderPos")
+        self._animation.setDuration(self._animation_duration)
+        self._animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        # Cached SVG renderers for each state
+        self._off_icon_renderer: Optional[QSvgRenderer] = None
+        self._on_icon_renderer: Optional[QSvgRenderer] = None
+        self._reload_icons()
+
+    def _refresh_colors(self) -> None:
+        self._off_bg = get_color("theme_switch_off_bg", "#e5e7eb")
+        self._on_bg = get_color("theme_switch_on_bg", "#1f2937")
+        self._slider_off_color = get_color("theme_switch_slider_off", "#ffffff")
+        self._slider_on_color = get_color("theme_switch_slider_on", "#ffffff")
+        self._icon_off_color = get_color("theme_switch_icon_off", "#f59e0b")
+        self._icon_on_color = get_color("theme_switch_icon_on", "#e5e7eb")
+
+    def _reload_icons(self) -> None:
+        """Load SVG renderers for the off (light/sun) and on (dark/moon) states.
+
+        Prefers dedicated ``theme_switch_light``/``theme_switch_dark`` assets.
+        Falls back to the existing ``L&D`` icon pair, using the light variant
+        for the off state and the dark (``_w``) variant for the on state.
+        """
+        self._off_icon_renderer = self._load_svg_candidates([
+            "icon_theme_sun.svg",
+            "icon_L&D.svg",
+        ])
+        self._on_icon_renderer = self._load_svg_candidates([
+            "icon_theme_moon.svg",
+            "icon_L&D_w.svg",
+        ])
+
+    @staticmethod
+    def _load_svg_candidates(filenames) -> Optional[QSvgRenderer]:
+        icon_dir = Path(__file__).resolve().parents[2] / "assets" / "icon"
+        for name in filenames:
+            path = icon_dir / name
+            if path.exists():
+                renderer = QSvgRenderer(str(path))
+                if renderer.isValid():
+                    return renderer
+        return None
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, checked: bool, animated: bool = True):
+        if self._checked == checked:
+            return
+        self._checked = checked
+        target = 1.0 if checked else 0.0
+        if animated:
+            self._animation.stop()
+            self._animation.setStartValue(self._slider_pos)
+            self._animation.setEndValue(target)
+            self._animation.start()
+        else:
+            self._slider_pos = target
+            self.update()
+        self.toggled.emit(checked)
+
+    def toggle(self):
+        self.setChecked(not self._checked)
+
+    def get_slider_pos(self) -> float:
+        return self._slider_pos
+
+    def set_slider_pos(self, value: float):
+        self._slider_pos = float(value)
+        self.update()
+
+    sliderPos = Property(float, get_slider_pos, set_slider_pos)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.toggle()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    @staticmethod
+    def _interp_color(off_color: QColor, on_color: QColor, t: float) -> QColor:
+        r = int(off_color.red() + (on_color.red() - off_color.red()) * t)
+        g = int(off_color.green() + (on_color.green() - off_color.green()) * t)
+        b = int(off_color.blue() + (on_color.blue() - off_color.blue()) * t)
+        return QColor(r, g, b)
+
+    def paintEvent(self, event):
+        del event
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = self.rect()
+        radius = rect.height() / 2.0
+
+        # Track background
+        bg_color = self._interp_color(
+            QColor(self._off_bg), QColor(self._on_bg), self._slider_pos
+        )
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect), radius, radius)
+        painter.fillPath(path, QBrush(bg_color))
+
+        # Slider knob
+        slider_diameter = rect.height() - 2 * self._slider_margin
+        slider_x = self._slider_margin + self._slider_pos * (
+            rect.width() - slider_diameter - 2 * self._slider_margin
+        )
+        slider_y = self._slider_margin
+
+        slider_path = QPainterPath()
+        slider_rect = QRectF(slider_x, slider_y, slider_diameter, slider_diameter)
+        slider_path.addEllipse(slider_rect)
+
+        slider_color = self._interp_color(
+            QColor(self._slider_off_color), QColor(self._slider_on_color), self._slider_pos
+        )
+        painter.fillPath(slider_path, QBrush(slider_color))
+
+        # SVG icon inside the knob — pick whichever renderer corresponds to
+        # the "dominant" state (crossfade across the animation).
+        active_renderer = self._on_icon_renderer if self._slider_pos >= 0.5 else self._off_icon_renderer
+        if active_renderer is not None and active_renderer.isValid():
+            pad = 3.0
+            icon_rect = QRectF(
+                slider_x + pad,
+                slider_y + pad,
+                slider_diameter - 2 * pad,
+                slider_diameter - 2 * pad,
+            )
+            active_renderer.render(painter, icon_rect)
+
+    def refresh_style(self):
+        self._refresh_colors()
+        self._reload_icons()
+        self.update()
+
+
 class PageSwitcher(QWidget):
     """Shared Mission/Training page switcher."""
 
@@ -573,12 +740,12 @@ class PageSwitcher(QWidget):
         self.page_mode_changed.emit(new_page)
 
     def apply_theme(self) -> None:
-        container_bg = get_color("tab_bg", "#334155")
+        # Track (pill) background — must contrast against MainRow.
+        track_bg = get_color("button_bg", "#2a2c33")
+        border_color = get_color("border", "#475569")
         base_text = get_color("text_secondary", "#9ca3af")
         tab_hover_bg = get_color("tab_bg_hover", get_color("hover_bg", "#3d4f63"))
         tab_hover_text = get_color("tab_text_hover", get_color("text_primary", "#e2e8f0"))
-        # Per-button checked colors — Qt selects the right rule by button identity (index),
-        # no runtime page-string branch required.
         mission_checked_bg  = get_color("tab_bg_checked")
         training_checked_bg = get_color("tab_bg_training")
         tab_checked_text = get_color("tab_text_checked", "#ffffff")
@@ -586,7 +753,8 @@ class PageSwitcher(QWidget):
         self.setStyleSheet(
             f"""
             #pageSwitcher {{
-                background-color: {container_bg};
+                background-color: {track_bg};
+                border: 1px solid {border_color};
                 border-radius: 8px;
                 padding: 0px;
             }}
@@ -657,185 +825,115 @@ class PageSwitcher(QWidget):
         self.setFixedWidth(total_width)
 
 
-class CanvasTabBar(QWidget):
-    """Browser-style tab bar: QTabBar + "+" button in a plain QWidget.
+class SidebarPageToggleButton(QPushButton):
+    """Single-button Mission/Training toggle used at the top of the sidebar rail.
 
-    Same layout approach as ``_right_host``: QWidget with QHBoxLayout,
-    contentsMargins(0, 4, 0, 4), children placed directly.
-
-    Signals: tab_activated(str), tab_close_requested(str), new_tab_requested(str)
+    Replaces the two-button PageSwitcher with a form-shifting button: clicking
+    it toggles the current page and re-styles itself using the same color slots
+    as PageSwitcher (``tab_bg_checked`` for Mission, ``tab_bg_training`` for
+    Training).
     """
 
-    tab_activated = Signal(str)
-    tab_close_requested = Signal(str)
-    new_tab_requested = Signal(str)
+    page_selected = Signal(str)
+    page_mode_changed = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, button_size: int = 55):
         super().__init__(parent)
-        self.setObjectName("canvasTabBar")
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet("#canvasTabBar { background: transparent; border: none; }")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 4, 0, 4)
-        layout.setSpacing(0)
-
-        self._bar = QTabBar(self)
-        self._bar.setObjectName("canvasTabBarInner")
-        self._bar.setTabsClosable(True)
-        self._bar.setExpanding(False)
-        self._bar.setUsesScrollButtons(False)
-        self._bar.setElideMode(Qt.TextElideMode.ElideRight)
-        self._bar.setDrawBase(False)
-        layout.addWidget(self._bar, 0)
-
-        self._add_btn = QPushButton("+", self)
-        self._add_btn.setObjectName("canvasTabAddBtn")
-        self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._add_btn.setFixedSize(40, 40)
-        self._add_btn.clicked.connect(lambda: self.new_tab_requested.emit(""))
-        layout.addWidget(self._add_btn, 0)
-
-        layout.addStretch(1)
-
-        self._tab_ids: List[str] = []
-        self._block = False
-
-        self._bar.currentChanged.connect(self._on_current_changed)
-        self._bar.tabCloseRequested.connect(self._on_close)
+        self.setObjectName("sidebarPageToggleButton")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(button_size, button_size)
+        self._current_page = "mission"
+        self._sound_effect: Optional[QSoundEffect] = None
+        self.clicked.connect(self._on_click)
         self.apply_theme()
 
-    # -- public API --
+    def current_page(self) -> str:
+        return self._current_page
 
-    def add_tab(self, tab_id: str, display_name: str) -> None:
-        if tab_id in self._tab_ids:
-            self.activate_tab(tab_id)
-            return
-        self._block = True
-        idx = self._bar.addTab(display_name)
-        self._tab_ids.append(tab_id)
-        self._bar.setCurrentIndex(idx)
-        self._block = False
-
-    def remove_tab(self, tab_id: str) -> None:
-        if tab_id not in self._tab_ids:
-            return
-        idx = self._tab_ids.index(tab_id)
-        self._block = True
-        self._bar.removeTab(idx)
-        self._tab_ids.pop(idx)
-        self._block = False
-
-    def activate_tab(self, tab_id: str) -> None:
-        if tab_id in self._tab_ids:
-            self._bar.setCurrentIndex(self._tab_ids.index(tab_id))
-
-    def rename_tab(self, tab_id: str, new_name: str) -> None:
-        if tab_id in self._tab_ids:
-            self._bar.setTabText(self._tab_ids.index(tab_id), new_name)
-
-    def clear_tabs(self) -> None:
-        self._block = True
-        while self._bar.count() > 0:
-            self._bar.removeTab(0)
-        self._tab_ids.clear()
-        self._block = False
-
-    def active_tab_id(self) -> str:
-        idx = self._bar.currentIndex()
-        if 0 <= idx < len(self._tab_ids):
-            return self._tab_ids[idx]
-        return ""
-
-    def tab_count(self) -> int:
-        return len(self._tab_ids)
-
-    # -- internal --
-
-    def _on_current_changed(self, index: int) -> None:
-        if self._block or index < 0:
-            return
-        if 0 <= index < len(self._tab_ids):
-            self.tab_activated.emit(self._tab_ids[index])
-
-    def _on_close(self, index: int) -> None:
-        if 0 <= index < len(self._tab_ids):
-            self.tab_close_requested.emit(self._tab_ids[index])
-
-    # -- theme --
-
-    def set_page_mode(self, page: str) -> None:
-        self._page_mode = page
+    def set_current_page(self, page: str) -> None:
+        target = "training" if str(page or "mission").strip().lower() == "training" else "mission"
+        self._current_page = target
         self.apply_theme()
+        self.page_mode_changed.emit(target)
+
+    def _on_click(self) -> None:
+        next_page = "training" if self._current_page == "mission" else "mission"
+        self._current_page = next_page
+        self._play_pick_sound()
+        self.apply_theme()
+        self.page_mode_changed.emit(next_page)
+        self.page_selected.emit(next_page)
 
     def apply_theme(self) -> None:
-        mode = getattr(self, "_page_mode", "training")
-        if mode == "training":
-            bg = get_color("canvas_tab_training_bg", "#2a2c33")
-            sel_bg = get_color("canvas_tab_training_bg_active", "#F6D393")
-            text = get_color("canvas_tab_training_text", "#aaaaaa")
-            sel_text = get_color("canvas_tab_training_text_active", "#1E1E1E")
+        text = get_color("tab_text_checked", "#ffffff")
+        if self._current_page == "training":
+            bg = get_color("tab_bg_training")
+            hover = get_color("tab_bg_hover", get_color("hover_bg", "#3d4f63"))
+            label = "TRN"
         else:
-            bg = get_color("canvas_tab_bg", "#2a2c33")
-            sel_bg = get_color("canvas_tab_bg_active", "#A390FC")
-            text = get_color("canvas_tab_text", "#aaaaaa")
-            sel_text = get_color("canvas_tab_text_active", "#1E1E1E")
-        hover = get_color("canvas_tab_bg_hover", "#3d3d3d")
-        self._bar.setStyleSheet(f"""
-            QTabBar {{
-                background: transparent;
-                border: none;
-            }}
-            QTabBar::tab {{
-                background: {bg};
+            bg = get_color("tab_bg_checked")
+            hover = get_color("tab_bg_hover", get_color("hover_bg", "#3d4f63"))
+            label = "MIS"
+        self.setText(label)
+        self.setToolTip(
+            "Mission Control — click to switch to Training"
+            if self._current_page == "mission"
+            else "Training Ground — click to switch to Mission"
+        )
+        self.setStyleSheet(f"""
+            QPushButton#sidebarPageToggleButton {{
+                background-color: {bg};
                 color: {text};
                 border: none;
-                padding: 6px 14px;
-                margin-right: 2px;
+                font-weight: 700;
+                font-size: 13px;
+                letter-spacing: 1px;
             }}
-            QTabBar::tab:hover {{
-                background: {hover};
-            }}
-            QTabBar::tab:selected {{
-                background: {sel_bg};
-                color: {sel_text};
-                font-weight: bold;
+            QPushButton#sidebarPageToggleButton:hover {{
+                background-color: {hover};
             }}
         """)
-        self._add_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {text};
-                border: none;
-                font-size: 18px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background: {hover};
-            }}
-        """)
+
+    def _play_pick_sound(self) -> None:
+        try:
+            sound_path = Path(__file__).resolve().parents[2] / "assets" / "sound" / "picked.wav"
+            if not sound_path.exists():
+                return
+            if self._sound_effect is None:
+                self._sound_effect = QSoundEffect(self)
+                self._sound_effect.setSource(QUrl.fromLocalFile(str(sound_path)))
+                self._sound_effect.setVolume(0.55)
+            self._sound_effect.play()
+        except Exception:
+            pass
 
 
 class MainRow(QWidget):
-    """Top navigation row — WorkSpace selector + PageSwitcher (left),
-    canvas file tabs (center), window controls (right).
+    """Full-width header row spanning both the workspace and CMD columns.
 
-    Signals
-    -------
-    workspace_selected(project_id: str)
-        User selected a workspace from the dropdown.
+    Layout (left → right):
+        (10px) [PageSwitcher] (5px) | (5px) [FilesRow] (10px) [utility cluster] (20px) [window controls]
+
+    The FilesRow is embedded with zero vertical margin so it shares the
+    exact same height as MainRow (48 px).
     """
 
-    workspace_selected = Signal(str)
-
     _OBJECT_NAME = "mainRowHeader"
+
+    _GAP_PX = 20          # gap between utility cluster and window controls
+    _UTIL_BTN_SIZE = 32   # size of circular utility buttons in the cluster
+    _LANG_COMBO_WIDTH = 63  # ~30% narrower than the previous default sizeHint
+    _THEME_SWITCH_HEIGHT = _UTIL_BTN_SIZE - 5
+
+    user_clicked = Signal()
+    page_selected = Signal(str)      # forwarded from embedded PageSwitcher
+    theme_switched = Signal(bool)    # True = dark, False = light
+    language_changed = Signal(str)   # emits language code ("en", "zh", …)
 
     def __init__(self, theme: str = "dark", parent=None):
         super().__init__(parent)
         self._theme = (theme or "dark").lower()
         self._current_page = "mission"
-        self._projects: List[dict] = []   # [{id, name}, ...]
-        self._active_project_id: str = ""
         self.setObjectName(self._OBJECT_NAME)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedHeight(48)
@@ -844,29 +942,60 @@ class MainRow(QWidget):
         self._layout.setContentsMargins(0, 0, 10, 0)
         self._layout.setSpacing(0)
 
-        # ── Left zone: WorkSpace selector ─────────────────────────────
-        self._left_zone = QWidget(self)
-        self._left_zone.setObjectName("mainRowLeftZone")
-        left_layout = QHBoxLayout(self._left_zone)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(0)
-        self._left_zone.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        # ── Left zone: PageSwitcher ───────────────────────────────────
+        self._layout.addSpacing(10)
+        self.page_switcher = PageSwitcher(parent=self)
+        self.page_switcher.page_selected.connect(self.page_selected.emit)
+        self._layout.addWidget(self.page_switcher, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._workspace_btn = QPushButton("<NEW PROJECT>", self._left_zone)
-        self._workspace_btn.setObjectName("workspaceDropdown")
-        self._workspace_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._workspace_btn.setFixedHeight(46)
-        self._workspace_btn.clicked.connect(self._show_workspace_menu)
-        left_layout.addWidget(self._workspace_btn)
+        # 5px + 1px separator + 5px
+        self._layout.addSpacing(5)
+        self._separator = QWidget(self)
+        self._separator.setFixedWidth(1)
+        self._separator.setFixedHeight(28)
+        self._layout.addWidget(self._separator, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._layout.addSpacing(5)
 
-        self._layout.addWidget(self._left_zone, 0)
-
-        # ── Center zone: Canvas file tabs (training mode only) ─────────
-        self.tab_bar = CanvasTabBar(self)
-        self._layout.addWidget(self.tab_bar, 0)
-
-        # Push right zone to the far right
+        # ── FilesRow slot — caller sets via set_files_row() ───────────
+        # Placeholder stretches until the real FilesRow is injected.
+        self._files_row: Optional[QWidget] = None
+        self._files_row_stretch_index = self._layout.count()
         self._layout.addStretch(1)
+
+        # ── Utility cluster: Theme switch / Language ──────────────────
+        self._layout.addSpacing(10)
+        self._util_host = QWidget(self)
+        self._util_host.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._util_host.setObjectName("mainRowUtilHost")
+        util_layout = QHBoxLayout(self._util_host)
+        util_layout.setContentsMargins(0, 0, 0, 0)
+        util_layout.setSpacing(10)
+
+        self.theme_switch = ThemeSwitchButton(
+            parent=self._util_host,
+            checked=(self._theme == "dark"),
+            height=self._THEME_SWITCH_HEIGHT,
+        )
+        self.theme_switch.setToolTip("Toggle theme")
+        self.theme_switch.toggled.connect(self.theme_switched.emit)
+        util_layout.addWidget(self.theme_switch, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        self.language_combo = QComboBox(self._util_host)
+        self.language_combo.setObjectName("mainRowLanguageCombo")
+        self.language_combo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.language_combo.addItem("EN", "en")
+        self.language_combo.addItem("中文", "zh")
+        self.language_combo.setFixedHeight(self._UTIL_BTN_SIZE)
+        self.language_combo.setFixedWidth(self._LANG_COMBO_WIDTH)
+        self.language_combo.currentIndexChanged.connect(self._emit_language)
+        util_layout.addWidget(self.language_combo)
+
+        self.user_button = None
+
+        self._layout.addWidget(self._util_host, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        # 20 px gap between utility cluster and the window-controls host
+        self._layout.addSpacing(self._GAP_PX)
 
         # ── Right zone: host for window controls ───────────────────────
         self._right_host = QWidget(self)
@@ -880,94 +1009,70 @@ class MainRow(QWidget):
 
         self._right_widget: Optional[QWidget] = None
         self.apply_page_bg()
-        self._apply_left_zone_style()
-        # Mission mode at init: show project name, hide tab bar
-        self.tab_bar.setVisible(False)
+        self._apply_util_styles()
+        self._refresh_user_icon()
 
-    # -- workspace dropdown --
+    # -- language / utility helpers --
 
-    def set_projects(self, projects: List[dict]) -> None:
-        """Update the workspace dropdown choices. Each dict: {id, name}."""
-        self._projects = list(projects)
+    def _emit_language(self, _index: int) -> None:
+        code = self.language_combo.currentData()
+        if code:
+            self.language_changed.emit(str(code))
 
-    def set_active_project(self, project_id: str, project_name: str = "") -> None:
-        """Update the workspace button label to show active project."""
-        self._active_project_id = project_id
-        label = project_name or project_id or "[NEW PROJECT]"
-        self._workspace_btn.setText(f" {label} \u25bc")
-
-    def _show_workspace_menu(self) -> None:
-        menu = QMenu(self)
-        menu.setObjectName("workspaceMenu")
-        menu.setStyleSheet(self._menu_stylesheet())
-        if not self._projects:
-            action = menu.addAction("(No projects)")
-            action.setEnabled(False)
-        else:
-            for proj in self._projects:
-                pid = proj.get("id", "")
-                name = proj.get("name", pid)
-                act = menu.addAction(name)
-                act.setData(pid)
-                if pid == self._active_project_id:
-                    font = act.font()
-                    font.setBold(True)
-                    act.setFont(font)
-        chosen = menu.exec(self._workspace_btn.mapToGlobal(
-            self._workspace_btn.rect().bottomLeft()
-        ))
-        if chosen is not None and chosen.data():
-            self.workspace_selected.emit(chosen.data())
-
-    def _menu_stylesheet(self) -> str:
-        bg = get_color("dropdown_bg", "#1e293b")
-        text = get_color("text_primary", "#e2e8f0")
-        hover = get_color("hover_bg", "#334155")
-        border = get_color("border", "#475569")
-        return f"""
-            QMenu {{
-                background-color: {bg};
-                color: {text};
-                border: 1px solid {border};
-                border-radius: 6px;
-                padding: 4px;
-            }}
-            QMenu::item {{
-                padding: 6px 20px;
-                border-radius: 4px;
-            }}
-            QMenu::item:selected {{
-                background-color: {hover};
-            }}
-        """
+    def set_language(self, code: str) -> None:
+        """Programmatic language select (does not re-emit the signal loop)."""
+        code = str(code or "").lower()
+        idx = self.language_combo.findData(code)
+        if idx >= 0:
+            was_blocked = self.language_combo.blockSignals(True)
+            self.language_combo.setCurrentIndex(idx)
+            self.language_combo.blockSignals(was_blocked)
 
     # -- page mode --
 
     def set_current_page(self, page: str) -> None:
-        """Update header to match the active page.
-
-        Mission  → show project name, hide tab bar.
-        Training → hide project name, show tab bar.
-        """
+        """Update header background to match the active page."""
         page = "training" if str(page or "").strip().lower() == "training" else "mission"
         if page != self._current_page:
             self._current_page = page
             self.apply_page_bg()
-            self.tab_bar.set_page_mode(page)
-        # Toggle visibility
-        self._left_zone.setVisible(page == "mission")
-        self.tab_bar.setVisible(page == "training")
+            # Language combo bg tracks the row bg → re-stylize on page swap.
+            self._apply_util_styles()
 
     def apply_page_bg(self) -> None:
-        """Update MainRow background and border to match the active page."""
+        """Update MainRow background and separator to match the active page."""
         if self._current_page == "training":
             bg = get_color("main_row_training_bg")
         else:
             bg = get_color("main_row_bg")
-        border = get_color("border")
         self.setStyleSheet(
-            f"#{self._OBJECT_NAME} {{ background-color: {bg}; border-bottom: 1px solid {border}; }}"
+            f"#{self._OBJECT_NAME} {{ background-color: {bg}; border: none; }}"
         )
+        # Separator line colour
+        sep_color = get_color("border", "#475569")
+        if hasattr(self, "_separator") and self._separator is not None:
+            self._separator.setStyleSheet(f"background-color: {sep_color};")
+
+    # -- files row --
+
+    def set_files_row(self, files_row: QWidget) -> None:
+        """Embed *files_row* into MainRow between the separator and util cluster.
+
+        The widget is inserted with zero vertical margin so it shares the
+        exact 48 px height of MainRow.
+        """
+        if self._files_row is files_row:
+            return
+        if self._files_row is not None:
+            self._layout.removeWidget(self._files_row)
+            self._files_row.setParent(None)
+        self._files_row = files_row
+        if self._files_row is not None:
+            # Remove the placeholder stretch and insert the real widget
+            stretch_item = self._layout.itemAt(self._files_row_stretch_index)
+            if stretch_item is not None and stretch_item.spacerItem() is not None:
+                self._layout.removeItem(stretch_item)
+            self._layout.insertWidget(self._files_row_stretch_index, self._files_row, 1)
 
     # -- right widget --
 
@@ -985,30 +1090,74 @@ class MainRow(QWidget):
 
     def apply_theme(self) -> None:
         self.apply_page_bg()
-        self._apply_left_zone_style()
-        self.tab_bar.apply_theme()
+        self._apply_util_styles()
+        if hasattr(self, "theme_switch"):
+            self.theme_switch.refresh_style()
+        if hasattr(self, "page_switcher"):
+            self.page_switcher.apply_theme()
+        self._refresh_user_icon()
 
-    def _apply_left_zone_style(self) -> None:
+    def _refresh_user_icon(self) -> None:
+        # User button has been removed from the MainRow layout. Method kept
+        # as a no-op so external callers / theme refresh paths don't break.
+        if self.user_button is None:
+            return
+        from src.system.core.theme_manager import get_icon
+        icon = get_icon("acc")
+        if not icon.isNull():
+            self.user_button.setIcon(icon)
+            self.user_button.setIconSize(
+                QSize(self._UTIL_BTN_SIZE - 10, self._UTIL_BTN_SIZE - 10)
+            )
+            self.user_button.setText("")
+        else:
+            self.user_button.setText("U")
+
+    def set_theme_state(self, theme: str) -> None:
+        """Sync the theme switch visual to an external theme change without
+        re-emitting the toggled signal."""
+        is_dark = str(theme or "dark").lower() == "dark"
+        if hasattr(self, "theme_switch"):
+            was_blocked = self.theme_switch.blockSignals(True)
+            self.theme_switch.setChecked(is_dark, animated=True)
+            self.theme_switch.blockSignals(was_blocked)
+
+    def _apply_util_styles(self) -> None:
+        # Language combo: bg matches the MainRow itself (so the closed combo
+        # blends into the row), hover uses ``button_hover`` to match the
+        # window-control buttons on the right edge of the row.
+        if self._current_page == "training":
+            row_bg = get_color("main_row_training_bg", get_color("main_row_bg", "#1f2937"))
+        else:
+            row_bg = get_color("main_row_bg", "#1f2937")
+        hover = get_color("button_hover", get_color("hover_bg", "#3d3d3d"))
+        popup_bg = get_color("button_bg", "#2a2a2a")
+        text = get_color("text_primary", "#e2e8f0")
         border = get_color("border", "#475569")
-        ws_bg = get_color("workspace_btn_bg", "transparent")
-        ws_text = get_color("workspace_btn_text", get_color("text_primary", "#e2e8f0"))
-        ws_hover = get_color("workspace_btn_hover_bg", get_color("hover_bg", "#3d4f63"))
-        ws_border = get_color("workspace_btn_border", border)
-        self._left_zone.setStyleSheet(f"""
-            #mainRowLeftZone {{
-                background-color: transparent;
+        self._util_host.setStyleSheet(f"""
+            #mainRowUtilHost {{
+                background: transparent;
                 border: none;
             }}
-        """)
-        self._workspace_btn.setStyleSheet(f"""
-            #workspaceDropdown {{
-                background: {ws_bg};
-                color: {ws_text};
-                border: none;
-                font-size: 14px;
-                font-weight: bold;
+            QComboBox#mainRowLanguageCombo {{
+                background-color: {row_bg};
+                color: {text};
+                border: 1px solid {border};
+                border-radius: 6px;
+                padding: 2px 6px 2px 8px;
+                font-weight: 600;
             }}
-            #workspaceDropdown:hover {{
-                background-color: {ws_hover};
+            QComboBox#mainRowLanguageCombo:hover {{
+                background-color: {hover};
+            }}
+            QComboBox#mainRowLanguageCombo::drop-down {{
+                border: none;
+                width: 16px;
+            }}
+            QComboBox#mainRowLanguageCombo QAbstractItemView {{
+                background-color: {popup_bg};
+                color: {text};
+                selection-background-color: {hover};
+                border: 1px solid {border};
             }}
         """)

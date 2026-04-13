@@ -15,6 +15,31 @@ from src.system.compiler.semantic.diagnostics import (
 )
 
 
+# Schema IDs that intentionally bypass SchemaRegistry in canvas_to_ir.py —
+# these are structural markers or nodes whose semantics are resolved at
+# execution time rather than through the schema registry, so the validator
+# must not flag them as E2001 "Unknown schema".
+_REGISTRY_BYPASS_SCHEMA_IDS = frozenset({
+    "builtin.start",
+    "builtin.end",
+    "behavior",
+    "checkpoint",
+    "behavior_call",
+    "run_policy",
+    "builtin.protocol_emit",
+})
+
+# NodeKinds that have no schema entry and are validated by other means.
+_REGISTRY_BYPASS_KINDS = frozenset({
+    NodeKind.START,
+    NodeKind.END,
+    NodeKind.BEHAVIOR_CALL,
+    NodeKind.PROTOCOL_EMIT,
+    NodeKind.RUN_POLICY,
+    NodeKind.OPAQUE,
+})
+
+
 class SemanticValidator:
     """Validate a WorkflowIR against its node schemas."""
 
@@ -45,7 +70,9 @@ class SemanticValidator:
         """Check that every node references a valid schema."""
         diags = []
         for node in ir.nodes:
-            if node.kind == NodeKind.OPAQUE:
+            if node.kind in _REGISTRY_BYPASS_KINDS:
+                continue
+            if node.schema_id in _REGISTRY_BYPASS_SCHEMA_IDS:
                 continue
             schema = SchemaRegistry.get(node.schema_id)
             if schema is None:

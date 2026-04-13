@@ -5,19 +5,21 @@ Main UI Module
 Contains MainWindow and main UI components
 """
 
-from PySide6.QtCore import Qt, QTimer, QUrl, QEasingCurve, QPropertyAnimation, QEvent
-from PySide6.QtGui import QDesktopServices, QColor, QTextCharFormat, QTextCursor
+from PySide6.QtCore import Qt, QTimer, QUrl, QEasingCurve, QPropertyAnimation, QEvent, QSize
+from PySide6.QtGui import QDesktopServices, QColor, QIcon, QTextCharFormat, QTextCursor
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QStatusBar, QLabel, QComboBox, QMessageBox, QGraphicsOpacityEffect,
-    QFileDialog, QPushButton, QStackedWidget, QSizePolicy, QTextEdit,
+    QFileDialog, QInputDialog, QPushButton, QStackedWidget, QSizePolicy, QTextEdit,
 )
 import inspect
 import json
 import os
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 from PySide6.QtSvgWidgets import QSvgWidget
+from bin.widgets.lottie_player import LottiePlayer
 
 from bin.pages.layout.main_zone_panel import MainZonePanel
 from bin.pages.layout.sidebar_dock import SidebarDock
@@ -33,6 +35,14 @@ from src.system.core.logger import CmdLogWidget, get_log_signal, log_info, log_s
 from src.system.core.localisation import get_localisation, tr
 from src.system.core.robot_context import RobotContext
 from bin.pages.layout.misc import MainRow
+from bin.pages.layout.files_row import FilesRow, FileTabEntry, _FileTabWidget, ProjectFileBrowserPanel
+from bin.pages.training.training_setting_page import TrainingSettingPage
+
+# Sentinel file_id used for the pending "new_mission" draft tab shown in
+# FilesRow when a Mission workspace has an active project but no saved
+# workflow yet. The real id is assigned when the user saves (which already
+# prompts for a name via _on_save_as).
+PENDING_MISSION_ID = "::new_mission::"
 from bin.pages.homepage.homepage import WindowControlButtons
 from src.system.behavior.action_registry import get_semantic_actions
 
@@ -49,12 +59,22 @@ class MainWindow(QMainWindow):
         self.simulation_thread = None
         self._runtime_paused = False
         self._current_workflow_path = ""
+        self._current_workflow_id: str = ""
         # Cycle 2 STAGE-06: background mission run thread + cached exec_graph.
         self._mission_run_thread = None
         # AppShell: single Training Ground page (created lazily)
         self._training_page = None
         self._active_project_id: str = ""
         self._active_project_name: str = ""
+        # Per-tab canvas caches keyed by file_id (workflow_id / experiment_id /
+        # PENDING_MISSION_ID for the unsaved draft). Each entry holds the
+        # serialized graph plus the full undo/clean-index history state so a
+        # tab restore re-creates the exact in-memory state — including dirty
+        # flag and undo stack — without ever touching disk. Survives both
+        # within-mode tab swaps and mission↔training mode transitions.
+        # See: _stash_current_canvas / _restore_canvas_from_cache.
+        self._mission_canvas_cache: Dict[str, Dict[str, Any]] = {}
+        self._training_canvas_cache: Dict[str, Dict[str, Any]] = {}
         self._nav_busy = False
         self._fade_pending_cb = None  # currently-connected finished callback
         self._last_exec_graph: dict = {}
@@ -173,7 +193,7 @@ class MainWindow(QMainWindow):
         # Page 0: Homepage
         from bin.pages.homepage.homepage import HomepageWidget
         self._homepage_page = HomepageWidget(theme=self._theme)
-        self._homepage_page.continue_requested.connect(self.go_mission)
+        self._homepage_page.continue_requested.connect(self._on_continue)
         self._homepage_page.new_project_created.connect(self._on_homepage_new_project)
         self._homepage_page.load_project_selected.connect(self._on_homepage_load_project)
         self._homepage_page.exit_requested.connect(QApplication.quit)
@@ -221,16 +241,14 @@ class MainWindow(QMainWindow):
         startup_loading_layout = QVBoxLayout(self._startup_loading_overlay)
         startup_loading_layout.setContentsMargins(0, 0, 0, 0)
         startup_loading_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        from src.system.core.theme_manager import _get_icon_dir
-        self._startup_loading_logo = QSvgWidget(str(_get_icon_dir() / "logo_w.svg"), self._startup_loading_overlay)
-        logo_size = self._startup_loading_logo.renderer().defaultSize()
-        logo_height = 200
-        logo_width = logo_height
-        if logo_size.height() > 0:
-            logo_width = max(1, int(logo_size.width() * (logo_height / logo_size.height())))
-        self._startup_loading_logo.setFixedSize(logo_width, logo_height)
+        _lottie_path = str(Path(__file__).resolve().parent.parent.parent / "assets" / "anim" / "loading.json")
+        self._startup_lottie = LottiePlayer(
+            _lottie_path,
+            QSize(200, 200),
+            parent=self._startup_loading_overlay,
+        )
         startup_loading_layout.addWidget(
-            self._startup_loading_logo,
+            self._startup_lottie,
             alignment=Qt.AlignmentFlag.AlignCenter,
         )
         self._startup_loading_overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -256,6 +274,8 @@ class MainWindow(QMainWindow):
             pass
         if hasattr(self, "_page_stack") and self._page_stack is not None:
             self._page_stack.show()
+        if hasattr(self, "_startup_lottie") and self._startup_lottie is not None:
+            self._startup_lottie.stop()
         if hasattr(self, "_startup_loading_overlay") and self._startup_loading_overlay is not None:
             self._startup_loading_overlay.hide()
         if hasattr(self, "_startup_log_bg") and self._startup_log_bg is not None:
@@ -307,11 +327,6 @@ class MainWindow(QMainWindow):
 
     def run_startup_prewarm(self) -> None:
         self._load_active_project_from_config()
-        if hasattr(self, "mission_nav_header"):
-            self.mission_nav_header.set_active_project(
-                self._active_project_id, self._active_project_name
-            )
-            self._refresh_mainrow_projects()
         self._update_project_files_root()
         self._prime_training_shell_cache("")
 
@@ -326,18 +341,18 @@ class MainWindow(QMainWindow):
         # Left: fixed sidebar rail + contextual slide-out content panel
         self.sidebar = SidebarDock(
             nav_items=[
-                ("user", "User", "acc"),
                 ("projects", "Project Files", "prj"),
                 ("nodes", "Nodes", "nod"),
+                # Controller panel — live keyboard / gamepad input feeds the
+                # active replay session via GlobalInputManager. Available on
+                # both Mission and Training pages so demo flow stays uniform.
+                # Icon resolves to bin/assets/icon/icon_controller.svg (light)
+                # / icon_controller_w.svg (dark) via theme_manager.get_icon.
+                ("controller", "Controller", "controller"),
             ],
             config=self.config,
         )
         self.sidebar.panel_requested.connect(self._on_sidebar_panel_requested)
-        self.sidebar.theme_toggle_requested.connect(self._on_theme_toggle)
-        self.sidebar.language_toggle_requested.connect(self._on_language_button_clicked)
-        self.theme_button = self.sidebar.theme_button
-        self.language_button = self.sidebar.language_button
-        self._sync_theme_button()
         main_layout.addWidget(self.sidebar)
 
         self.mission_shell = QWidget()
@@ -346,15 +361,20 @@ class MainWindow(QMainWindow):
         mission_shell_layout.setSpacing(0)
         main_layout.addWidget(self.mission_shell, 1)
 
+        # MainRow spans the full width above the splitter. Hosts PageSwitcher,
+        # FilesRow, utility widgets (Theme / Language) and window controls.
         self.mission_nav_header = MainRow(theme=self._theme)
-        # PageSwitcher ref is set after MainZonePanel creates its float bar
-        self._page_switcher = None
-
-        # Wire tab bar signals for canvas file switching
-        self.mission_nav_header.tab_bar.tab_activated.connect(self._on_tab_activated)
-        self.mission_nav_header.tab_bar.tab_close_requested.connect(self._on_tab_close_requested)
-        self.mission_nav_header.tab_bar.new_tab_requested.connect(self._on_new_tab_requested)
-        self.mission_nav_header.workspace_selected.connect(self._on_mainrow_workspace_selected)
+        self.theme_switch = self.mission_nav_header.theme_switch
+        self.language_button = self.mission_nav_header.language_combo
+        self.user_button = self.mission_nav_header.user_button
+        self.mission_nav_header.theme_switched.connect(self._on_theme_switch_toggled)
+        self.mission_nav_header.language_changed.connect(self._on_language_code_changed)
+        # PageSwitcher in MainRow drives mission/training switching
+        self.mission_nav_header.page_selected.connect(self._on_page_switcher_selected)
+        self._page_switcher = self.mission_nav_header.page_switcher
+        # Seed the language dropdown from the saved preference (no-op if absent)
+        _saved_lang = self.config.get("PREFERENCES", "language", fallback="en", config_type="user") or "en"
+        self.mission_nav_header.set_language(_saved_lang)
 
         self._shell_mode = "mission"
 
@@ -369,9 +389,7 @@ class MainWindow(QMainWindow):
         mc_nav_layout.addWidget(self.window_controls)
         self.mission_nav_header.set_right_widget(self._mc_nav_content)
 
-        mission_shell_layout.addWidget(self.mission_nav_header)
-
-        # Shared workspace stack (left pane of the shell splitter)
+        # Shared workspace stack (left pane of the shell splitter, full height)
         self._shell_content_stack = QStackedWidget()
         self._shell_content_stack.setObjectName("shellContentStack")
         self._mission_content_placeholder = QWidget()
@@ -382,17 +400,52 @@ class MainWindow(QMainWindow):
         self._cmd_collapsed = False
         self._cmd_last_width = 340
 
-        # Right: built-in CMD console
+        # Built-in CMD console
         self.cmd_log = CmdLogWidget()
         self.cmd_log.setMinimumWidth(0)
 
-        # Main and right-zone splitter shared by Mission + Training
+        # Right column = CmdLog only (MainRow has moved above the splitter).
+        self._cmd_column = QWidget()
+        _cmd_col_layout = QVBoxLayout(self._cmd_column)
+        _cmd_col_layout.setContentsMargins(0, 0, 0, 0)
+        _cmd_col_layout.setSpacing(0)
+        _cmd_col_layout.addWidget(self.cmd_log, 1)
+        self._cmd_column.setMinimumWidth(340)
+
+        # FilesRow: persistent file-tab bar embedded inside MainRow.
+        # Swaps kind between "mission" and "training" on page changes; its
+        # tabs are refreshed by _refresh_files_row().
+        self.files_row = FilesRow(theme=self._theme, kind="mission")
+        self.files_row.new_requested.connect(self._on_files_row_new)
+        self.files_row.tab_activated.connect(self._on_files_row_activate)
+        self.files_row.tab_close_requested.connect(self._on_files_row_close)
+        self.files_row.tab_restore_requested.connect(self._on_files_row_restore)
+        # Embed FilesRow inside MainRow (zero vertical margin, same height)
+        self.mission_nav_header.set_files_row(self.files_row)
+
+        # Training buffer page: shown in the Training slot when the active
+        # project has no experiments yet. Replaced by TrainingWorkspaceWindow
+        # after the user picks a backend + enters an experiment name.
+        self._training_setting_page = TrainingSettingPage()
+        self._training_setting_page.new_training_requested.connect(
+            self._on_training_setting_new
+        )
+
+        # Main and right-zone splitter shared by Mission + Training.
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.addWidget(self._shell_content_stack)
-        self.main_splitter.addWidget(self.cmd_log)
-        self.main_splitter.setSizes([1260, self._cmd_last_width])
+        self.main_splitter.addWidget(self._cmd_column)
+        _initial_right = max(self._cmd_last_width, self._cmd_column.minimumWidth())
+        self.main_splitter.setSizes([1260, _initial_right])
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 0)
+        self.main_splitter.setHandleWidth(1)
+        self.main_splitter.setStyleSheet(
+            "QSplitter::handle { background: transparent; border: none; }"
+        )
+
+        # MainRow spans full width above the splitter
+        mission_shell_layout.addWidget(self.mission_nav_header)
         mission_shell_layout.addWidget(self.main_splitter, 1)
 
         # ── Decorative bottom edge ────────────────────────────────────
@@ -414,12 +467,36 @@ class MainWindow(QMainWindow):
         self.graph_view = self.main_zone.graph_view
         self.code_editor = self.main_zone.code_editor
         self.module_palette.set_embedded_mode(True)
+        # Legacy ProjectFilesPanel kept for backwards-compat references.
         self.project_files_panel = ProjectFilesPanel(self._workflows_root())
         self.project_files_panel.file_activated.connect(self._open_workflow_from_path)
         self.project_files_panel.load_requested.connect(self._on_open)
         self.project_files_panel.open_folder_requested.connect(self._open_workflows_folder)
-        self.sidebar.set_panel_widget("projects", self.project_files_panel, "Project Files")
+
+        # New unified file browser panel — shows canvas files for the
+        # current mode (mission/training) with check-to-show behaviour.
+        self._file_browser_panel = ProjectFileBrowserPanel()
+        self._file_browser_panel.file_checked.connect(self._on_file_browser_checked)
+        self.sidebar.set_panel_widget("projects", self._file_browser_panel, "Project Files")
         self.sidebar.set_panel_widget("nodes", self.module_palette, "Node Library")
+
+        # User panel — profile card + engine configuration overview.
+        from bin.pages.layout.user_panel import UserPanel
+        self._user_panel = UserPanel()
+        self._user_panel.engine_settings_requested.connect(
+            self._on_engine_settings_requested
+        )
+        self.sidebar.set_panel_widget("user", self._user_panel, "User")
+
+        # Controller panel — owns the GlobalInputManager bridge for both
+        # Mission BehaviorNode replays and Training Export Reviews. The
+        # panel is shared across pages (the manager is a process
+        # singleton), so we construct it once here at MainWindow init.
+        from bin.pages.layout.controller_panel import ControllerPanel
+        self.controller_panel = ControllerPanel()
+        self.sidebar.set_panel_widget(
+            "controller", self.controller_panel, "Controller"
+        )
         self.graph_scene.set_subgraph_opener(self._open_nested_editor)
         self.graph_scene.set_script_tab_closer(self.main_zone.close_script_tab)
         self.graph_scene.set_script_tab_renamer(self.main_zone.rename_script_tab)
@@ -445,6 +522,10 @@ class MainWindow(QMainWindow):
         self.main_zone.workflow_save_requested.connect(self._on_save)
         self.main_zone.workflow_save_as_requested.connect(self._on_save_as)
         self.main_zone.workflow_browser_requested.connect(self._open_project_files_sidebar)
+        # Dirty-state bridge: propagate canvas edits to the files_row tab dot.
+        # When the mission canvas emits ``content_changed(dirty)`` we look up
+        # the active workflow id and forward to ``files_row.mark_dirty``.
+        self.graph_scene.content_changed.connect(self._on_mission_scene_dirty_changed)
         self.main_zone.navigate_to_node.connect(self._on_navigate_to_node)
         # Capability inspector refresh on settings change (Cycle 2 STAGE-04)
         self.main_zone.settings_panel.settings_applied.connect(self._on_sdk_settings_changed)
@@ -462,16 +543,12 @@ class MainWindow(QMainWindow):
             self._shell_content_stack.insertWidget(0, self.main_zone)
         self._shell_content_stack.setCurrentIndex(0)
 
-        # Wire PageSwitcher from the mission control float bar
-        if hasattr(self.main_zone, 'page_switcher'):
-            self._page_switcher = self.main_zone.page_switcher
-            self._page_switcher.page_selected.connect(self._on_page_switcher_selected)
-
         # Apply initial page accent to the float bar
         self.main_zone.set_page_mode("mission")
 
         # Store MC sidebar panel widgets and icon bindings for later restoration
         self._mc_sidebar_user_widget = self.sidebar._panel_meta.get("user", {}).get("widget")
+        # _file_browser_panel is mode-aware — no need to stash/restore it.
         self._mc_sidebar_icon_bindings = dict(self.sidebar._nav_icon_bindings)
 
         # Overview Panel is now integrated into TrainingFloatControlBar
@@ -491,18 +568,33 @@ class MainWindow(QMainWindow):
         """Set (or clear) the active project and propagate to UI widgets."""
         self._active_project_id = project_id
         self._active_project_name = project_name
+        # Update the process-wide ProjectSession so backend modules
+        # (CheckpointRegistry, bundle_exporter, sys_nodes…) resolve paths
+        # against the right project without each call site having to
+        # thread a ProjectStore + project_id pair through every API.
+        try:
+            from src.system.core import project_session
+            from src.system.core.project_store import ProjectStore
+            if project_id:
+                project_session.set_active(ProjectStore(), project_id)
+            else:
+                project_session.clear_active()
+        except Exception:
+            pass
         # Persist to user.ini
         try:
             self.config.set("RECENT", "last_project_id", project_id, config_type="user")
             self.config.save_user_config()
         except Exception:
             pass
-        # Update MainRow header
-        if hasattr(self, "mission_nav_header"):
-            self.mission_nav_header.set_active_project(project_id, project_name)
-            self._refresh_mainrow_projects()
         # Redirect sidebar Project Files to the project workflows dir
         self._update_project_files_root()
+        self._refresh_files_row()
+        # Refresh Mission canvas Checkpoint/Behavior policy_id dropdowns now
+        # that CheckpointRegistry will resolve to the new project's
+        # training/exported/ directory. Without this the pickers stay empty
+        # (or stale) until the user reloads a workflow file or runs Mission.
+        self._refresh_policy_registry_ui()
 
     def _load_active_project_from_config(self) -> None:
         """Restore the last active project from user.ini on startup."""
@@ -511,10 +603,19 @@ class MainWindow(QMainWindow):
             return
         try:
             from src.system.core.project_store import ProjectStore
+            from src.system.core import project_session
             store = ProjectStore()
             meta = store.open_project(pid)
             self._active_project_id = meta.project_id
             self._active_project_name = meta.name
+            project_session.set_active(store, meta.project_id)
+            # Same rationale as _set_active_project: dropdowns need a refresh
+            # the moment a project context exists, otherwise CheckpointNode /
+            # BehaviorNode pickers are empty on a cold start with auto-restore.
+            try:
+                self._refresh_policy_registry_ui()
+            except Exception:
+                pass
         except Exception:
             # Project was deleted — clear stale reference
             self._active_project_id = ""
@@ -525,36 +626,31 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    def _refresh_mainrow_projects(self) -> None:
-        """Feed the MainRow workspace dropdown with current project list."""
-        try:
-            from src.system.core.project_store import ProjectStore
-            store = ProjectStore()
-            projects = [
-                {"id": p.project_id, "name": p.name}
-                for p in store.list_projects()
-            ]
-        except Exception:
-            projects = []
-        if hasattr(self, "mission_nav_header"):
-            self.mission_nav_header.set_projects(projects)
-
     def _on_homepage_new_project(self, name: str) -> None:
-        """Homepage created a new project — activate it and enter Mission."""
+        """Homepage created a new project — activate it and enter Mission
+        with a clean canvas (no file auto-load)."""
         try:
             from src.system.core.project_store import ProjectStore
             store = ProjectStore()
-            # Find the just-created project by name
             for p in store.list_projects():
                 if p.name == name:
                     self._set_active_project(p.project_id, p.name)
                     break
         except Exception:
             pass
-        self.go_mission()
+        # Clear any stale workflow state so go_mission starts fresh.
+        self._set_current_workflow_path("")
+        self._current_workflow_id = ""
+        self.graph_scene.clear_all_nodes()
+        self._enter_mission_mode()
+        if hasattr(self, "main_zone"):
+            self.main_zone.open_mission_tab()
+            self.main_zone.set_workflow_tab_title(f"[{name}]")
+        self._navigate_to_page(1)
 
     def _on_homepage_load_project(self, project_id: str) -> None:
-        """Homepage selected a project to load — activate it and enter Mission."""
+        """Homepage selected a project — activate it and load its most
+        recent workflow into Mission."""
         try:
             from src.system.core.project_store import ProjectStore
             store = ProjectStore()
@@ -562,17 +658,34 @@ class MainWindow(QMainWindow):
             self._set_active_project(meta.project_id, meta.name)
         except Exception:
             self._set_active_project(project_id)
-        self.go_mission()
 
-    def _on_mainrow_workspace_selected(self, project_id: str) -> None:
-        """User picked a different project from MainRow dropdown."""
+        # Clear stale state before attempting project-specific load.
+        self._set_current_workflow_path("")
+        self._current_workflow_id = ""
+        self.graph_scene.clear_all_nodes()
+        self._enter_mission_mode()
+        if hasattr(self, "main_zone"):
+            self.main_zone.open_mission_tab()
+
+        # Try to load the project's most recent workflow.
+        loaded = False
         try:
             from src.system.core.project_store import ProjectStore
             store = ProjectStore()
-            meta = store.open_project(project_id)
-            self._set_active_project(meta.project_id, meta.name)
+            entries = store.list_workflows(self._active_project_id)
+            if entries:
+                wf = entries[-1]
+                wf_path = str(store.workflow_path(self._active_project_id, wf.id))
+                if os.path.isfile(wf_path):
+                    self._current_workflow_id = wf.id
+                    loaded = self._load_workflow_from_path(wf_path, suppress_popups=True)
         except Exception:
-            self._set_active_project(project_id)
+            pass
+        if not loaded and hasattr(self, "main_zone"):
+            self.main_zone.set_workflow_tab_title(
+                f"[{self._active_project_name or project_id}]"
+            )
+        self._navigate_to_page(1)
 
     def _update_project_files_root(self) -> None:
         """Redirect the sidebar ProjectFilesPanel to the active project's workflows dir."""
@@ -587,7 +700,7 @@ class MainWindow(QMainWindow):
             try:
                 from src.system.core.project_store import ProjectStore
                 store = ProjectStore()
-                wf_dir = store._workflows_dir(self._active_project_id)
+                wf_dir = store._canvas_dir(self._active_project_id)
                 wf_dir.mkdir(parents=True, exist_ok=True)
                 return str(wf_dir)
             except Exception:
@@ -595,29 +708,190 @@ class MainWindow(QMainWindow):
         return self._workflows_root()
 
     def go_mission(self) -> None:
-        """Navigate to Mission Control (restores MC mode if in TG mode)."""
+        """Navigate to Mission Control (restores MC mode if in TG mode).
+
+        Auto-load policy for coming from the homepage with an empty canvas:
+
+          * If an active project exists, resolution goes through
+            ``last_mission_workflow_id`` first, falling back to the
+            last-saved workflow in the project. If neither resolves to an
+            actual file on disk, the canvas is cleared (files_row shows
+            the pending "new_mission" draft) — **no popup**. This handles
+            the "brand-new project, no mission saved yet" case cleanly.
+
+          * Without an active project, the legacy ``last_mission_file``
+            path is used. A stale entry that no longer exists is silently
+            cleared from user.ini (no popup) — the previous behaviour
+            surfaced a "file not found" error on every launch, which was
+            noisy for users who only train bundles and never save a
+            mission workflow.
+        """
         from_home = self._page_stack.currentIndex() == 0
         self._enter_mission_mode()
         if hasattr(self, "main_zone"):
             self.main_zone.open_mission_tab()
-        # Auto-load last mission file when coming from homepage and canvas is empty
         if from_home and not self._current_workflow_path:
-            last_file = self._load_last_mission_file()
-            if last_file:
-                if os.path.isfile(last_file):
-                    ok = self._load_workflow_from_path(last_file, suppress_popups=True)
-                    if not ok:
-                        self._set_current_workflow_path("")
-                        self._schedule_main_warning(
-                            "Load Mission Failed",
-                            f"{last_file} failed to load, error: {self._last_workflow_load_error or 'unknown error'}",
-                        )
-                else:
-                    self._set_current_workflow_path("")
-                    self._schedule_main_warning(
-                        "Load Mission Failed",
-                        f"{last_file} failed to load, error: file not found",
-                    )
+            self._auto_load_mission_for_continue()
+        self._navigate_to_page(1)
+
+    def _auto_load_mission_for_continue(self) -> None:
+        """Helper used by go_mission + _on_continue to resolve and load the
+        best-guess mission workflow for the active project, silently
+        falling back to an empty canvas when no file resolves."""
+        # --- project-scoped path -------------------------------------------
+        if self._active_project_id:
+            from src.system.core.project_store import ProjectStore
+            try:
+                store = ProjectStore()
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"Continue: ProjectStore unavailable — {exc}")
+                return
+
+            # Candidate 1: persisted last_mission_workflow_id
+            candidate = self._load_last_mission_workflow_id()
+            # Candidate 2: fallback to most-recent workflow in the project
+            if not candidate:
+                try:
+                    entries = store.list_workflows(self._active_project_id)
+                    if entries:
+                        candidate = entries[-1].id
+                except Exception:
+                    candidate = ""
+
+            if not candidate:
+                # Project has no workflows yet — clear and show pending tab.
+                self.graph_scene.clear_all_nodes()
+                self._set_current_workflow_path("")
+                return
+
+            try:
+                wf_path = str(store.workflow_path(self._active_project_id, candidate))
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"Continue: resolve workflow path failed — {exc}")
+                return
+
+            if not os.path.isfile(wf_path):
+                # Stale pointer — clear persistence and fall through to
+                # the blank-canvas / pending-tab state.
+                log_info(
+                    f"Continue: stale workflow pointer '{candidate}' "
+                    "cleared (file not found)"
+                )
+                self._save_last_mission_workflow_id("")
+                self.graph_scene.clear_all_nodes()
+                self._set_current_workflow_path("")
+                return
+
+            self._current_workflow_id = candidate
+            if not self._load_workflow_from_path(wf_path, suppress_popups=True):
+                # Load failed for a file that exists — log only, no popup,
+                # and roll back to the blank-canvas state.
+                log_warning(
+                    f"Continue: failed to load {wf_path}: "
+                    f"{self._last_workflow_load_error or 'unknown error'}"
+                )
+                self._set_current_workflow_path("")
+            return
+
+        # --- legacy (no active project) ------------------------------------
+        last_file = self._load_last_mission_file()
+        if not last_file:
+            return
+        if not os.path.isfile(last_file):
+            # Silently drop the stale entry.
+            log_info(
+                f"Continue: stale last_mission_file '{last_file}' "
+                "cleared (file not found)"
+            )
+            self._clear_stale_last_mission_file()
+            return
+        if not self._load_workflow_from_path(last_file, suppress_popups=True):
+            log_warning(
+                f"Continue: failed to load {last_file}: "
+                f"{self._last_workflow_load_error or 'unknown error'}"
+            )
+            self._set_current_workflow_path("")
+
+    def _on_continue(self) -> None:
+        """Homepage Continue → restore the exact shell mode the user left in.
+
+        Routing matrix (all based on ``RECENT.*`` fields written during the
+        previous session):
+          * last_shell_mode == "training" AND a usable Training state can
+            be reconstructed → go straight to Training with the last
+            backend + experiment loaded.
+          * otherwise → go to Mission and run the safe auto-load path.
+        """
+        mode = str(self._load_last_shell_mode() or "mission").strip().lower()
+        if mode == "training":
+            # Verify the project actually has an experiment we can restore.
+            # If not, fall through to mission so the user isn't dumped into
+            # the TrainingSettingPage with no context.
+            can_restore = False
+            if self._active_project_id:
+                try:
+                    from src.system.core.project_store import ProjectStore
+                    store = ProjectStore()
+                    if store.list_experiments(self._active_project_id):
+                        can_restore = True
+                except Exception:
+                    can_restore = False
+            if can_restore:
+                self._continue_into_training()
+                return
+        # Default / fallback path — Mission.
+        self.go_mission()
+
+    def _continue_into_training(self) -> None:
+        """Restore the Training shell exactly as it was at quit time."""
+        # Make sure the training page is built for the current project.
+        try:
+            self._ensure_training_content("")
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"Continue: training bootstrap failed — {exc}")
+            self.go_mission()
+            return
+        tp = self._training_page
+        if tp is None:
+            self.go_mission()
+            return
+
+        # Apply the backend binding first so any template seeding that
+        # happens during experiment load places the right node set.
+        backend_id = self._load_last_training_backend()
+        if hasattr(tp, "_apply_backend_binding"):
+            try:
+                tp._apply_backend_binding(backend_id)
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"Continue: backend rebind failed — {exc}")
+
+        # Resolve the experiment id. Prefer the persisted value, fall back
+        # to the first experiment found in the project's training store.
+        exp_id = self._load_last_training_experiment_id()
+        if (not exp_id) and self._active_project_id:
+            try:
+                from src.system.core.project_store import ProjectStore
+                entries = ProjectStore().list_experiments(self._active_project_id)
+                if entries:
+                    exp_id = entries[0].experiment_id
+            except Exception:
+                exp_id = ""
+
+        # Enter training mode (this also swaps the shell stack and sidebar).
+        self._enter_training_mode("")
+
+        if exp_id and hasattr(tp, "_load_experiment_by_id"):
+            try:
+                tp._load_experiment_by_id(exp_id, show_dialog=False)
+            except TypeError:
+                try:
+                    tp._load_experiment_by_id(exp_id)
+                except Exception as exc:  # noqa: BLE001
+                    log_warning(f"Continue: experiment load failed — {exc}")
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"Continue: experiment load failed — {exc}")
+
+        self._refresh_files_row()
         self._navigate_to_page(1)
 
     def go_training(self, policy_id: str = "") -> None:
@@ -625,8 +899,6 @@ class MainWindow(QMainWindow):
         policy_id = str(policy_id or "")
         self._enter_training_mode(policy_id)
         self._navigate_to_page(1)
-        # Deferred refresh — ensure tabs show after page transition completes
-        QTimer.singleShot(250, self._refresh_training_tabs)
 
     def _on_page_switcher_selected(self, page: str) -> None:
         page = str(page or "").strip().lower()
@@ -647,21 +919,24 @@ class MainWindow(QMainWindow):
         return None
 
     def _sync_all_page_switchers(self, page: str) -> None:
-        """Keep all page switchers and float bar accents in sync."""
-        # Mission float bar PageSwitcher + border accent
+        """Keep the sidebar page toggle + float bar accents + MainRow in sync."""
+        # Sidebar page-toggle button (single source of truth)
+        if self._page_switcher is not None:
+            self._page_switcher.set_current_page(page)
+        # Mission float bar border accent
         if hasattr(self, "main_zone"):
             self.main_zone.set_page_mode(page)
-        # Training float bar PageSwitcher + border accent
+        # Training float bar border accent
         if self._training_page is not None:
             tg_float = getattr(
                 getattr(self._training_page, '_canvas', None),
                 '_float_bar', None,
             )
-            if tg_float is not None:
-                if hasattr(tg_float, 'page_switcher'):
-                    tg_float.page_switcher.set_current_page(page)
-                if hasattr(tg_float, 'set_page_mode'):
-                    tg_float.set_page_mode(page)
+            if tg_float is not None and hasattr(tg_float, 'set_page_mode'):
+                tg_float.set_page_mode(page)
+        # MainRow header background
+        if hasattr(self, "mission_nav_header"):
+            self.mission_nav_header.set_current_page(page)
 
     # ------------------------------------------------------------------
     # Shell mode switching (MC 鈫?TG within page 1)
@@ -675,13 +950,24 @@ class MainWindow(QMainWindow):
         policy_id that differs from the current one triggers a rebuild.
         """
         if self._training_page is not None:
-            # No specific policy requested → preserve current training state
-            if not policy_id:
+            # Detect project change: if the cached page was built for a
+            # different project (or no project), rebuild so training data
+            # goes into the correct project workspace.
+            cached_project = getattr(self._training_page, '_active_project_id', '') or ''
+            project_changed = (
+                self._active_project_id
+                and cached_project != self._active_project_id
+            )
+            if project_changed:
+                # Force rebuild for the new project.
+                policy_id = ""
+            elif not policy_id:
+                # No specific policy requested → preserve current training state
                 return
-            # Same policy already loaded → nothing to do
-            if getattr(self._training_page, '_policy_id', None) == policy_id:
+            elif getattr(self._training_page, '_policy_id', None) == policy_id:
+                # Same policy already loaded → nothing to do
                 return
-            # Different specific policy → rebuild
+            # Rebuild required — tear down current page.
             idx = self._shell_content_stack.indexOf(self._training_page)
             if idx >= 0:
                 self._shell_content_stack.removeWidget(self._training_page)
@@ -698,6 +984,8 @@ class MainWindow(QMainWindow):
             initial_robot_type=RobotContext.get_robot_type(),
             initial_runtime_scenario=self._get_runtime_scenario_settings(),
             embedded=True,
+            project_name=self._active_project_name,
+            project_id=self._active_project_id,
         )
         page.mission_control_requested.connect(self.go_mission)
         page.exit_requested.connect(self.close)
@@ -707,20 +995,24 @@ class MainWindow(QMainWindow):
         page.checkpoint_exported.connect(
             lambda bp, pid=policy_id: self._on_checkpoint_exported(bp, pid)
         )
+        # Dirty-state bridge for the Training canvas → files_row tab dot.
+        try:
+            canvas = getattr(page, "_canvas", None)
+            scene = getattr(canvas, "scene", None) if canvas is not None else None
+            if scene is not None and hasattr(scene, "content_changed"):
+                scene.content_changed.connect(self._on_training_scene_dirty_changed)
+        except Exception:
+            pass
         startup_restore_error = str(
             getattr(page, "_startup_restore_error_message", "") or ""
         ).strip()
         if startup_restore_error:
             self._schedule_main_warning("Load Training Failed", startup_restore_error)
         self._training_page = page
-        # Wire training float bar's PageSwitcher to the main handler.
-        tg_float = getattr(getattr(page, '_canvas', None), '_float_bar', None)
-        if tg_float is not None and hasattr(tg_float, 'page_switcher'):
-            tg_float.page_switcher.page_selected.connect(self._on_page_switcher_selected)
         # Sync: if the workspace no longer exists, _init_workspace resets
-        # _workspace_policy_id to "".  Respect that so we don't keep a stale
+        # _workspace_name to "".  Respect that so we don't keep a stale
         # reference in user.ini that would recreate a deleted workspace.
-        actual_pid = getattr(page, "_workspace_policy_id", policy_id) or ""
+        actual_pid = getattr(page, "_workspace_name", policy_id) or ""
         if actual_pid != policy_id:
             policy_id = actual_pid
         self._save_last_training_policy(policy_id)
@@ -750,6 +1042,10 @@ class MainWindow(QMainWindow):
 
     def _enter_training_mode(self, policy_id: str) -> None:
         """Switch the shared mission shell to Training Ground content."""
+        # Stash the outgoing mission canvas so its unsaved edits survive a
+        # mission→training→mission round-trip without ever touching disk.
+        if self._shell_mode != "training":
+            self._stash_current_mission_canvas()
         # Snapshot: was the mission ControlPanel visible?
         mc_panel = getattr(self.main_zone, '_overview_panel', None) if hasattr(self, 'main_zone') else None
         panel_was_open = mc_panel is not None and mc_panel.isVisible()
@@ -759,16 +1055,15 @@ class MainWindow(QMainWindow):
         page = self._training_page
 
         # --- Sidebar panels: swap to TG panels ---
-        self.sidebar.set_panel_widget("user", page._canvas_browser_panel, "Experiments")
-        self.sidebar.set_panel_widget("projects", page._export_browser_panel, "Exports")
+        # "projects" panel content is mode-aware — the ProjectFileBrowserPanel
+        # will filter its items based on the current shell mode, so we do NOT
+        # replace it here. Only swap nodes panel.
         self.sidebar.set_panel_widget("nodes", page._palette_panel, "Config Nodes")
-        for key, title in [("user", "Experiments"), ("projects", "Exports"), ("nodes", "Config Nodes")]:
+        for key, title in [("nodes", "Config Nodes")]:
             btn = self.sidebar._nav_buttons.get(key)
             if btn is not None:
                 btn.set_title(title)
         # Update sidebar nav button icons to TG equivalents
-        self.sidebar._nav_icon_bindings["user"] = "prj"
-        self.sidebar._nav_icon_bindings["projects"] = "cp"
         self.sidebar._nav_icon_bindings["nodes"] = "nod"
         self.sidebar.refresh_icons(self._theme)
         # Wire sidebar panel changes to TG handler.
@@ -787,16 +1082,33 @@ class MainWindow(QMainWindow):
         self.mission_nav_header.set_right_widget(page._header_widget)
         self.mission_nav_header.set_current_page("training")
 
-        # --- Shell content: replace TG placeholder with TG canvas widget ---
+        # --- Shell content: choose TG canvas vs TrainingSettingPage buffer ---
+        # If the active project has no training experiments yet, show the
+        # setting-page buffer so the user picks a backend before entering
+        # the canvas. Otherwise show the TrainingWorkspaceWindow directly.
+        show_setting_page = self._project_has_no_experiments(page)
         old_tg_content = self._shell_content_stack.widget(1)
-        if old_tg_content is not page:
+        target_widget = self._training_setting_page if show_setting_page else page
+        if old_tg_content is not target_widget:
             self._shell_content_stack.removeWidget(old_tg_content)
-            self._shell_content_stack.insertWidget(1, page)
+            self._shell_content_stack.insertWidget(1, target_widget)
         self._shell_content_stack.setCurrentIndex(1)
+        if show_setting_page:
+            try:
+                self._training_setting_page.apply_theme()
+            except Exception:
+                pass
 
         self._shell_mode = "training"
         # Sync ControlPanel page switchers (mission + training panels)
         self._sync_all_page_switchers("training")
+        self._refresh_files_row()
+        # Persist so Continue restores the training workspace directly.
+        self._save_last_shell_mode("training")
+        self._save_last_training_backend(getattr(page, "_active_backend", "sb3"))
+        self._save_last_training_experiment_id(
+            getattr(page, "_current_experiment_id", "") or ""
+        )
 
         # Preserve panel open state: if mission panel was open, show training panel
         if panel_was_open:
@@ -813,24 +1125,22 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        # Refresh training tabs — _ws_store is initialized synchronously
-        # in TrainingWorkspaceWindow.__init__, so data is ready now.
-        self._refresh_training_tabs()
-
     def _enter_mission_mode(self) -> None:
         """Switch the shared mission shell back to Mission Control content."""
         if self._shell_mode == "mission":
             return
+        # Stash the outgoing training canvas so its unsaved edits survive.
+        self._stash_current_training_canvas()
 
         # Snapshot: was the training ControlPanel visible?
         tg_cp = self._get_training_control_panel(self._training_page) if self._training_page else None
         panel_was_open = tg_cp is not None and tg_cp.isVisible()
 
         # Persist the active training workspace policy before leaving Training Ground.
-        # Prefer _workspace_policy_id (may differ from _policy_id for derived checkpoints).
+        # Prefer _workspace_name (may differ from _policy_id for derived checkpoints).
         if self._training_page is not None:
             _ws_pid = (
-                getattr(self._training_page, "_workspace_policy_id", "") or
+                getattr(self._training_page, "_workspace_name", "") or
                 getattr(self._training_page, "_selected_policy_id", "")
             )
             if _ws_pid:
@@ -839,9 +1149,9 @@ class MainWindow(QMainWindow):
         # --- Sidebar panels: restore MC panels ---
         if self._mc_sidebar_user_widget is not None:
             self.sidebar.set_panel_widget("user", self._mc_sidebar_user_widget, "User")
-        self.sidebar.set_panel_widget("projects", self.project_files_panel, "Project Files")
+        # "projects" panel is mode-aware — just restore nodes.
         self.sidebar.set_panel_widget("nodes", self.module_palette, "Node Library")
-        for key, title in [("user", "User"), ("projects", "Project Files"), ("nodes", "Nodes")]:
+        for key, title in [("projects", "Project Files"), ("nodes", "Nodes")]:
             btn = self.sidebar._nav_buttons.get(key)
             if btn is not None:
                 btn.set_title(title)
@@ -857,9 +1167,6 @@ class MainWindow(QMainWindow):
         self.mission_nav_header.set_right_widget(self._mc_nav_content)
         self.mission_nav_header.set_current_page("mission")
 
-        # Tab bar is hidden in mission mode (set_current_page handles visibility).
-        # Do NOT clear tabs — training tab data is preserved for when user switches back.
-
         # --- Shell content: restore MC splitter ---
         self._shell_content_stack.setCurrentIndex(0)
         self.main_zone.open_mission_tab()
@@ -868,6 +1175,9 @@ class MainWindow(QMainWindow):
         self._shell_mode = "mission"
         # Sync ControlPanel page switchers
         self._sync_all_page_switchers("mission")
+        self._refresh_files_row()
+        # Persist so Continue restores Mission on next startup.
+        self._save_last_shell_mode("mission")
 
         # Preserve panel open state: if training panel was open, show mission panel
         if panel_was_open:
@@ -946,6 +1256,70 @@ class MainWindow(QMainWindow):
 
     _RESIZE_MARGIN = 6  # pixels from window edge that trigger resize cursor/op
 
+    # Interactive widget types that must NOT drag-through.
+    _INTERACTIVE_TYPES = (QPushButton, QComboBox)
+
+    def _caption_hit_test(self, screen_x: int, screen_y: int) -> bool:
+        """Return True if (screen_x, screen_y) is over a caption-drag zone.
+
+        Drag zones: MainRow (excluding interactive children), the FilesRow
+        tab-strip background, and the Sidebar rail background.
+        """
+        from PySide6.QtWidgets import QAbstractButton
+
+        def _widget_contains(w, sx, sy):
+            """Test if screen point is inside widget *w*."""
+            g = w.mapToGlobal(w.rect().topLeft())
+            lx, ly = sx - g.x(), sy - g.y()
+            return (0 <= lx < w.width() and 0 <= ly < w.height()), lx, ly
+
+        def _is_interactive(widget, root):
+            """Walk up from *widget* to *root*; return True if any ancestor
+            is a button, combo, checkbox, or file-tab widget."""
+            w = widget
+            while w is not None and w is not root:
+                if isinstance(w, (QAbstractButton, QComboBox)):
+                    return True
+                if isinstance(w, _FileTabWidget):
+                    return True
+                w = w.parentWidget()
+            return False
+
+        # ── 1. MainRow ────────────────────────────────────────────────
+        if hasattr(self, "mission_nav_header"):
+            h = self.mission_nav_header
+            inside, lx, ly = _widget_contains(h, screen_x, screen_y)
+            if inside:
+                child = h.childAt(lx, ly)
+                if child is None or child is h:
+                    return True
+                if not _is_interactive(child, h):
+                    return True
+
+        # ── 2. FilesRow (embedded inside MainRow) ─────────────────────
+        if hasattr(self, "files_row"):
+            fr = self.files_row
+            inside, lx, ly = _widget_contains(fr, screen_x, screen_y)
+            if inside:
+                child = fr.childAt(lx, ly)
+                if child is None or child is fr:
+                    return True
+                if not _is_interactive(child, fr):
+                    return True
+
+        # ── 3. Sidebar rail ───────────────────────────────────────────
+        if hasattr(self, "sidebar"):
+            rail = self.sidebar.rail
+            inside, lx, ly = _widget_contains(rail, screen_x, screen_y)
+            if inside:
+                child = rail.childAt(lx, ly)
+                if child is None or child is rail:
+                    return True
+                if not _is_interactive(child, rail):
+                    return True
+
+        return False
+
     def nativeEvent(self, event_type, message):  # type: ignore[override]
         import sys
         if sys.platform != "win32":
@@ -1001,30 +1375,16 @@ class MainWindow(QMainWindow):
                 if on_l: return True, HTLEFT
                 if on_r: return True, HTRIGHT
 
-            # Caption drag — works when windowed or maximised (restore on drag)
-            if not self.isFullScreen() and hasattr(self, "mission_nav_header"):
-                h  = self.mission_nav_header
-                g  = h.mapToGlobal(h.rect().topLeft())
-                lx = x - g.x()
-                ly = y - g.y()
-                if 0 <= lx < h.width() and 0 <= ly < h.height():
-                    child = h.childAt(lx, ly)
-                    # Treat as caption if cursor is over empty header space
-                    # or over non-interactive container widgets (tab bar bg,
-                    # left zone bg, right host bg) — these are layout
-                    # containers that should not block window dragging.
-                    if child is None:
-                        return True, HTCAPTION
-                    _drag_through = (
-                        child is h,
-                        child is h._left_zone,
-                        child is h._right_host,
-                        child.objectName() in (
-                            "mainRowLeftZone", "mainRowHeader",
-                        ),
-                    )
-                    if any(_drag_through):
-                        return True, HTCAPTION
+            # ── Caption drag — MainRow, FilesRow, Sidebar ──────────
+            # Works when windowed or maximised (restore-on-drag).
+            # Strategy: for each drag-zone widget, test whether the
+            # cursor is over empty / non-interactive area. Interactive
+            # children (buttons, combos, tabs) must NOT drag.
+
+            if not self.isFullScreen():
+                hit = self._caption_hit_test(x, y)
+                if hit:
+                    return True, HTCAPTION
 
             return True, HTCLIENT
         except Exception:
@@ -1113,6 +1473,12 @@ class MainWindow(QMainWindow):
             }}
             #startupLoadingOverlay {{
                 background-color: rgba(0, 0, 0, 179);
+            }}
+            #startupLottiePlayer {{
+                background: transparent;
+                border: none;
+                border-radius: 0;
+                padding: 0;
             }}
             QLabel {{
                 background-color: {card_bg};
@@ -1388,6 +1754,15 @@ class MainWindow(QMainWindow):
             self.project_files_panel.refresh_files()
         log_info(f"sidebar panel requested: {panel_name}")
 
+    def _on_engine_settings_requested(self, engine_id: str, context: str):
+        """Handle engine settings button clicks from the User panel."""
+        if context == "cloud":
+            from bin.pages.training.cloud_server_manager import CloudServerManagerDialog
+            dlg = CloudServerManagerDialog(engine_id=engine_id, parent=self)
+            dlg.exec()
+            if hasattr(self, "_user_panel"):
+                self._user_panel.refresh_engines()
+
     def _refresh_policy_registry_ui(self):
         """Sync registered checkpoints into Canvas policy_id dropdown models."""
         if hasattr(self, "graph_scene") and self.graph_scene is not None:
@@ -1397,16 +1772,23 @@ class MainWindow(QMainWindow):
                 pass
 
     def _toggle_cmd_zone(self):
+        # The right column always keeps the MainRow header visible (its min
+        # width is pinned to the header's sizeHint). Collapsing hides only the
+        # CmdLog body below the header.
+        header_min = self._cmd_column.minimumWidth() if hasattr(self, "_cmd_column") else 340
         if self._cmd_collapsed:
             self.cmd_log.show()
-            self.main_splitter.setSizes([max(200, self.width() - self._cmd_last_width), self._cmd_last_width])
+            target = max(self._cmd_last_width, header_min)
+            self.main_splitter.setSizes([max(200, self.width() - target), target])
             self._cmd_collapsed = False
         else:
             current_sizes = self.main_splitter.sizes()
-            if len(current_sizes) >= 2 and current_sizes[1] > 0:
+            if len(current_sizes) >= 2 and current_sizes[1] > header_min:
                 self._cmd_last_width = current_sizes[1]
             self.cmd_log.hide()
-            self.main_splitter.setSizes([1, 0])
+            self.main_splitter.setSizes(
+                [max(200, self.width() - header_min), header_min]
+            )
             self._cmd_collapsed = True
         self._sync_cmd_toggle_button()
 
@@ -1561,20 +1943,18 @@ class MainWindow(QMainWindow):
             self.graph_scene._robot_type = robot_type
         return robot_type
 
-    def _on_language_changed(self, index: int):
-        """Language changed"""
-        lang_code = "en"
+    def _on_language_code_changed(self, lang_code: str):
+        """Language dropdown changed — load the new locale and refresh UI."""
+        code = str(lang_code or "en").lower()
         loc = get_localisation()
-        if loc.load_language(lang_code):
-            log_info(f"Language changed to: {lang_code}")
-            # Note: Full UI refresh would require more extensive changes
-            # For now, new text will appear on next widget creation
+        if loc.load_language(code):
+            log_info(f"Language changed to: {code}")
+            try:
+                self.config.set("PREFERENCES", "language", code, config_type="user")
+                self.config.save_user_config()
+            except Exception:
+                pass
             self._refresh_theme()
-
-    def _on_language_button_clicked(self):
-        """Language quick switch button."""
-        self._on_language_changed(0)
-        self.language_button.setText("EN")
 
     def _on_new(self):
         """New project"""
@@ -1589,9 +1969,17 @@ class MainWindow(QMainWindow):
         self.status.showMessage(tr("status.new_project", "New project"), 2000)
 
     def _workflows_root(self) -> str:
-        workflows_root = Path(self.config.project_root) / "workflows"
-        workflows_root.mkdir(parents=True, exist_ok=True)
-        return str(workflows_root)
+        """Return a v2-compliant default browse root.
+
+        v2 has no global ``workflows/`` directory — every canvas lives under
+        ``projects/<slug>/canvas/``. When no project is active we point the
+        file dialog / sidebar at the ``projects/`` root so the user can pick
+        one.
+        """
+        from src.system.core.project_store import ProjectStore
+        projects_root = ProjectStore().projects_dir
+        projects_root.mkdir(parents=True, exist_ok=True)
+        return str(projects_root)
 
     # ------------------------------------------------------------------
     # Recent-file persistence (user.ini [RECENT])
@@ -1617,112 +2005,1034 @@ class MainWindow(QMainWindow):
     def _load_last_training_policy(self) -> str:
         return self.config.get("RECENT", "last_training_policy", fallback="", config_type="user") or ""
 
+    # -- last-visited shell state (drives homepage Continue) -----------------
+    #
+    # These four RECENT.* fields let Continue restore the exact page/mode the
+    # user was on at quit time, per active project:
+    #   last_shell_mode              → "mission" | "training"
+    #   last_training_backend        → "sb3"     | "isaac_lab"
+    #   last_mission_workflow_id     → project-scoped workflow id (or "")
+    #   last_training_experiment_id  → project-scoped experiment id (or "")
+    #
+    # They are written whenever the user successfully enters a mode or
+    # loads a file; read on startup by the Continue handler. All fields
+    # are tolerant of being empty/stale — the Continue handler verifies
+    # before acting on any cached id.
+
+    def _save_last_shell_mode(self, mode: str) -> None:
+        try:
+            value = "training" if str(mode or "").strip().lower() == "training" else "mission"
+            self.config.set("RECENT", "last_shell_mode", value, config_type="user")
+            self.config.save_user_config()
+        except Exception:
+            pass
+
+    def _load_last_shell_mode(self) -> str:
+        return (
+            self.config.get("RECENT", "last_shell_mode", fallback="mission", config_type="user")
+            or "mission"
+        )
+
+    def _save_last_training_backend(self, backend: str) -> None:
+        try:
+            value = str(backend or "sb3").strip().lower() or "sb3"
+            if value not in ("sb3", "isaac_lab"):
+                value = "sb3"
+            self.config.set("RECENT", "last_training_backend", value, config_type="user")
+            self.config.save_user_config()
+        except Exception:
+            pass
+
+    def _load_last_training_backend(self) -> str:
+        value = (
+            self.config.get("RECENT", "last_training_backend", fallback="sb3", config_type="user")
+            or "sb3"
+        )
+        value = str(value).strip().lower()
+        return value if value in ("sb3", "isaac_lab") else "sb3"
+
+    def _save_last_mission_workflow_id(self, workflow_id: str) -> None:
+        try:
+            self.config.set(
+                "RECENT", "last_mission_workflow_id", str(workflow_id or ""), config_type="user"
+            )
+            self.config.save_user_config()
+        except Exception:
+            pass
+
+    def _load_last_mission_workflow_id(self) -> str:
+        return (
+            self.config.get(
+                "RECENT", "last_mission_workflow_id", fallback="", config_type="user"
+            )
+            or ""
+        )
+
+    def _save_last_training_experiment_id(self, experiment_id: str) -> None:
+        try:
+            self.config.set(
+                "RECENT", "last_training_experiment_id", str(experiment_id or ""),
+                config_type="user",
+            )
+            self.config.save_user_config()
+        except Exception:
+            pass
+
+    def _load_last_training_experiment_id(self) -> str:
+        return (
+            self.config.get(
+                "RECENT", "last_training_experiment_id", fallback="", config_type="user"
+            )
+            or ""
+        )
+
+    def _clear_stale_last_mission_file(self) -> None:
+        """Drop a cached ``last_mission_file`` that no longer resolves on disk.
+
+        Prevents Continue / go_mission from retrying a deleted workflow and
+        surfacing a bogus "file not found" popup on every startup.
+        """
+        try:
+            self.config.set("RECENT", "last_mission_file", "", config_type="user")
+            self.config.save_user_config()
+        except Exception:
+            pass
+
     def _set_current_workflow_path(self, path: str) -> None:
         normalized_path = os.path.abspath(path) if path else ""
         self._current_workflow_path = normalized_path
+        # Clear workflow_id when path is cleared (new file)
+        if not normalized_path:
+            self._current_workflow_id = ""
         if normalized_path:
             self._save_last_mission_file(normalized_path)
-        title = os.path.basename(normalized_path) if normalized_path else "[New File]"
-        compiler_title = os.path.basename(normalized_path) if normalized_path else "New File"
+        # Mirror the project-scoped workflow id so Continue can resolve it
+        # without relying on the (legacy, absolute-path) last_mission_file.
+        self._save_last_mission_workflow_id(self._current_workflow_id)
+        # Use workflow_id as display title when available
+        if self._current_workflow_id:
+            title = self._current_workflow_id
+            compiler_title = self._current_workflow_id
+        else:
+            title = os.path.basename(normalized_path) if normalized_path else "[New File]"
+            compiler_title = os.path.basename(normalized_path) if normalized_path else "New File"
         if hasattr(self, "main_zone"):
             self.main_zone.set_workflow_tab_title(title or "[New File]")
             self.main_zone.set_compiler_main_tab_title(compiler_title)
         if self.project_files_panel is not None:
             self.project_files_panel.refresh_files()
+        self._refresh_files_row()
 
-    # -- Tab management (browser-style canvas tabs) --------------------------
+    # ── Checked-files cache (per project + kind) ─────────────────────
+    #
+    # Persists the set of checked (visible) file_ids so only previously
+    # opened tabs reappear on the next launch / project entry.  Stored
+    # in user.ini  [FILES_CACHE]  project_id__kind = id1,id2,...
+    # A ``None`` return from _load means "no cache yet" (first open).
 
-    def _on_tab_activated(self, tab_id: str) -> None:
-        """User clicked a training experiment tab — load that experiment."""
-        if self._shell_mode != "training" or self._training_page is None:
+    _FILES_CACHE_SECTION = "FILES_CACHE"
+
+    def _save_checked_files_cache(
+        self, project_id: str, kind: str, checked_ids: set
+    ) -> None:
+        if not project_id:
             return
-        current_exp = getattr(self._training_page, "_current_experiment_id", "")
-        if tab_id == current_exp:
+        key = f"{project_id}__{kind}"
+        value = ",".join(sorted(checked_ids))
+        try:
+            self.config.set(
+                self._FILES_CACHE_SECTION, key, value, config_type="user"
+            )
+            self.config.save_user_config()
+        except Exception:
+            pass
+
+    def _load_checked_files_cache(
+        self, project_id: str, kind: str
+    ) -> "Optional[set]":
+        """Return the cached checked set, or ``None`` if no cache exists."""
+        if not project_id:
+            return None
+        key = f"{project_id}__{kind}"
+        try:
+            raw = self.config.get(
+                self._FILES_CACHE_SECTION, key,
+                fallback=None, config_type="user",
+            )
+        except Exception:
+            return None
+        if raw is None:
+            return None
+        raw = str(raw).strip()
+        if not raw:
+            return set()
+        return {fid.strip() for fid in raw.split(",") if fid.strip()}
+
+    # ── FilesRow integration ─────────────────────────────────────────
+    #
+    # A single persistent FilesRow lives above the workspace stack. Its
+    # contents are driven by the current shell mode:
+    #   - mission : list_workflows(active_project_id)
+    #   - training: list_experiments(active_project_id)
+    # Refreshed whenever the active project, current file, or shell mode
+    # changes. Dirty-state wiring is intentionally minimal for now; call
+    # ``self.files_row.mark_dirty(file_id, True/False)`` when the canvas
+    # modification tracking is ready.
+
+    def _refresh_files_row(self) -> None:
+        if not hasattr(self, "files_row"):
             return
-        if hasattr(self._training_page, '_load_experiment_by_id'):
-            self._training_page._load_experiment_by_id(tab_id)
-        self._update_tab_close_buttons()
+        mode = str(getattr(self, "_shell_mode", "mission") or "mission").lower()
+        kind = "training" if mode == "training" else "mission"
 
-    def _on_tab_close_requested(self, tab_id: str) -> None:
-        """User clicked X on a training experiment tab."""
-        tab_bar = self.mission_nav_header.tab_bar
-        if tab_bar.tab_count() <= 1:
-            return  # don't close the last tab
-        tab_bar.remove_tab(tab_id)
-        self._update_tab_close_buttons()
-
-    def _on_new_tab_requested(self, name: str) -> None:
-        """User clicked '+' — create new training experiment."""
-        if self._training_page is not None and hasattr(self._training_page, '_new_experiment'):
-            self._training_page._new_experiment()
-            self._add_current_experiment_tab()
-            self._update_tab_close_buttons()
-
-    def _update_tab_close_buttons(self) -> None:
-        """Disable close button when only one tab remains."""
-        tab_bar = self.mission_nav_header.tab_bar
-        bar = tab_bar._bar
-        only_one = tab_bar.tab_count() <= 1
-        for i in range(bar.count()):
-            btn = bar.tabButton(i, bar.ButtonPosition.RightSide)
-            if btn is not None:
-                btn.setEnabled(not only_one)
-                btn.setVisible(not only_one)
-
-    def _add_current_experiment_tab(self) -> None:
-        """Add a tab for the training page's current experiment (without clearing others)."""
-        if self._training_page is None:
+        if not self._active_project_id:
+            self.files_row.set_files([], kind=kind, active_id="")
+            if hasattr(self, "_file_browser_panel"):
+                self._file_browser_panel.set_project_name("")
+                self._file_browser_panel.set_entries([])
             return
-        page = self._training_page
-        exp_id = getattr(page, "_current_experiment_id", "") or ""
-        tab_id = exp_id or "__tg_new__"
-        display = self._format_experiment_tab_name(page, exp_id)
-        self.mission_nav_header.tab_bar.add_tab(tab_id, display)
 
-    def _refresh_training_tabs(self) -> None:
-        """Rebuild tab bar with ALL experiments in the current workspace."""
-        tab_bar = self.mission_nav_header.tab_bar
-        tab_bar.clear_tabs()
-        if self._training_page is None:
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow: ProjectStore unavailable — {exc}")
+            self.files_row.set_files([], kind=kind, active_id="")
+            if hasattr(self, "_file_browser_panel"):
+                self._file_browser_panel.set_project_name(
+                    self._active_project_name or self._active_project_id or ""
+                )
+                self._file_browser_panel.set_entries([])
             return
-        page = self._training_page
-        ws_store = getattr(page, "_ws_store", None)
-        ws_pid = getattr(page, "_workspace_policy_id", "") or ""
-        current_exp = getattr(page, "_current_experiment_id", "") or ""
 
-        # List all experiments in this workspace
-        experiments = []
-        if ws_store is not None and ws_pid:
+        entries: List[FileTabEntry] = []
+        active_id = ""
+
+        def _cached_dirty_for(cache: Dict[str, Dict[str, Any]], file_id: str) -> bool:
+            entry = cache.get(file_id)
+            return bool(entry.get("dirty")) if entry else False
+
+        try:
+            if kind == "mission":
+                for wf in store.list_workflows(self._active_project_id):
+                    entries.append(
+                        FileTabEntry(
+                            file_id=wf.id,
+                            title=wf.id or "untitled",
+                            is_dirty=_cached_dirty_for(
+                                self._mission_canvas_cache, wf.id
+                            ),
+                        )
+                    )
+                # Pending "new_mission" draft: shown ONLY when the project
+                # has no saved workflows at all AND none is currently
+                # loaded. Previously this checked just ``_current_workflow_id``,
+                # which produced a stray draft tab every time the user
+                # switched into Mission from another shell (e.g. Continue →
+                # Training → Mission) because the mission id had never
+                # been set in that session even though saved workflows
+                # existed on disk. Pinned (no close) + dirty dot until the
+                # user saves (which prompts for the real name).
+                if not self._current_workflow_id and not entries:
+                    entries.append(
+                        FileTabEntry(
+                            file_id=PENDING_MISSION_ID,
+                            title="new_mission",
+                            is_dirty=True,
+                            is_pinned=True,
+                        )
+                    )
+                    active_id = PENDING_MISSION_ID
+                else:
+                    active_id = self._current_workflow_id
+            else:
+                # Training: iterate per-project training workspaces to match
+                # the data source used by TrainingWorkspaceWindow's canvas
+                # browser. Falls back to ProjectStore.list_experiments when
+                # the Training window hasn't been built yet.
+                tp = getattr(self, "_training_page", None)
+                ws_store = getattr(tp, "_ws_store", None) if tp is not None else None
+                seen: set = set()
+
+                def _resolve_backend_tag(exp_id: str, ws_id: str = "") -> str:
+                    """Per-tab backend lookup — ALWAYS reads from disk.
+
+                    Backend is EXPERIMENT-BOUND — it never changes after
+                    the experiment is created, and one tab's activity
+                    must NEVER flip another tab's tag. We intentionally
+                    do NOT read from ``tp._active_backend`` because the
+                    live scene state is transient and can be mid-switch
+                    when this runs, causing cross-contamination between
+                    tabs. The persisted ``.canvas.json`` envelope is the
+                    single source of truth for each tab's backend tag.
+                    """
+                    backend = ""
+                    if ws_store is not None and ws_id:
+                        try:
+                            raw = ws_store.load_experiment(ws_id, exp_id)
+                            if isinstance(raw, dict):
+                                backend = str(
+                                    raw.get("active_backend")
+                                    or raw.get("backend")
+                                    or ""
+                                ).strip().lower()
+                                if not backend and isinstance(raw.get("layers"), dict):
+                                    keys = list(raw["layers"].keys())
+                                    if keys:
+                                        backend = str(keys[0]).strip().lower()
+                        except Exception:
+                            pass
+                    return "Isaac" if backend == "isaac_lab" else "SB3"
+
+                # Local disk-reconciliation helper so the FilesRow never
+                # surfaces stale experiment entries after the user deletes
+                # a ``.canvas.json`` from disk out of band.
+                def _canvas_file_exists(_ws_id: str, _exp_id: str) -> bool:
+                    try:
+                        from pathlib import Path
+                        p = (
+                            Path.cwd() / "projects" / str(_ws_id)
+                            / "canvas" / "experiments"
+                            / f"{_exp_id}.canvas.json"
+                        )
+                        return p.exists()
+                    except Exception:
+                        return True  # fail-open so transient errors don't hide files
+
+                if ws_store is not None:
+                    try:
+                        for ws_id in ws_store.list_workspaces():
+                            try:
+                                ws_meta = ws_store.load_workspace(ws_id)
+                            except Exception:
+                                continue
+                            # Reconcile: prune any experiment entries whose
+                            # canvas file is missing from disk. Do it here
+                            # at the UI layer so the FilesRow and the
+                            # sidebar canvas browser both see a consistent
+                            # (reconciled) view across refreshes.
+                            stale = [
+                                e.experiment_id
+                                for e in (getattr(ws_meta, "experiments", []) or [])
+                                if not _canvas_file_exists(ws_id, e.experiment_id)
+                            ]
+                            for _stale_id in stale:
+                                try:
+                                    ws_store.delete_experiment(ws_id, _stale_id)
+                                    log_warning(
+                                        f"[FilesRow] pruned stale experiment "
+                                        f"{_stale_id!r} from workspace {ws_id!r}"
+                                    )
+                                except Exception:
+                                    pass
+                            if stale:
+                                try:
+                                    ws_meta = ws_store.load_workspace(ws_id)
+                                except Exception:
+                                    continue
+                            for exp_meta in getattr(ws_meta, "experiments", []) or []:
+                                eid = exp_meta.experiment_id
+                                if eid in seen:
+                                    continue
+                                seen.add(eid)
+                                entries.append(
+                                    FileTabEntry(
+                                        file_id=eid,
+                                        title=exp_meta.name or eid,
+                                        is_dirty=_cached_dirty_for(
+                                            self._training_canvas_cache, eid
+                                        ),
+                                        backend_tag=_resolve_backend_tag(eid, ws_id),
+                                    )
+                                )
+                    except Exception:
+                        pass
+                if not entries:
+                    for exp in store.list_experiments(self._active_project_id):
+                        if exp.experiment_id in seen:
+                            continue
+                        seen.add(exp.experiment_id)
+                        entries.append(
+                            FileTabEntry(
+                                file_id=exp.experiment_id,
+                                title=exp.name or exp.experiment_id,
+                                backend_tag=_resolve_backend_tag(exp.experiment_id),
+                                is_dirty=_cached_dirty_for(
+                                    self._training_canvas_cache, exp.experiment_id
+                                ),
+                            )
+                        )
+                active_id = getattr(tp, "_current_experiment_id", "") or ""
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow: failed to list files — {exc}")
+
+        # Enrich entries with project-level metadata (robot model, dates).
+        try:
+            meta = store.load_project(self._active_project_id)
+            robot_label = meta.robot.model or meta.robot.brand or ""
+        except Exception:
+            meta = None
+            robot_label = ""
+        import datetime as _dt
+        for entry in entries:
+            if not entry.robot_model:
+                entry.robot_model = robot_label
+            if not entry.saved_date and meta is not None:
+                if kind == "training" and meta is not None:
+                    exp_meta = meta.get_experiment(entry.file_id)
+                    ts = getattr(exp_meta, "updated_at", 0) if exp_meta else 0
+                else:
+                    ts = 0
+                if ts:
+                    try:
+                        entry.saved_date = _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+                    except Exception:
+                        pass
+
+        # ── Restore cached checked-tab set and compute hidden ids ─────
+        all_ids = {e.file_id for e in entries}
+        cached_checked = self._load_checked_files_cache(
+            self._active_project_id, kind
+        )
+
+        if cached_checked is not None:
+            # Validate: prune ids that no longer exist on disk.
+            stale = cached_checked - all_ids
+            for sid in stale:
+                log_warning(
+                    f"FilesRow: cached tab '{sid}' no longer exists — removed"
+                )
+            cached_checked -= stale
+            if stale:
+                self._save_checked_files_cache(
+                    self._active_project_id, kind, cached_checked
+                )
+            hidden = all_ids - cached_checked
+        else:
+            # First open — no cache yet: show all files.
+            hidden = set()
+
+        # Seed FilesRow hidden state BEFORE set_files so tabs render correctly.
+        self.files_row._hidden_by_kind[kind] = set(hidden)
+        self.files_row.set_files(entries, kind=kind, active_id=active_id)
+
+        # Sync the sidebar ProjectFileBrowserPanel.
+        if hasattr(self, "_file_browser_panel"):
+            self._file_browser_panel.set_project_name(
+                self._active_project_name or self._active_project_id or ""
+            )
+            self._file_browser_panel.set_entries(entries, hidden_ids=hidden)
+
+    # ── Per-tab canvas cache (mission + training) ────────────────────
+    #
+    # Tab switches must NOT round-trip through disk — that would lose any
+    # unsaved edits and (worse) any undo history. Both Mission and Training
+    # canvases support `serialize_*` + `load_*` for content and
+    # `export_history_state` + `import_history_state` for the undo stack
+    # plus the dirty/clean baseline. We snapshot both into a per-file_id
+    # dict on the way out and restore both on the way in.
+
+    def _stash_current_mission_canvas(self) -> None:
+        """Snapshot the mission canvas under its current file_id.
+
+        Uses ``PENDING_MISSION_ID`` as the key for the unsaved draft so the
+        draft survives a swap to another mission tab and back.
+        """
+        if not hasattr(self, "graph_scene"):
+            return
+        try:
+            data = self.graph_scene.serialize_workflow()
+            history = self.graph_scene.export_history_state()
+            dirty = bool(self.graph_scene.is_dirty()) if hasattr(self.graph_scene, "is_dirty") else False
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow cache: stash mission failed — {exc}")
+            return
+        file_id = self._current_workflow_id or PENDING_MISSION_ID
+        self._mission_canvas_cache[file_id] = {
+            "data": data,
+            "history": history,
+            "dirty": dirty,
+        }
+
+    def _restore_mission_canvas_from_cache(self, file_id: str) -> bool:
+        """Restore a cached mission canvas (returns True on success).
+
+        ``_current_workflow_id`` must be updated *before* the scene mutation
+        runs so any content_changed signal fired during load_workflow /
+        import_history_state routes through the right file_id, not the
+        previously-active workflow.
+        """
+        cached = self._mission_canvas_cache.get(file_id)
+        if not cached or not hasattr(self, "graph_scene"):
+            return False
+        try:
+            if file_id != PENDING_MISSION_ID:
+                self._current_workflow_id = file_id
+            else:
+                self._current_workflow_id = ""
+            self.graph_scene.load_workflow(cached["data"])
+            self.graph_scene.import_history_state(cached.get("history"))
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow cache: restore mission failed — {exc}")
+            return False
+
+    def _stash_current_training_canvas(self) -> None:
+        """Snapshot the training canvas under its current experiment id."""
+        tp = getattr(self, "_training_page", None)
+        if tp is None:
+            return
+        canvas = getattr(tp, "_canvas", None)
+        scene = getattr(canvas, "scene", None) if canvas is not None else None
+        if scene is None:
+            return
+        try:
+            data = scene.serialize_training_graph()
+            history = scene.export_history_state() if hasattr(scene, "export_history_state") else None
+            dirty = bool(scene.is_dirty()) if hasattr(scene, "is_dirty") else False
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow cache: stash training failed — {exc}")
+            return
+        file_id = (
+            getattr(tp, "_current_experiment_id", "")
+            or "::pending_training::"
+        )
+        self._training_canvas_cache[file_id] = {
+            "data": data,
+            "history": history,
+            "backend": getattr(tp, "_active_backend", "sb3"),
+            "dirty": dirty,
+        }
+
+    def _force_clear_training_scene(self) -> None:
+        """Aggressively tear down the current training scene before a load.
+
+        ``load_training_graph`` already calls ``self.clear()`` internally,
+        but it does so inside a ``suppress_history`` block which (a) leaves
+        the GraphScene-level ``_logic_nodes`` dict populated with stale
+        entries and (b) does not invalidate the QGraphicsView viewport. The
+        visual symptom of either is "the canvas didn't refresh on tab
+        switch". This helper does the strong version of the teardown:
+
+          1. ``clear_all_nodes`` (the GraphScene-aware clear that also
+             empties ``_logic_nodes``).
+          2. QGraphicsScene ``clear()`` to remove anything else.
+          3. ``invalidate`` + viewport ``update`` so Qt schedules a repaint
+             and we don't hand-off a stale image to the next load.
+        """
+        tp = getattr(self, "_training_page", None)
+        if tp is None:
+            return
+        canvas = getattr(tp, "_canvas", None)
+        scene = getattr(canvas, "scene", None) if canvas is not None else None
+        view = getattr(canvas, "_view", None) if canvas is not None else None
+        if scene is None:
+            return
+        try:
+            if hasattr(scene, "clear_all_nodes"):
+                scene.clear_all_nodes()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow: clear_all_nodes failed — {exc}")
+        try:
+            scene.clear()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow: scene.clear failed — {exc}")
+        try:
+            scene.invalidate()
+        except Exception:
+            pass
+        if view is not None:
             try:
-                meta = ws_store.load_workspace(ws_pid)
-                experiments = meta.experiments
+                view.viewport().update()
             except Exception:
                 pass
 
-        if experiments:
-            for exp in experiments:
-                display = self._format_experiment_tab_name(page, exp.experiment_id, exp.name)
-                tab_bar.add_tab(exp.experiment_id, display)
-            # Activate current
-            if current_exp:
-                tab_bar.activate_tab(current_exp)
-        else:
-            # Fallback: just show whatever is loaded
-            self._add_current_experiment_tab()
-        self._update_tab_close_buttons()
+    def _restore_training_canvas_from_cache(self, file_id: str) -> bool:
+        """Restore a cached training canvas (returns True on success).
 
-    def _format_experiment_tab_name(self, page, exp_id: str, exp_name: str = "") -> str:
-        """Format tab label as [workspace]: experiment."""
-        ws_name = ""
-        if hasattr(page, "_current_workspace_name"):
-            ws_name = page._current_workspace_name()
-        if not exp_name and hasattr(page, "_current_experiment_name"):
-            exp_name = page._current_experiment_name()
-        if not exp_name:
-            exp_name = exp_id or "New File"
-        if ws_name:
-            return f"[{ws_name}]: {exp_name}"
-        return exp_name
+        Re-binds the workspace to the cached backend BEFORE loading so the
+        palette / float bar / scene metadata all match the cached state.
+        Forces a hard scene teardown before the load so no stale items
+        survive into the rebuilt canvas.
+        """
+        tp = getattr(self, "_training_page", None)
+        if tp is None:
+            return False
+        cached = self._training_canvas_cache.get(file_id)
+        if not cached:
+            return False
+        canvas = getattr(tp, "_canvas", None)
+        scene = getattr(canvas, "scene", None) if canvas is not None else None
+        view = getattr(canvas, "_view", None) if canvas is not None else None
+        if scene is None:
+            return False
+        backend = cached.get("backend") or getattr(tp, "_active_backend", "sb3")
+        if hasattr(tp, "_apply_backend_binding"):
+            try:
+                tp._apply_backend_binding(backend)
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"FilesRow cache: training rebind failed — {exc}")
+        try:
+            # Set _current_experiment_id BEFORE the scene mutation: any
+            # content_changed signal that fires from load_training_graph /
+            # import_history_state must route through the new file_id, not
+            # the previous experiment, so files_row paints the right tab.
+            tp._current_experiment_id = file_id if not file_id.startswith("::") else ""
+            # Hard teardown — see _force_clear_training_scene docstring.
+            self._force_clear_training_scene()
+            scene.load_training_graph(cached["data"])
+            if hasattr(scene, "import_history_state"):
+                scene.import_history_state(cached.get("history"))
+            # Force the view to repaint immediately so the new content is
+            # on screen before we return control to the event loop.
+            try:
+                scene.invalidate()
+            except Exception:
+                pass
+            if view is not None:
+                try:
+                    view.viewport().update()
+                except Exception:
+                    pass
+            # Mirror to ws_store so subsequent saves write back to the
+            # correct experiment slot.
+            ws_store = getattr(tp, "_ws_store", None)
+            ws_policy = getattr(tp, "_workspace_name", "") or ""
+            if ws_store is not None and ws_policy and tp._current_experiment_id:
+                try:
+                    ws_store.set_active_experiment(ws_policy, tp._current_experiment_id)
+                except Exception:
+                    pass
+            return True
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow cache: restore training failed — {exc}")
+            return False
+
+    def _drop_canvas_cache_entry(self, kind: str, file_id: str) -> None:
+        """Forget the cache slot for *file_id* (called from delete paths)."""
+        if kind == "training":
+            self._training_canvas_cache.pop(file_id, None)
+        else:
+            self._mission_canvas_cache.pop(file_id, None)
+
+    def _on_files_row_new(self) -> None:
+        """Handle '+' / '<New>' — create a new file of the current kind."""
+        mode = str(getattr(self, "_shell_mode", "mission") or "mission").lower()
+        if mode == "training":
+            # Stash the current training canvas so it survives the swap to
+            # TrainingSettingPage and back; then route to the backend picker.
+            self._stash_current_training_canvas()
+            self._show_training_setting_page()
+            return
+        # Mission: stash the current canvas under its file_id (so the user
+        # can come back to it via the '+' menu), then clear and let
+        # _refresh_files_row inject the pending "new_mission" tab.
+        self._stash_current_mission_canvas()
+        try:
+            if hasattr(self, "graph_scene") and hasattr(self.graph_scene, "clear_scene"):
+                self.graph_scene.clear_scene()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"FilesRow: clear_scene failed — {exc}")
+        self._current_workflow_id = ""
+        self._set_current_workflow_path("")
+
+    def _on_files_row_activate(self, file_id: str) -> None:
+        """Handle tab click — open the requested file.
+
+        Cache-first: every tab swap stashes the current canvas (so unsaved
+        edits and undo history survive) and tries to restore the target
+        from the in-memory cache before falling back to disk. This is what
+        makes "edit on tab A → switch to tab B → switch back to tab A"
+        preserve A's edits, which is the behavior the user reasonably
+        expects out of a multi-file workspace.
+        """
+        file_id = str(file_id or "").strip()
+        if not file_id or not self._active_project_id:
+            return
+        # The pending mission tab is already the active draft; clicking it
+        # is a no-op until the user saves (which resolves it to a real id).
+        if file_id == PENDING_MISSION_ID:
+            return
+        mode = str(getattr(self, "_shell_mode", "mission") or "mission").lower()
+        if mode == "training":
+            tp = getattr(self, "_training_page", None)
+            if tp is None or not hasattr(tp, "_load_experiment_by_id"):
+                return
+            # No-op when clicking the already-active experiment.
+            if getattr(tp, "_current_experiment_id", "") == file_id:
+                return
+            # If we're currently showing the setting-page buffer, switch
+            # back to the training canvas before loading.
+            try:
+                if self._shell_content_stack.widget(1) is self._training_setting_page:
+                    self._show_training_canvas_page()
+            except Exception:
+                pass
+            # 1) Stash the outgoing experiment.
+            self._stash_current_training_canvas()
+            # 2) Try cache → fall back to disk.
+            if not self._restore_training_canvas_from_cache(file_id):
+                # Disk path: tear down hard before _load_experiment_by_id
+                # rebuilds the canvas. Without this the previous tab's
+                # nodes can survive into the new view (suppress_history
+                # leaves _logic_nodes populated and the view repaint is
+                # not flushed before the next paint).
+                self._force_clear_training_scene()
+                try:
+                    tp._load_experiment_by_id(file_id)
+                except Exception as exc:  # noqa: BLE001
+                    log_error(f"FilesRow: load experiment failed — {exc}")
+                # Post-load viewport flush.
+                canvas = getattr(tp, "_canvas", None)
+                view = getattr(canvas, "_view", None) if canvas is not None else None
+                scene = getattr(canvas, "scene", None) if canvas is not None else None
+                if scene is not None:
+                    try:
+                        scene.invalidate()
+                    except Exception:
+                        pass
+                if view is not None:
+                    try:
+                        view.viewport().update()
+                    except Exception:
+                        pass
+            else:
+                # Cache hit — refresh the workspace browser so the active
+                # row reflects the new experiment.
+                if hasattr(tp, "_refresh_canvas_browser"):
+                    try:
+                        tp._refresh_canvas_browser()
+                    except Exception:
+                        pass
+            # Only update the active-tab highlight — do NOT rebuild all
+            # tab entries via _refresh_files_row(). Backend tags are
+            # experiment-bound and immutable; a full rebuild re-resolves
+            # them unnecessarily and can cross-contaminate tags when the
+            # live scene state is mid-switch.
+            new_exp_id = getattr(tp, "_current_experiment_id", "") or ""
+            self.files_row.set_active(new_exp_id)
+            # Persist for Continue restore.
+            self._save_last_training_experiment_id(new_exp_id)
+            self._save_last_training_backend(
+                getattr(tp, "_active_backend", "sb3")
+            )
+            self._save_last_shell_mode("training")
+            return
+
+        # ── Mission tab activation ──
+        if file_id == self._current_workflow_id:
+            return
+        # 1) Stash outgoing mission canvas.
+        self._stash_current_mission_canvas()
+        # 2) Try cache.
+        if self._restore_mission_canvas_from_cache(file_id):
+            self._current_workflow_id = file_id
+            # Reflect the new file in titles / persistence without
+            # re-reading from disk.
+            try:
+                from src.system.core.project_store import ProjectStore
+                store = ProjectStore()
+                abs_path = str(store.workflow_path(self._active_project_id, file_id))
+                self._set_current_workflow_path(abs_path)
+            except Exception:
+                self._set_current_workflow_path("")
+            self._refresh_files_row()
+            return
+        # 3) Cache miss → resolve disk path and use the standard opener.
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            abs_path = store.workflow_path(self._active_project_id, file_id)
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"FilesRow: resolve workflow path failed — {exc}")
+            return
+        if not abs_path.exists():
+            log_warning(f"FilesRow: workflow file missing — {abs_path}")
+            return
+        self._current_workflow_id = file_id
+        try:
+            self._open_workflow_from_path(str(abs_path))
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"FilesRow: open workflow failed — {exc}")
+
+    def _on_mission_scene_dirty_changed(self, dirty: bool) -> None:
+        """Forward mission canvas dirty state to the files_row tab dot.
+
+        When no workflow is loaded yet the draft "new_mission" sentinel tab
+        keeps its dirty dot (as before) — we still mirror the flip onto
+        PENDING_MISSION_ID so the dot can clear after a save-as.
+        """
+        if not hasattr(self, "files_row"):
+            return
+        file_id = self._current_workflow_id or PENDING_MISSION_ID
+        try:
+            self.files_row.mark_dirty(file_id, bool(dirty))
+        except Exception:
+            pass
+
+    def _on_training_scene_dirty_changed(self, dirty: bool) -> None:
+        """Forward training canvas dirty state to the files_row tab dot.
+
+        Also refreshes the per-tab cache on the dirty→clean transition
+        (i.e. after a successful save inside TrainingWorkspaceWindow), so
+        a subsequent tab swap restores the saved baseline rather than the
+        last pre-save snapshot.
+        """
+        if not hasattr(self, "files_row"):
+            return
+        tp = getattr(self, "_training_page", None)
+        if tp is None:
+            return
+        file_id = str(getattr(tp, "_current_experiment_id", "") or "").strip()
+        if not file_id:
+            return
+        try:
+            self.files_row.mark_dirty(file_id, bool(dirty))
+        except Exception:
+            pass
+        # Cache refresh on transition to clean (post-save).
+        if not dirty:
+            self._stash_current_training_canvas()
+
+    def _on_files_row_close(self, file_id: str) -> None:
+        """Handle close-X. FilesRow has already hidden the tab locally; the
+        entry survives in the underlying list and can be restored via the
+        '+' dropdown. Dirty-state protection is the responsibility of the
+        per-workspace save path (not wired yet — see task 2)."""
+        file_id = str(file_id or "").strip()
+        if not file_id or file_id == PENDING_MISSION_ID:
+            return
+        log_info(f"FilesRow: hidden {file_id} (restore via '+' dropdown)")
+        # Sync browser panel
+        self._sync_file_browser_hidden()
+
+    def _on_files_row_restore(self, file_id: str) -> None:
+        """User picked a hidden entry from the '+' dropdown — open it."""
+        self._on_files_row_activate(file_id)
+        self._sync_file_browser_hidden()
+
+    def _sync_file_browser_hidden(self) -> None:
+        """Push FilesRow hidden state to the browser panel and persist."""
+        if not hasattr(self, "files_row"):
+            return
+        kind = self.files_row.kind()
+        hidden = self.files_row._hidden_by_kind.get(kind, set())
+        if hasattr(self, "_file_browser_panel"):
+            self._file_browser_panel.sync_hidden(hidden)
+        # Persist checked set.
+        all_ids = {e.file_id for e in self.files_row._entries}
+        self._save_checked_files_cache(
+            self._active_project_id, kind, all_ids - hidden
+        )
+
+    def _on_file_browser_checked(self, file_id: str, checked: bool) -> None:
+        """User toggled a canvas item in the ProjectFileBrowserPanel.
+
+        Checked → unhide (show tab in FilesRow) + activate.
+        Unchecked → hide (remove tab from FilesRow).
+        Persists the new checked set to user.ini.
+        """
+        if not hasattr(self, "files_row"):
+            return
+        if checked:
+            self.files_row.unhide_file(file_id)
+            self._on_files_row_activate(file_id)
+        else:
+            self.files_row.hide_file(file_id)
+        # Keep the browser panel in sync with FilesRow hidden state.
+        kind = self.files_row.kind()
+        hidden = self.files_row._hidden_by_kind.get(kind, set())
+        if hasattr(self, "_file_browser_panel"):
+            self._file_browser_panel.sync_hidden(hidden)
+        # Persist checked set.
+        all_ids = {e.file_id for e in self.files_row._entries}
+        self._save_checked_files_cache(
+            self._active_project_id, kind, all_ids - hidden
+        )
+
+    def _project_has_no_experiments(self, training_page=None) -> bool:
+        """True when the active project has zero training experiments.
+
+        Checks via the Training page's _ws_store when available (matches
+        the data source used by the canvas browser), falling back to
+        ProjectStore.list_experiments.
+        """
+        if not self._active_project_id:
+            return True
+        tp = training_page if training_page is not None else getattr(self, "_training_page", None)
+        ws_store = getattr(tp, "_ws_store", None) if tp is not None else None
+        if ws_store is not None:
+            try:
+                for ws_id in ws_store.list_workspaces():
+                    try:
+                        ws_meta = ws_store.load_workspace(ws_id)
+                    except Exception:
+                        continue
+                    if getattr(ws_meta, "experiments", None):
+                        return False
+                return True
+            except Exception:
+                pass
+        try:
+            from src.system.core.project_store import ProjectStore
+            return not ProjectStore().list_experiments(self._active_project_id)
+        except Exception:
+            return False
+
+    # ── Training setting-page buffer ─────────────────────────────────
+
+    def _show_training_setting_page(self) -> None:
+        """Swap the Training slot to the backend-picker buffer page."""
+        if not hasattr(self, "_shell_content_stack"):
+            return
+        current = self._shell_content_stack.widget(1)
+        if current is not self._training_setting_page:
+            if current is not None:
+                self._shell_content_stack.removeWidget(current)
+            self._shell_content_stack.insertWidget(1, self._training_setting_page)
+        self._shell_content_stack.setCurrentIndex(1)
+        try:
+            self._training_setting_page.apply_theme()
+        except Exception:
+            pass
+
+    def _show_training_canvas_page(self) -> None:
+        """Swap the Training slot back to the TrainingWorkspaceWindow."""
+        if not hasattr(self, "_shell_content_stack"):
+            return
+        page = getattr(self, "_training_page", None)
+        if page is None:
+            self._ensure_training_content("")
+            page = self._training_page
+        if page is None:
+            return
+        current = self._shell_content_stack.widget(1)
+        if current is not page:
+            if current is not None:
+                self._shell_content_stack.removeWidget(current)
+            self._shell_content_stack.insertWidget(1, page)
+        self._shell_content_stack.setCurrentIndex(1)
+
+    def _on_training_setting_new(self, backend: str) -> None:
+        """TrainingSettingPage button → prompt for experiment name, create
+        the experiment with a backend-tagged seed canvas, and switch to the
+        training canvas. The backend is bound to the experiment at creation
+        and cannot be changed mid-session — there is no in-bar selector
+        anymore.
+        """
+        # Map UI backend tag → internal training backend id.
+        raw = str(backend or "sb3").strip().lower()
+        backend_id = "isaac_lab" if raw in ("isaac", "isaac_lab") else "sb3"
+        backend_label = "Isaac Lab" if backend_id == "isaac_lab" else "SB3"
+
+        # 1) Prompt for a filename (matches the user's requested UX).
+        default_name = "sb3_training" if backend_id == "sb3" else "isaac_training"
+        name, ok = QInputDialog.getText(
+            self,
+            "New Training",
+            f"{backend_label} experiment name:",
+            text=default_name,
+        )
+        if not ok:
+            return
+        name = str(name or "").strip() or default_name
+
+        # 2) Ensure TrainingWorkspaceWindow exists for this project.
+        try:
+            self._ensure_training_content("")
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"Training bootstrap failed: {exc}")
+            return
+        tp = self._training_page
+        if tp is None:
+            log_error("Training page unavailable after ensure")
+            return
+        # Stash the currently-loaded experiment (if any) so its unsaved
+        # edits survive across new-experiment creation. The new experiment
+        # gets its own cache slot keyed by the freshly-created id.
+        self._stash_current_training_canvas()
+
+        # 3) Create the experiment inside the active training workspace.
+        #    For a brand-new project there is no workspace yet — bootstrap
+        #    one using the project name as workspace identity (matches the
+        #    convention in TrainingWorkspaceWindow._init_workspace).
+        ws_store = getattr(tp, "_ws_store", None)
+        ws_policy = getattr(tp, "_workspace_name", "") or ""
+        if ws_store is not None and not ws_policy:
+            ws_policy = self._active_project_name or self._active_project_id
+            if ws_policy:
+                try:
+                    ws_store.ensure_workspace(ws_policy)
+                    tp._workspace_name = ws_policy
+                    if hasattr(tp, "_selected_policy_id"):
+                        tp._selected_policy_id = ws_policy
+                except Exception as exc:  # noqa: BLE001
+                    log_error(f"Create training workspace failed: {exc}")
+                    ws_policy = ""
+
+        # Seed envelope: an empty layered canvas already tagged with the
+        # chosen backend so _load_experiment_by_id can derive it correctly.
+        # The actual default-template nodes are placed by the workspace
+        # window's _ensure_template_canvas() (which now reads _active_backend).
+        seed_envelope = {
+            "schema": "training_canvas_v1",
+            "active_backend": backend_id,
+            "layers": {
+                backend_id: {
+                    "schema": "training_canvas_v1",
+                    "backend": backend_id,
+                    "nodes": [],
+                    "edges": [],
+                },
+            },
+        }
+
+        created_id = ""
+        if ws_store is not None and ws_policy:
+            try:
+                exp_meta = ws_store.create_experiment(
+                    ws_policy, name=name, initial_canvas=seed_envelope,
+                )
+                created_id = getattr(exp_meta, "experiment_id", "") or ""
+            except TypeError:
+                # Older signature without initial_canvas — fall back to
+                # plain creation; the binding step below still applies the
+                # right backend before any canvas seeding.
+                try:
+                    exp_meta = ws_store.create_experiment(ws_policy, name=name)
+                    created_id = getattr(exp_meta, "experiment_id", "") or ""
+                except Exception as exc:  # noqa: BLE001
+                    log_error(f"Create experiment failed: {exc}")
+            except Exception as exc:  # noqa: BLE001
+                log_error(f"Create experiment failed: {exc}")
+
+        # Bind the workspace window to the requested backend now so that
+        # _ensure_template_canvas() (called from _load_experiment_by_id when
+        # the seed canvas is empty) seeds the right SB3/Isaac default layout.
+        if hasattr(tp, "_apply_backend_binding"):
+            try:
+                tp._apply_backend_binding(backend_id)
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"Apply backend binding failed: {exc}")
+
+        # 4) Switch to the training canvas and load the new experiment.
+        self._show_training_canvas_page()
+        if created_id and hasattr(tp, "_load_experiment_by_id"):
+            try:
+                tp._load_experiment_by_id(created_id, show_dialog=False)
+            except TypeError:
+                try:
+                    tp._load_experiment_by_id(created_id)
+                except Exception as exc:  # noqa: BLE001
+                    log_error(f"Load new experiment failed: {exc}")
+            except Exception as exc:  # noqa: BLE001
+                log_error(f"Load new experiment failed: {exc}")
+
+        self._refresh_files_row()
+        # Persist new training state so Continue returns here next launch.
+        self._save_last_shell_mode("training")
+        self._save_last_training_backend(backend_id)
+        self._save_last_training_experiment_id(created_id)
 
     def _build_workflow_payload(self) -> dict:
         from src.system.core.mission_persistence import inject_snapshot_metadata
@@ -1795,12 +3105,81 @@ class MainWindow(QMainWindow):
             return False
 
         self._set_current_workflow_path(path)
-        log_info(tr("log.save_project", "Save project"))
-        log_info(tr("log.saved", "Mission saved: {path}", path=path))
+        log_success(f"Mission saved: {path}")
         self.status.showMessage(
             tr("status.saved", "Saved: {path}", path=path), 3000
         )
+        # Pin the post-save canvas state as the new clean baseline so the
+        # dirty dot clears on files_row and Ctrl+Z cannot regress across the
+        # save boundary.
+        try:
+            if hasattr(self, "graph_scene") and hasattr(self.graph_scene, "mark_clean"):
+                self.graph_scene.mark_clean()
+        except Exception:
+            pass
+        # Refresh per-tab cache so the saved baseline is the snapshot.
+        self._stash_current_mission_canvas()
         return True
+
+    def _save_workflow_to_project(self, workflow_id: str) -> bool:
+        """Save the current canvas into the active project via ProjectStore."""
+        if not hasattr(self, "graph_scene"):
+            log_error("Graph scene not available")
+            return False
+        if not self._active_project_id:
+            log_error("No active project")
+            return False
+        data = self._build_workflow_payload()
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            abs_path = store.save_workflow(self._active_project_id, workflow_id, data)
+        except Exception as exc:
+            log_error(tr("log.save_error", "Save failed: {error}", error=str(exc)))
+            QMessageBox.critical(
+                self,
+                tr("messages.error", "Error"),
+                tr("messages.save_write_error", "Could not write file: {error}", error=str(exc)),
+            )
+            return False
+        self._current_workflow_id = workflow_id
+        self._set_current_workflow_path(str(abs_path))
+        log_success(f"Mission saved: {abs_path}")
+        self.status.showMessage(
+            tr("status.saved", "Saved: {path}", path=workflow_id), 3000
+        )
+        try:
+            if hasattr(self, "graph_scene") and hasattr(self.graph_scene, "mark_clean"):
+                self.graph_scene.mark_clean()
+        except Exception:
+            pass
+        # Refresh cache so the saved-clean state is what gets restored on
+        # the next tab swap (and drop the pending-draft slot if we just
+        # promoted it to a real workflow_id).
+        self._mission_canvas_cache.pop(PENDING_MISSION_ID, None)
+        self._stash_current_mission_canvas()
+        return True
+
+    @staticmethod
+    def _sanitize_workflow_id(name: str) -> str:
+        """Turn a user-supplied workflow name into a safe workflow_id."""
+        import re
+        name = name.strip()
+        # Replace path separators and other problematic characters
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
+        return name or "untitled"
+
+    def _prompt_workflow_name(self, default: str = "") -> str:
+        """Prompt the user for a workflow name. Returns empty string on cancel."""
+        name, ok = QInputDialog.getText(
+            self,
+            tr("toolbar.save_workflow", "Save Workflow"),
+            tr("toolbar.workflow_name_prompt", "Mission Workflow name:"),
+            text=default,
+        )
+        if not ok:
+            return ""
+        return str(name or "").strip()
 
     def _load_workflow_from_path(self, path: str, suppress_popups: bool = False) -> bool:
         """Load a workflow file from disk into the current canvas."""
@@ -1967,12 +3346,23 @@ class MainWindow(QMainWindow):
         return True
 
     def _open_workflow_from_path(self, path: str):
+        # Detect workflow_id when opening a canvas/workflow file from the active project
+        self._current_workflow_id = ""
+        if self._active_project_id:
+            from src.system.core.project_store import ProjectStore
+            wf_id = ProjectStore.workflow_id_from_path(path)
+            if wf_id:
+                self._current_workflow_id = wf_id
         self._load_workflow_from_path(path)
 
     def _on_open(self):
-        """Open project 鈥?shows file dialog and loads a mission file."""
+        """Open a workflow — project picker (project mode) or file dialog (legacy)."""
         if not self._handle_unsaved_settings_guard(tr("toolbar.open", "Open")):
             return
+        if self._active_project_id:
+            self._open_workflow_from_project()
+            return
+        # Legacy fallback: file dialog
         path, _ = QFileDialog.getOpenFileName(
             self,
             tr("toolbar.open", "Open Mission"),
@@ -1982,6 +3372,37 @@ class MainWindow(QMainWindow):
         if not path:
             return
         self._load_workflow_from_path(path)
+
+    def _open_workflow_from_project(self):
+        """Show a picker of workflows in the active project and load the selected one."""
+        try:
+            from src.system.core.project_store import ProjectStore
+            store = ProjectStore()
+            entries = store.list_workflows(self._active_project_id)
+        except Exception as exc:
+            QMessageBox.warning(self, tr("messages.error", "Error"), str(exc))
+            return
+        if not entries:
+            QMessageBox.information(
+                self,
+                tr("toolbar.open", "Open Mission"),
+                tr("messages.no_workflows", "No saved workflows in this project."),
+            )
+            return
+        names = [e.id for e in entries]
+        name, ok = QInputDialog.getItem(
+            self,
+            tr("toolbar.open", "Open Mission"),
+            tr("toolbar.select_workflow", "Select workflow:"),
+            names,
+            editable=False,
+        )
+        if not ok or not name:
+            return
+        wf_id = name
+        wf_path = store.workflow_path(self._active_project_id, wf_id)
+        self._current_workflow_id = wf_id
+        self._load_workflow_from_path(str(wf_path))
 
     def _open_workflows_folder(self):
         workflows_root = self._active_workflows_root()
@@ -2031,13 +3452,48 @@ class MainWindow(QMainWindow):
 
     def _on_save(self):
         """Save current workflow to current path; fallback to Save As for new files."""
-        if self._current_workflow_path:
+        # Project-aware: re-save existing workflow directly
+        if self._active_project_id and self._current_workflow_id:
+            self._save_workflow_to_project(self._current_workflow_id)
+            return
+        # Legacy path-based save (non-project or externally loaded file)
+        if self._current_workflow_path and not self._active_project_id:
             self._save_workflow_to_path(self._current_workflow_path)
             return
+        # New file — prompt for name
         self._on_save_as()
 
     def _on_save_as(self):
-        """Save workflow to a selected file path."""
+        """Save workflow — prompt for name (project mode) or file path (legacy)."""
+        if self._active_project_id:
+            default_name = self._current_workflow_id or ""
+            name = self._prompt_workflow_name(default_name)
+            if not name:
+                return
+            wf_id = self._sanitize_workflow_id(name)
+            # Check for overwrite if it's a different workflow
+            if wf_id != self._current_workflow_id:
+                try:
+                    from src.system.core.project_store import ProjectStore
+                    store = ProjectStore()
+                    existing = store.list_workflows(self._active_project_id)
+                    if any(e.id == wf_id for e in existing):
+                        reply = QMessageBox.question(
+                            self,
+                            tr("messages.overwrite_title", "Overwrite"),
+                            tr(
+                                "messages.overwrite_workflow",
+                                "Workflow '{name}' already exists. Overwrite?",
+                                name=wf_id,
+                            ),
+                        )
+                        if reply != QMessageBox.StandardButton.Yes:
+                            return
+                except Exception:
+                    pass
+            self._save_workflow_to_project(wf_id)
+            return
+        # Legacy fallback: file dialog
         initial_path = self._current_workflow_path or self._workflows_root()
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -2806,7 +4262,137 @@ class MainWindow(QMainWindow):
 
         return False
 
-    # 鈹€鈹€ Unsaved settings guardrail (Cycle 3 STAGE-05) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+    # ── Unsaved canvas guardrail (close-time save/discard/cancel) ──────────
+
+    def _collect_dirty_canvas_labels(self) -> List[str]:
+        """Return human-readable labels for every canvas with unsaved edits.
+
+        Currently inspects the mission graph scene and (if constructed) the
+        training workspace scene. Empty list when nothing is dirty.
+        """
+        labels: List[str] = []
+        try:
+            if (
+                hasattr(self, "graph_scene")
+                and hasattr(self.graph_scene, "is_dirty")
+                and self.graph_scene.is_dirty()
+            ):
+                mid = self._current_workflow_id or "new_mission"
+                labels.append(f"Mission: {mid}")
+        except Exception:
+            pass
+        try:
+            tp = getattr(self, "_training_page", None)
+            if tp is not None:
+                canvas = getattr(tp, "_canvas", None)
+                scene = getattr(canvas, "scene", None) if canvas is not None else None
+                if (
+                    scene is not None
+                    and hasattr(scene, "is_dirty")
+                    and scene.is_dirty()
+                ):
+                    eid = getattr(tp, "_current_experiment_id", "") or "new_experiment"
+                    labels.append(f"Training: {eid}")
+        except Exception:
+            pass
+        return labels
+
+    def _save_dirty_canvases(self) -> bool:
+        """Invoke the existing save paths for every dirty canvas.
+
+        Returns True when every dirty canvas was successfully persisted,
+        False when at least one save failed or was cancelled — the caller
+        should treat a False return as "abort the close".
+        """
+        all_ok = True
+        # Mission save
+        try:
+            if (
+                hasattr(self, "graph_scene")
+                and hasattr(self.graph_scene, "is_dirty")
+                and self.graph_scene.is_dirty()
+            ):
+                before_id = self._current_workflow_id
+                self._on_save()
+                # If mission still has no workflow id after _on_save it
+                # means the user cancelled the Save-As prompt.
+                if (
+                    self._active_project_id
+                    and not self._current_workflow_id
+                    and not before_id
+                ):
+                    all_ok = False
+                elif self.graph_scene.is_dirty():
+                    all_ok = False
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"Close: mission save failed — {exc}")
+            all_ok = False
+
+        # Training save
+        try:
+            tp = getattr(self, "_training_page", None)
+            if tp is not None:
+                canvas = getattr(tp, "_canvas", None)
+                scene = getattr(canvas, "scene", None) if canvas is not None else None
+                if (
+                    scene is not None
+                    and hasattr(scene, "is_dirty")
+                    and scene.is_dirty()
+                    and hasattr(tp, "_save_current_experiment")
+                ):
+                    tp._save_current_experiment()
+                    if scene.is_dirty():
+                        all_ok = False
+        except Exception as exc:  # noqa: BLE001
+            log_error(f"Close: training save failed — {exc}")
+            all_ok = False
+
+        return all_ok
+
+    def _handle_unsaved_canvas_guard(self) -> bool:
+        """Close-time prompt for unsaved mission + training canvases.
+
+        Returns True when the close may proceed (nothing dirty / saved /
+        discarded), False when the user cancelled or a save failed.
+        """
+        dirty_labels = self._collect_dirty_canvas_labels()
+        if not dirty_labels:
+            return True
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle(
+            tr("messages.unsaved_canvas_title", "Unsaved Changes")
+        )
+        bullets = "\n".join(f"  • {label}" for label in dirty_labels)
+        msg.setText(
+            tr(
+                "messages.unsaved_canvas_body",
+                "You have unsaved changes in:\n{files}\n\n"
+                "Do you want to save before closing?",
+                files=bullets,
+            )
+        )
+        save_btn = msg.addButton(
+            tr("messages.save_and_close", "Save && Close"),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        discard_btn = msg.addButton(
+            tr("messages.discard_and_close", "Discard && Close"),
+            QMessageBox.ButtonRole.DestructiveRole,
+        )
+        cancel_btn = msg.addButton(QMessageBox.StandardButton.Cancel)
+        msg.setDefaultButton(save_btn)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked is save_btn:
+            return self._save_dirty_canvases()
+        if clicked is discard_btn:
+            return True
+        # Cancel (or dialog dismissed).
+        return False
+
+    # ── Unsaved settings guardrail (Cycle 3 STAGE-05) ──────────────────────
 
     def _handle_unsaved_settings_guard(self, action_label: str = "") -> bool:
         """Prompt operator when there are unapplied settings / behavior changes.
@@ -3103,6 +4689,12 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Window close event"""
+        # Unsaved canvas changes (mission + training) are checked first so
+        # the user can't lose work via a stray window-close. The settings
+        # guard runs after since it targets a different surface.
+        if not self._handle_unsaved_canvas_guard():
+            event.ignore()
+            return
         # Cycle 3 STAGE-05: guard against unapplied settings before close.
         if not self._handle_unsaved_settings_guard(
             tr("messages.before_close", "before closing")
@@ -3129,10 +4721,9 @@ class MainWindow(QMainWindow):
         log_info(tr("log.main_window_closed", "Main window closed"))
         event.accept()
 
-    def _on_theme_toggle(self):
-        """Toggle theme between light/dark"""
-        next_theme = "light" if self._theme == "dark" else "dark"
-        self._apply_theme(next_theme, persist=True)
+    def _on_theme_switch_toggled(self, checked: bool):
+        """ThemeSwitchButton toggled — True = dark, False = light."""
+        self._apply_theme("dark" if checked else "light", persist=True)
 
     def _apply_theme(self, theme: str, persist: bool = True):
         """Apply theme and refresh UI"""
@@ -3145,14 +4736,9 @@ class MainWindow(QMainWindow):
             self.config.set('PREFERENCES', 'theme', theme, config_type='user')
             self.config.save_user_config()
         self._refresh_theme()
-        self._sync_theme_button()
-
-    def _sync_theme_button(self):
-        """Sync theme toggle button label"""
-        if not hasattr(self, "theme_button"):
-            return
-        self.theme_button.setText("")
-        self.theme_button.setToolTip(tr("toolbar.theme_toggle", "Toggle theme"))
+        # Sync the MainRow switch visual without re-triggering the signal.
+        if hasattr(self, "mission_nav_header"):
+            self.mission_nav_header.set_theme_state(theme)
 
     def _toggle_window_fullscreen(self) -> None:
         if self.isFullScreen():
@@ -3174,6 +4760,19 @@ class MainWindow(QMainWindow):
         self._apply_stylesheet()
         if hasattr(self, "sidebar"):
             self.sidebar.refresh_icons(self._theme)
+        if hasattr(self, "mission_nav_header"):
+            self.mission_nav_header.apply_theme()
+        if hasattr(self, "files_row"):
+            self.files_row.apply_theme()
+        if hasattr(self, "_file_browser_panel"):
+            self._file_browser_panel.apply_theme()
+        if hasattr(self, "_user_panel"):
+            self._user_panel.apply_theme()
+        if hasattr(self, "_training_setting_page") and self._training_setting_page is not None:
+            try:
+                self._training_setting_page.apply_theme()
+            except Exception:
+                pass
         if hasattr(self, "window_controls") and self.window_controls is not None:
             self.window_controls.apply_theme()
             self._sync_window_controls()

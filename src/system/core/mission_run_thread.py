@@ -87,6 +87,19 @@ class MissionRunThread(QThread):
             from src.system.core.robot_context import RobotContext
             RobotContext.set_run_scoped_policy(self._run_policy)
 
+        # Clear the per-process "user closed the MuJoCo viewer" sticky
+        # flag so this fresh mission run can pop its own viewer. Without
+        # this, once the user closes a viewer to abort one mission, every
+        # subsequent mission run would fail at the first ensure_viewer
+        # call. Brand-specific reset hooks are gathered here so the
+        # MissionRunThread stays brand-agnostic at the call site.
+        try:
+            from src.system.brand_packages.unitree.unitree_model import UnitreeModel
+            UnitreeModel.reset_viewer_session()
+        except Exception:
+            # Brand package may be absent in trimmed builds — ignore.
+            pass
+
         def _status_cb(node_id: object, status: str) -> None:
             # Emit via Qt signal; queued delivery to the main thread.
             self.node_status_changed.emit(node_id, status)

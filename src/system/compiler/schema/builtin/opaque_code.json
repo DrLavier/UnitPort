@@ -1,0 +1,40 @@
+{
+  "schema_id": "builtin.opaque_code",
+  "display_name": "Script Box",
+  "node_type": "opaque_code",
+  "kind": "opaque",
+  "ports": [
+    {"name": "flow_in",  "direction": "input",  "data_type": "void"},
+    {"name": "flow_out", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {
+      "name": "code",
+      "param_type": "string",
+      "default": "",
+      "description": "Inline Python code body for the script box."
+    },
+    {
+      "name": "script_ref",
+      "param_type": "string",
+      "default": "",
+      "description": "Optional reference to an external script asset."
+    },
+    {
+      "name": "script_io_spec",
+      "param_type": "any",
+      "default": {"inputs": [], "outputs": []},
+      "description": "Declared input/output ports for the script box."
+    },
+    {
+      "name": "shell_name",
+      "param_type": "string",
+      "default": "Script Box",
+      "description": "Display label for the script shell in the canvas."
+    }
+  ],
+  "code_template": "",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

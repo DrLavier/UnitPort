@@ -1,0 +1,206 @@
+###############################################################################
+# UnitPort Project Layout v2 — design archive
+#
+# Status      : approved 2026-04-08
+# Supersedes  : ad-hoc layout used by proj_<hash> folders prior to 2026-04-08
+# Scope       : on-disk structure of every folder under  projects/<name>/
+# Drivers     : align with community conventions (Isaac Lab, legged_gym /
+#               AMP_for_hardware, MetalHead, rl_amp, LeRobot) so that external
+#               assets, datasets, robots and runs can be dropped in with no
+#               glue code.
+###############################################################################
+
+schema_version: project_layout_v2
+approved_on: 2026-04-08
+
+# ---------------------------------------------------------------------------
+# 1.  Reference material this design was distilled from
+# ---------------------------------------------------------------------------
+references:
+  community_examples:
+    - path: custom_mods/archives/AMP_for_hardware
+      style: legged_gym
+      takeaways:
+        - Top-level split:  datasets/  resources/robots/<robot>/{urdf,meshes}  logs/
+        - Runs nested as logs/<experiment>/<timestamp>/  with exported/ sibling
+        - README.md + LICENSE + setup.py at the project root
+    - path: custom_mods/archives/MetalHead
+      style: legged_gym + poselib
+      takeaways:
+        - datasets/ holds multiple named motion collections side by side
+        - logs/<exp>/<run>/  carries the trained checkpoint AND tensorboard events
+    - path: custom_mods/archives/rl_amp
+      style: legged_gym monorepo
+      takeaways:
+        - resources/robots/<robot>/  is the canonical place for URDF + meshes
+        - rsl_rl bundled as a sibling package, not under logs/
+  examples_txt:
+    - style: Isaac Lab
+      pattern: source/<ext>/tasks/{direct,manager_based}/<task>/{_env.py,_env_cfg.py,agents/}
+      takeaway: tasks are self-contained units with config + env + agent cfg co-located
+    - style: LeRobot
+      pattern: dataset/episode_xxx/{observation/{images,state},action.json}
+      takeaway: episode-sliced datasets, configs/  models/  train.py at the root
+
+# ---------------------------------------------------------------------------
+# 2.  Diagnosis of the legacy layout (proj_898eb2c5)
+# ---------------------------------------------------------------------------
+legacy_problems:
+  metadata_duplication:
+    files: [project.json, workspace_meta.json]
+    impact: two sources of truth at the project root, easy to drift apart
+  opaque_identifiers:
+    examples: [proj_898eb2c5, exp_e5997c34, il_run_2f63d285]
+    impact: filesystem is unbrowsable, users cannot tell projects apart
+  misleading_directory_names:
+    case: training/experiments/ holds *.canvas.json (visual graphs), not training experiments
+    impact: contradicts community semantics where "experiments" means trained runs
+  scattered_run_outputs:
+    dirs: [bundles/, checkpoints/, training/runs/]
+    impact: a single run's artifacts live in three unrelated places, hard to archive
+  missing_standard_dirs:
+    missing: [README.md, datasets/, resources/, scenarios/, behaviors/]
+    impact: incompatible with Isaac Lab / legged_gym / LeRobot drop-in workflows
+
+# ---------------------------------------------------------------------------
+# 3.  The approved Layout v2
+# ---------------------------------------------------------------------------
+layout:
+  root: "projects/<project_name>/"
+  naming:
+    project_dir : "human-readable slug, e.g. quadruped_walk_v1 (no proj_<hash>)"
+    experiment  : "human-readable name, e.g. isaac_training (no exp_<hash>)"
+    run         : "<experiment>__<UTC-timestamp>  e.g. isaac_training__20260408T081933Z"
+    separator   : "double underscore __ between experiment and timestamp"
+    stable_ids  : "UUIDs live ONLY inside project.yaml for cross-reference, never in paths"
+
+  tree:
+    - "README.md"                              # auto-generated template on creation
+    - "project.yaml"                           # single source of truth (see §4)
+    - ".unitport/"                             # tool-private cache (lock, recents)
+    - ".unitport/workspace.lock"
+    - "canvas/"                                # Canvas DAG visual sources
+    - "canvas/mission.canvas.json"             # main mission graph
+    - "canvas/experiments/"                    # one canvas per training experiment
+    - "canvas/experiments/<experiment>.canvas.json"
+    - "behaviors/"                             # Compiler IR -> Python output
+    - "behaviors/<node_id>.py"
+    - "scenarios/"                             # sim/real target, safety, engine params
+    - "scenarios/default.yaml"
+    - "datasets/"                              # community-standard data dir
+    - "datasets/<dataset_name>/meta.json"
+    - "datasets/<dataset_name>/episode_000/"   # LeRobot-style episode slicing (optional)
+    - "resources/"                             # community-standard asset dir
+    - "resources/robots/<robot>/urdf/"
+    - "resources/robots/<robot>/meshes/"
+    - "resources/robots/<robot>/mjcf/"
+    - "training/"                              # full training lifecycle
+    - "training/configs/<experiment>.yaml"     # serialized TrainingSpec
+    - "training/runs/<experiment>__<ts>/config.snapshot.yaml"
+    - "training/runs/<experiment>__<ts>/events.out.tfevents.*"
+    - "training/runs/<experiment>__<ts>/checkpoints/model_*.pt"
+    - "training/runs/<experiment>__<ts>/log.txt"
+    - "training/exported/<experiment>__<ts>/policy.onnx"
+    - "training/exported/<experiment>__<ts>/policy.pt"
+    - "training/exported/<experiment>__<ts>/manifest.yaml"
+    - "training/exported/<experiment>__<ts>/source.json"
+    - "logs/"                                  # runtime / mission execution logs
+    - "logs/<date>/run_<timestamp>.log"
+
+  directory_purpose:
+    canvas    : "Visual DAG sources for both mission and training graphs."
+    behaviors : "Python code generated by the IR->code path of the Compiler."
+    scenarios : "Execution-time configuration: sim/real target, safety, engine params."
+    datasets  : "Training data, organised by named collections (community standard)."
+    resources : "Robot assets: URDF, meshes, MJCF (community standard)."
+    training  : "Everything tied to RL training: configs, runs, exported bundles."
+    logs      : "Runtime logs from mission execution; NOT training logs."
+
+# ---------------------------------------------------------------------------
+# 4.  project.yaml schema (replaces project.json + workspace_meta.json)
+# ---------------------------------------------------------------------------
+project_yaml_schema:
+  schema_version    : "project_v2"
+  project_id        : "UUID, internal cross-reference only"
+  name              : "human-readable display name"
+  slug              : "filesystem slug (matches the parent directory name)"
+  created_at        : "ISO-8601 UTC"
+  updated_at        : "ISO-8601 UTC"
+  robot:
+    brand           : "e.g. unitree"
+    model           : "e.g. go2"
+  active_experiment : "experiment name currently selected in the UI"
+  experiments:
+    - name          : "isaac_training"
+      created_at    : "ISO-8601 UTC"
+      updated_at    : "ISO-8601 UTC"
+      canvas        : "canvas/experiments/isaac_training.canvas.json"
+      config        : "training/configs/isaac_training.yaml"
+      runs:
+        - "isaac_training__20260408T081933Z"
+  assets:
+    workflows       : ["canvas/mission.canvas.json"]
+    behaviors       : []
+    scenarios       : ["scenarios/default.yaml"]
+    datasets        : []
+    bundles         : []         # filled from training/exported/
+
+# ---------------------------------------------------------------------------
+# 5.  Old -> new migration map
+# ---------------------------------------------------------------------------
+migration_map:
+  - from: "proj_<hash>/"
+    to  : "<slug-of-name>/"
+    rule: "slugify(project.json.name); fallback to project_id short hash if empty"
+  - from: ["project.json", "workspace_meta.json"]
+    to  : "project.yaml"
+    rule: "merge into single document under project_v2 schema"
+  - from: "workflows/MISSION.workflow.json"
+    to  : "canvas/mission.canvas.json"
+  - from: "training/experiments/exp_<hash>.canvas.json"
+    to  : "canvas/experiments/<experiment-name>.canvas.json"
+    rule: "experiment-name comes from workspace_meta.experiments[].name"
+  - from: "training/runs/il_run_<hash>/events*"
+    to  : "training/runs/<exp>__<UTC-timestamp>/events*"
+  - from: "training/runs/il_run_<hash>/model_*.pt"
+    to  : "training/runs/<exp>__<UTC-timestamp>/checkpoints/model_*.pt"
+  - from: "bundles/"
+    to  : "training/exported/<exp>__<UTC-timestamp>/"
+  - from: "checkpoints/"
+    to  : "training/runs/<exp>__<UTC-timestamp>/checkpoints/"
+    note: "no longer a top-level directory; folded into the owning run"
+
+# ---------------------------------------------------------------------------
+# 6.  Design rationale (why these specific choices)
+# ---------------------------------------------------------------------------
+rationale:
+  why_canvas_dir:
+    decision: "Unify workflows/ and training/experiments/ under canvas/."
+    reason  : "Both held *.canvas.json files; canvas/ matches the bin/pages/canvas/ frontend module."
+  why_behaviors_dir:
+    decision: "Give Compiler IR->code output its own top-level directory."
+    reason  : "CLAUDE.md states the Compiler is bidirectional (Canvas <-> IR <-> Python). Generated code needs a stable place to land for IR roundtrip."
+  why_fold_bundles_and_checkpoints:
+    decision: "Move bundles/ and checkpoints/ inside training/."
+    reason  : "All three community examples keep training artifacts under logs/<exp>/<run>/. Atomic per-run archival/deletion becomes possible."
+  why_yaml_not_json:
+    decision: "Use YAML for project.yaml, scenarios, training configs, manifests."
+    reason  : "All community references (rsl_rl_ppo_cfg, policy_cfg.yaml, manifest.yaml) use YAML. Allows comments and human editing."
+  why_human_slugs:
+    decision: "Project dir and experiment names are human-readable slugs."
+    reason  : "Filesystem becomes browsable; UUIDs stay inside project.yaml for stable cross-reference."
+  why_double_underscore_separator:
+    decision: "Run dir is <experiment>__<timestamp>."
+    reason  : "Single _ may appear inside experiment names; __ disambiguates parsing."
+  why_dot_unitport:
+    decision: "Hidden .unitport/ for tool-private state."
+    reason  : "Keeps lock files and recents out of git diff and out of the user's content view."
+
+# ---------------------------------------------------------------------------
+# 7.  Constraints carried over from CLAUDE.md
+# ---------------------------------------------------------------------------
+constraints:
+  - "Do not break imports from bin/*, nodes/*, models/*, compiler/* during migration."
+  - "conductor_node and policy_node remain deleted; BehaviorNode + CheckpointNode are the runtime path."
+  - "runtime/ and runtime/sdk/ are vendored read-only mirrors; never written to by project layout."
+  - "All path writes go through ConfigManager / project loader; no hard-coded literals in callers."

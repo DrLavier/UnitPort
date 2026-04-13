@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.system.policy.deploy_contract import DeployContract
 
 # ---------------------------------------------------------------------------
 # v2 SkillManifest re-export (new canonical location: system.skill)
@@ -11,6 +15,8 @@ from typing import Any, Dict, List, Optional
 # ---------------------------------------------------------------------------
 from src.system.skill.skill_manifest import (  # noqa: F401 — re-export
     ActionSpaceType,
+    CommandField,
+    CommandInterface,
     InferenceBackend,
     Postcondition,
     Precondition,
@@ -184,6 +190,63 @@ class CheckpointBundle:
     num_joints: int
     joint_names: List[str]
     raw_manifest: Dict[str, Any]   # preserved for forward-compat keys
+
+    @cached_property
+    def deploy_contract(self) -> Optional["DeployContract"]:
+        """Lazy-decoded sim2sim deployment contract.
+
+        Returns None for legacy bundles whose manifest has no
+        ``deploy_contract`` section. Raises ``ValueError`` if the section is
+        present but malformed — better to fail crisply at first access than
+        to silently degrade to the heuristic path.
+
+        Cached for the lifetime of the CheckpointBundle instance because
+        ``DeployContract.from_dict`` walks every field; bundles can be
+        consulted multiple times per session via CheckpointRegistry.
+        """
+        # Local import to keep manifest_schema.py a leaf at module load time
+        # (deploy_contract.py imports nothing from policy/ — see its module
+        # docstring — but the reverse direction is fine when deferred).
+        from src.system.policy.deploy_contract import DeployContract
+
+        raw = (self.raw_manifest or {}).get("deploy_contract")
+        return DeployContract.from_dict(raw)
+
+    @property
+    def algorithm(self) -> str:
+        """Training algorithm identifier as recorded in the manifest.
+
+        Returns an upper-case string like ``"AMP_PPO"``, ``"PPO"``,
+        ``"SAC"``. Falls back to ``"UNKNOWN"`` for bundles that predate
+        the ``algorithm`` field being written (legacy SB3 bundles).
+        Callers should NOT pattern-match the full set of values —
+        the field is advisory metadata for telemetry and for the
+        AMP-aware validation path in ``PolicyRunner.load``.
+        """
+        raw = (self.raw_manifest or {}).get("algorithm")
+        if isinstance(raw, str) and raw:
+            return raw.upper()
+        # Legacy path: bundle predates the algorithm field. Peek at the
+        # training block which some SB3 bundles do emit.
+        train = (self.raw_manifest or {}).get("training") or {}
+        if isinstance(train, dict):
+            algo = train.get("algorithm")
+            if isinstance(algo, str) and algo:
+                return algo.upper()
+        return "UNKNOWN"
+
+    @property
+    def amp_metadata(self) -> Optional[Dict[str, Any]]:
+        """Return the ``amp_metadata`` block if present, else None.
+
+        Only populated for bundles where ``algorithm == 'AMP_PPO'``.
+        The block is written by ``checkpoint_registry.import_isaac_lab_bundle``
+        (B6) and contains: amp_obs_terms, amp_obs_dim,
+        num_amp_obs_history, task_reward_lerp, amp_reward_coef,
+        dataset_files[*], discriminator_archived, spec_hash_verified.
+        """
+        raw = (self.raw_manifest or {}).get("amp_metadata")
+        return raw if isinstance(raw, dict) else None
 
 
 @dataclass

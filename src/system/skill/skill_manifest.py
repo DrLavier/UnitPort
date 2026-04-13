@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +23,7 @@ class SourceType(enum.Enum):
     ONNX_EXTERNAL = "onnx_external"
     VLA_EXPORT = "vla_export"
     MANUAL_SCRIPT = "manual_script"
+    ISAAC_LAB = "isaac_lab"
 
 
 class ActionSpaceType(enum.Enum):
@@ -65,6 +66,27 @@ class Postcondition:
 
 
 # ---------------------------------------------------------------------------
+# Command interface (v2 — reactive execution)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class CommandField:
+    """Single controllable command dimension (e.g. vx, vy, vyaw)."""
+    name: str                           # "vx", "vy", "vyaw"
+    obs_index: int                      # position in observation vector
+    range: Tuple[float, float] = (-1.0, 1.0)
+    default: float = 0.0               # value when no input (= stop)
+
+
+@dataclass(frozen=True)
+class CommandInterface:
+    """Declares how a reactive skill receives real-time commands."""
+    type: str = "velocity_2d"           # "velocity_2d", "velocity_3d", "pose_target"
+    fields: Tuple[CommandField, ...] = ()
+    input_sources: Tuple[str, ...] = ("gamepad", "keyboard", "canvas_signal", "api")
+
+
+# ---------------------------------------------------------------------------
 # SkillManifest
 # ---------------------------------------------------------------------------
 
@@ -81,6 +103,7 @@ class SkillManifest:
     skill_name: str                                     # display name
     version: str = "1.0.0"                              # semver
     source_type: SourceType = SourceType.SB3_INTERNAL
+    execution_mode: str = "sequential"                  # "sequential" | "reactive"
 
     # --- action contract ---
     action_space_type: ActionSpaceType = ActionSpaceType.JOINT_POSITION
@@ -107,6 +130,9 @@ class SkillManifest:
     model_path: str = "policy.onnx"
     normalize_obs: bool = False
     normalizer_path: Optional[str] = None
+
+    # --- command interface (v2 — reactive execution) ---
+    command_interface: Optional[CommandInterface] = None
 
     # --- metadata ---
     training_source: Optional[str] = None               # "sb3_ppo", "isaac_lab_rsl_rl", etc.

@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """Robot model registry with dynamic brand loading."""
 
-import importlib
 from typing import Dict, Type, Optional
 
 from .base import BaseRobotModel
+from src.system.brand_packages import get_brand_model_class, list_brands
 from src.system.models.model_registry import list_brand_items, normalize_brand_id
 
 # Global model registry
@@ -58,38 +58,21 @@ def refresh_models() -> None:
 
 
 def _autoload_model(name: str) -> None:
-    """Import the brand package on demand and register its model class if exported."""
+    """Resolve a brand to its model class via the central brand registry.
+
+    Brands declared in ``model_registry`` but absent from
+    ``src.system.brand_packages._BRAND_MODULES`` (e.g. unimplemented brands
+    like xiaomi) are silently skipped.
+    """
     canonical_name = normalize_brand_id(name)
-    brand_map = {brand_id: _module_key(brand_id) for brand_id, _display_name in list_brand_items()}
-    module_name = brand_map.get(canonical_name)
-    if module_name is None:
+    if canonical_name not in list_brands():
         return
-
     try:
-        module = importlib.import_module(f"system.brand_packages.{module_name}")
-    except Exception:
+        model_class = get_brand_model_class(canonical_name)
+    except (KeyError, ImportError):
         return
-
-    # Import BaseRobotModel fresh to avoid stale stub bindings from test isolation.
-    try:
-        _base_mod = importlib.import_module("models.base")
-        _BaseModel = getattr(_base_mod, "BaseRobotModel", BaseRobotModel)
-    except Exception:
-        _BaseModel = BaseRobotModel
-
-    for attr_name in dir(module):
-        attr = getattr(module, attr_name, None)
-        if (
-            isinstance(attr, type)
-            and issubclass(attr, _BaseModel)
-            and attr is not _BaseModel
-        ):
-            register_model(canonical_name, attr)
-            break
-
-
-def _module_key(brand_name: str) -> str:
-    return brand_name.strip().lower().replace("-", "").replace("_", "")
+    if isinstance(model_class, type) and issubclass(model_class, BaseRobotModel):
+        register_model(canonical_name, model_class)
 
 
 __all__ = [

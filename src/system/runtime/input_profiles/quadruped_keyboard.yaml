@@ -1,0 +1,16 @@
+name: quadruped_keyboard
+robot_family: quadruped
+input_type: keyboard
+max_vx: 0.5
+max_vy: 0.3
+max_vyaw: 0.8
+boost_multiplier: 2.0
+key_mapping:
+  forward: 87        # W
+  backward: 83       # S
+  strafe_left: 65    # A
+  strafe_right: 68   # D
+  yaw_left: 81       # Q
+  yaw_right: 69      # E
+  stop: 32           # Space
+  boost: 16777248    # Shift

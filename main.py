@@ -81,6 +81,10 @@ class _LogSignalHandler(logging.Handler):
     Attached to the 'Celebrimbor' logger during the startup sequence so that
     every logger.info / logger.warning / logger.error call also appears on the
     loading-screen log wallpaper in real time.
+
+    Also ticks the loading-screen Lottie animation on every log emission so
+    the animation stays smooth even when the main event loop is blocked by
+    synchronous startup work.
     """
 
     _LEVEL_MAP = {
@@ -91,15 +95,18 @@ class _LogSignalHandler(logging.Handler):
         logging.CRITICAL: "error",
     }
 
+    def __init__(self, lottie_player=None) -> None:
+        super().__init__()
+        self._lottie = lottie_player
+
     def emit(self, record: logging.LogRecord) -> None:
         try:
             from src.system.core.logger import get_log_signal
             msg = record.getMessage()
             log_type = self._LEVEL_MAP.get(record.levelno, "info")
             get_log_signal().emit_log(msg, log_type)
-            _app = QApplication.instance()
-            if _app is not None:
-                _app.processEvents()
+            if self._lottie is not None:
+                self._lottie.tick()
         except Exception:
             pass
 
@@ -301,6 +308,120 @@ def main():
         logger.info("[setup] Wizard dismissed — using defaults.")
         return {}
 
+    def _install_isaac_lab(install_dir: str) -> None:
+        """Run the Isaac Lab + Isaac Sim installer as a background thread.
+
+        Blocks the startup sequence (with UI kept alive via processEvents)
+        until installation completes or fails.
+        """
+        from src.system.training.isaac_lab_installer import IsaacLabInstallThread
+
+        logger.info(f"[isaac-install] Starting Isaac Lab installation to: {install_dir}")
+        _lottie = getattr(window, '_startup_lottie', None)
+
+        installer = IsaacLabInstallThread(install_dir)
+        _install_done = {"done": False, "success": False, "error": ""}
+
+        def _on_progress(msg: str) -> None:
+            logger.info(f"[isaac-install] {msg}")
+
+        def _on_step(cur: int, total: int, desc: str) -> None:
+            logger.info(f"[isaac-install] Step {cur}/{total}: {desc}")
+
+        def _on_finished(isaac_root: str) -> None:
+            logger.info(f"[isaac-install] Installation complete: {isaac_root}")
+            _install_done["done"] = True
+            _install_done["success"] = True
+
+        def _on_failed(error: str) -> None:
+            logger.error(f"[isaac-install] Installation failed: {error}")
+            _install_done["done"] = True
+            _install_done["error"] = error
+
+        installer.progress.connect(_on_progress)
+        installer.step_changed.connect(_on_step)
+        installer.finished_ok.connect(_on_finished)
+        installer.failed.connect(_on_failed)
+        installer.start()
+
+        # Wait for completion while keeping UI alive
+        while not _install_done["done"]:
+            QApplication.processEvents()
+            if _lottie is not None:
+                _lottie.tick()
+            installer.wait(50)
+
+        if _install_done["success"]:
+            logger.info("[isaac-install] Isaac Lab ready for training.")
+        else:
+            logger.warning(
+                f"[isaac-install] Installation failed: {_install_done['error']}\n"
+                "You can retry later from Settings or run the installer manually."
+            )
+
+    def _deploy_isaac_cloud(ssh_cfg: dict) -> None:
+        """Deploy Isaac Lab to a remote server via SSH.
+
+        Blocks the startup sequence (with UI kept alive via processEvents)
+        until deployment completes or fails.
+        """
+        from src.system.engines.isaac.cloud_deployer import IsaacCloudDeployer
+
+        host = ssh_cfg.get("host", "")
+        logger.info(f"[isaac-cloud] Starting cloud deployment to {host}")
+        _lottie = getattr(window, '_startup_lottie', None)
+
+        deployer = IsaacCloudDeployer(
+            host=host,
+            username=ssh_cfg.get("username", ""),
+            auth_method=ssh_cfg.get("auth_method", "key"),
+            private_key_path=ssh_cfg.get("private_key_path", ""),
+            password=ssh_cfg.get("password", ""),
+            port=ssh_cfg.get("port", 22),
+            remote_install_dir=ssh_cfg.get("remote_install_dir", ""),
+            server_name=ssh_cfg.get("server_name", host),
+        )
+        _deploy_done = {"done": False, "success": False, "error": ""}
+
+        def _on_progress(msg: str) -> None:
+            logger.info(f"[isaac-cloud] {msg}")
+
+        def _on_step(cur: int, total: int, desc: str) -> None:
+            logger.info(f"[isaac-cloud] Step {cur}/{total}: {desc}")
+
+        def _on_finished(isaac_root: str) -> None:
+            logger.info(f"[isaac-cloud] Deployment complete: {isaac_root}")
+            _deploy_done["done"] = True
+            _deploy_done["success"] = True
+
+        def _on_failed(error: str) -> None:
+            logger.error(f"[isaac-cloud] Deployment failed: {error}")
+            _deploy_done["done"] = True
+            _deploy_done["error"] = error
+
+        deployer.progress.connect(_on_progress)
+        deployer.step_changed.connect(_on_step)
+        deployer.finished_ok.connect(_on_finished)
+        deployer.failed.connect(_on_failed)
+        deployer.start()
+
+        while not _deploy_done["done"]:
+            QApplication.processEvents()
+            if _lottie is not None:
+                _lottie.tick()
+            deployer.wait(50)
+
+        if _deploy_done["success"]:
+            logger.info(
+                "[isaac-cloud] Remote server ready. "
+                "Use 'New Cloud Training' to start training."
+            )
+        else:
+            logger.warning(
+                f"[isaac-cloud] Deployment failed: {_deploy_done['error']}\n"
+                "You can retry from Settings > Configure Servers."
+            )
+
     def _run_optional_tasks(selections: dict) -> None:
         """Run user-selected optional downloads (menagerie, SDKs, loco, isaaclab)."""
         skipped = not selections or selections.get("skipped")
@@ -349,8 +470,25 @@ def main():
                     "community reference motions disabled."
                 )
 
-        # ── Isaac Lab registration ────────────────────────────────────────
-        if backend_cfg.get("isaaclab_locate") and backend_cfg.get("isaaclab_path"):
+        # ── Engine registry: migrate legacy config files on first run ────
+        from src.system.engines.registry import get_engine_registry
+        reg = get_engine_registry()
+        if reg.migrate_legacy():
+            logger.info("[engine-registry] Legacy config migrated to engine_registry.json")
+
+        # SB3: auto-detect (pip package inside .venv311)
+        try:
+            import stable_baselines3  # noqa: F401
+            reg.update_local("sb3", enabled=True)
+        except ImportError:
+            reg.update_local("sb3", enabled=False)
+
+        # ── Isaac Lab ─────────────────────────────────────────────────────
+        if backend_cfg.get("isaaclab_install") and backend_cfg.get("isaaclab_path"):
+            _install_isaac_lab(backend_cfg["isaaclab_path"])
+        elif backend_cfg.get("isaaclab_cloud_deploy") and backend_cfg.get("cloud_ssh"):
+            _deploy_isaac_cloud(backend_cfg["cloud_ssh"])
+        elif backend_cfg.get("isaaclab_locate") and backend_cfg.get("isaaclab_path"):
             register_isaaclab_path(backend_cfg["isaaclab_path"])
 
     def _finalize_startup() -> None:
@@ -375,6 +513,11 @@ def main():
 
         window.run_startup_prewarm()
         window.finish_startup_loading()
+
+        # Refresh engine status in the User sidebar panel
+        if hasattr(window, '_user_panel'):
+            window._user_panel.refresh_engines()
+
         logger.info("App shell displayed (Homepage)")
 
     # ── Top-level startup entry point ─────────────────────────────────────
@@ -389,7 +532,8 @@ def main():
             QTimer.singleShot(3000, QApplication.instance().quit)
 
     def _run_startup_sequence_inner() -> None:
-        _bridge = _LogSignalHandler()
+        _lottie = getattr(window, '_startup_lottie', None)
+        _bridge = _LogSignalHandler(lottie_player=_lottie)
         logger.addHandler(_bridge)
 
         try:
@@ -408,6 +552,8 @@ def main():
                 logger.info("[startup] Waiting for mandatory tasks to finish …")
             while not _mandatory_done:
                 QApplication.processEvents()
+                if _lottie is not None:
+                    _lottie.tick()
                 worker.wait(50)
 
             # 4. Run optional tasks (user-selected downloads) — appended at the end

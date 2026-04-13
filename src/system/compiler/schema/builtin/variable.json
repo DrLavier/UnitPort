@@ -1,0 +1,19 @@
+{
+  "schema_id": "builtin.variable",
+  "display_name": "Variable",
+  "node_type": "variable",
+  "kind": "variable",
+  "ports": [
+    {"name": "flow_in",  "direction": "input",  "data_type": "void"},
+    {"name": "value",    "direction": "output", "data_type": "any"},
+    {"name": "flow_out", "direction": "output", "data_type": "void"}
+  ],
+  "parameters": [
+    {"name": "name",          "param_type": "string", "default": "var"},
+    {"name": "initial_value", "param_type": "any",    "default": 0}
+  ],
+  "code_template": "{name} = {initial_value}",
+  "robot_compat": [],
+  "safety": {},
+  "version": "1.0"
+}

@@ -67,6 +67,17 @@ class BundleLoader:
                 f"manifest.yaml must contain a YAML mapping, got {type(raw).__name__}",
                 bundle_path=bundle_path,
             )
+        # Auto-upgrade Isaac Lab v2 manifests (everything nested under
+        # "skill") to the v1 layout the runtime stack consumes.
+        # ``import_isaac_lab_bundle`` and ``parse_isaac_lab_env_yaml``
+        # currently emit only the v2 shape, so without this rewrite no IL
+        # bundle is loadable by ``BundleLoader`` (the user's "Mission
+        # MuJoCo replay flailing" symptom starts here — the load actually
+        # crashes upstream and the BehaviorNode falls into a degraded
+        # path).
+        if "observation_space" not in raw and isinstance(raw.get("skill"), dict):
+            from src.system.policy.il_manifest_compat import upgrade_v2_to_v1
+            raw = upgrade_v2_to_v1(raw, bundle_path)
         return raw
 
     @staticmethod

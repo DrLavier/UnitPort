@@ -1,0 +1,405 @@
+---
+# ============================================================================
+# Cloud SSH Training — Integration Guide (TO KNOW)
+# ============================================================================
+# Read this BEFORE touching anything in:
+#   src/system/training/remote_ssh_backend.py
+#   src/system/training/remote_ssh_config.py
+#   src/system/training/remote_server_store.py
+#   bin/pages/training/remote_server_dialog.py
+#   bin/pages/training/training_workspace_window.py  (cloud sections)
+#   src/system/training/isaac_lab_config.py          (build_remote_command)
+#
+# Updated:   2026-04-12
+# Status:    v1 — SSH-based remote Isaac Lab training
+# Owner:     UnitPort training pipeline
+# ============================================================================
+
+meta:
+  depends_on:
+    - knowledge_base/APP_PPO_TOKNOW.yaml        # AMP-PPO also works on cloud
+    - knowledge_base/IsaacSim_design.yaml        # Isaac Lab local architecture
+  prerequisites:
+    - paramiko: ">=3.0"                          # requirements.txt
+    - remote_server: "Isaac Lab installed, isaaclab.sh accessible"
+    - python: "3.11"
+
+
+# ============================================================================
+# §1  ARCHITECTURE OVERVIEW
+# ============================================================================
+architecture:
+
+  principle: |
+    Cloud training is a TRANSPORT LAYER swap, not a new training backend.
+    The same Isaac Lab canvas graph, same TrainingSpecCompiler, same
+    IsaacLabConfig, same MetricsAccumulator are used. Only the execution
+    goes from local subprocess.Popen → remote SSH exec_command.
+
+  data_flow: |
+    Canvas Graph
+      → TrainingSpecCompiler.compile(graph)
+      → IsaacLabConfig  (identical to local)
+      → RemoteSSHBackend(config, server)
+           │
+           ├── 1. paramiko SSH connect → authenticate (key/password)
+           ├── 2. SFTP upload: config.py + il_train_launcher.py + AMP motions
+           ├── 3. config.build_remote_command() → Linux shell string
+           ├── 4. exec_command("nohup ... && echo PID=$$ && exec <cmd>")
+           ├── 5. Tail stdout line-by-line
+           │      → MetricsAccumulator (reused from isaac_lab_backend.py)
+           │      → parse_amp_line     (reused from isaac_lab_backend.py)
+           │      → emit MSG_LOG / MSG_PROGRESS / MSG_METRICS
+           ├── 6. SFTP download: checkpoints + exported bundle → local log_dir
+           └── 7. emit MSG_FINISHED
+                    │
+           Same _msg_queue + QTimer(200ms) poll → Training Panel UI
+
+  interface_contract: |
+    RemoteSSHBackend exposes EXACTLY the same public API as IsaacLabBackend:
+      .on_message = Callable[[Dict], None]
+      .start()           → daemon thread → _run()
+      .cancel()          → SSH kill -TERM $pid
+      .is_running        → bool
+      .export_path       → Optional[Path]
+    UI code distinguishes backends only at creation time, never during
+    message polling — the _poll_messages closure is backend-agnostic.
+
+
+# ============================================================================
+# §2  FILE MAP
+# ============================================================================
+file_map:
+
+  new_files:
+    - path: src/system/training/remote_ssh_config.py
+      role: |
+        RemoteServerConfig dataclass. Pure config — no network imports.
+        Fields: name, host, port, username, auth_method, private_key_path,
+        password (runtime-only), remote_isaac_lab_path,
+        remote_isaac_lab_launcher, remote_work_dir, conda_env.
+        .to_dict(include_sensitive=False) — password NEVER written to disk.
+        .from_dict(data) — deserialize from JSON.
+        .validate() → Optional[str] error message.
+
+    - path: src/system/training/remote_server_store.py
+      role: |
+        CRUD for src/config/remote_servers.json. Atomic write (temp+rename).
+        Singleton: get_remote_server_store().
+        Key methods:
+          list_servers() → List[RemoteServerConfig]
+          add_server(server) / update_server(old_name, server) / remove_server(name)
+          get_default_server() → Optional[RemoteServerConfig]
+          test_connection(server) → Tuple[bool, str]
+            Tests SSH auth + verifies isaaclab.sh exists on remote.
+
+    - path: src/system/training/remote_ssh_backend.py
+      role: |
+        RemoteSSHBackend — the core orchestrator. Mirrors IsaacLabBackend.
+        Key internal methods:
+          _connect()                    → paramiko.SSHClient (keepalive=30s)
+          _upload_training_files(sftp)  → uploads config.py, launcher, motions
+          _process_line(line, acc, bw)  → same logic as IsaacLabBackend._process_line
+          _sftp_download_recursive()    → recursive download after training
+          _run()                        → thread target: full lifecycle
+
+    - path: bin/pages/training/remote_server_dialog.py
+      role: |
+        Two QDialogs:
+          RemoteServerDialog     — add/edit server config, "Test Connection" button
+          RemoteServerSelectDialog — dropdown picker before starting cloud training,
+                                     prompts for password if auth_method == "password"
+
+  modified_files:
+    - path: src/system/training/isaac_lab_config.py
+      change: |
+        Added build_remote_command(remote_launcher, remote_script,
+                                   remote_log_dir, remote_config_file,
+                                   remote_motion_files) → str
+        Same CLI arg construction as build_command() but:
+          - Returns a single shell string (not List[str])
+          - No Windows .bat wrapper
+          - Always --headless
+          - Shell-quotes each part for safe SSH exec
+
+    - path: bin/pages/training/training_setting_page.py
+      change: |
+        Added third button "New Cloud Training" → emits new_training_requested("cloud")
+        Added "Configure Servers..." link → opens RemoteServerDialog
+
+    - path: bin/pages/training/training_workspace_window.py
+      change: |
+        5 integration points:
+          1. _on_ctrl_start_clicked() — routes backend=="cloud"
+          2. _on_ctrl_stop_clicked()  — checks _cloud_backend.is_running
+          3. _on_cloud_train_requested()     — prompts server selection,
+                                               compiles canvas, calls start_cloud_training
+          4. start_cloud_training(server, **kwargs) — mirrors start_isaac_lab_training(),
+                                                       creates RemoteSSHBackend + QTimer poll
+          5. _on_cloud_training_finished()   — auto-import bundle via CheckpointRegistry
+        Backend validation updated: "cloud" accepted alongside "sb3"/"isaac_lab"
+        Badge text: cloud → "Cloud"
+        Palette/metrics: cloud maps to "isaac_lab" (same IL node set)
+
+    - path: src/config/system.ini
+      change: "[NETWORK] default_remote_server = (empty)"
+
+    - path: requirements.txt
+      change: "paramiko>=3.0"
+
+  storage:
+    - path: src/config/remote_servers.json
+      schema: |
+        {
+          "schema_version": 1,
+          "servers": [
+            {
+              "name": "Lab GPU Server",
+              "host": "192.168.1.100",
+              "port": 22,
+              "username": "researcher",
+              "auth_method": "key",           # "key" | "password"
+              "private_key_path": "~/.ssh/id_rsa",
+              "remote_isaac_lab_path": "/home/researcher/IsaacLab",
+              "remote_isaac_lab_launcher": "",  # auto → <path>/isaaclab.sh
+              "remote_python": "",
+              "remote_work_dir": "/tmp/unitport_training",
+              "conda_env": "isaaclab",
+              "upload_timeout": 120,
+              "download_timeout": 300
+            }
+          ],
+          "default_server": "Lab GPU Server"
+        }
+      security: "password字段永不写入此文件，仅运行时内存持有"
+
+
+# ============================================================================
+# §3  REMOTE EXECUTION DETAILS
+# ============================================================================
+remote_execution:
+
+  what_gets_uploaded:
+    - file: "编译后的 @configclass Python 配置文件 (unitport_config.py)"
+      from: "IsaacLabConfigCompiler.compile_to_file() 生成的本地临时文件"
+      to: "{remote_work_dir}/{run_id}/unitport_config.py"
+
+    - file: "il_train_launcher.py"
+      from: "src/system/training/il_train_launcher.py"
+      to: "{remote_work_dir}/{run_id}/il_train_launcher.py"
+      why: |
+        远端有 Isaac Lab 但无 UnitPort 源码。il_train_launcher.py 是唯一桥梁——
+        它在 Isaac Lab 的 Python 环境中运行，注册 UnitPort-Custom-v0 task，
+        然后调用 rsl_rl OnPolicyRunner。该文件约300行，无 UnitPort 导入依赖
+        （除了编译后的 config 文件，也一并上传了）。
+
+    - file: "AMP motion files (可选)"
+      from: "本地 amp_motion_files 路径列表"
+      to: "{remote_work_dir}/{run_id}/motion/"
+      when: "algorithm == AMP_PPO"
+
+  command_construction: |
+    IsaacLabConfig.build_remote_command() 生成如下 shell 命令:
+      /home/user/IsaacLab/isaaclab.sh -p /tmp/unitport_training/<run_id>/il_train_launcher.py \
+        --task UnitPort-Custom-v0 \
+        --num_envs 4096 \
+        --max_iterations 1500 \
+        --headless \
+        --unitport_config /tmp/unitport_training/<run_id>/unitport_config.py \
+        --log_dir /tmp/unitport_training/<run_id>/logs
+
+    外层包裹:
+      export PYTHONUNBUFFERED=1 OMNI_KIT_ACCEPT_EULA=YES && \
+      [source activate <conda_env> 2>/dev/null || conda activate <conda_env> &&] \
+      echo PID=$$ && exec <cmd>
+
+  pid_capture: |
+    命令前缀 echo PID=$$ 输出当前 shell PID，RemoteSSHBackend 在 stdout
+    第一行解析 "PID=<number>"，存入 self._remote_pid。cancel() 通过独立
+    SSH channel 发送 kill -TERM $pid。
+
+  nohup_and_disconnect: |
+    命令通过 exec 替换 shell（所以 PID 就是训练进程本身）。如果 SSH 连接
+    断开，训练在远端继续运行。v1 不支持自动重连——断连后 emit MSG_ERROR
+    提示用户手动检查。v2 计划用 tmux/screen 做会话管理。
+
+  what_gets_downloaded:
+    - "model_*.pt — RSL-RL checkpoint 文件"
+    - "env.yaml — 环境配置 (CheckpointRegistry 导入必需)"
+    - "exported/ 目录 — ONNX + manifest (如果远端跑了 export)"
+    - "递归下载整个 remote_log_dir → 本地 projects/<slug>/training/runs/<run_id>/"
+
+
+# ============================================================================
+# §4  UI FLOW
+# ============================================================================
+ui_flow:
+
+  entry_point: |
+    Training Setting Page (landing page) 现有3个按钮:
+      [New SB3 Training]  [New Isaac Training]  [New Cloud Training]
+                       [Configure Servers...]
+
+  new_training_cloud:
+    step_1: "用户点击 'New Cloud Training'"
+    step_2: "TrainingSettingPage 发射 new_training_requested('cloud')"
+    step_3: "TrainingWorkspaceWindow 创建训练画布，backend 设为 'cloud'"
+    step_4: "用户在画布上连线 IL 节点（同 Isaac Lab 本地流程）"
+    step_5: "用户点击 Start → _on_ctrl_start_clicked() 路由到 _on_cloud_train_requested()"
+    step_6: "弹出 RemoteServerSelectDialog — 用户选择服务器（或新建）"
+    step_7: "如果是 password auth 且密码未缓存 → 弹出密码输入框"
+    step_8: "编译画布 → IsaacLabConfigCompiler → config_file"
+    step_9: "调用 start_cloud_training(server, task_name, config_file, ...)"
+    step_10: "RemoteSSHBackend.start() → SSH connect → upload → exec → tail"
+    step_11: "Training Panel 显示实时 log/progress/metrics（与本地 Isaac 完全一致）"
+    step_12: "完成后自动下载 checkpoint → CheckpointRegistry.import_isaac_lab_bundle()"
+
+  backend_mapping: |
+    Cloud 模式下 palette 和 metrics layers 映射到 "isaac_lab"：
+      - 画布节点：使用与 Isaac Lab 相同的 IL 节点集
+      - 指标面板：使用 Isaac Lab 的 4 层指标定义
+      - Badge 文字：显示 "Cloud"
+
+  cancel: |
+    用户点击 Stop → _on_ctrl_stop_clicked():
+      1. 检查 _cloud_backend.is_running
+      2. _cloud_backend.cancel() → SSH exec "kill -TERM <pid>"
+      3. _set_training_state("idle")
+
+
+# ============================================================================
+# §5  ERROR HANDLING
+# ============================================================================
+error_handling:
+
+  connection:
+    auth_failure: "MSG_ERROR('SSH authentication failed: ...'). 训练不启动。"
+    timeout: "paramiko connect timeout=15s. MSG_ERROR('Connection error: ...')."
+    missing_isaac: |
+      test_connection() 验证 isaaclab.sh 存在。如果不存在返回警告但仍报连接成功。
+      实际训练时如果 launcher 不存在，远端命令返回非零 exit code。
+
+  mid_training:
+    ssh_drop: |
+      捕获 paramiko.SSHException / socket.error → MSG_ERROR:
+        "SSH connection lost. Training may still be running on the remote server.
+         Check <host> manually."
+      远端进程因 nohup/exec 包裹不会立即停止。
+    remote_crash: "channel.recv_exit_status() 非零 → MSG_ERROR('exit code N')."
+    oom: "远端 OOM killer 终止进程 → exit_status=-9 → MSG_ERROR."
+
+  file_transfer:
+    upload_fail: "MSG_ERROR, 训练中止（在命令执行之前）."
+    download_fail: |
+      MSG_LOG 警告，但仍发 MSG_FINISHED。checkpoint 存在于远端，
+      用户可通过 SCP/rsync 手动下载。
+
+  cancel:
+    kill_fail: |
+      如果 kill -TERM 失败（权限问题等），catch exception 后
+      force-close SSH channel。远端进程可能继续运行。
+
+
+# ============================================================================
+# §6  SECURITY
+# ============================================================================
+security:
+
+  password_storage: |
+    RemoteServerConfig.password 永不写入 remote_servers.json。
+    to_dict(include_sensitive=False) 是默认行为。
+    密码仅在以下位置存在：
+      - RemoteServerDialog 输入框（QLineEdit.EchoMode.Password）
+      - RemoteServerSelectDialog 弹出的密码输入（QInputDialog）
+      - RemoteServerConfig 内存实例
+    会话结束后消失。
+
+  ssh_key: |
+    推荐使用 SSH key auth (auth_method="key")。
+    private_key_path 存储在 remote_servers.json 中（是本地路径，非密钥内容）。
+    paramiko 使用 AutoAddPolicy — 首次连接新主机不会弹确认。
+    生产环境应替换为 RejectPolicy + 预置 known_hosts。
+
+  remote_file_cleanup: |
+    v1 不自动清理远端 {remote_work_dir}/{run_id}/ 目录。
+    包含: config.py, il_train_launcher.py, motion files, 训练日志/checkpoint。
+    用户需手动清理或设置 cron。
+
+
+# ============================================================================
+# §7  GOTCHAS & PITFALLS
+# ============================================================================
+gotchas:
+
+  - id: PTY_LINE_BUFFERING
+    what: |
+      channel.get_pty() 分配伪终端以获得逐行输出。如果去掉 PTY，
+      stdout 会 block-buffer (4KB)，MetricsAccumulator 收到的行会
+      严重延迟，进度条像卡住一样。
+    fix: "保留 get_pty() 调用。"
+
+  - id: EXEC_VS_SHELL
+    what: |
+      使用 exec 替换 shell 进程——这样 echo $$ 输出的 PID 就是
+      训练进程本身的 PID，cancel() 的 kill 才能直接命中。
+      如果不用 exec，kill 只杀 shell，Isaac Sim 进程继续跑。
+    fix: "保留命令模板中的 exec 前缀。"
+
+  - id: CONDA_ACTIVATE
+    what: |
+      conda activate 在 non-interactive shell 中可能失败，因为
+      conda init 只写进 .bashrc。所以命令用双重回退:
+        source activate <env> 2>/dev/null || conda activate <env>
+    fix: "确保远端 .bashrc 或 .profile 中有 conda init。"
+
+  - id: ANSI_CODES
+    what: |
+      PTY 模式下远端程序可能输出 ANSI 颜色码。_ANSI_RE.sub("", line)
+      在 parse 之前清理。如果添加新的 regex，记得先过 _ANSI_RE。
+
+  - id: REMOTE_LOG_DIR_STRUCTURE
+    what: |
+      RSL-RL 的日志目录结构是 <log_dir>/<task_name>/<timestamp>/，
+      不是直接写在 log_dir 下。递归下载会拿到嵌套子目录。
+      _on_cloud_training_finished() 用 bp.rglob("env.yaml") 搜索。
+
+  - id: CHECKPOINT_IMPORT
+    what: |
+      下载的 checkpoint 必须包含 env.yaml 才能被 CheckpointRegistry
+      识别导入。如果远端训练被中途 kill，env.yaml 可能还没写出。
+      此时 auto-import 会跳过，用户看到 log 提示。
+
+  - id: IL_TRAIN_LAUNCHER_ISOLATION
+    what: |
+      上传到远端的 il_train_launcher.py 必须无 UnitPort 导入依赖。
+      如果未来有人给 launcher 加了 from src.system.xxx import ...，
+      远端执行会立即 ImportError。
+    fix: |
+      il_train_launcher.py 的唯一外部依赖是编译后的 @configclass .py 文件
+      （也上传了）。保持这个隔离性。
+
+
+# ============================================================================
+# §8  EXTENDING (v2 ROADMAP)
+# ============================================================================
+v2_roadmap:
+
+  - feature: "tmux/screen 会话管理 + 断线重连"
+    why: "nohup 只保证进程存活，不保证日志可恢复。tmux 允许 re-attach stdout。"
+    complexity: "Medium — 需要检测 tmux 是否安装、管理 session 名称。"
+
+  - feature: "远端 checkpoint 增量同步"
+    why: "当前全量递归下载。大模型训练可能产生几十个 checkpoint。"
+    approach: "只下载最新 model_*.pt + env.yaml，其余按需。"
+
+  - feature: "多服务器并行训练"
+    why: "超参搜索 / 多实验并发。"
+    approach: "RemoteSSHBackend 已是独立实例，可并行创建多个。UI 需支持多 run 管理。"
+
+  - feature: "WebSocket 实时指标流"
+    why: "SSH stdout 有 PTY 延迟 (~50ms)。对于高频指标可能不够。"
+    approach: "远端部署轻量 agent，WebSocket 推送。但增加了远端部署复杂度。"
+
+  - feature: "远端 GPU 监控"
+    why: "SysMonitorWidget 当前只监控本地 GPU。"
+    approach: "SSH exec nvidia-smi 定期采样，合并进 SysMonitorWidget。"

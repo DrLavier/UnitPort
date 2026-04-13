@@ -228,6 +228,7 @@ class RuntimeEngine:
         heartbeat_diagnostics: List[Dict[str, Any]] = []  # Circle 2 Step 2.3
         timeline_diagnostics: List[Dict[str, Any]] = []   # Fix 4
         protocol_diagnostics: List[Dict[str, Any]] = []   # Step 1
+        mission_runtime_diagnostics: Dict[str, Dict[str, Any]] = {}   # P3
         try:
             task_id = self._scheduler.schedule({"scenario": scenario})
             _compat_mode: bool = False
@@ -308,6 +309,11 @@ class RuntimeEngine:
 
                 # executed_count 取自 executor 实际遍历计数，对齐 exec_graph 路径
                 executed_count = self._executor._last_executed_count
+                # P3: collect per-behavior runtime diagnostics that the
+                # executor populated while threading sim_env through DFS.
+                mission_runtime_diagnostics = dict(
+                    getattr(self._executor, "_mission_runtime_diagnostics", {}) or {}
+                )
                 ok = True
                 reason = ""
                 path = ExecutionPath.WORKFLOW_IR
@@ -375,6 +381,7 @@ class RuntimeEngine:
                     heartbeat_diagnostics=heartbeat_diagnostics,  # Circle 2 Step 2.3
                     timeline_diagnostics=timeline_diagnostics,    # Fix 4
                     protocol_diagnostics=protocol_diagnostics,    # Step 1
+                    mission_runtime_diagnostics=mission_runtime_diagnostics,  # P3
                 )
             else:
                 result = RuntimeResult.failed(
@@ -393,6 +400,7 @@ class RuntimeEngine:
                     heartbeat_diagnostics=heartbeat_diagnostics,  # Circle 2 Step 2.3
                     timeline_diagnostics=timeline_diagnostics,    # Fix 4
                     protocol_diagnostics=protocol_diagnostics,    # Step 1
+                    mission_runtime_diagnostics=mission_runtime_diagnostics,  # P3
                 )
             if _compat_mode:
                 result.diagnostics[DiagnosticsKey.COMPAT_PATH]   = True

@@ -97,6 +97,27 @@ class UnitreeModel(BaseRobotModel):
     _viewer_model = None
     _viewer_data = None
 
+    # Sticky "user closed the viewer" flag, shared across instances. Set
+    # by ``_should_stop`` whenever it detects the passive viewer is no
+    # longer running, and checked by ``ensure_viewer`` to refuse
+    # recreating the viewer for the rest of the current Mission run.
+    # Cleared exactly once per mission start via
+    # ``UnitreeModel.reset_viewer_session()``, which the MissionRunThread
+    # calls right before invoking the engine. Without this flag, every
+    # subsequent BehaviorNode in the same DAG would happily reopen the
+    # viewer the user just deliberately closed.
+    _viewer_closed_by_user = False
+
+    @classmethod
+    def reset_viewer_session(cls) -> None:
+        """Clear the sticky 'viewer closed by user' guard.
+
+        Called by ``MissionRunThread.run()`` at the start of every fresh
+        mission run so the user can close a viewer to abort one mission
+        and then start another normally.
+        """
+        cls._viewer_closed_by_user = False
+
     def __init__(self, robot_type: str = "go2"):
         """
         初始化Unitree机器人模型
@@ -677,11 +698,13 @@ class UnitreeModel(BaseRobotModel):
                     if not viewer.is_running():
                         self.stop_requested = True
                         self._runtime_cancel_reason = "viewer_closed"
+                        UnitreeModel._viewer_closed_by_user = True
                         log_info("Viewer closed while paused, stopping simulation")
                         return True
                 except Exception:
                     self.stop_requested = True
                     self._runtime_cancel_reason = "viewer_closed"
+                    UnitreeModel._viewer_closed_by_user = True
                     return True
             time.sleep(0.02)
         if self.stop_requested:
@@ -692,11 +715,13 @@ class UnitreeModel(BaseRobotModel):
                 if not viewer.is_running():
                     self.stop_requested = True
                     self._runtime_cancel_reason = "viewer_closed"
+                    UnitreeModel._viewer_closed_by_user = True
                     log_info("Viewer closed, stopping simulation")
                     return True
             except Exception:
                 self.stop_requested = True
                 self._runtime_cancel_reason = "viewer_closed"
+                UnitreeModel._viewer_closed_by_user = True
                 return True
         return False
 
@@ -708,6 +733,21 @@ class UnitreeModel(BaseRobotModel):
             True if viewer is ready, False otherwise
         """
         if not self.mujoco_available:
+            return False
+
+        # If the user explicitly closed the viewer earlier in this Mission
+        # run, refuse to reopen it. The sticky flag is cleared exactly
+        # once per mission start by ``MissionRunThread.run() ->
+        # UnitreeModel.reset_viewer_session()``, so a brand-new mission
+        # starts clean while subsequent BehaviorNodes inside the SAME
+        # cancelled run can't accidentally pop a fresh window.
+        if UnitreeModel._viewer_closed_by_user:
+            log_info(
+                "ensure_viewer: viewer was closed by user — refusing to "
+                "recreate until next mission run"
+            )
+            self.stop_requested = True
+            self._runtime_cancel_reason = "viewer_closed"
             return False
 
         # A fresh ensure call represents a new action/reset attempt.
@@ -735,7 +775,9 @@ class UnitreeModel(BaseRobotModel):
                     log_info("Model changed, recreating viewer...")
                     self.close_viewer()
                 else:
-                    log_info("Reusing existing viewer")
+                    # No log here — this branch fires on every action
+                    # call inside a single Mission run, which used to
+                    # flood the console with "Reusing existing viewer".
                     return True
             except Exception as e:
                 # Viewer was closed, need to recreate
