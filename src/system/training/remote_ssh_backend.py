@@ -422,22 +422,69 @@ class RemoteSSHBackend:
                 )
 
                 docker_extra = self.server.docker_extra_args.strip()
-                inner_cmd = f"echo PID=$$ && exec {cmd_str}"
+                # stdbuf forces line-buffered stdout/stderr so training
+                # output streams back over SSH in real time instead of
+                # accumulating in libc buffers.  PYTHONUNBUFFERED alone
+                # is not enough — isaaclab.sh spawns a child Python via
+                # exec, and Kit/RSL-RL C++ code bypasses Python buffering.
+                inner_cmd = f"echo PID=$$ && exec stdbuf -oL -eL {cmd_str} 2>&1"
 
-                if self.server.docker_use_exec:
-                    # Existing container managed by cloud panel (docker exec)
-                    cname = self.server.docker_container_name
+                # Determine container name for reuse.
+                cname = self.server.docker_container_name.strip()
+                use_exec = False
+
+                if not cname:
+                    # Auto-generate a stable container name from the image.
+                    # e.g. "nvcr.io/nvidia/isaac-lab:2.3.2" → "unitport-isaac-lab"
+                    img_tag = self.server.docker_image.rsplit("/", 1)[-1]  # "isaac-lab:2.3.2"
+                    img_base = img_tag.split(":")[0]                       # "isaac-lab"
+                    cname = f"unitport-{img_base}"
+
+                # Check if a container with this name is already running.
+                try:
+                    check_cmd = f"docker inspect --format '{{{{.State.Running}}}}' {cname} 2>/dev/null"
+                    _, check_out, _ = client.exec_command(check_cmd, timeout=10)
+                    check_result = check_out.read().decode().strip().lower()
+                    if check_result == "true":
+                        use_exec = True
+                        self._emit({
+                            "type": MSG_LOG,
+                            "data": f"[UnitPort] Reusing existing container: {cname}",
+                        })
+                    elif check_result == "false":
+                        # Container exists but is stopped — start it.
+                        self._emit({
+                            "type": MSG_LOG,
+                            "data": f"[UnitPort] Starting stopped container: {cname}",
+                        })
+                        client.exec_command(f"docker start {cname}", timeout=30)
+                        time.sleep(2)
+                        use_exec = True
+                except Exception:
+                    pass  # Container doesn't exist — will create new one.
+
+                if use_exec:
+                    # docker exec only supports -e/--env flags from
+                    # docker_extra_args; run-only flags like --network,
+                    # --ipc, --shm-size are silently dropped.
+                    exec_extra = " ".join(
+                        tok for tok in docker_extra.split()
+                        if tok.startswith("-e") or tok.startswith("--env")
+                    ) if docker_extra else ""
                     full_cmd = (
                         f"docker exec "
                         f"-e PYTHONUNBUFFERED=1 -e OMNI_KIT_ACCEPT_EULA=YES -e ACCEPT_EULA=Y "
-                        f"{docker_extra + ' ' if docker_extra else ''}"
+                        f"{exec_extra + ' ' if exec_extra else ''}"
                         f"{cname} "
                         f"bash -c '{inner_cmd}'"
                     )
                 else:
-                    # Ephemeral container (docker run --rm)
+                    # Create new container.
+                    keep_alive = getattr(self.server, "docker_keep_alive", True)
+                    rm_flag = "" if keep_alive else "--rm "
+                    name_flag = f"--name {cname} " if keep_alive else ""
                     full_cmd = (
-                        f"docker run --rm --gpus all "
+                        f"docker run {rm_flag}{name_flag}--gpus all "
                         f"-v {host_data}:{container_data} "
                         f"-e PYTHONUNBUFFERED=1 -e OMNI_KIT_ACCEPT_EULA=YES -e ACCEPT_EULA=Y "
                         f"{docker_extra + ' ' if docker_extra else ''}"
@@ -468,7 +515,7 @@ class RemoteSSHBackend:
                 full_cmd = (
                     f"export PYTHONUNBUFFERED=1 OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y && "
                     f"{env_prefix}"
-                    f"echo PID=$$ && exec {cmd_str}"
+                    f"echo PID=$$ && exec stdbuf -oL -eL {cmd_str} 2>&1"
                 )
 
             self._emit({"type": MSG_LOG, "data": f"[UnitPort] Remote command: {cmd_str}"})
@@ -480,9 +527,10 @@ class RemoteSSHBackend:
             transport = client.get_transport()
             channel = transport.open_session()
             channel.get_pty()  # allocate PTY for proper line buffering
+            channel.set_combine_stderr(True)  # merge stderr into stdout
             channel.exec_command(full_cmd)
 
-            # ── 6. Tail stdout ──────────────────────────────────────────
+            # ── 6. Tail stdout + stderr ────────────────────────────────
             best_reward = float("-inf")
             last_checkpoint_path: Optional[str] = None
             metrics_acc = MetricsAccumulator()
@@ -523,12 +571,23 @@ class RemoteSSHBackend:
                 else:
                     time.sleep(0.05)
 
+            # Drain any remaining data after process exits.
+            for _ in range(50):
+                if not channel.recv_ready():
+                    break
+                chunk = channel.recv(4096).decode("utf-8", errors="replace")
+                line_buffer += chunk
+                time.sleep(0.01)
+
             # Process remaining buffer.
             if line_buffer.strip():
-                bw, cp = self._process_line(line_buffer.strip(), metrics_acc, best_reward)
-                best_reward = bw
-                if cp:
-                    last_checkpoint_path = cp
+                for remaining_line in line_buffer.strip().split("\n"):
+                    remaining_line = remaining_line.rstrip("\r")
+                    if remaining_line:
+                        bw, cp = self._process_line(remaining_line, metrics_acc, best_reward)
+                        best_reward = bw
+                        if cp:
+                            last_checkpoint_path = cp
 
             # Flush metrics accumulator.
             metrics_msg = metrics_acc.flush()

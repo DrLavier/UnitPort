@@ -454,7 +454,14 @@ def main():
     # Resolve agent config — build a proper RslRlOnPolicyRunnerCfg
     # Our compiled PPORunnerCfg is flat; RSL-RL needs nested algorithm/policy structure.
     from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoAlgorithmCfg
-    from isaaclab_rl.rsl_rl.rl_cfg import RslRlMLPModelCfg
+
+    # Isaac Lab >= 2.4 uses RslRlMLPModelCfg (actor/critic);
+    # Isaac Lab <= 2.3 uses the deprecated RslRlPpoActorCriticCfg (policy).
+    try:
+        from isaaclab_rl.rsl_rl.rl_cfg import RslRlMLPModelCfg
+        _has_mlp_model_cfg = True
+    except ImportError:
+        _has_mlp_model_cfg = False
 
     if _unitport_ppo_cfg is not None:
         _flat = _unitport_ppo_cfg()
@@ -462,42 +469,65 @@ def main():
     else:
         _p = lambda k, d: d
 
-    agent_cfg = RslRlOnPolicyRunnerCfg(
-        seed=int(_p("seed", 42)),
-        num_steps_per_env=int(_p("num_steps_per_env", 24)),
-        max_iterations=int(_p("max_iterations", 1500)),
-        save_interval=int(_p("save_interval", 100)),
-        experiment_name="unitport_custom",
-        run_name="",
-        algorithm=RslRlPpoAlgorithmCfg(
-            class_name="PPO",
-            learning_rate=float(_p("learning_rate", 0.001)),
-            gamma=float(_p("discount_factor", 0.99)),
-            lam=float(_p("gae_lambda", 0.95)),
-            clip_param=float(_p("clip_param", 0.2)),
-            entropy_coef=float(_p("entropy_coef", 0.01)),
-            value_loss_coef=float(_p("value_loss_coef", 1.0)),
-            use_clipped_value_loss=True,
-            max_grad_norm=float(_p("max_grad_norm", 1.0)),
-            desired_kl=float(_p("desired_kl", 0.01)),
-            schedule=str(_p("schedule", "adaptive")),
-            num_learning_epochs=int(_p("num_learning_epochs", 5)),
-            num_mini_batches=int(_p("num_minibatches", 4)),
-        ),
-        actor=RslRlMLPModelCfg(
-            class_name="MLPModel",
-            hidden_dims=eval(str(_p("actor_hidden_dims", "[128, 64, 32]"))),
-            activation=str(_p("activation", "elu")),
-            distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(
-                init_std=float(_p("init_noise_std", 1.0)),
-            ),
-        ),
-        critic=RslRlMLPModelCfg(
-            class_name="MLPModel",
-            hidden_dims=eval(str(_p("critic_hidden_dims", "[128, 64, 32]"))),
-            activation=str(_p("activation", "elu")),
-        ),
+    _algo_cfg = RslRlPpoAlgorithmCfg(
+        class_name="PPO",
+        learning_rate=float(_p("learning_rate", 0.001)),
+        gamma=float(_p("discount_factor", 0.99)),
+        lam=float(_p("gae_lambda", 0.95)),
+        clip_param=float(_p("clip_param", 0.2)),
+        entropy_coef=float(_p("entropy_coef", 0.01)),
+        value_loss_coef=float(_p("value_loss_coef", 1.0)),
+        use_clipped_value_loss=True,
+        max_grad_norm=float(_p("max_grad_norm", 1.0)),
+        desired_kl=float(_p("desired_kl", 0.01)),
+        schedule=str(_p("schedule", "adaptive")),
+        num_learning_epochs=int(_p("num_learning_epochs", 5)),
+        num_mini_batches=int(_p("num_minibatches", 4)),
     )
+
+    if _has_mlp_model_cfg:
+        # New-style: separate actor/critic model configs (Isaac Lab >= 2.4)
+        agent_cfg = RslRlOnPolicyRunnerCfg(
+            seed=int(_p("seed", 42)),
+            num_steps_per_env=int(_p("num_steps_per_env", 24)),
+            max_iterations=int(_p("max_iterations", 1500)),
+            save_interval=int(_p("save_interval", 100)),
+            experiment_name="unitport_custom",
+            run_name="",
+            algorithm=_algo_cfg,
+            actor=RslRlMLPModelCfg(
+                class_name="MLPModel",
+                hidden_dims=eval(str(_p("actor_hidden_dims", "[128, 64, 32]"))),
+                activation=str(_p("activation", "elu")),
+                distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(
+                    init_std=float(_p("init_noise_std", 1.0)),
+                ),
+            ),
+            critic=RslRlMLPModelCfg(
+                class_name="MLPModel",
+                hidden_dims=eval(str(_p("critic_hidden_dims", "[128, 64, 32]"))),
+                activation=str(_p("activation", "elu")),
+            ),
+        )
+    else:
+        # Legacy: combined policy config (Isaac Lab <= 2.3)
+        from isaaclab_rl.rsl_rl.rl_cfg import RslRlPpoActorCriticCfg
+        agent_cfg = RslRlOnPolicyRunnerCfg(
+            seed=int(_p("seed", 42)),
+            num_steps_per_env=int(_p("num_steps_per_env", 24)),
+            max_iterations=int(_p("max_iterations", 1500)),
+            save_interval=int(_p("save_interval", 100)),
+            experiment_name="unitport_custom",
+            run_name="",
+            algorithm=_algo_cfg,
+            policy=RslRlPpoActorCriticCfg(
+                class_name="ActorCritic",
+                init_noise_std=float(_p("init_noise_std", 1.0)),
+                actor_hidden_dims=eval(str(_p("actor_hidden_dims", "[128, 64, 32]"))),
+                critic_hidden_dims=eval(str(_p("critic_hidden_dims", "[128, 64, 32]"))),
+                activation=str(_p("activation", "elu")),
+            ),
+        )
 
     if args_cli.max_iterations is not None:
         agent_cfg.max_iterations = args_cli.max_iterations

@@ -44,6 +44,7 @@ class RemoteServerConfig:
     docker_host_data_dir: str = ""      # host mount source, e.g. "/home/trooperai/isaaclab_data"
     docker_container_data_dir: str = "/data"  # container mount target
     docker_extra_args: str = ""         # extra docker run/exec flags
+    docker_keep_alive: bool = True      # keep container after training (reuse via docker exec)
 
     # --- transfer timeouts (seconds) ---
     upload_timeout: int = 120
@@ -73,6 +74,7 @@ class RemoteServerConfig:
             "docker_host_data_dir": self.docker_host_data_dir,
             "docker_container_data_dir": self.docker_container_data_dir,
             "docker_extra_args": self.docker_extra_args,
+            "docker_keep_alive": self.docker_keep_alive,
             "upload_timeout": self.upload_timeout,
             "download_timeout": self.download_timeout,
         }
@@ -102,6 +104,7 @@ class RemoteServerConfig:
             docker_host_data_dir=str(data.get("docker_host_data_dir", "")),
             docker_container_data_dir=str(data.get("docker_container_data_dir", "/data")),
             docker_extra_args=str(data.get("docker_extra_args", "")),
+            docker_keep_alive=bool(data.get("docker_keep_alive", True)),
             upload_timeout=int(data.get("upload_timeout", 120)),
             download_timeout=int(data.get("download_timeout", 300)),
         )
