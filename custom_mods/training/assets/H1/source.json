@@ -1,8 +1,0 @@
-{
-  "type": "training",
-  "parent_policy_id": "H1",
-  "experiment_id": "exp_46d65ead",
-  "run_id": "run_3ffc6e45",
-  "algorithm": "SAC",
-  "created_at": 1775119660.6205006
-}

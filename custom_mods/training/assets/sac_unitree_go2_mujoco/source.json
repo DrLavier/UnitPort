@@ -1,6 +1,0 @@
-{
-  "type": "huggingface",
-  "repo_id": "cagataydev/sac-unitree-go2-mujoco",
-  "revision": "main",
-  "url": "https://huggingface.co/cagataydev/sac-unitree-go2-mujoco/tree/main"
-}

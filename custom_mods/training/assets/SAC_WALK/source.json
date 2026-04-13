@@ -1,8 +1,0 @@
-{
-  "type": "training",
-  "parent_policy_id": "Walk_try",
-  "experiment_id": "exp_ecf28f6b",
-  "run_id": "run_0655105f",
-  "algorithm": "SAC",
-  "created_at": 1774820707.0706074
-}
