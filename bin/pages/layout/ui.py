@@ -38,6 +38,23 @@ from bin.pages.layout.misc import MainRow
 from bin.pages.layout.files_row import FilesRow, FileTabEntry, _FileTabWidget, ProjectFileBrowserPanel
 from bin.pages.training.training_setting_page import TrainingSettingPage
 
+# ---------------------------------------------------------------------------
+# Eager module preload for Training Ground
+# ---------------------------------------------------------------------------
+# Importing TrainingWorkspaceWindow is expensive (pulls in many sub-modules).
+# We kick off the import in a daemon thread at module-load time so the module
+# is in sys.modules by the time the user first switches to Training Ground.
+import threading as _threading
+
+def _preload_training_module() -> None:
+    """Background import so TrainingWorkspaceWindow is cached in sys.modules."""
+    try:
+        import bin.pages.training.training_workspace_window  # noqa: F401
+    except Exception:
+        pass  # non-fatal — will be imported on demand
+
+_threading.Thread(target=_preload_training_module, daemon=True).start()
+
 # Sentinel file_id used for the pending "new_mission" draft tab shown in
 # FilesRow when a Mission workspace has an active project but no saved
 # workflow yet. The real id is assigned when the user saves (which already
@@ -64,6 +81,7 @@ class MainWindow(QMainWindow):
         self._mission_run_thread = None
         # AppShell: single Training Ground page (created lazily)
         self._training_page = None
+        self._training_theme_applied = False  # skip redundant apply_theme on mode switch
         self._active_project_id: str = ""
         self._active_project_name: str = ""
         # Per-tab canvas caches keyed by file_id (workflow_id / experiment_id /
@@ -973,6 +991,7 @@ class MainWindow(QMainWindow):
                 self._shell_content_stack.removeWidget(self._training_page)
             self._training_page.deleteLater()
             self._training_page = None
+            self._training_theme_applied = False
 
         # First build: resolve policy_id — explicit > last saved > ""
         if not policy_id:
@@ -1032,6 +1051,7 @@ class MainWindow(QMainWindow):
         if hasattr(page, "apply_theme"):
             try:
                 page.apply_theme()
+                self._training_theme_applied = True
             except Exception:
                 pass
         if hasattr(page, "warm_cache"):
@@ -1102,13 +1122,17 @@ class MainWindow(QMainWindow):
         self._shell_mode = "training"
         # Sync ControlPanel page switchers (mission + training panels)
         self._sync_all_page_switchers("training")
-        self._refresh_files_row()
-        # Persist so Continue restores the training workspace directly.
-        self._save_last_shell_mode("training")
-        self._save_last_training_backend(getattr(page, "_active_backend", "sb3"))
-        self._save_last_training_experiment_id(
-            getattr(page, "_current_experiment_id", "") or ""
-        )
+
+        # Apply theme only if it hasn't been applied yet (e.g. prewarm already
+        # themed the page). This avoids a costly findChildren walk on every
+        # mission→training switch.
+        if not self._training_theme_applied:
+            if hasattr(page, 'apply_theme'):
+                try:
+                    page.apply_theme()
+                    self._training_theme_applied = True
+                except Exception:
+                    pass
 
         # Preserve panel open state: if mission panel was open, show training panel
         if panel_was_open:
@@ -1118,12 +1142,15 @@ class MainWindow(QMainWindow):
                 tg_cp.show()
                 tg_cp.raise_()
 
-        # Apply theme so TG nav header labels get correct colours immediately.
-        if hasattr(page, 'apply_theme'):
-            try:
-                page.apply_theme()
-            except Exception:
-                pass
+        # Defer non-visual bookkeeping so the widget swap renders immediately.
+        def _deferred_bookkeeping():
+            self._refresh_files_row()
+            self._save_last_shell_mode("training")
+            self._save_last_training_backend(getattr(page, "_active_backend", "sb3"))
+            self._save_last_training_experiment_id(
+                getattr(page, "_current_experiment_id", "") or ""
+            )
+        QTimer.singleShot(0, _deferred_bookkeeping)
 
     def _enter_mission_mode(self) -> None:
         """Switch the shared mission shell back to Mission Control content."""
@@ -4792,6 +4819,7 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self._training_page, 'apply_theme'):
                     self._training_page.apply_theme()
+                    self._training_theme_applied = True
             except RuntimeError:
                 pass
 

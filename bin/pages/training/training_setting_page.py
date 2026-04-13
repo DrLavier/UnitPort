@@ -1,9 +1,10 @@
 """TrainingSettingPage: buffer landing page shown when the Training area
 is entered with no active experiment.
 
-Offers two backend entry buttons — SB3 and Isaac — each of which signals
-``new_training_requested(backend)`` so the host can prompt the user for a
-filename and then enter the corresponding training canvas.
+Offers two backend entry buttons — SB3 and Isaac Lab — each of which
+signals ``new_training_requested(backend)`` so the host can prompt the
+user for a filename and then enter the corresponding training canvas.
+Cloud is a submission target configured in the console bar, not a backend.
 """
 
 from __future__ import annotations
@@ -24,9 +25,12 @@ from src.system.core.theme_manager import get_color
 class TrainingSettingPage(QWidget):
     """Landing buffer for the Training area.
 
-    Layout: centered column with a title + subtitle + three large backend
+    Layout: centered column with a title + subtitle + two large backend
     buttons. Emits ``new_training_requested(backend)`` where backend is
-    ``"sb3"``, ``"isaac"``, or ``"cloud"``.
+    ``"sb3"`` or ``"isaac"``.
+
+    Cloud is a *submission target* (Local vs Cloud) configured in the
+    Training console bar, not a separate backend template.
     """
 
     new_training_requested = Signal(str)
@@ -83,12 +87,6 @@ class TrainingSettingPage(QWidget):
             lambda: self.new_training_requested.emit("isaac")
         )
         buttons_row.addWidget(self._isaac_btn, 1)
-
-        self._cloud_btn = self._make_backend_button("New Cloud Training")
-        self._cloud_btn.clicked.connect(
-            lambda: self.new_training_requested.emit("cloud")
-        )
-        buttons_row.addWidget(self._cloud_btn, 1)
 
         card_layout.addLayout(buttons_row)
 
