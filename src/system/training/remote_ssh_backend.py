@@ -429,7 +429,7 @@ class RemoteSSHBackend:
                     cname = self.server.docker_container_name
                     full_cmd = (
                         f"docker exec "
-                        f"-e PYTHONUNBUFFERED=1 -e OMNI_KIT_ACCEPT_EULA=YES "
+                        f"-e PYTHONUNBUFFERED=1 -e OMNI_KIT_ACCEPT_EULA=YES -e ACCEPT_EULA=Y "
                         f"{docker_extra + ' ' if docker_extra else ''}"
                         f"{cname} "
                         f"bash -c '{inner_cmd}'"
@@ -439,7 +439,7 @@ class RemoteSSHBackend:
                     full_cmd = (
                         f"docker run --rm --gpus all "
                         f"-v {host_data}:{container_data} "
-                        f"-e PYTHONUNBUFFERED=1 -e OMNI_KIT_ACCEPT_EULA=YES "
+                        f"-e PYTHONUNBUFFERED=1 -e OMNI_KIT_ACCEPT_EULA=YES -e ACCEPT_EULA=Y "
                         f"{docker_extra + ' ' if docker_extra else ''}"
                         f"{self.server.docker_image} "
                         f"bash -c '{inner_cmd}'"
@@ -466,7 +466,7 @@ class RemoteSSHBackend:
                     )
 
                 full_cmd = (
-                    f"export PYTHONUNBUFFERED=1 OMNI_KIT_ACCEPT_EULA=YES && "
+                    f"export PYTHONUNBUFFERED=1 OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y && "
                     f"{env_prefix}"
                     f"echo PID=$$ && exec {cmd_str}"
                 )

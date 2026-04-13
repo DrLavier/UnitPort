@@ -39,3 +39,4 @@ pyqtgraph>=0.13
 
 # Remote training (cloud SSH backend)
 paramiko>=3.0
+keyring>=25.0
