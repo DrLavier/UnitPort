@@ -46,14 +46,14 @@ UnitPort uses a local virtual environment at `.venv311` with Python 3.11.9.
 
 **- Windows -**
 
-Use `start.bat` to launch the app. That is the correct startup path on Windows.
+Use `s.bat` to launch the app. That is the correct startup path on Windows.
 
 ```bat
 install.bat
-start.bat
+s.bat
 ```
 
-**If `.venv311` is missing, `start.bat` will fail and tell you to run `install.bat` first.**
+**If `.venv311` is missing, `s.bat` will fail and tell you to run `install.bat` first.**
 
 
 **- Linux -**
@@ -101,30 +101,32 @@ Sry, will have to wait a little bit longer for this :(
 
 ```text
 UnitPort/
-|-- main.py                     # app entry
-|-- bin/                        # UI entry and app wiring
-|-- compiler/                   # IR compiler pipeline: parser / lowering / codegen
-|-- nodes/
-|   |-- sys_nodes/              # built-in nodes
-|   `-- custom_nodes/           # user/community nodes
-|-- system/
-|   |-- behavior/               # behavior logic and motor protocol handling
-|   |-- training/               # trainer, env, motion library, training flow
-|   |-- policy/                 # inference and policy bundle loading
-|   |-- runtime/                # workflow execution and safety-related runtime logic
-|   |-- service/
-|   |   `-- adapters/           # vendor SDK adapter layer
-|   `-- brand_packages/         # brand-specific robot packages
-|-- models/                     # robot integration layer
-|-- config/                     # INI config files
-|-- assets/                     # icons and UI resources
-|-- localisation/               # i18n files
-|-- custom_checkpoints/         # user-saved checkpoints
-|-- custom_motions/             # user-provided NPY motions
-|-- training_assets/            # MuJoCo assets
-|-- training_checkpoints/       # auto-saved checkpoints
-|-- training_workspaces/        # saved training workspace data
-`-- workflows/                  # saved .unitport workflow files
+|-- main.py                      # app entry — boots LoadingScreen, then MainWindow
+|-- s.bat | start.sh             # launcher (verifies .venv311, runs main.py)
+|-- install.bat | install.sh     # first-time setup (.venv311 + requirements.txt)
+|-- reset.bat | reset.sh         # wipe .venv311 and cached state
+|-- localisation.bat             # rebuild i18n .qm catalogs
+|-- requirements.txt
+|-- bootstrap/                   # one-shot install / data-migration scripts
+|-- localisation/                # i18n source files (EN/, ZH/)
+|-- custom_mods/                 # drop-in extension area
+|   |-- canvas/                  # canvas mods (e.g. isaac_lab)
+|   `-- nodes/                   # user-defined nodes (see example_node/)
+`-- src/
+    |-- config/                  # baseline INI (system.ini)
+    |-- runtime/env/             # runtime-written env state
+    |-- registers/               # central registries (nodes, robots, brands, IR, services, ...)
+    |-- nodes/                   # canvas node definitions, one folder per node type
+    |-- scripts/                 # generated/exported training scripts (rewards, obs, scenes, ...)
+    |-- unitport_sdk/            # in-tree PyQt6 infra SDK (logger / sys / ui / canvas / compiler)
+    `-- application/
+        |-- compiler/            # IR compiler: nodes -> IR -> lowering -> codegen
+        |-- engine/              # execution engine contracts
+        |-- training/            # trainer, envs, motion lib, SB3 / AMP / Isaac Lab backends
+        |-- service/             # vendor + runtime services
+        |   `-- adapters/        # vendor SDK adapter layer
+        |-- ui/                  # PyQt6 widgets (MainWindow, sidebar, canvas, dialogs, wizard)
+        `-- tools/               # background app tasks (cloud sync, startup, ...)
 ```
 
 Some folders are more complete than others. A few areas still look like active construction **because they are**.
@@ -135,7 +137,7 @@ Some folders are more complete than others. A few areas still look like active c
 
 | Component | Technology |
 |-----------|-----------|
-| GUI | PySide6 |
+| GUI | PyQt6 |
 | Physics / Simulation | MuJoCo 3.0+ |
 | RL Training | Stable-Baselines3 (SAC, PPO, TD3) |
 | Robot SDKs | Unitree SDK2, Boston Dynamics Spot SDK, adapter layer |
