@@ -1,0 +1,7363 @@
+"""application.ui.canvas.param_rows — 节点参数行（custom paint）/ Node parameter rows.
+
+20 种 ``ParamRow`` 子类，全部 ``QGraphicsItem`` 自绘，绝无 ``QGraphicsProxyWidget``。
+编辑触发时**绝不弹 modal QDialog**——所有编辑器走 ``popups.py`` 里的锚定
+``Qt.WindowType.Popup``，紧贴行右侧弹出，点击外部即关闭（DEMO ``DataInput`` /
+``_RichChoicePopup`` / ``_TextInputPopup`` 行为一致）。
+
+通用 10 种 — 类型驱动（``ParamSpec.widget`` 优先；否则按 ``ParamSpec.type``）：
+
+    bool                  → BoolRow            （单击 toggle）
+    int / float           → NumberRow          （双击 → open_number_popup）
+    string                → StringRow          （双击 → open_text_popup）
+    enum (with choices)   → ChoiceRow          （单击 → open_choice_popup / Node_RichChoicePopup）
+    widget="path"         → PathRow            （单击按钮区 → QFileDialog）
+    widget="index"        → IndexRow           （单击 → open_number_popup int）
+    widget="range"        → RangeRow           （单滑块；行内 draw_range_slider）
+    widget="range_list"   → RangeListRow       （[lo, hi] 双滑块；draw_range_slider dual=True）
+    widget="badge"        → BadgeRow           （单击 cycle；行内 draw_polarity_badge）
+    widget="code", json   → CodeRow            （单击 → open_code_popup）
+    widget="table_readonly" → TableReadOnlyRow （不可编辑）
+
+节点专属 10 种 — 弹出 SDK ``Node_*`` 高阶 picker / editor 装在锚定 popup 里：
+
+    widget="picker_scene"            → SceneTypeRow         → Node_SceneTypePicker
+    widget="picker_task_type"        → TaskTypeRow          → Node_TaskTypePicker
+    widget="picker_start_point"      → StartPointRow        → Node_StartPointChoicePicker
+    widget="picker_export_bundle"    → ExportBundleRow      → Node_ExportBundlePicker
+    widget="picker_motion_library"   → MotionLibraryRow     → Node_MotionLibraryPicker
+    widget="picker_obs_components"   → ObsComponentsRow     → Node_ObsComponentsPicker (multi)
+    widget="registry_module"         → RegistryItemListRow  → Node_RegistryModuleEditor
+    widget="training_items"          → TrainingItemsRow     → Node_TrainingItemEditor
+    widget="stage_editor"            → StageEditorRow       → Node_StageSwitchEditorWidget
+    widget="curve"                   → CurveRow             → Node_ModuleCurveSlider
+    widget="buffer_size"             → BufferSizeRow        → Node_BufferSizePickerWidget
+
+行内绘制走 SDK paint helper（draw_choice_dropdown / draw_edit_button /
+draw_polarity_badge / draw_range_slider）+ ``RangeSliderHitTest`` 命中测试。
+
+LOD：T0/T1 不绘；T2 简化（无图标/箭头）；T3 + 注释。
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from typing import Any, Dict, List, Optional
+
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPolygonF,
+)
+from PyQt6.QtWidgets import (
+    QDialog,
+    QGraphicsItem,
+    QGraphicsSceneMouseEvent,
+    QGraphicsView,
+    QStyleOptionGraphicsItem,
+    QWidget,
+)
+
+from unitport_sdk import (
+    Config,
+    Node_BufferSizePickerWidget,
+    Node_NodeTableRowsWidget,
+    Node_RegistryModuleEditor,
+    Node_TrainingItemEditor,
+    RangeSliderHitTest,
+    draw_choice_dropdown,
+    draw_edit_button,
+    draw_polarity_badge,
+    draw_range_slider,
+    log_error,
+    setText,
+    tr,
+)
+
+from application.compiler.nodes import ParamSpec
+
+from .popups import (
+    open_choice_popup,
+    open_code_popup,
+    open_number_popup,
+    open_path_dialog,
+    open_text_popup,
+    open_widget_popup,
+)
+from .lod import (
+    TIER_DETAIL,
+    TIER_WORKING,
+    tier_for_painter,
+)
+
+
+PARAM_ROW_H = 24
+KEY_PAD_LEFT = 14
+KEY_WIDTH = 96
+SEP_X = KEY_PAD_LEFT + KEY_WIDTH + 4
+VALUE_PAD_RIGHT = 12
+
+
+def _view_of(event: QGraphicsSceneMouseEvent) -> Optional[QGraphicsView]:
+    """从 GraphicsScene mouse event 找回当前 QGraphicsView / Resolve view from event.
+
+    ``event.widget()`` 在 PyQt6 是触发 paint 的 viewport (QWidget)，
+    其 ``parent()`` 才是 QGraphicsView。
+    """
+    w = event.widget()
+    if w is None:
+        return None
+    if isinstance(w, QGraphicsView):
+        return w
+    parent = w.parent()
+    if isinstance(parent, QGraphicsView):
+        return parent
+    return None
+
+
+# =============================================================================
+# ParamRow 基类
+# =============================================================================
+
+class ParamRow(QGraphicsItem):
+    """所有参数行的基类 / Base class for all parameter rows.
+
+    子类必须实现：
+        ``_paint_value(painter, tier)`` 画 value 半边
+        ``_handle_click(event)`` / ``_handle_double_click(event)`` 至少一个
+
+    数据流：
+        owner_node.params[spec.key] ↔ ParamRow._value（双向同步）
+
+    LOD 行为（基类统一）：
+        T0/T1 不绘
+        T2 标准
+        T3 加边框淡化 + 描述 tooltip 准备
+    """
+
+    def __init__(
+        self,
+        spec: ParamSpec,
+        owner_node: "NodeItem",
+        width: float,
+        parent: Optional[QGraphicsItem] = None,
+    ) -> None:
+        super().__init__(parent if parent is not None else owner_node)
+        self.spec = spec
+        self._owner = owner_node
+        self._width = float(width)
+        self._height = float(PARAM_ROW_H)
+        self._value: Any = self._read_value()
+        # i18n display label cached at construction; rebuilt by retranslate()
+        # on language change. Same pattern as NodeItem._title_text.
+        self._display_label: str = self._resolve_label()
+        # 区域级 hover：只在落入 _interactive_regions() 命中的子矩形时被赋值；
+        # 整行 hover / 整行光标均已废弃。
+        self._hover_rect: Optional[QRectF] = None
+        self._cursor_active = False
+        self.setAcceptHoverEvents(True)
+        # 行不接受 ItemIsMovable —— 节点整体移动；行只响应自己内部点击
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+
+    # ---- i18n ----
+
+    def _resolve_label(self) -> str:
+        """Translate spec.key via node.<id>.param.<key>; fall back to spec.key.
+
+        和 NodeItem._resolve_title 一个套路：缺翻译时回落 id，保证视觉不空。"""
+        node_id = ""
+        try:
+            node_id = str(getattr(self._owner.manifest, "id", "") or "")
+        except Exception:
+            node_id = ""
+        if node_id:
+            return tr(f"node.{node_id}.param.{self.spec.key}", self.spec.key)
+        return self.spec.key
+
+    def _resolve_choice_text(self, raw_value: Any) -> str:
+        """Translate an enum/choice raw value via node.<id>.param.<key>.choice.<value>.
+
+        Lookups use ``str(raw_value)`` as the final key segment. Missing key
+        falls back to ``str(raw_value)`` so未翻译的枚举仍能可读地显示原 id。
+        None / "" returns empty string (matches prior _draw_value_text behaviour
+        when value is None)."""
+        if raw_value is None or raw_value == "":
+            return ""
+        node_id = ""
+        try:
+            node_id = str(getattr(self._owner.manifest, "id", "") or "")
+        except Exception:
+            node_id = ""
+        fallback = str(raw_value)
+        if not node_id:
+            return fallback
+        key = f"node.{node_id}.param.{self.spec.key}.choice.{fallback}"
+        return tr(key, fallback)
+
+    def retranslate(self) -> None:
+        """Re-resolve cached display label under current language and repaint.
+
+        Called by CanvasPage._retranslate_canvas via scene.items() sweep on
+        language change. Enum value text is not cached (read directly through
+        _resolve_choice_text every paint), so a plain self.update() is enough
+        to pick up new translations for value-side text as well."""
+        new = self._resolve_label()
+        changed = new != self._display_label
+        if changed:
+            self._display_label = new
+        # repaint unconditionally — value-side enum text reads tr() at paint
+        # time and also needs to refresh under the new language.
+        self.update()
+
+    # ---- 公开 ----
+
+    @property
+    def value(self) -> Any:
+        return self._value
+
+    def set_value(self, v: Any) -> None:
+        if v == self._value:
+            return
+        old = self._value
+        self._value = v
+        self._owner.params[self.spec.key] = v
+        self.update()
+        # Notify owner so siblings (e.g. BodyMappingTableRow watching asset_id)
+        # can react. Best-effort: ignore if NodeItem has no hook.
+        notify = getattr(self._owner, "on_param_changed", None)
+        if callable(notify):
+            try:
+                notify(self.spec.key, v)
+            except Exception:
+                pass
+        # Scene-level fan-out — DEMO 对应 ``TrainingGraphScene.node_param_changed``
+        # (training_workspace_window.py:3013). 让别的节点上的 widget 也能感知
+        # 参数变化（例：Export 节点 OutputFileListRow 监听 bundle_name 变化以
+        # 自动刷新文件清单 / Launch 按钮收集最新 review_backend / scene_id）。
+        sc = self.scene()
+        sig = getattr(sc, "node_param_changed", None) if sc is not None else None
+        if sig is not None:
+            try:
+                node_type = str(getattr(self._owner.manifest, "id", "") or "")
+                sig.emit(node_type, str(self.spec.key), str(v))
+            except Exception:
+                pass
+        # Push to CanvasPage._undo_stack (skipped during command replay so
+        # ParamChangeCmd._apply doesn't re-push itself).
+        self._maybe_push_undo(old, v)
+
+    def _maybe_push_undo(self, old: Any, new: Any) -> None:
+        sc = self.scene()
+        if sc is None:
+            return
+        page = getattr(sc, "_page_ref", None)
+        if page is None or getattr(page, "_in_undo", False):
+            return
+        try:
+            from .undo import ParamChangeCmd
+            page._undo_stack.push(ParamChangeCmd(
+                page, self._owner.node_id, self.spec.key, old, new,
+            ))
+        except Exception:
+            # 不让 undo bookkeeping 失败影响 set_value 的副作用
+            pass
+
+    # ---- conditional_on visibility ----
+
+    @staticmethod
+    def _eval_conditional(meta: Any, host_params: dict) -> bool:
+        """Evaluate ``meta['conditional_on']`` against host params.
+
+        Schema: ``{"key": str, "op": "=="|"!="|"in"|"not in", "value": Any}``.
+        Missing/malformed → visible (default to showing the row).
+        """
+        if not isinstance(meta, dict):
+            return True
+        cond = meta.get("conditional_on")
+        if not isinstance(cond, dict):
+            return True
+        key = cond.get("key")
+        op = cond.get("op")
+        expected = cond.get("value")
+        if not key or not op:
+            return True
+        actual = host_params.get(key)
+        try:
+            if op == "==":
+                return actual == expected
+            if op == "!=":
+                return actual != expected
+            if op == "in":
+                seq = expected if isinstance(expected, (list, tuple, set)) else (expected,)
+                return actual in seq
+            if op == "not in":
+                seq = expected if isinstance(expected, (list, tuple, set)) else (expected,)
+                return actual not in seq
+        except Exception:
+            return True
+        return True
+
+    def update_visibility(self, host_params: dict) -> bool:
+        """Apply conditional_on visibility against host_params.
+
+        Returns True if visibility flipped (caller can reflow on True).
+        """
+        visible = self._eval_conditional(self.spec.meta, host_params)
+        if visible == self.isVisible():
+            return False
+        self.setVisible(visible)
+        return True
+
+    # ---- Inline port anchors (overridable; default = none) ----
+
+    def iter_inline_port_anchors(self):
+        """Yield ``(PortSpec, anchor_local_pt)`` tuples for row-bound ports.
+
+        Override in subclasses that need to mount per-item PortItems on
+        canvas inside the row body — e.g. ``TrainingItemsInlineRow`` mounts a
+        ``reward_pipe`` input on each enabled training item. The anchor point
+        is in **row-local** coordinates (the row's setPos() origin); the
+        NodeItem layout pass converts it to node-local before assigning the
+        PortItem position. Default = empty (no inline ports).
+        """
+        return ()
+
+    # ---- Height contract (overridable for full-row rows like body_mapping) ----
+
+    def preferred_height(self) -> float:
+        """Return the row's preferred height. Default = ``PARAM_ROW_H`` (24).
+
+        Honours ``spec.meta['row_height']`` first (DEMO ``training_node_ui.json``
+        协议 — 让 ParamSpec 直接声明非 24 的行高，无需子类覆写)；否则回退到
+        ``self._height``。Subclasses with dynamic content (BodyMappingTableRow,
+        OutputFileListRow) still override this for content-dependent height
+        and call ``self.prepareGeometryChange()`` + invoke their height-change
+        callbacks when the value changes.
+        """
+        meta = self.spec.meta or {}
+        rh = meta.get("row_height")
+        if isinstance(rh, (int, float)) and rh > 0:
+            return float(rh)
+        return float(self._height)
+
+    @property
+    def is_full_width(self) -> bool:
+        """``meta['full_width_widget']`` — value 半边占满整行（DEMO 协议）.
+
+        当前 ParamRow 的 paint 已经把 value 半边一直延伸到 ``self._width``，
+        子类可读这个属性决定是否绘制 key 标签外的扩展内容（如 OutputFileListRow
+        的全宽文件清单 / ReviewLaunchButtonRow 的全宽按钮）。
+        """
+        meta = self.spec.meta or {}
+        return bool(meta.get("full_width_widget", False))
+
+    @property
+    def is_pinned_on_collapse(self) -> bool:
+        """``meta['pin_on_collapse']`` — 节点收纳态时仍保持可见的"关键行"。
+
+        NodeItem._compute_layout 在 ``_collapsed=True`` 时把 ParamRow 全部 hide,
+        但读到本 flag 的会留下来 —— 用于 Robot.asset_id / Rewards.reward_terms
+        / Trainer 的 mode/envs/iterations 等业务认定的"标识性参数",收纳后仍
+        能一眼看清。
+        """
+        meta = self.spec.meta or {}
+        return bool(meta.get("pin_on_collapse", False))
+
+    def on_height_changed(self, callback) -> None:
+        """No-op default; BodyMappingTableRow overrides with a real registry."""
+        return None
+
+    # ---- Qt overrides ----
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(0, 0, self._width, self._height)
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyleOptionGraphicsItem,
+        widget: Optional[QWidget] = None,
+    ) -> None:
+        tier = tier_for_painter(painter)
+        # 任何缩放档都画——节点内容不允许提前消失。
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        # 行底色透明：仅当 hover 命中某个具体可交互子矩形时，在该矩形上画一层
+        # 淡高亮；平时（包括停在 key 标签 / 行间隙 / value 半边非交互区域上）
+        # 完全不画，让节点 body 底色透出。
+        if self._hover_rect is not None:
+            hover_bg = QColor(Config.get_color("bg_1", "#2A2A2A")).lighter(115)
+            painter.setBrush(QBrush(hover_bg))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(self._hover_rect)
+
+        # key 标签
+        text_color = QColor(Config.get_color("canvas_node_param_text", "#C8C8C8"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        key_rect = QRectF(KEY_PAD_LEFT, 0, KEY_WIDTH, self._height)
+        painter.drawText(
+            key_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            self._display_label,
+        )
+
+        # 分隔细线
+        sep_color = QColor(Config.get_color("border_1", "#444444"))
+        sep_color.setAlpha(120)
+        painter.setPen(QPen(sep_color, 0.6))
+        painter.drawLine(
+            QPointF(SEP_X, 4), QPointF(SEP_X, self._height - 4)
+        )
+
+        # value 半边（子类实现）
+        self._paint_value(painter, tier)
+
+    def _is_hovering(self, rect: Optional[QRectF] = None) -> bool:
+        """当前是否正在 hover；可选传入具体子矩形精确比对."""
+        if self._hover_rect is None:
+            return False
+        if rect is None:
+            return True
+        return self._hover_rect == rect
+
+    def _interactive_regions(self) -> List[QRectF]:
+        """子类声明本行内真正可交互的子矩形列表 / Hit-rects of in-row controls.
+
+        默认实现：整个 value 半边（多数行的「双击/单击 弹 popup」触发区）。
+        子类按真实控件几何缩小（BoolRow 复选框 14×14、IndexRow 大按钮、
+        RangeRow [滑块, 末端按钮]、TableReadOnlyRow 空列表）。
+        """
+        return [self._value_rect()]
+
+    def _set_hover_rect(self, rect: Optional[QRectF]) -> None:
+        if rect is self._hover_rect:
+            return
+        if (
+            rect is not None
+            and self._hover_rect is not None
+            and rect == self._hover_rect
+        ):
+            return
+        self._hover_rect = rect
+        # 同步光标：命中可交互子区域才显示 PointingHand，否则回到默认 Arrow。
+        if rect is not None:
+            if not self._cursor_active:
+                self.setCursor(Qt.CursorShape.PointingHandCursor)
+                self._cursor_active = True
+        else:
+            if self._cursor_active:
+                self.unsetCursor()
+                self._cursor_active = False
+        self.update()
+
+    def _hit_region(self, pos: QPointF) -> Optional[QRectF]:
+        for r in self._interactive_regions():
+            if r.contains(pos):
+                return r
+        return None
+
+    def hoverEnterEvent(self, event):
+        self._set_hover_rect(self._hit_region(event.pos()))
+        super().hoverEnterEvent(event)
+
+    def hoverMoveEvent(self, event):
+        self._set_hover_rect(self._hit_region(event.pos()))
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._set_hover_rect(None)
+        super().hoverLeaveEvent(event)
+
+    # 子类可设 True 表示 click 在 release 触发（QPushButton 风格）。
+    # 重要：popup-opening 行必须 release 触发，否则 QGraphicsScene 的 implicit
+    # mouse grab 会与 Qt.WindowType.Popup 的 popup grab 冲突，导致 popup 弹出
+    # 后无法被外部点击关闭（"卡住收不回去"）。drag 类（RangeRow）必须 press
+    # 触发，所以保持默认 False。
+    _OPEN_ON_RELEASE = False
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        # 仅当点击落在某个可交互子矩形内才进入处理；落在 key 标签 / 行间隙上的
+        # 点击与 hover/光标的「不响应」语义保持一致，事件冒泡给节点（用于拖拽）。
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._hit_region(event.pos()) is not None
+        ):
+            if self._OPEN_ON_RELEASE:
+                self._press_marked = True
+                event.accept()
+                return
+            handled = self._handle_click(event)
+            if handled:
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._OPEN_ON_RELEASE
+            and getattr(self, "_press_marked", False)
+        ):
+            self._press_marked = False
+            # 释放的位置仍落在某个可交互子矩形内才触发（QPushButton 行为）
+            if self._hit_region(event.pos()) is not None:
+                handled = self._handle_click(event)
+                if handled:
+                    event.accept()
+                    return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._hit_region(event.pos()) is not None
+        ):
+            handled = self._handle_double_click(event)
+            if handled:
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
+    # ---- 子类钩子 ----
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        """画 value 半边；子类实现."""
+        ...
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        """单击；返回 True 表示已消化，不再向上冒泡."""
+        return False
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        """双击；返回 True 表示已消化."""
+        return False
+
+    # ---- 内部 ----
+
+    def _read_value(self) -> Any:
+        v = self._owner.params.get(self.spec.key, None)
+        if v is None:
+            v = self.spec.default
+        return v
+
+    def _value_rect(self) -> QRectF:
+        x = SEP_X + 6
+        return QRectF(
+            x, 0, max(0.0, self._width - x - VALUE_PAD_RIGHT), self._height
+        )
+
+    def _draw_value_text(
+        self,
+        painter: QPainter,
+        text: str,
+        align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft,
+    ) -> None:
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        # 截断超长 value
+        rect = self._value_rect()
+        fm = QFontMetricsF(font)
+        elided = fm.elidedText(str(text), Qt.TextElideMode.ElideRight, rect.width())
+        painter.drawText(
+            rect,
+            int(align | Qt.AlignmentFlag.AlignVCenter),
+            elided,
+        )
+
+
+# =============================================================================
+# 1. BoolRow —— 复选框
+# =============================================================================
+
+class BoolRow(ParamRow):
+    """单击 toggle / Single-click toggle."""
+
+    _OPEN_ON_RELEASE = True
+
+    def _checkbox_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.left() + 4, rect.center().y() - 7, 14, 14)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._checkbox_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        rect = self._value_rect()
+        # 复选框 14×14，竖直居中
+        box = self._checkbox_rect()
+        painter.setBrush(QBrush(QColor(Config.get_color("bg_1", "#2A2A2A"))))
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(box, 2, 2)
+        if bool(self._value):
+            check_color = QColor(Config.get_color("highlight", "#F6D393"))
+            painter.setPen(QPen(check_color, 2.0))
+            # 勾
+            cx, cy = box.center().x(), box.center().y()
+            painter.drawLine(
+                QPointF(cx - 4, cy + 0),
+                QPointF(cx - 1, cy + 3),
+            )
+            painter.drawLine(
+                QPointF(cx - 1, cy + 3),
+                QPointF(cx + 5, cy - 4),
+            )
+        # T3: 在 box 右侧补 True/False 文字
+        if tier == TIER_DETAIL:
+            label_rect = QRectF(box.right() + 6, rect.top(), rect.right() - box.right() - 6, rect.height())
+            label_color = QColor(Config.get_color("canvas_node_param_text", "#C8C8C8"))
+            painter.setPen(QPen(label_color))
+            painter.drawText(
+                label_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                tr("canvas.row.true", "True") if self._value
+                else tr("canvas.row.false", "False"),
+            )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        self.set_value(not bool(self._value))
+        return True
+
+
+# =============================================================================
+# 2. NumberRow —— int / float
+# =============================================================================
+
+def _draw_input_chrome(
+    painter: QPainter, rect: QRectF, *, hover: bool,
+) -> QRectF:
+    """画 input-box 风格 chrome（bg + border + hover）/ Input-box chrome.
+
+    与 ChoiceRow 的 ``draw_choice_dropdown`` 同款颜色规范，让所有可编辑 cell
+    在画布上视觉一致。返回内缩 4px 后的内容矩形（供文字绘制）。
+    """
+    bg = QColor(Config.get_color("bg_1", "#1A1A1A"))
+    if hover:
+        bg = bg.lighter(115)
+    border = QColor(Config.get_color("border_2", "#3d3d3d"))
+    painter.setBrush(QBrush(bg))
+    painter.setPen(QPen(border, 1.0))
+    painter.drawRoundedRect(rect, 3, 3)
+    return rect.adjusted(4, 0, -4, 0)
+
+
+class NumberRow(ParamRow):
+    """单击 → NumberEditDialog / Single-click opens NumberEditDialog.
+
+    视觉为 input-box 风格 chrome（描边 + 淡底色），与 ChoiceRow 同款 —— 让
+    用户一眼看出这是可编辑控件，而不是只读 label。
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _input_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.left() + 4, rect.top() + 3, rect.width() - 8, rect.height() - 6)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        # 整个 value cell 全宽都可点 —— 不要求用户对准内缩 input box。
+        return [self._value_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        box = self._input_rect()
+        text_rect = _draw_input_chrome(painter, box, hover=self._is_hovering(self._value_rect()))
+        text = self._format_value()
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        fm = QFontMetricsF(font)
+        elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, text_rect.width())
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+
+    def _format_value(self) -> str:
+        v = self._value
+        if isinstance(v, float):
+            return f"{v:g}"
+        return str(v)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        is_int = self.spec.type == "int"
+        meta = self.spec.meta or {}
+        try:
+            v = float(self._value if self._value is not None else 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        open_number_popup(
+            view=_view_of(event),
+            row=self,
+            value=int(v) if is_int else v,
+            is_int=is_int,
+            minimum=meta.get("min"),
+            maximum=meta.get("max"),
+            step=meta.get("step"),
+            on_commit=self.set_value,
+        )
+        return True
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        # 兼容老的双击习惯 —— 行为与单击一致。
+        return self._handle_click(event)
+
+
+# =============================================================================
+# 3. StringRow —— 单行字符串
+# =============================================================================
+
+class StringRow(ParamRow):
+    """单击 → StringEditDialog.
+
+    视觉为 input-box 风格 chrome（描边 + 淡底色），与 ChoiceRow / NumberRow
+    一致。
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _input_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.left() + 4, rect.top() + 3, rect.width() - 8, rect.height() - 6)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._value_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        box = self._input_rect()
+        text_rect = _draw_input_chrome(painter, box, hover=self._is_hovering(self._value_rect()))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        fm = QFontMetricsF(font)
+        elided = fm.elidedText(
+            str(self._value or ""), Qt.TextElideMode.ElideRight, text_rect.width(),
+        )
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        open_text_popup(
+            view=_view_of(event),
+            row=self,
+            value=str(self._value or ""),
+            placeholder=self.spec.description or "",
+            on_commit=self.set_value,
+        )
+        return True
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        return self._handle_click(event)
+
+
+# =============================================================================
+# 4. ChoiceRow —— enum (with choices)
+# =============================================================================
+
+class ChoiceRow(ParamRow):
+    """单击弹 SDK Node_RichChoicePopup（卡片选单）/ Single-click opens popup."""
+
+    _OPEN_ON_RELEASE = True
+
+    def _dropdown_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.left() + 4, rect.top() + 3, rect.width() - 8, rect.height() - 6)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        # 整个 value cell 全宽都可点 —— ``_dropdown_rect`` 仅作为视觉 chrome；
+        # 用户点 cell 任意位置（含 4px 边缘留白）都能弹 popup。
+        return [self._value_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        text = self._resolve_choice_text(self._value)
+        # 行内 dropdown（高度收 4px 给上下留呼吸）
+        box = self._dropdown_rect()
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        draw_choice_dropdown(
+            painter,
+            box,
+            text,
+            hover=self._is_hovering(box),
+            font=font,
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        if not self.spec.choices:
+            return False
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=self.spec.choices,
+            current=self._value,
+            multi=False,
+            on_commit=self.set_value,
+            label_resolver=self._resolve_choice_text,
+        )
+        return True
+
+
+# =============================================================================
+# 5. PathRow —— 文件 / 目录路径
+# =============================================================================
+
+class PathRow(ParamRow):
+    """单击右侧浏览按钮 → QFileDialog; 路径文本左侧只读显示."""
+
+    BROWSE_W = 22  # ⋯ 按钮宽度
+
+    def _browse_btn_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.right() - self.BROWSE_W, rect.top() + 3, self.BROWSE_W, rect.height() - 6)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._browse_btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        rect = self._value_rect()
+        # 按钮在右侧
+        btn_rect = self._browse_btn_rect()
+        # 路径文本在左侧（截断）
+        text_rect = QRectF(rect.left(), rect.top(), rect.width() - self.BROWSE_W - 4, rect.height())
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        fm = QFontMetricsF(font)
+        elided = fm.elidedText(
+            str(self._value or ""), Qt.TextElideMode.ElideMiddle, text_rect.width()
+        )
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+        # ⋯ 浏览按钮（SDK helper）
+        draw_edit_button(
+            painter,
+            btn_rect,
+            kind="browse",
+            hover=self._is_hovering(btn_rect),
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        # 区分：只在 ⋯ 按钮区域内才弹 file dialog（基类已收紧，但保留显式判断
+        # 以便文本区即便被未来扩展也不会误触发 dialog）。
+        if not self._browse_btn_rect().contains(event.pos()):
+            return False
+        meta = self.spec.meta or {}
+        path = open_path_dialog(
+            title=self.spec.key,
+            current=str(self._value or ""),
+            is_dir=bool(meta.get("is_dir")),
+            name_filter=str(meta.get("filter", "")),
+            parent=event.widget(),
+        )
+        if path is not None:
+            self.set_value(path)
+        return True
+
+
+# =============================================================================
+# 6. IndexRow —— 数字按钮（int 专用，带 step）
+# =============================================================================
+
+class IndexRow(ParamRow):
+    """大号数字按钮，单击弹锚定 number popup."""
+
+    _OPEN_ON_RELEASE = True
+
+    def _btn_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.left() + 4, rect.top() + 2, rect.width() - 8, rect.height() - 4)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        btn = self._btn_rect()
+        btn_color = QColor(Config.get_color("btn_1", "#343636"))
+        if self._is_hovering(btn):
+            btn_color = btn_color.lighter(115)
+        painter.setBrush(QBrush(btn_color))
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(btn, 3, 3)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(btn, int(Qt.AlignmentFlag.AlignCenter), str(self._value if self._value is not None else 0))
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        meta = self.spec.meta or {}
+        try:
+            v = int(self._value if self._value is not None else 0)
+        except (TypeError, ValueError):
+            v = 0
+        open_number_popup(
+            view=_view_of(event),
+            row=self,
+            value=v,
+            is_int=True,
+            minimum=int(meta.get("min", 0)),
+            maximum=int(meta.get("max", 1000)),
+            on_commit=lambda val: self.set_value(int(val)),
+        )
+        return True
+
+
+# =============================================================================
+# 7. RangeRow —— 单滑块范围（meta: min/max/step）
+# =============================================================================
+
+class RangeRow(ParamRow):
+    """滑块拖拽编辑数值；几何 + 视觉走 SDK ``draw_range_slider`` + ``RangeSliderHitTest``."""
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._dragging = False
+        meta = spec.meta or {}
+        self._min = float(meta.get("min", 0.0))
+        self._max = float(meta.get("max", 1.0))
+        if self._max <= self._min:
+            self._max = self._min + 1.0
+        self._step = meta.get("step")
+
+    # 几何契约（单把手 NodeSlider：[slider][hi_btn]，仅右端 1 按钮显示当前值）。
+    # 严格 fit content：按钮宽高 = 当前文本的 font metrics 测量值，
+    # 零内边距、零最小/最大限制、不随容器拉伸。
+
+    # 与按钮右边沿到 value_rect 右边沿之间留 2px 的视觉间距（属于 row 布局，
+    # 不是按钮内部 padding）；slider 与按钮左边沿之间留 6px gap。
+    _BTN_RIGHT_OFFSET = 2
+    _BTN_SLIDER_GAP = 6
+
+    def _btn_font(self) -> QFont:
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        return font
+
+    # 仅水平方向左右各 1px padding（避免边框圆角切到字形端点）；
+    # 垂直方向严格 fit content（高度 = 文本 fm.height）。
+    _BTN_PAD_X = 1
+
+    def _measure_btn_size(self, text: str) -> tuple:
+        """fit content：返回 (width, height)。
+        width = ceil(fm.horizontalAdvance) + 2 * _BTN_PAD_X
+        height = ceil(fm.height)（无垂直 padding）"""
+        fm = QFontMetricsF(self._btn_font())
+        from math import ceil
+        return (float(ceil(fm.horizontalAdvance(text)) + 2 * self._BTN_PAD_X),
+                float(ceil(fm.height())))
+
+    def _hi_btn_rect(self, text: Optional[str] = None) -> QRectF:
+        rect = self._value_rect()
+        if text is None:
+            text = self._format(self._normalized_value())
+        w, h = self._measure_btn_size(text)
+        # 右锚定 + 在 value_rect 中竖直居中（高度 = 文本高度，不再拉满行高）
+        x = rect.right() - w - self._BTN_RIGHT_OFFSET
+        y = rect.top() + (rect.height() - h) * 0.5
+        return QRectF(x, y, w, h)
+
+    def _slider_rect(self) -> QRectF:
+        rect = self._value_rect()
+        btn_w, _ = self._measure_btn_size(
+            self._format(self._normalized_value())
+        )
+        # 左侧仅 2px 起手 padding；右侧让出 btn 宽度 + 间距
+        left = rect.left() + 2
+        right = rect.right() - btn_w - self._BTN_RIGHT_OFFSET - self._BTN_SLIDER_GAP
+        width = max(20.0, right - left)
+        return QRectF(left, rect.top() + 4, width, rect.height() - 8)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._slider_rect(), self._hi_btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        try:
+            v = float(self._value)
+        except (TypeError, ValueError):
+            v = self._min
+
+        slider_rect = self._slider_rect()
+        draw_range_slider(
+            painter,
+            slider_rect,
+            lo=v,
+            vmin=self._min,
+            vmax=self._max,
+            dual=False,
+            hover_handle="lo" if self._is_hovering(slider_rect) or self._dragging else None,
+        )
+        # 单把手只放 1 个按钮：右端显示当前值（DEMO IndexButton 风格）
+        text = self._format(v)
+        btn_rect = self._hi_btn_rect(text)
+        self._paint_end_button(painter, btn_rect, text=text, accent=True)
+
+    def _format(self, x: float) -> str:
+        try:
+            return f"{float(x):g}"
+        except (TypeError, ValueError):
+            return str(x)
+
+    def _paint_end_button(self, painter: QPainter, rect: QRectF, *, text: str, accent: bool) -> None:
+        """画 [ value ] 风格 mini 按钮 / Paint a clickable mini-button at slider end.
+
+        严格 fit content：``rect`` 由 ``_measure_btn_size(text)`` 给出，宽高
+        都等于文本 font metrics，零 padding、不随容器伸缩。无 elide —— 文本
+        永远刚好填满按钮。
+        """
+        bg_slot = "btn_1" if not accent else "btn_1"
+        bg = QColor(Config.get_color(bg_slot, "#343636"))
+        if self._is_hovering(rect):
+            bg = bg.lighter(110)
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(rect, 3, 3)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        font = self._btn_font()
+        if not accent:
+            font.setBold(False)
+        painter.setFont(font)
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), text)
+
+    def _hit(self) -> RangeSliderHitTest:
+        return RangeSliderHitTest(
+            rect=self._slider_rect(),
+            vmin=self._min,
+            vmax=self._max,
+            dual=False,
+        )
+
+    def _commit_x(self, x: float) -> None:
+        # 拖拽必须顺滑 —— 不吸附 step，避免 thumb 抢用户光标。
+        # step 只作用于：number popup 输入校验、键盘 ±step 微调。
+        ht = self._hit()
+        self.set_value(ht.value_at(x))
+
+    def _open_value_popup(self, event: QGraphicsSceneMouseEvent, *, initial: float) -> None:
+        """点端点按钮 → 弹 number popup 编辑 current value."""
+        open_number_popup(
+            view=_view_of(event),
+            row=self,
+            value=initial,
+            is_int=False,
+            minimum=self._min,
+            maximum=self._max,
+            step=float(self._step) if self._step else None,
+            on_commit=self.set_value,
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        # 1. 端点按钮（右 current value）→ 弹 number popup 编辑当前值
+        if self._hi_btn_rect().contains(event.pos()):
+            try:
+                cur = float(self._value)
+            except (TypeError, ValueError):
+                cur = self._min
+            self._open_value_popup(event, initial=cur)
+            return True
+        # 2. slider 轨道 / thumb → 跳点 + 拖拽
+        ht = self._hit()
+        hit = ht.handle_at(event.pos(), self._normalized_value())
+        if hit is None:
+            return False
+        self._commit_x(event.pos().x())
+        self._dragging = True
+        return True
+
+    def _normalized_value(self) -> float:
+        try:
+            return float(self._value)
+        except (TypeError, ValueError):
+            return self._min
+
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._dragging:
+            self._commit_x(event.pos().x())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._dragging:
+            self._dragging = False
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+# =============================================================================
+# 7b. RangeListRow —— 双手柄区间 [lo, hi]（widget="range_list"）
+# =============================================================================
+
+class RangeListRow(RangeRow):
+    """``widget="range_list"`` → ``[lo, hi]`` 双手柄 slider.
+
+    用于 DR / motion / task 节点中所有 ``[a, b]`` 范围参数（mass_range,
+    static_friction_range, push_velocity_x_range, gait_frequency_range, …）。
+    DEMO 用 ``_RangeHandleSlider`` 双 thumb；这里复用 SDK ``draw_range_slider(dual=True)``
+    + ``RangeSliderHitTest(dual=True)``。
+
+    几何：[lo_btn][slider][hi_btn] —— 两端各一按钮显示当前 lo/hi 值，单击弹
+    number popup 编辑该端点；拖拽 thumb 即时更新对应端点。
+
+    持久化：``ParamSpec.type == "list"`` 时直接 set ``[lo, hi]`` Python list；
+    其它（json / 容错路径）回退为 ``json.dumps([lo, hi])``，与 DEMO 兼容。
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        # 重置为双手柄拖拽状态
+        self._drag_handle: Optional[str] = None  # "lo" / "hi" / None
+        # 把 super().__init__ 的 ``_dragging`` 钩子保留以兼容 mouseMove/Release。
+        self._dragging = False
+
+    # ---- 值解析 / Serialisation ----
+
+    def _parse_pair(self, v: Any) -> tuple:
+        """解析存储值为 (lo, hi)。容忍 list / tuple / JSON-string / None."""
+        arr = None
+        if isinstance(v, (list, tuple)):
+            arr = list(v)
+        elif isinstance(v, str) and v.strip():
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, (list, tuple)):
+                    arr = list(parsed)
+            except Exception:
+                arr = None
+        if arr is None or len(arr) < 2:
+            return (self._min, self._max)
+        try:
+            lo = float(arr[0])
+            hi = float(arr[1])
+        except (TypeError, ValueError):
+            return (self._min, self._max)
+        # 保证 lo <= hi
+        if lo > hi:
+            lo, hi = hi, lo
+        # clamp
+        lo = max(self._min, min(self._max, lo))
+        hi = max(self._min, min(self._max, hi))
+        return (lo, hi)
+
+    def _serialize_pair_raw(self, lo: float, hi: float) -> Any:
+        """序列化但不吸附 step —— 拖拽路径专用，保证顺滑."""
+        if lo > hi:
+            lo, hi = hi, lo
+        t = (self.spec.type or "").lower()
+        if t in ("list", "json", "dict"):
+            return [lo, hi]
+        try:
+            return json.dumps([lo, hi], ensure_ascii=False)
+        except Exception:
+            return [lo, hi]
+
+    def _serialize_pair(self, lo: float, hi: float) -> Any:
+        """序列化并按 meta.step 吸附 —— popup 输入 / 键盘微调用."""
+        if self._step:
+            try:
+                step = float(self._step)
+                lo = round(lo / step) * step
+                hi = round(hi / step) * step
+            except (TypeError, ValueError):
+                pass
+        return self._serialize_pair_raw(lo, hi)
+
+    # ---- 几何 ----
+
+    def _lo_btn_rect(self, text: Optional[str] = None) -> QRectF:
+        rect = self._value_rect()
+        if text is None:
+            lo, _hi = self._parse_pair(self._value)
+            text = self._format(lo)
+        w, h = self._measure_btn_size(text)
+        x = rect.left() + 2
+        y = rect.top() + (rect.height() - h) * 0.5
+        return QRectF(x, y, w, h)
+
+    def _hi_btn_rect(self, text: Optional[str] = None) -> QRectF:  # type: ignore[override]
+        rect = self._value_rect()
+        if text is None:
+            _lo, hi = self._parse_pair(self._value)
+            text = self._format(hi)
+        w, h = self._measure_btn_size(text)
+        x = rect.right() - w - self._BTN_RIGHT_OFFSET
+        y = rect.top() + (rect.height() - h) * 0.5
+        return QRectF(x, y, w, h)
+
+    def _slider_rect(self) -> QRectF:  # type: ignore[override]
+        rect = self._value_rect()
+        lo, hi = self._parse_pair(self._value)
+        lo_w, _ = self._measure_btn_size(self._format(lo))
+        hi_w, _ = self._measure_btn_size(self._format(hi))
+        left = rect.left() + 2 + lo_w + self._BTN_SLIDER_GAP
+        right = rect.right() - hi_w - self._BTN_RIGHT_OFFSET - self._BTN_SLIDER_GAP
+        width = max(20.0, right - left)
+        return QRectF(left, rect.top() + 4, width, rect.height() - 8)
+
+    def _interactive_regions(self) -> List[QRectF]:  # type: ignore[override]
+        return [self._slider_rect(), self._lo_btn_rect(), self._hi_btn_rect()]
+
+    # ---- Paint ----
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
+        lo, hi = self._parse_pair(self._value)
+        slider_rect = self._slider_rect()
+        # hover 计算：拖拽中显示对应 thumb 的 hover 高亮
+        hover = None
+        if self._drag_handle in ("lo", "hi"):
+            hover = self._drag_handle  # type: ignore[assignment]
+        draw_range_slider(
+            painter,
+            slider_rect,
+            lo=lo,
+            hi=hi,
+            vmin=self._min,
+            vmax=self._max,
+            dual=True,
+            hover_handle=hover,
+        )
+        # 端点按钮：左 = lo，右 = hi
+        lo_text = self._format(lo)
+        hi_text = self._format(hi)
+        self._paint_end_button(painter, self._lo_btn_rect(lo_text), text=lo_text, accent=True)
+        self._paint_end_button(painter, self._hi_btn_rect(hi_text), text=hi_text, accent=True)
+
+    # ---- Hit-test / 拖拽 ----
+
+    def _hit(self) -> RangeSliderHitTest:  # type: ignore[override]
+        return RangeSliderHitTest(
+            rect=self._slider_rect(),
+            vmin=self._min,
+            vmax=self._max,
+            dual=True,
+        )
+
+    def _commit_x(self, x: float) -> None:  # type: ignore[override]
+        if self._drag_handle not in ("lo", "hi"):
+            return
+        # 拖拽顺滑 —— 不吸附 step。
+        ht = self._hit()
+        new_val = ht.value_at(x)
+        lo, hi = self._parse_pair(self._value)
+        if self._drag_handle == "lo":
+            lo = min(new_val, hi)
+        else:
+            hi = max(new_val, lo)
+        self.set_value(self._serialize_pair_raw(lo, hi))
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        lo, hi = self._parse_pair(self._value)
+        # 1. 左端按钮 → 编辑 lo
+        if self._lo_btn_rect().contains(event.pos()):
+            self._open_handle_popup(event, which="lo", initial=lo)
+            return True
+        # 2. 右端按钮 → 编辑 hi
+        if self._hi_btn_rect().contains(event.pos()):
+            self._open_handle_popup(event, which="hi", initial=hi)
+            return True
+        # 3. slider thumb / track → 决定哪个 thumb 被命中并启动拖拽
+        ht = self._hit()
+        hit = ht.handle_at(event.pos(), lo, hi)
+        if hit is None:
+            return False
+        if hit == "track":
+            # 点轨道：把更近的那个 thumb 拉到点击位置（DEMO 行为）
+            click_v = ht.value_at(event.pos().x())
+            hit = "lo" if abs(click_v - lo) <= abs(click_v - hi) else "hi"
+        self._drag_handle = hit  # type: ignore[assignment]
+        self._dragging = True
+        self._commit_x(event.pos().x())
+        return True
+
+    def _open_handle_popup(
+        self,
+        event: QGraphicsSceneMouseEvent,
+        *,
+        which: str,
+        initial: float,
+    ) -> None:
+        def _commit(val: Any) -> None:
+            try:
+                v = float(val)
+            except (TypeError, ValueError):
+                return
+            lo, hi = self._parse_pair(self._value)
+            if which == "lo":
+                lo = min(v, hi)
+            else:
+                hi = max(v, lo)
+            self.set_value(self._serialize_pair(lo, hi))
+
+        open_number_popup(
+            view=_view_of(event),
+            row=self,
+            value=initial,
+            is_int=False,
+            minimum=self._min,
+            maximum=self._max,
+            step=float(self._step) if self._step else None,
+            on_commit=_commit,
+        )
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
+        if self._dragging:
+            self._dragging = False
+            self._drag_handle = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+
+# =============================================================================
+# 8. BadgeRow —— 极性徽章（圆 / 方 / 菱形）
+# =============================================================================
+
+class BadgeRow(ParamRow):
+    """``meta.badge_states`` 列出所有可选徽章；单击 cycle / Click cycles through states.
+
+    缺省 states：``["circle", "square", "diamond"]``。
+    单击 → 取下一个 → set_value(state_name)。
+    """
+
+    _OPEN_ON_RELEASE = True
+    DEFAULT_STATES = ("circle", "square", "diamond")
+
+    # state 名 → SDK draw_polarity_badge 的 kind
+    _STATE_TO_KIND = {
+        "circle":   "reward",
+        "square":   "penalty",
+        "diamond":  "bidirectional",
+        "reward":   "reward",
+        "penalty":  "penalty",
+        "bidirectional": "bidirectional",
+        "neutral":  "neutral",
+    }
+
+    def _states(self) -> tuple:
+        meta = self.spec.meta or {}
+        st = meta.get("badge_states")
+        if isinstance(st, (list, tuple)) and st:
+            return tuple(st)
+        return self.DEFAULT_STATES
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        rect = self._value_rect()
+        size = 18
+        badge_rect = QRectF(rect.left() + 4, rect.center().y() - size * 0.5, size, size)
+        state = str(self._value if self._value is not None else self._states()[0])
+        state_label = self._resolve_choice_text(state)
+        kind = self._STATE_TO_KIND.get(state, "neutral")
+        color = QColor(Config.get_color("highlight", "#F6D393"))
+        draw_polarity_badge(
+            painter,
+            badge_rect,
+            kind=kind,  # type: ignore[arg-type]
+            color=color,
+            border_color=QColor(Config.get_color("border_1", "#444444")),
+        )
+        # state 文字
+        label_rect = QRectF(badge_rect.right() + 8, rect.top(), rect.right() - badge_rect.right() - 10, rect.height())
+        text_color = QColor(Config.get_color("canvas_node_param_text", "#C8C8C8"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        painter.drawText(label_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), state_label)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        states = self._states()
+        try:
+            idx = states.index(str(self._value))
+        except ValueError:
+            idx = -1
+        nxt = states[(idx + 1) % len(states)]
+        self.set_value(nxt)
+        return True
+
+
+# =============================================================================
+# 9. CodeRow —— 多行代码 / JSON
+# =============================================================================
+
+class CodeRow(ParamRow):
+    """单击弹锚定 code popup（多行 ``LaviCodeEditor``）.
+
+    视觉契约：整个 value 区域是一个按钮，按钮内直接显示 JSON / 代码文本
+    （单行截断）。无独立 ``{·}`` icon 按钮。点击任意位置都打开编辑器。
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _btn_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.left() + 2, rect.top() + 2, rect.width() - 4, rect.height() - 4)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        btn = self._btn_rect()
+        # 按钮 bg / border
+        bg = QColor(Config.get_color("btn_1", "#343636"))
+        if self._is_hovering(btn):
+            bg = bg.lighter(115)
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(btn, 3, 3)
+        # 直接显示 JSON / 代码文本（单行截断）
+        v = self._value
+        if isinstance(v, (dict, list)):
+            try:
+                preview = json.dumps(v, ensure_ascii=False)
+            except Exception:
+                preview = str(v)
+        else:
+            preview = str(v or "")
+        preview = preview.replace("\n", " ").replace("  ", " ").strip()
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        # 内边距 6px 给 elided text
+        text_rect = btn.adjusted(6, 0, -6, 0)
+        elided = fm.elidedText(preview or "Edit…", Qt.TextElideMode.ElideRight, text_rect.width())
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        meta = self.spec.meta or {}
+        v = self._value
+        if isinstance(v, (dict, list)):
+            try:
+                text = json.dumps(v, indent=2, ensure_ascii=False)
+            except Exception:
+                text = str(v)
+            language = "json"
+        else:
+            text = str(v or "")
+            language = str(meta.get("language", "python"))
+
+        def _commit(new_text: str) -> None:
+            if language == "json":
+                try:
+                    self.set_value(json.loads(new_text))
+                    return
+                except (json.JSONDecodeError, ValueError):
+                    self.set_value(new_text)
+                    return
+            self.set_value(new_text)
+
+        open_code_popup(
+            view=_view_of(event),
+            row=self,
+            text=text,
+            language=language,
+            validate_json=(language == "json"),
+            on_commit=_commit,
+        )
+        return True
+
+
+# =============================================================================
+# 10. TableReadOnlyRow —— 只读多列预览
+# =============================================================================
+
+class TableReadOnlyRow(ParamRow):
+    """只读 ``[key] [glyph] [value]`` 行；不可编辑.
+
+    常用于显示运行时状态（DEMO ``NodeTableRowsWidget``）。
+    Phase 1b 阶段只画结构；运行态 update 由后续 backend wiring 推送。
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+
+    def _interactive_regions(self) -> List[QRectF]:
+        # 只读行无任何可交互组件 —— 光标保持默认 Arrow，hover 永不高亮。
+        return []
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        rect = self._value_rect()
+        # glyph (small dot)
+        meta = self.spec.meta or {}
+        glyph = str(meta.get("glyph", "•"))
+        glyph_color_hex = str(meta.get("glyph_color", "#9CA3AF"))
+        glyph_color = QColor(glyph_color_hex)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        painter.setPen(QPen(glyph_color))
+        glyph_rect = QRectF(rect.left() + 4, rect.top(), 18, rect.height())
+        painter.drawText(glyph_rect, int(Qt.AlignmentFlag.AlignCenter), glyph)
+        # value
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        val_rect = QRectF(glyph_rect.right() + 2, rect.top(), rect.right() - glyph_rect.right() - 4, rect.height())
+        fm = QFontMetricsF(font)
+        elided = fm.elidedText(str(self._value or ""), Qt.TextElideMode.ElideRight, val_rect.width())
+        painter.drawText(
+            val_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+
+    # 只读：默认 _handle_click / _handle_double_click 都返回 False
+
+
+# =============================================================================
+# 节点专属 Row 子类 —— 弹锚定 SDK Node_* picker / editor
+# =============================================================================
+# 模式：行内画 summary（_draw_value_text），双击/单击 → open_choice_popup
+# (单/多选) 或 open_widget_popup (复杂 editor)。
+# 所有 popup 都是 Qt.WindowType.Popup —— 紧贴行右侧、点外即关、不挡画布。
+#
+# Node_TaskTypePicker / Node_SceneTypePicker / ... 等都是 Node_RichChoicePicker
+# 的预设子类（封装了一个"按钮 + popup"两段式 widget）。在画布场景中我们直接
+# 跳过其按钮、用 open_choice_popup 弹同样的卡片选单——视觉与 DEMO 一致。
+
+
+class _PickerRowMixin:
+    """通用：summary 文字行内绘制 + 双击弹 popup.
+
+    视觉契约：行内画 *按钮* 而不是裸文字 —— 与 CodeRow / IndexRow / RangeRow
+    端点按钮完全一致的按钮配色（bg=canvas_node_title, border=canvas_node_border,
+    text=canvas_node_title_text, hover=lighter(115)）。这样 asset_id picker、
+    SceneType / TaskType / ExportBundle / MotionLibrary / ObsComponents 等所有
+    选单按钮的视觉与画布上其它输入按钮严格一致。
+    """
+
+    def _summary_text(self) -> str:
+        v = self._value
+        if isinstance(v, (list, tuple)):
+            return tr("canvas.row.selected", "{n} selected").replace("{n}", str(len(v)))
+        if isinstance(v, dict):
+            return tr("canvas.row.entries", "{n} entries").replace("{n}", str(len(v)))
+        if v is None:
+            return tr("canvas.row.empty", "—")
+        return str(v)
+
+    def _picker_btn_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(rect.left() + 2, rect.top() + 2, rect.width() - 4, rect.height() - 4)
+
+    def _interactive_regions(self) -> List[QRectF]:  # type: ignore[override]
+        return [self._picker_btn_rect()]
+
+    def _paint_picker_chrome(self, painter: QPainter, btn: QRectF) -> None:
+        bg = QColor(Config.get_color("btn_1"))
+        if self._is_hovering(btn):
+            bg = bg.lighter(115)
+        border = QColor(Config.get_color("border_1"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(btn, 3, 3)
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
+        btn = self._picker_btn_rect()
+        self._paint_picker_chrome(painter, btn)
+        # 文字
+        text_color = QColor(Config.get_color("main_t1"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        text_rect = btn.adjusted(8, 0, -18, 0)  # 右侧让 12px 给箭头
+        elided = fm.elidedText(
+            self._summary_text(), Qt.TextElideMode.ElideRight, text_rect.width()
+        )
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+        # 下拉箭头 ▾
+        arrow_color = QColor(Config.get_color("main_t1"))
+        painter.setBrush(QBrush(arrow_color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        cx = btn.right() - 10.0
+        cy = btn.top() + btn.height() * 0.5
+        tri = QPolygonF([
+            QPointF(cx, cy + 3.0),
+            QPointF(cx - 4.5, cy - 2.5),
+            QPointF(cx + 4.5, cy - 2.5),
+        ])
+        painter.drawPolygon(tri)
+
+    def _resolve_choices(self) -> list:
+        meta = self.spec.meta or {}
+        choices = meta.get("choices") or self.spec.choices or []
+        return list(choices)
+
+
+class _ChoicePickerRow(_PickerRowMixin, ParamRow):
+    """单选 picker rows 共通基类（直接 open_choice_popup）.
+
+    子类只需重载类属性 ``LEADING_MODE`` 来切换图标 / checkbox 样式。
+    """
+
+    _OPEN_ON_RELEASE = True
+    LEADING_MODE = "checkbox"
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        return self._open(event)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        # 单击也展开（与 DEMO 选单 widget 一致）。NodeItem 的拖拽不会因为
+        # ChoiceRow 处理了 click 而失效（行只占行高，节点其它区仍可拖）。
+        return self._open(event)
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:
+        choices = self._resolve_choices()
+        if not choices:
+            return False
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=self._value,
+            multi=False,
+            leading_mode=self.LEADING_MODE,
+            on_commit=self.set_value,
+        )
+        return True
+
+
+class SceneTypeRow(_ChoicePickerRow):
+    """``widget="picker_scene"`` → registry-backed scene_id picker.
+
+    Lives on play_ground_setting. The ParamSpec carries no static
+    choices because the legal scene catalogue depends on the active
+    training backend (sb3 vs isaac_lab) + the robot family on the
+    canvas. We resolve choices from
+    ``application.training.scene_registry.list_scenes`` on every popup
+    open so backend / robot swaps refresh immediately.
+
+    On commit we also patch the sibling ``scene_type`` and any
+    ``defaults`` the registry attaches to the scene — the
+    play_ground_setting node docstring promises scene_type is
+    auto-synced from scene_id, and env_cfg_compiler depends on that
+    being the actual stored value (it rejects scene_type values
+    outside {"flat","rough"}).
+    """
+
+    LEADING_MODE = "checkbox"
+    _OPEN_ON_RELEASE = True
+
+    # Canvas trainer-node ids that imply the Isaac Lab backend. Any
+    # other case (or none) → sb3 / MuJoCo path; the registry filters
+    # rough variants out for sb3 so the user sees only the runnable
+    # subset.
+    _IL_TRAINER_IDS = frozenset({"il_ppo_trainer", "amp_trainer"})
+
+    def _detect_backend(self) -> str:
+        sc = self.scene()
+        if sc is None:
+            return "sb3"
+        try:
+            for it in sc.items():
+                manifest = getattr(it, "manifest", None)
+                if manifest is None:
+                    continue
+                mid = str(getattr(manifest, "id", "") or "")
+                if mid in self._IL_TRAINER_IDS:
+                    return "isaac_lab"
+        except Exception:
+            pass
+        return "sb3"
+
+    def _detect_family(self) -> Optional[str]:
+        sc = self.scene()
+        if sc is None:
+            return None
+        try:
+            for it in sc.items():
+                manifest = getattr(it, "manifest", None)
+                params = getattr(it, "params", None)
+                if manifest is None or params is None:
+                    continue
+                mid = str(getattr(manifest, "id", "") or "")
+                if mid != "robot":
+                    continue
+                asset_id = str(params.get("asset_id", "") or "").strip()
+                if not asset_id:
+                    continue
+                try:
+                    from registers import robots as _robots_registry
+                    rob = _robots_registry.get_robot(asset_id)
+                    if rob is None:
+                        rob = _robots_registry.get_robot(
+                            _robots_registry.resolve_id(asset_id) or ""
+                        )
+                    if rob is not None:
+                        fams = getattr(rob, "families", None) or []
+                        if fams:
+                            return str(fams[0])
+                except Exception:
+                    pass
+                return None
+        except Exception:
+            return None
+        return None
+
+    def _resolve_scene_choices(self) -> tuple:
+        backend = self._detect_backend()
+        family = self._detect_family()
+        try:
+            from application.training.scene_registry import list_scenes
+            scenes = list_scenes(backend=backend, family=family)
+            ids: List[str] = []
+            meta: Dict[str, Dict[str, str]] = {}
+            for s in scenes:
+                sid = str(getattr(s, "scene_id", ""))
+                if not sid:
+                    continue
+                ids.append(sid)
+                meta[sid] = {
+                    "title": str(getattr(s, "name", sid)) or sid,
+                    "desc": str(getattr(s, "description", "")),
+                }
+            if ids:
+                return ids, meta
+        except Exception as exc:
+            log_warning(f"[play_ground.scene_id] list_scenes failed: {exc}")
+        # Final safety net — at minimum the flat ground baseline so the
+        # picker never opens empty even if the registry import broke.
+        return ["flat_ground"], {
+            "flat_ground": {"title": "Flat Ground", "desc": ""},
+        }
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        choices, meta = self._resolve_scene_choices()
+        if not choices:
+            return False
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=self._value,
+            multi=False,
+            leading_mode=self.LEADING_MODE,
+            meta_map=meta,
+            on_commit=self.set_value,
+        )
+        return True
+
+    def set_value(self, v: Any) -> None:  # type: ignore[override]
+        super().set_value(v)
+        if not isinstance(v, str) or not v:
+            return
+        try:
+            from application.training.scene_registry import get_scene
+            scene = get_scene(v)
+        except Exception:
+            return
+        # Sibling-param patch — scene_type is the load-bearing sync;
+        # other defaults are advisory (only applied when the row exists
+        # so we don't pollute params with keys the manifest doesn't
+        # declare).
+        patch: Dict[str, Any] = {"scene_type": str(getattr(scene, "scene_type", "flat"))}
+        for k, val in (getattr(scene, "defaults", None) or {}).items():
+            patch[str(k)] = val
+
+        rows_by_key = {r.spec.key: r for r in self._owner._param_rows}
+        notify = getattr(self._owner, "on_param_changed", None)
+        for k, val in patch.items():
+            sib = rows_by_key.get(k)
+            if sib is not None:
+                # Coerce string "true"/"false" → bool for the bool rows
+                # (scene defaults dict stores them as strings to stay
+                # JSON-friendly for the future filesystem rescan).
+                spec_type = str(getattr(sib.spec, "type", "") or "").lower()
+                if spec_type == "bool" and isinstance(val, str):
+                    val = val.strip().lower() == "true"
+                try:
+                    sib.set_value(val)
+                except Exception:
+                    pass
+                continue
+            # No row for this key — write directly + manual notify so
+            # conditional_on visibility on other rows re-evaluates.
+            if self._owner.params.get(k) == val:
+                continue
+            self._owner.params[k] = val
+            if callable(notify):
+                try:
+                    notify(k, val)
+                except Exception:
+                    pass
+
+
+class TaskTypeRow(_ChoicePickerRow):
+    """``widget="picker_task_type"`` → 单选 + icon 模式."""
+    LEADING_MODE = "icon"
+
+
+# ---------------------------------------------------------------------------
+# StartPointRow helpers — mirror DEMO ``_StartPointChoicePicker``
+# (training_node_items.py:4034-4106). Module-level so the popup logic stays
+# decoupled from the row class itself; both the popup-build and the
+# multi-write side-effects share the same token grammar.
+# ---------------------------------------------------------------------------
+
+
+# Start Point grammar (3 semantic top-tier tokens only).
+# Specific run-dir checkpoints and exported policies are picked via a
+# secondary CheckpointPickerRow that writes ``checkpoint_id`` —
+# ``start_point`` itself never holds a concrete checkpoint path.
+_SP_NEW = "__new__"
+_SP_LATEST = "__latest__"
+_SP_LOAD = "__load__"
+
+
+def _iter_step(name: str) -> int:
+    """``model_4000.pt`` → 4000; unparseable names sort last via -1."""
+    from pathlib import Path as _P
+    stem = _P(name).stem
+    if "_" in stem:
+        tail = stem.rsplit("_", 1)[-1]
+        if tail.isdigit():
+            return int(tail)
+    return -1
+
+
+def _canvas_has_latest_checkpoint(owner: Any) -> bool:
+    """True iff ``base_asset.last_run_id`` resolves to a real run dir
+    with at least one ``checkpoints/*.pt`` file under the active project.
+
+    Latest is hidden from the start_point picker whenever this returns
+    False — never silently rewritten to another option. Empty
+    ``last_run_id`` (canvas has never trained yet), missing run dir
+    (manually deleted), and empty ``checkpoints/`` all collapse to False.
+    """
+    rid = str(owner.params.get("last_run_id") or "").strip()
+    if not rid:
+        return False
+    from application.service.training_assets import get_training_assets
+    cache = get_training_assets()
+    if cache.project() is None:
+        return False
+    asset = cache.find_run(rid)
+    if asset is None or not asset.path.is_dir():
+        return False
+    cps = asset.path / "checkpoints"
+    if not cps.is_dir():
+        return False
+    return any(cps.glob("*.pt"))
+
+
+def _start_point_param_patch(token: str) -> Dict[str, Any]:
+    """Coherent sibling-param writes whenever start_point changes. The
+    new grammar has only 3 top-level tokens; secondary checkpoint
+    selection is driven by ``CheckpointPickerRow`` (which writes its own
+    ``checkpoint_id`` + ``load_mode`` patch independently).
+    """
+    if token == _SP_NEW:
+        return {"checkpoint_id": "", "load_mode": "scratch"}
+    if token == _SP_LATEST:
+        # Latest resolves at compile time via last_run_id; clear
+        # checkpoint_id so a stale __load__ pick doesn't bleed in.
+        return {"checkpoint_id": "", "load_mode": "resume"}
+    if token == _SP_LOAD:
+        # Don't touch checkpoint_id here — user picks one via the
+        # secondary CheckpointPickerRow which fires its own patch.
+        # load_mode lands at warm_start_actor as the safer default;
+        # the run/export pick will override to the canonical mode.
+        return {"load_mode": "warm_start_actor"}
+    return {}
+
+
+def _resolve_start_point_label(token: Any) -> str:
+    """Translate a 3-token start_point into a human button label.
+
+    Unrecognised tokens (legacy ``run:<path>`` / ``asset:<id>`` /
+    ``__latest_export__``) shouldn't reach here because the migration
+    shim in ``page.from_workflow_dict`` rewrites them on load; if one
+    slips through we display it verbatim to surface the data issue.
+    """
+    if not isinstance(token, str) or not token:
+        return "—"
+    if token == _SP_NEW:
+        return tr("base_asset.start_point.new", "New")
+    if token == _SP_LATEST:
+        return tr("base_asset.start_point.latest", "Latest")
+    if token == _SP_LOAD:
+        return tr("base_asset.start_point.load", "Load")
+    return token
+
+
+def _build_start_point_choices(owner: Any) -> tuple:
+    """Return ``(choices_keys, meta_map)`` for the start_point popup.
+
+    Top-tier categories only — exactly 2 or 3 entries depending on
+    whether this canvas has a resolvable Latest. Specific checkpoint
+    picks live in CheckpointPickerRow under the Load branch, not here.
+    """
+    choices: List[str] = [_SP_NEW]
+    meta_map: Dict[str, Dict[str, str]] = {
+        _SP_NEW: {
+            "title": tr("base_asset.start_point.new", "New"),
+            "desc": tr(
+                "base_asset.start_point.new_desc",
+                "Start training from scratch with random initialization.",
+            ),
+        },
+    }
+    if _canvas_has_latest_checkpoint(owner):
+        choices.append(_SP_LATEST)
+        meta_map[_SP_LATEST] = {
+            "title": tr("base_asset.start_point.latest", "Latest"),
+            "desc": tr(
+                "base_asset.start_point.latest_desc",
+                "Continue cumulative training from this canvas's most recent checkpoint.",
+            ),
+        }
+    choices.append(_SP_LOAD)
+    meta_map[_SP_LOAD] = {
+        "title": tr("base_asset.start_point.load", "Load"),
+        "desc": tr(
+            "base_asset.start_point.load_desc",
+            "Pick any checkpoint or exported policy in the current project.",
+        ),
+    }
+    return choices, meta_map
+
+
+def _build_project_checkpoint_choices() -> tuple:
+    """Enumerate every ``.pt`` under every run + every exported policy
+    in the active project. Returns ``(choices, meta_map)`` with the
+    ``run:<abs>`` / ``export:<abs>`` token grammar the spec_compiler
+    consumes.
+
+    Run-dir listing comes from the project's TrainingAssetsCache
+    singleton (already populated at canvas-load / refreshed on
+    ``training_run_finished``). Per-step ``.pt`` enumeration isn't
+    cached, so we step into ``<run>/checkpoints/`` per row — cheap
+    (one ``listdir`` per run dir).
+    """
+    from pathlib import Path as _P
+    from application.service.training_assets import get_training_assets
+
+    cache = get_training_assets()
+    choices: List[str] = []
+    meta_map: Dict[str, Dict[str, str]] = {}
+    for ra in cache.runs():
+        cps = ra.path / "checkpoints"
+        if not cps.is_dir():
+            continue
+        pts = sorted(
+            cps.glob("*.pt"),
+            key=lambda p: _iter_step(p.name),
+            reverse=True,
+        )
+        for pt in pts:
+            token = f"run:{pt}"
+            choices.append(token)
+            meta_map[token] = {
+                "title": f"{ra.run_id} · {pt.name}",
+                "desc": tr(
+                    "base_asset.checkpoint.run_desc",
+                    "Run-dir checkpoint (.pt). load_mode auto-snaps to 'resume'.",
+                ),
+            }
+    for pa in cache.policies():
+        policy_pt = pa.path / "policy.onnx"
+        if not policy_pt.is_file():
+            continue
+        token = f"export:{policy_pt}"
+        choices.append(token)
+        algo = pa.algorithm or "?"
+        meta_map[token] = {
+            "title": f"{pa.policy_id} ({algo})",
+            "desc": tr(
+                "base_asset.checkpoint.export_desc",
+                "Exported policy (.onnx). load_mode auto-snaps to 'warm_start_actor'.",
+            ),
+        }
+    return choices, meta_map
+
+
+class StartPointRow(_ChoicePickerRow):
+    """``widget="picker_start_point"`` → 3-token semantic picker.
+
+    The popup offers ``New`` / ``Latest`` / ``Load`` (Latest is omitted
+    when this canvas has no resolvable on-disk checkpoint via
+    ``last_run_id``). Specific checkpoint selection happens via the
+    secondary ``CheckpointPickerRow`` (``picker_project_checkpoint``)
+    which is conditionally visible only under the Load branch.
+    """
+
+    LEADING_MODE = "checkbox"
+    _OPEN_ON_RELEASE = True
+
+    def _summary_text(self) -> str:  # type: ignore[override]
+        return _resolve_start_point_label(self._value)
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        choices, meta_map = _build_start_point_choices(self._owner)
+        if not choices:
+            return False
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=self._value,
+            multi=False,
+            leading_mode=self.LEADING_MODE,
+            meta_map=meta_map,
+            on_commit=self.set_value,
+        )
+        return True
+
+    def set_value(self, v: Any) -> None:  # type: ignore[override]
+        super().set_value(v)
+        if not isinstance(v, str):
+            return
+        patch = _start_point_param_patch(v)
+        if not patch:
+            return
+        # Route patched keys through the sibling ParamRow's own
+        # set_value() so the row's internal _value cache and paint sync.
+        # Hidden params (no UI row instance) take the direct-write +
+        # manual on_param_changed path so conditional_on visibility on
+        # other rows still re-evaluates.
+        rows_by_key = {r.spec.key: r for r in self._owner._param_rows}
+        notify = getattr(self._owner, "on_param_changed", None)
+        for k, val in patch.items():
+            sib = rows_by_key.get(k)
+            if sib is not None:
+                sib.set_value(val)
+                continue
+            if self._owner.params.get(k) == val:
+                continue
+            self._owner.params[k] = val
+            if callable(notify):
+                notify(k, val)
+
+
+class CheckpointPickerRow(_ChoicePickerRow):
+    """``widget="picker_project_checkpoint"`` → flat list of every
+    project-local checkpoint, runs first then exports.
+
+    Stored value uses the ``run:<abs>`` / ``export:<abs>`` grammar so
+    the spec_compiler routes it to the right CheckpointConfig field
+    without re-scanning disk. Picking a row auto-snaps the sibling
+    ``load_mode`` to the per-source canonical default (``resume`` for
+    run-dir .pt, ``warm_start_actor`` for exports).
+    """
+
+    LEADING_MODE = "checkbox"
+    _OPEN_ON_RELEASE = True
+
+    def _summary_text(self) -> str:  # type: ignore[override]
+        v = str(self._value or "")
+        if not v:
+            return tr("base_asset.checkpoint.empty", "— pick checkpoint")
+        from pathlib import Path as _P
+        if v.startswith("run:"):
+            p = _P(v[4:])
+            # <run_id>/checkpoints/<model_N.pt> → "<run_id> · <model_N.pt>"
+            return f"{p.parent.parent.name} · {p.name}"
+        if v.startswith("export:"):
+            p = _P(v[7:])
+            return f"export · {p.parent.name}"
+        return v
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        choices, meta_map = _build_project_checkpoint_choices()
+        if not choices:
+            # Loud over silent — log so the user knows there's nothing
+            # to pick. No fallback popup, no auto-flip back to __new__.
+            log_warning(
+                "[base_asset.checkpoint] active project has no run-dir "
+                "checkpoints or exported policies to pick from"
+            )
+            return False
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=self._value,
+            multi=False,
+            leading_mode=self.LEADING_MODE,
+            meta_map=meta_map,
+            on_commit=self.set_value,
+        )
+        return True
+
+    def set_value(self, v: Any) -> None:  # type: ignore[override]
+        super().set_value(v)
+        if not isinstance(v, str):
+            return
+        if v.startswith("run:"):
+            lm = "resume"
+        elif v.startswith("export:"):
+            lm = "warm_start_actor"
+        else:
+            return
+        rows_by_key = {r.spec.key: r for r in self._owner._param_rows}
+        sib = rows_by_key.get("load_mode")
+        if sib is not None:
+            sib.set_value(lm)
+
+
+class ExportBundleRow(_ChoicePickerRow):
+    """``widget="picker_export_bundle"`` → 单选."""
+    LEADING_MODE = "checkbox"
+
+
+class MotionLibraryRow(_ChoicePickerRow):
+    """``widget="picker_motion_library"`` → 单选."""
+    LEADING_MODE = "checkbox"
+
+
+class ObsComponentsRow(_PickerRowMixin, ParamRow):
+    """``widget="picker_obs_components"`` → 多选卡片选单 (multi=True)."""
+
+    _OPEN_ON_RELEASE = True
+
+    def _summary_text(self) -> str:
+        v = self._value
+        if isinstance(v, (list, tuple)):
+            return tr("canvas.row.selected", "{n} selected").replace("{n}", str(len(v)))
+        if isinstance(v, str) and v.strip():
+            return tr("canvas.row.selected", "{n} selected").replace("{n}", str(len(v.split())))
+        return tr("canvas.row.empty", "—")
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        return self._open(event)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        return self._open(event)
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:
+        choices = self._resolve_choices()
+        if not choices:
+            return False
+        v = self._value
+        if isinstance(v, (list, tuple)):
+            current = list(v)
+        elif isinstance(v, str) and v.strip():
+            current = v.split()
+        else:
+            current = []
+
+        def _commit(sel: list) -> None:
+            # JSON / list 字段：返回 list；自由文本字段：空格分隔
+            if (self.spec.type or "").lower() in ("list", "json", "dict"):
+                self.set_value(list(sel))
+            else:
+                self.set_value(" ".join(str(s) for s in sel))
+
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=current,
+            multi=True,
+            leading_mode="checkbox",
+            on_commit=_commit,
+        )
+        return True
+
+
+# ---- 复杂 editor rows：用 open_widget_popup 把 Node_* QWidget 装入锚定 popup ----
+
+def _parse_dict_value(value: Any) -> dict:
+    """Decode a dict-shaped canvas param value. Strict-mode contract:
+    JSON parse failure is logged at ERROR level — the empty-dict fallback
+    keeps the row widget renderable, but the compile path's ``_as_json``
+    will re-detect and emit a ``Severity.ERROR`` issue that ``raise_if_errors``
+    halts the play submission on.
+    """
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            d = json.loads(value)
+        except Exception as exc:
+            preview = value if len(value) <= 120 else (value[:117] + "...")
+            log_error(
+                f"[param_rows] _parse_dict_value: JSON decode failed "
+                f"({exc}); raw={preview!r}"
+            )
+            return {}
+        if isinstance(d, dict):
+            return d
+        log_error(
+            f"[param_rows] _parse_dict_value: expected JSON object, got "
+            f"{type(d).__name__}"
+        )
+    return {}
+
+
+def _parse_list_value(value: Any) -> list:
+    """Decode a list-shaped canvas param value. See :func:`_parse_dict_value`
+    for the strict-mode contract."""
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            arr = json.loads(value)
+        except Exception as exc:
+            preview = value if len(value) <= 120 else (value[:117] + "...")
+            log_error(
+                f"[param_rows] _parse_list_value: JSON decode failed "
+                f"({exc}); raw={preview!r}"
+            )
+            return []
+        if isinstance(arr, list):
+            return arr
+        log_error(
+            f"[param_rows] _parse_list_value: expected JSON array, got "
+            f"{type(arr).__name__}"
+        )
+    return []
+
+
+def _serialize_for_spec(spec: ParamSpec, value: Any) -> Any:
+    """根据 ParamSpec.type 决定回写 dict/list 还是 JSON 字符串.
+
+    Strict-mode contract: a serialization failure here is a schema bug
+    (the value the widget produced cannot be encoded as the param's
+    declared type). Raise ``ValueError`` rather than silently writing a
+    raw Python object back into a JSON-typed param — that would only
+    surface downstream as a confusing ``_as_json`` parse failure.
+    """
+    t = (spec.type or "").lower()
+    if t in ("dict", "json", "list"):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception as exc:
+        raise ValueError(
+            f"_serialize_for_spec(spec={getattr(spec, 'name', '?')!r}, "
+            f"type={spec.type!r}): cannot encode {type(value).__name__} "
+            f"as JSON: {exc}"
+        ) from exc
+
+
+_GEAR_BTN_W = 22.0
+
+
+class _GearedPickerRowMixin(_PickerRowMixin):
+    """``_PickerRowMixin`` + 右侧 ⚙ 按钮入口 / Picker chrome with right-side ⚙.
+
+    主按钮（左半，inline popup）+ ⚙ 按钮（右侧 22px，打开 modal Editor 面板）。
+    DEMO 在 ``_TrainingItemEditor`` / ``_RegistryModuleEditor`` 旁边各放了一个
+    ⚙ 按钮，分别打开 ``TrainingMotionEditorPanel`` 和 ``RewardEditorPanel``
+    两个 modal。本类把这个行内分裂结构在 RELEASE 里复刻一遍，并由子类
+    实现 ``_open_modal_editor`` 决定打开哪个 modal。
+    """
+
+    def _picker_btn_rect(self) -> QRectF:  # type: ignore[override]
+        rect = self._value_rect()
+        return QRectF(
+            rect.left() + 2, rect.top() + 2,
+            rect.width() - _GEAR_BTN_W - 4 - 2, rect.height() - 4,
+        )
+
+    def _gear_btn_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(
+            rect.right() - _GEAR_BTN_W - 2, rect.top() + 2,
+            _GEAR_BTN_W, rect.height() - 4,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:  # type: ignore[override]
+        return [self._picker_btn_rect(), self._gear_btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
+        # Main picker chrome (delegates to mixin's normal flow).
+        super()._paint_value(painter, tier)
+        # Gear button on the right.
+        gear = self._gear_btn_rect()
+        bg = QColor(Config.get_color("btn_1"))
+        if self._is_hovering(gear):
+            bg = bg.lighter(115)
+        border = QColor(Config.get_color("border_1"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(gear, 3, 3)
+        text_color = QColor(Config.get_color("main_t1"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(
+            gear,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+            "⚙",
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        if self._gear_btn_rect().contains(event.pos()):
+            return self._open_modal_editor(event)
+        return self._handle_double_click(event)
+
+    def _open_modal_editor(self, event: QGraphicsSceneMouseEvent) -> bool:
+        """Subclass hook — open the kind-specific modal editor panel."""
+        return False
+
+
+class _ObsTermsTableEditor(QWidget):
+    """Observation-aware table editor for ``il_observation`` obs_terms.
+
+    Composes the SDK ``Node_NodeTableRowsWidget`` with strict scale-form
+    columns (``name``: string, ``scale``: float). Initial rows are seeded
+    from the upstream dict; ``items()`` returns the current state as
+    ``{name: float}`` so the popup's value_getter can persist it back to
+    the canvas.
+    """
+
+    def __init__(
+        self,
+        items: Dict[str, Any],
+        *,
+        parent: Optional[QWidget] = None,
+        widget_id: str = "node.obs_terms_editor",
+    ) -> None:
+        super().__init__(parent)
+        from PyQt6.QtWidgets import QVBoxLayout
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        layout.addWidget(setText(
+            f"{widget_id}.title",
+            default=tr(f"{widget_id}.title", "Observation Terms (scale)"),
+            kind="title",
+        ))
+
+        rows: List[Dict[str, Any]] = []
+        for term_key, value in (items or {}).items():
+            try:
+                scale_val: Any
+                if isinstance(value, dict):
+                    s = value.get("scale")
+                    scale_val = float(s) if isinstance(s, (int, float)) else 1.0
+                elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                    scale_val = float(value)
+                else:
+                    scale_val = 1.0
+            except (TypeError, ValueError):
+                scale_val = 1.0
+            rows.append({"name": str(term_key), "scale": scale_val})
+
+        self._table = Node_NodeTableRowsWidget(
+            (("name", "string"), ("scale", "float")),
+            rows=rows,
+            widget_id=widget_id,
+            parent=self,
+        )
+        layout.addWidget(self._table, 1)
+
+    def items(self) -> Dict[str, float]:
+        out: Dict[str, float] = {}
+        for row in self._table.rows():
+            name = str(row.get("name", "")).strip()
+            if not name:
+                continue
+            raw = row.get("scale", 0.0)
+            try:
+                out[name] = float(raw)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+
+class RegistryItemListRow(_GearedPickerRowMixin, ParamRow):
+    """``widget="registry_module"`` → inline popup + ⚙ modal editor.
+
+    用于 reward_terms / termination_conditions / obs_terms 这类 ``{key: value}``
+    字典字段。
+        - 主按钮（picker chrome）：双击弹锚定 popup
+        - ⚙ 按钮：打开 modal ``RegistryModuleEditorPanel`` (Reward / Termination /
+          Observation Function Editor)，DEMO ``RewardEditorPanel`` 的等价入口。
+
+    ``il_obs`` registry 走 ``_ObsTermsTableEditor`` (strict scale form)；
+    其余 registry 走 SDK ``Node_RegistryModuleEditor`` 的默认双列编辑器。
+
+    Multi-rewards conflict surfacing: when this row hosts ``reward_terms`` on
+    a ``rewards`` node, it walks the canvas connection graph to find peer
+    rewards nodes sharing any downstream training_motion item. Same-key-
+    different-value collisions tint the modal editor's term rows
+    ``danger_zone`` and paint a ``danger_zone`` border on the summary button
+    so the user sees the conflict without opening the editor. See
+    :mod:`application.compiler.reward_conflicts` for the canonical (IR-side)
+    detection used by the spec validator.
+    """
+
+    def _summary_text(self) -> str:
+        d = _parse_dict_value(self._value)
+        return f"{len(d)} items" if d or self._value is None else "—"
+
+    def _is_rewards_host(self) -> bool:
+        """True iff this row is the ``reward_terms`` field on a ``rewards``
+        node — the only case where multi-rewards conflict detection applies.
+        ``NodeItem.manifest.id`` is a contract attribute (always present on
+        a constructed NodeItem); no defensive guard.
+        """
+        return (
+            self.spec.key == "reward_terms"
+            and self._owner.manifest.id == "rewards"
+        )
+
+    def _compute_conflicting_keys(self) -> set:
+        """Return the set of term keys on this rewards node that collide
+        with a peer rewards node connected to the same training_motion item.
+
+        Walks ``ConnectionItem`` graph directly from ``self._owner``'s output
+        ``reward_pipe`` port — cheap (single port + a couple of hops), no
+        IR conversion. Returns ``set()`` when this row is not on a rewards
+        node, or when the rewards-output port is absent (e.g. ``rewards``
+        node manifest was edited and lost its output — that's a manifest
+        bug and the topology validator will flag it; this UI helper just
+        reports no conflicts in that case).
+
+        Attributes accessed (``_out_ports``, ``PortItem.port_name`` /
+        ``parent_node()`` / ``_connections``, ``NodeItem.manifest.id``) are
+        contract members of NodeItem / PortItem / ConnectionItem — no
+        defensive ``getattr``/``hasattr`` guards: if those go missing,
+        that's a real bug to surface, not a silent skip.
+        """
+        if not self._is_rewards_host():
+            return set()
+        owner = self._owner
+
+        out_port = None
+        for p in owner._out_ports:
+            if p.port_name == "reward_pipe":
+                out_port = p
+                break
+        if out_port is None:
+            return set()
+
+        from application.compiler.reward_conflicts import (
+            REWARD_PORT_PREFIX,
+            normalize_term_value,
+        )
+        # Lazy local import — items.py already imports from this module, so
+        # a top-level import would be circular. The runtime ``isinstance``
+        # is needed to skip ``PlaceholderNodeItem`` peers (canvas-load
+        # placeholders for un-registered schemas, which carry no manifest
+        # / params); those are NOT silently caught by getattr-with-default
+        # — they're a distinct semantic case and the topology validator
+        # surfaces them via MISSING_REQUIRED_NODE.
+        from .items import NodeItem
+
+        my_terms = _parse_dict_value(self._value)
+        if not my_terms:
+            return set()
+
+        peers_by_item: Dict[str, List[Any]] = {}
+        for conn in list(out_port._connections):
+            dst_port = conn.dst_port
+            dst_name = dst_port.port_name
+            if not dst_name.startswith(REWARD_PORT_PREFIX):
+                continue
+            item_id = dst_name[len(REWARD_PORT_PREFIX):]
+            if not item_id:
+                continue
+            tm_node = dst_port.parent_node()
+            if tm_node is None:
+                # parent_node may legitimately be None during teardown — that
+                # connection is being removed; skip without swallowing other
+                # errors.
+                continue
+            for peer_conn in list(dst_port._connections):
+                peer_node = peer_conn.src_port.parent_node()
+                if peer_node is None or peer_node is owner:
+                    continue
+                if not isinstance(peer_node, NodeItem):
+                    continue
+                if peer_node.manifest.id != "rewards":
+                    continue
+                peers_by_item.setdefault(item_id, []).append(peer_node)
+
+        if not peers_by_item:
+            return set()
+
+        my_norm = {k: normalize_term_value(v) for k, v in my_terms.items()}
+        conflicting: set = set()
+        for peers in peers_by_item.values():
+            for peer in peers:
+                peer_raw = peer.params.get("reward_terms")
+                peer_terms = _parse_dict_value(peer_raw)
+                if not peer_terms:
+                    continue
+                for k, peer_v in peer_terms.items():
+                    if k not in my_norm:
+                        continue
+                    if normalize_term_value(peer_v) != my_norm[k]:
+                        conflicting.add(k)
+        return conflicting
+
+    def _is_obs_terms_registry(self) -> bool:
+        meta = self.spec.meta or {}
+        rid = str(meta.get("registry_id", self.spec.key) or "")
+        return rid == "il_obs"
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        meta = self.spec.meta or {}
+        items = _parse_dict_value(self._value)
+        view = _view_of(event)
+
+        if self._is_obs_terms_registry():
+            body: QWidget = _ObsTermsTableEditor(items, parent=view)
+        else:
+            try:
+                body = Node_RegistryModuleEditor(
+                    registry_id=str(meta.get("registry_id", self.spec.key)),
+                    items=items,
+                    parent=view,
+                )
+            except TypeError:
+                try:
+                    body = Node_RegistryModuleEditor(parent=view)
+                except Exception:
+                    return False
+
+        def _getter(picker: QWidget) -> Any:
+            for attr in ("items", "value", "currentItems", "to_dict"):
+                fn = getattr(picker, attr, None)
+                if callable(fn):
+                    try:
+                        out = fn()
+                        if isinstance(out, dict):
+                            return _serialize_for_spec(self.spec, out)
+                    except Exception:
+                        continue
+            return None
+
+        open_widget_popup(
+            view=view,
+            row=self,
+            body=body,
+            value_getter=_getter,
+            on_commit=self.set_value,
+            min_width=420, min_height=320,
+        )
+        return True
+
+    def _open_modal_editor(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        from application.ui.dialogs import open_reward_function_editor
+
+        meta = self.spec.meta or {}
+        # Pick registry id from the canvas-bound backend (params['backend']
+        # is injected by CanvasPage). Falls back to the registry_id meta hint.
+        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        if backend == "isaac_lab":
+            registry_id = str(meta.get("registry_id_il") or meta.get("registry_id") or self.spec.key)
+        else:
+            registry_id = str(meta.get("registry_id") or self.spec.key)
+        # Map registry_id → editor kind so the dialog picks the right stub
+        # template + window title.
+        if "termination" in registry_id:
+            kind = "termination"
+        elif "obs" in registry_id:
+            kind = "observation"
+        elif "discriminator" in registry_id:
+            kind = "discriminator"
+        else:
+            kind = "reward"
+        items = _parse_dict_value(self._value)
+        view = _view_of(event)
+        result = open_reward_function_editor(
+            view, dict(items),
+            registry_id=registry_id,
+            kind=kind,
+            canvas_backend=backend,
+            conflicting_keys=self._compute_conflicting_keys(),
+        )
+        if result is None:
+            return True
+        self.set_value(_serialize_for_spec(self.spec, result))
+        return True
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
+        super()._paint_value(painter, tier)
+        if not self._is_rewards_host():
+            return
+        if not self._compute_conflicting_keys():
+            return
+        btn = self._picker_btn_rect()
+        pen = QPen(QColor(Config.get_color("danger_zone")), 1.5)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(btn, 3, 3)
+
+
+class TrainingItemsRow(_GearedPickerRowMixin, ParamRow):
+    """``widget="training_items"`` → inline popup + ⚙ modal editor.
+
+        - 主按钮：双击弹锚定 popup（``Node_TrainingItemEditor``）
+        - ⚙ 按钮：打开 modal ``RegistryModuleEditorPanel`` (kind="training_motion") —
+          DEMO ``TrainingMotionEditorPanel`` 的等价入口。
+    """
+
+    def _summary_text(self) -> str:
+        d = _parse_dict_value(self._value)
+        if not d:
+            return "—"
+        total = len(d)
+        enabled_items = [
+            (k, v) for k, v in d.items()
+            if isinstance(v, dict) and v.get("enabled", True)
+        ]
+        enabled = len(enabled_items)
+        # §1D — show first 2 enabled items with channel/unit context so the
+        # user can see what speed[lo, hi] actually controls. Falls back to
+        # the legacy "N/M enabled" form if registers.commands isn't loaded
+        # or the items aren't in the registry.
+        try:
+            from registers import commands as _commands_reg
+            previews: list[str] = []
+            for item_id, item_cfg in enabled_items[:2]:
+                reg = _commands_reg.get_item(item_id)
+                speed = item_cfg.get("speed") if isinstance(item_cfg, dict) else None
+                if not (isinstance(speed, (list, tuple)) and len(speed) >= 2):
+                    speed = None
+                if reg is not None and speed is not None:
+                    unit = "rad/s" if str(reg.speed_channel).startswith("ang_") else "m/s"
+                    lo = float(speed[0])
+                    hi = float(speed[1])
+                    previews.append(f"{item_id}({lo:g}–{hi:g} {unit})")
+                else:
+                    previews.append(str(item_id))
+            if previews:
+                rest = enabled - len(previews)
+                tail = f" + {rest} more" if rest > 0 else ""
+                return f"{' + '.join(previews)}{tail} · {enabled}/{total}"
+        except Exception:
+            pass
+        return f"{enabled}/{total} enabled"
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        items = _parse_dict_value(self._value)
+        view = _view_of(event)
+        try:
+            body = Node_TrainingItemEditor(items=items, parent=view)
+        except TypeError:
+            try:
+                body = Node_TrainingItemEditor(parent=view)
+            except Exception:
+                return False
+
+        def _getter(picker: QWidget) -> Any:
+            for attr in ("items", "value", "to_dict"):
+                fn = getattr(picker, attr, None)
+                if callable(fn):
+                    try:
+                        out = fn()
+                        if isinstance(out, dict):
+                            return _serialize_for_spec(self.spec, out)
+                    except Exception:
+                        continue
+            return None
+
+        open_widget_popup(
+            view=view, row=self, body=body,
+            value_getter=_getter, on_commit=self.set_value,
+            min_width=520, min_height=380,
+        )
+        return True
+
+    def _open_modal_editor(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        from application.ui.dialogs import open_training_motion_editor
+
+        items = _parse_dict_value(self._value)
+        view = _view_of(event)
+        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        result = open_training_motion_editor(
+            view, dict(items), canvas_backend=backend,
+        )
+        if result is None:
+            return True
+        self.set_value(_serialize_for_spec(self.spec, result))
+        return True
+
+
+class StageEditorRow(_PickerRowMixin, ParamRow):
+    """``widget="stage_editor"`` → 锚定 popup 装 ``Node_StageSwitchEditorWidget``.
+
+    SDK widget 构造失败（依赖 stage_switch 节点 edge 拓扑）时，降级为 JSON
+    code popup —— 仍然是锚定的 ``Qt.WindowType.Popup``。
+    """
+
+    def _summary_text(self) -> str:
+        arr = _parse_list_value(self._value)
+        return f"{len(arr)} stages" if arr else "—"
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        view = _view_of(event)
+        stages = _parse_list_value(self._value)
+        # 优先尝试 SDK 的 stage editor widget
+        try:
+            from unitport_sdk import Node_StageSwitchEditorWidget
+            body = Node_StageSwitchEditorWidget(stages=stages, parent=view)
+        except Exception:
+            # 降级：JSON code popup
+            text = json.dumps(stages, indent=2, ensure_ascii=False)
+
+            def _commit_text(new_text: str) -> None:
+                try:
+                    self.set_value(_serialize_for_spec(self.spec, json.loads(new_text)))
+                except Exception:
+                    self.set_value(new_text)
+
+            open_code_popup(
+                view=view, row=self,
+                text=text, language="json", validate_json=True,
+                on_commit=_commit_text,
+            )
+            return True
+
+        def _getter(picker: QWidget) -> Any:
+            for attr in ("stages", "value", "to_list"):
+                fn = getattr(picker, attr, None)
+                if callable(fn):
+                    try:
+                        out = fn()
+                        if isinstance(out, list):
+                            return _serialize_for_spec(self.spec, out)
+                    except Exception:
+                        continue
+            return None
+
+        open_widget_popup(
+            view=view, row=self, body=body,
+            value_getter=_getter, on_commit=self.set_value,
+            min_width=560, min_height=420,
+        )
+        return True
+
+
+class CurveRow(_PickerRowMixin, ParamRow):
+    """``widget="curve"`` → 锚定 JSON code popup（待 SDK curve widget 上线再切换）."""
+
+    def _summary_text(self) -> str:
+        return "edit curve…"
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        view = _view_of(event)
+        v = self._value
+        if isinstance(v, str):
+            text = v
+            language = "json" if v.strip().startswith(("{", "[")) else "python"
+        else:
+            try:
+                text = json.dumps(v, indent=2, ensure_ascii=False)
+                language = "json"
+            except Exception:
+                text = str(v or "")
+                language = "python"
+
+        def _commit(new_text: str) -> None:
+            if language == "json":
+                try:
+                    self.set_value(_serialize_for_spec(self.spec, json.loads(new_text)))
+                    return
+                except Exception:
+                    pass
+            self.set_value(new_text)
+
+        open_code_popup(
+            view=view, row=self,
+            text=text, language=language,
+            validate_json=(language == "json"),
+            on_commit=_commit,
+        )
+        return True
+
+
+class BufferSizeRow(_PickerRowMixin, ParamRow):
+    """``widget="buffer_size"`` → 锚定 popup 装 ``Node_BufferSizePickerWidget``."""
+
+    def _summary_text(self) -> str:
+        return str(self._value or "auto")
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        meta = self.spec.meta or {}
+        view = _view_of(event)
+        try:
+            v = int(self._value if self._value not in (None, "auto", "") else 1_000_000)
+        except (TypeError, ValueError):
+            v = 1_000_000
+        try:
+            body = Node_BufferSizePickerWidget(
+                value=v,
+                minimum=int(meta.get("min", 1)),
+                maximum=int(meta.get("max", 10_000_000)),
+                widget_id=f"node.buffer_size.{self.spec.key}",
+                parent=view,
+            )
+        except TypeError:
+            try:
+                body = Node_BufferSizePickerWidget(parent=view)
+            except Exception:
+                return False
+
+        def _getter(picker: QWidget) -> Any:
+            for attr in ("value", "currentValue"):
+                fn = getattr(picker, attr, None)
+                if callable(fn):
+                    try:
+                        return int(fn())
+                    except Exception:
+                        continue
+            return None
+
+        open_widget_popup(
+            view=view, row=self, body=body,
+            value_getter=_getter, on_commit=self.set_value,
+            min_width=320, min_height=160,
+        )
+        return True
+
+
+# =============================================================================
+# RobotAssetPickerRow — widget="picker_robot_asset"
+# 单选 SKU picker，choices 来自 registers.robots.list_skus()，meta_map 显示 brand
+# 副标题。行内 summary 显示 "{brand} · {name}"，未解析显示红色 "— no asset —"。
+# =============================================================================
+
+
+class RobotAssetPickerRow(_PickerRowMixin, ParamRow):
+    """``widget="picker_robot_asset"`` → 锚定 popup 选 robot SKU.
+
+    对照 DEMO ``RobotNode`` 的 asset_id 行：用户必须从机器人注册表
+    (``registers.robots``) 选一个 SKU，输入框直接显示 ``brand · name``，
+    未解析显示红字提示。
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _resolve_entry(self):
+        """Look up the registry entry for the current value (SKU or alias).
+
+        Returns ``(sku, entry_dict)`` or ``(None, None)``.
+        """
+        try:
+            from registers import robots as _robots_registry
+        except Exception:
+            return None, None
+        raw = str(self._value or "").strip()
+        if not raw:
+            return None, None
+        sku = raw if _robots_registry.get_robot(raw) is not None else (
+            _robots_registry.resolve_id(raw)
+        )
+        if sku is None:
+            return None, None
+        return sku, _robots_registry.get_robot(sku)
+
+    def _summary_text(self) -> str:
+        sku, entry = self._resolve_entry()
+        if entry is None:
+            return str(self._value or "— select asset —")
+        brand = str(entry.get("brand", "")).strip()
+        name = str(entry.get("name", entry.get("model", sku))).strip()
+        return f"{brand} · {name}" if brand else name
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
+        sku, entry = self._resolve_entry()
+        # 行内按钮 chrome 走 _PickerRowMixin 标准（与 CodeRow / IndexRow / 其它
+        # picker 完全一致的色组）。仅"未解析资产"时把按钮内文字改红色提示。
+        btn = self._picker_btn_rect()
+        self._paint_picker_chrome(painter, btn)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        if entry is None and self._value:
+            text_color = QColor(Config.get_color("canvas_safety_error"))
+            text = f"— no asset: {self._value} —"
+        else:
+            text_color = QColor(Config.get_color("main_t1"))
+            text = self._summary_text()
+        painter.setPen(QPen(text_color))
+        fm = QFontMetricsF(font)
+        text_rect = btn.adjusted(8, 0, -18, 0)
+        elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, text_rect.width())
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+        # 下拉箭头
+        arrow_color = QColor(Config.get_color("main_t1"))
+        painter.setBrush(QBrush(arrow_color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        cx = btn.right() - 10.0
+        cy = btn.top() + btn.height() * 0.5
+        tri = QPolygonF([
+            QPointF(cx, cy + 3.0),
+            QPointF(cx - 4.5, cy - 2.5),
+            QPointF(cx + 4.5, cy - 2.5),
+        ])
+        painter.drawPolygon(tri)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        try:
+            from registers import robots as _robots_registry
+        except Exception:
+            return False
+        skus = list(_robots_registry.list_skus())
+        if not skus:
+            return False
+        meta: dict = {}
+        for sku in skus:
+            entry = _robots_registry.get_robot(sku) or {}
+            brand = str(entry.get("brand", "")).strip()
+            name = str(entry.get("name", entry.get("model", sku))).strip()
+            meta[sku] = {
+                "title": name or sku,
+                "desc": brand,
+            }
+        # The current value may be an alias — resolve to the canonical SKU so
+        # the popup highlights the right card.
+        current_sku, _ = self._resolve_entry()
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=skus,
+            current=current_sku if current_sku is not None else self._value,
+            multi=False,
+            leading_mode="checkbox",
+            meta_map=meta,
+            on_commit=self.set_value,
+        )
+        return True
+
+
+# =============================================================================
+# BodyMappingTableRow — widget="body_mapping_table"
+# Inline self-painted segmented table that mirrors the DEMO body-IR validator
+# (Header: Current / Role / St + per-canonical-role rows + unmapped rows +
+# warning banner + Refresh button). Variable height — relies on
+# ParamRow.preferred_height + NodeItem reflow callback.
+# =============================================================================
+
+
+# Layout constants — equal-weight two-column table (Current | Role).
+# Status column removed; role text colour now encodes status (green/red/gray).
+_BM_HDR_H = 18
+_BM_ROW_H = 20
+_BM_BTN_H = 20
+_BM_FRAME_PAD = 4
+_BM_COL_GAP = 6
+_BM_FOOTER_GAP = 4
+_BM_PERSIST_DEBOUNCE_MS = 0  # fire on next event-loop tick
+
+_BM_LABEL_UNASSIGNED = "(Unassigned)"
+_BM_LABEL_OUT_OF_SCOPE = "(Out of Scope)"
+# Translation slots for the labels above. The constants stay as the dict keys
+# / serialised payload values used by BodyMappingTableRow's selector logic
+# (they show up in graph.json + the popup choices list, so changing them
+# would break round-tripping); the slots are looked up at paint time only.
+_BM_LABEL_UNASSIGNED_KEY = "canvas.body_mapping.label_unassigned"
+_BM_LABEL_OUT_OF_SCOPE_KEY = "canvas.body_mapping.label_out_of_scope"
+
+
+class BodyMappingTableRow(ParamRow):
+    """Inline body→IR-role validator table for the Robot node.
+
+    Rebuilds itself from the owner Robot node's ``asset_id`` parameter:
+        asset_id  →  registers.robots.resolve_id  →  sku
+                 →  RobotAssetService.resolve(sku)  →  RobotAsset
+                 →  BodyIRMapper.from_robot_asset(asset)
+                 →  apply_user_overrides(mapper, get_body_ir_overrides(sku))
+
+    User edits go through:
+        mapper.reassign_role / mark_out_of_scope / clear_out_of_scope
+        → extract_user_overrides(mapper)
+        → RobotAssetService.set_body_ir_overrides(sku, overrides)   ← single source of truth
+        → set_value(json.dumps(mapper.to_dict()))                    ← transient param mirror
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._mapper = None  # BodyIRMapper | None
+        self._sku: str = ""
+        self._asset_resolved: bool = False
+        self._family: str = "generic"
+        self._visible_roles: list = []   # IRRole list
+        self._unmapped: list = []        # body name list
+        self._out_of_scope: list = []    # body name list
+        self._catalog_labels: list = []  # canonical role labels for picker
+        self._label_to_role_id: dict = {}
+        self._row_rects: list = []       # [(kind, payload, rect_role_col, rect_full)]
+        # Tooltip targets: [(rect, full_text)] for any cell whose drawn text was
+        # elided. hoverMoveEvent looks these up to drive QGraphicsItem.toolTip.
+        self._tooltip_cells: list = []
+        self._refresh_btn_rect: QRectF = QRectF()
+        self._asset_id_last: str = ""    # cached for poll detection
+        self._height = float(self._compute_height_empty())
+        self._height_callbacks: list = []
+        # 来自 mission_panel Robot Config 卡片对 RobotAssetService.set_body_ir_overrides
+        # 的写入不经过 canvas_param_changed —— 直接订阅 RobotAssetService.changed
+        # 以便外部覆写立即在画布表格里反映出来。
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            get_robot_asset_service().changed.connect(self._schedule_rebuild)
+        except Exception:
+            pass
+        # Initial build — defer one tick so owner_node finishes constructing.
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._rebuild)
+
+    # ------------------------------------------------------------------ height
+
+    def preferred_height(self) -> float:
+        return float(self._height)
+
+    def on_height_changed(self, callback) -> None:
+        """Register a callback notified whenever this row's height changes.
+
+        NodeItem subscribes during reflow so it can rearrange downstream rows.
+        """
+        if callable(callback) and callback not in self._height_callbacks:
+            self._height_callbacks.append(callback)
+
+    def _set_height(self, h: float) -> None:
+        h = float(max(PARAM_ROW_H, h))
+        if abs(h - self._height) < 0.5:
+            return
+        self.prepareGeometryChange()
+        self._height = h
+        self.update()
+        for cb in list(self._height_callbacks):
+            try:
+                cb(h)
+            except Exception:
+                pass
+
+    def _compute_height_empty(self) -> int:
+        # Header + one "select asset" row + footer button.
+        return (
+            _BM_FRAME_PAD * 2 + _BM_HDR_H + _BM_ROW_H
+            + _BM_FOOTER_GAP + _BM_BTN_H + 2
+        )
+
+    def _compute_height(self, n_role_rows: int, has_warn: bool) -> int:
+        warn_h = _BM_ROW_H if has_warn else 0
+        if n_role_rows == 0:
+            n_role_rows = 1  # "no roles" placeholder
+        return (
+            _BM_FRAME_PAD * 2
+            + _BM_HDR_H
+            + n_role_rows * _BM_ROW_H
+            + warn_h
+            + _BM_FOOTER_GAP + _BM_BTN_H + 2
+        )
+
+    # ---------------------------------------------------------- data resolve
+
+    def _resolve_asset_and_mapper(self):
+        """Return ``(sku, mapper)`` or ``("", None)`` if unresolved."""
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            from application.training.body_ir import (
+                BodyIRMapper, apply_user_overrides,
+            )
+            from registers import resolve_robot_sku
+            from registers import robots as _robots_registry
+        except Exception:
+            return "", None
+
+        raw = str(self._owner.params.get("asset_id", "") or "").strip()
+        self._asset_id_last = raw
+        if not raw:
+            return "", None
+        sku = raw if _robots_registry.get_robot(raw) is not None else (
+            _robots_registry.resolve_id(raw)
+        )
+        if sku is None and "." in raw:
+            brand, _, model = raw.partition(".")
+            sku = resolve_robot_sku(brand, model)
+        if sku is None:
+            return "", None
+        svc = get_robot_asset_service()
+        asset = svc.resolve(sku)
+        if asset is None:
+            return "", None
+        mapper = BodyIRMapper.from_robot_asset(asset)
+        overrides = svc.get_body_ir_overrides(sku)
+        if overrides:
+            apply_user_overrides(mapper, overrides)
+        return sku, mapper
+
+    def _refresh_catalog_choices(self):
+        try:
+            from application.training.body_ir import get_canonical_roles
+        except Exception:
+            self._catalog_labels = []
+            self._label_to_role_id = {}
+            return
+        catalog = get_canonical_roles(self._family)
+        self._catalog_labels = [c.label for c in catalog]
+        self._label_to_role_id = {c.label: c.role_id for c in catalog}
+
+    # ------------------------------------------------------------ rebuild
+
+    def _rebuild(self) -> None:
+        """Recompute mapper + visible role rows; trigger geometry change."""
+        sku, mapper = self._resolve_asset_and_mapper()
+        self._sku = sku
+        self._mapper = mapper
+        self._asset_resolved = mapper is not None
+        if mapper is None:
+            self._visible_roles = []
+            self._unmapped = []
+            self._out_of_scope = []
+            self._family = "generic"
+            self._refresh_catalog_choices()
+            self._set_height(self._compute_height_empty())
+            self.update()
+            return
+
+        self._family = mapper.family
+        # Joint-centric filter: the table only ever surfaces canonical roles
+        # that map to ACTUATED joints for this morphology (hips/thighs/calves
+        # for quadruped, hips/knees/shoulders/elbows/wrists for biped, etc.).
+        # Structural / kinematic roles (`base`, `feet`, `head`, `hands`) are
+        # NOT joints the user maps from actuated DOF — they were producing a
+        # "—|Base" noise row whenever the floating-base body went null. Drop
+        # them at the source; mission-control body_mapping table follows the
+        # same rule (training_config_card._BodyMappingTable._rebuild_rows).
+        try:
+            from application.training.body_ir import get_joint_ir_roles
+            joint_role_ids = set(get_joint_ir_roles(mapper.family))
+        except Exception:
+            joint_role_ids = set()
+        all_roles = list(mapper.roles)
+        if joint_role_ids:
+            self._visible_roles = [
+                r for r in all_roles if r.role_id in joint_role_ids
+            ]
+        else:
+            # Family has no canonical actuated-joint categories (wheeled /
+            # generic). Fall back to any role with a body so the table isn't
+            # blank for those rigs.
+            self._visible_roles = [r for r in all_roles if r.body is not None]
+        self._unmapped = list(mapper.unmapped_bodies())
+        self._out_of_scope = list(mapper.out_of_scope_bodies())
+        self._refresh_catalog_choices()
+
+        # Mirror current snapshot into the transient param string. This is NOT
+        # persistence — just keeps body_mapping param readable to consumers.
+        try:
+            self._owner.params[self.spec.key] = json.dumps(
+                mapper.to_dict(), ensure_ascii=False
+            )
+            self._value = self._owner.params[self.spec.key]
+        except Exception:
+            pass
+
+        n_rows = len(self._visible_roles) + len(self._unmapped) + len(self._out_of_scope)
+        self._set_height(self._compute_height(n_rows, bool(self._unmapped)))
+        self.update()
+
+    def _schedule_rebuild(self) -> None:
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(_BM_PERSIST_DEBOUNCE_MS, self._rebuild)
+
+    # ------------------------------------------------------------ persistence
+
+    def _persist(self) -> None:
+        if self._mapper is None or not self._sku:
+            return
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            from application.training.body_ir import extract_user_overrides
+        except Exception:
+            return
+        overrides = extract_user_overrides(self._mapper)
+        get_robot_asset_service().set_body_ir_overrides(
+            self._sku, overrides if overrides else None
+        )
+
+    # ------------------------------------------------------------ painting
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
+        # The body table is a full-row widget — we paint over the entire row
+        # (including the key column) but keep the standard ParamRow chrome
+        # (key label + separator) drawn by the base class. Our drawing starts
+        # from x=KEY_PAD_LEFT below the param-key label, but actually the
+        # table reads better full-width: skip the standard separator on this
+        # row by occupying the value half plus a chunk of the key half.
+        # However ParamRow.paint() always draws the key label + separator
+        # before calling us. We accept that — DEMO does the same (key shown
+        # to the left, table on the right).
+        # Constrain the table to the value half (SEP_X..width-VALUE_PAD_RIGHT).
+        # No third (status) column — status is encoded by the role text colour.
+        rect_full = QRectF(
+            SEP_X + 4, _BM_FRAME_PAD,
+            self._width - (SEP_X + 4) - VALUE_PAD_RIGHT,
+            self._height - _BM_FRAME_PAD * 2,
+        )
+        bg = QColor(Config.get_color("bg_1", "#1A1A1A"))
+        border = QColor(Config.get_color("border_2", "#3d3d3d"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(rect_full, 4, 4)
+
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+
+        muted = QColor(Config.get_color("canvas_node_param_text", "#aaaaaa"))
+        text_c = QColor(Config.get_color("main_t1", "#cccccc"))
+        ok_c = QColor(Config.get_color("safe_zone", "#4CAF50"))
+        err_c = QColor(Config.get_color("danger", "#F44336"))
+        skip_c = QColor(Config.get_color("border_2", "#777777"))
+
+        # Two equal-weight columns. No min-width clamp — Qt's elidedText
+        # handles overflow; full text is surfaced via hover tooltip.
+        inner_x = rect_full.left() + 4
+        inner_w = max(0.0, rect_full.width() - 8)
+        col_w = max(0.0, (inner_w - _BM_COL_GAP) / 2.0)
+        col1_x = inner_x
+        col2_x = inner_x + col_w + _BM_COL_GAP
+
+        def _draw_cell(
+            x: float, y: float, w: float, h: float,
+            text: str, colour: QColor,
+            *, padding: float = 4.0,
+        ) -> bool:
+            """Draw text inside (x,y,w,h) with elide-right; return True if elided.
+
+            Caller appends an entry to ``self._tooltip_cells`` for elided cells
+            so hoverMoveEvent can surface the full string via tooltip.
+            """
+            cell_rect = QRectF(x, y, w, h)
+            text_rect = cell_rect.adjusted(padding, 0, -padding, 0)
+            avail = max(0.0, text_rect.width())
+            elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, avail)
+            painter.setPen(QPen(colour))
+            painter.drawText(
+                text_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                elided,
+            )
+            return elided != text
+
+        # ---- Header row ----
+        y = rect_full.top() + 2
+        painter.setPen(QPen(muted))
+        hdr_font = QFont(font)
+        hdr_font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(hdr_font)
+        painter.drawText(
+            QRectF(col1_x + 4, y, col_w, _BM_HDR_H),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            tr("canvas.body_mapping.col_current", "Current"),
+        )
+        painter.drawText(
+            QRectF(col2_x + 4, y, col_w, _BM_HDR_H),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            tr("canvas.body_mapping.col_role", "Role"),
+        )
+        painter.setFont(font)
+        y += _BM_HDR_H
+
+        # Reset hit/tooltip caches; they are rebuilt every paint call.
+        self._row_rects = []
+        self._tooltip_cells = []
+
+        if not self._asset_resolved:
+            painter.setPen(QPen(err_c))
+            painter.drawText(
+                QRectF(inner_x, y, inner_w, _BM_ROW_H),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+                tr("canvas.body_mapping.select_asset", "Select an asset_id"),
+            )
+            self._paint_refresh_button(painter, rect_full, font)
+            return
+
+        # ---- Status colour helpers ----
+        try:
+            from application.training.body_ir import get_role
+        except Exception:
+            get_role = None
+
+        def _role_status_colour(role) -> QColor:
+            """Green=resolved, red=required & unfilled, gray=optional & unfilled."""
+            if role.resolved:
+                return ok_c
+            required = False
+            if get_role is not None:
+                canon = get_role(self._family, role.role_id)
+                if canon is not None:
+                    required = bool(canon.required)
+            return err_c if required else skip_c
+
+        zebra = QColor(Config.get_color("bg_1", "#1A1A1A")).lighter(108)
+
+        # ---- Visible canonical role rows ----
+        idx = 0
+        for role in self._visible_roles:
+            if idx % 2:
+                painter.setBrush(QBrush(zebra))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRect(QRectF(inner_x, y, inner_w, _BM_ROW_H))
+            # col1: body name (untinted; status lives on the role label)
+            body_txt = role.body if role.body else "—"
+            body_rect = QRectF(col1_x, y, col_w, _BM_ROW_H)
+            if _draw_cell(
+                col1_x, y, col_w, _BM_ROW_H,
+                body_txt, text_c if role.body else muted,
+            ):
+                self._tooltip_cells.append((body_rect, body_txt))
+            # col2: role label, colour encodes status. Hit-rect only when the
+            # slot is filled (re-routing requires an existing body to move).
+            role_rect = QRectF(col2_x, y, col_w, _BM_ROW_H)
+            role_colour = _role_status_colour(role)
+            if role.body is not None:
+                btn_bg = QColor(Config.get_color("btn_1", "#343636"))
+                if self._hover_rect is not None and self._hover_rect == role_rect:
+                    btn_bg = btn_bg.lighter(115)
+                painter.setBrush(QBrush(btn_bg))
+                painter.setPen(QPen(border, 0.8))
+                painter.drawRoundedRect(role_rect.adjusted(0, 2, 0, -2), 3, 3)
+                if _draw_cell(
+                    col2_x, y, col_w, _BM_ROW_H, role.label, role_colour,
+                ):
+                    self._tooltip_cells.append((role_rect, role.label))
+                self._row_rects.append(
+                    ("role_assigned", role.body, role.role_id, role_rect)
+                )
+            else:
+                if _draw_cell(
+                    col2_x, y, col_w, _BM_ROW_H, role.label, role_colour,
+                ):
+                    self._tooltip_cells.append((role_rect, role.label))
+            y += _BM_ROW_H
+            idx += 1
+
+        # ---- Unmapped + out-of-scope rows ----
+        for body in self._unmapped + self._out_of_scope:
+            is_oos = body in self._out_of_scope
+            if idx % 2:
+                painter.setBrush(QBrush(zebra))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRect(QRectF(inner_x, y, inner_w, _BM_ROW_H))
+            # col1: body name
+            body_rect = QRectF(col1_x, y, col_w, _BM_ROW_H)
+            if _draw_cell(col1_x, y, col_w, _BM_ROW_H, body, text_c):
+                self._tooltip_cells.append((body_rect, body))
+            # col2: role label — red for unmapped (needs adapt), gray for OOS.
+            role_rect = QRectF(col2_x, y, col_w, _BM_ROW_H)
+            btn_bg = QColor(Config.get_color("btn_1", "#343636"))
+            if self._hover_rect is not None and self._hover_rect == role_rect:
+                btn_bg = btn_bg.lighter(115)
+            painter.setBrush(QBrush(btn_bg))
+            painter.setPen(QPen(border, 0.8))
+            painter.drawRoundedRect(role_rect.adjusted(0, 2, 0, -2), 3, 3)
+            label = _BM_LABEL_OUT_OF_SCOPE if is_oos else _BM_LABEL_UNASSIGNED
+            label_display = tr(
+                _BM_LABEL_OUT_OF_SCOPE_KEY if is_oos else _BM_LABEL_UNASSIGNED_KEY,
+                label,
+            )
+            label_colour = skip_c if is_oos else err_c
+            if _draw_cell(col2_x, y, col_w, _BM_ROW_H, label_display, label_colour):
+                self._tooltip_cells.append((role_rect, label_display))
+            self._row_rects.append(
+                ("body_extra", body, "oos" if is_oos else "unmapped", role_rect)
+            )
+            y += _BM_ROW_H
+            idx += 1
+
+        # ---- Warning banner (12px, same colour as required-unfilled) ----
+        if self._unmapped:
+            preview = ", ".join(self._unmapped[:3])
+            more = f" (+{len(self._unmapped) - 3} more)" if len(self._unmapped) > 3 else ""
+            warn_text = (
+                tr(
+                    "canvas.body_mapping.warn_joints",
+                    "⚠ {n} joint(s) not matched — assign or mark out of scope: {preview}",
+                )
+                .replace("{n}", str(len(self._unmapped)))
+                .replace("{preview}", f"{preview}{more}")
+            )
+            warn_rect = QRectF(inner_x + 2, y, inner_w - 4, _BM_ROW_H)
+            warn_font = QFont(font)
+            warn_font.setWeight(QFont.Weight.DemiBold)
+            painter.setFont(warn_font)
+            painter.setPen(QPen(err_c))
+            avail = max(0.0, warn_rect.width())
+            elided_warn = fm.elidedText(warn_text, Qt.TextElideMode.ElideRight, avail)
+            painter.drawText(
+                warn_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                elided_warn,
+            )
+            if elided_warn != warn_text:
+                self._tooltip_cells.append((warn_rect, warn_text))
+            painter.setFont(font)
+            y += _BM_ROW_H
+
+        if not self._visible_roles and not self._unmapped and not self._out_of_scope:
+            painter.setPen(QPen(muted))
+            painter.drawText(
+                QRectF(inner_x, y, inner_w, _BM_ROW_H),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+                tr("canvas.body_mapping.no_roles", "No body roles for this asset"),
+            )
+            y += _BM_ROW_H
+
+        # ---- Refresh button ----
+        self._paint_refresh_button(painter, rect_full, font)
+
+    def _paint_refresh_button(
+        self, painter: QPainter, rect_full: QRectF, font: QFont,
+    ) -> None:
+        btn_y = rect_full.bottom() - _BM_BTN_H - 2
+        btn_x = rect_full.left() + 4
+        btn_w = min(80.0, rect_full.width() - 8)
+        self._refresh_btn_rect = QRectF(btn_x, btn_y, btn_w, _BM_BTN_H)
+        bg = QColor(Config.get_color("btn_1", "#343636"))
+        if self._hover_rect is not None and self._hover_rect == self._refresh_btn_rect:
+            bg = bg.lighter(120)
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(self._refresh_btn_rect, 3, 3)
+        painter.setPen(QPen(QColor(Config.get_color("main_t1", "#D6D3C7"))))
+        painter.setFont(font)
+        painter.drawText(
+            self._refresh_btn_rect,
+            int(Qt.AlignmentFlag.AlignCenter),
+            tr("canvas.body_mapping.refresh", "Refresh"),
+        )
+
+    # ------------------------------------------------------------ hit-test
+
+    def _interactive_regions(self) -> List[QRectF]:  # type: ignore[override]
+        regions: List[QRectF] = []
+        for entry in self._row_rects:
+            regions.append(entry[3])
+        if self._refresh_btn_rect.width() > 0:
+            regions.append(self._refresh_btn_rect)
+        return regions
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        pos = event.pos()
+        # Refresh button?
+        if self._refresh_btn_rect.contains(pos):
+            self._schedule_rebuild()
+            return True
+        # Row role-cell?
+        for entry in self._row_rects:
+            kind, payload, payload2, rect = entry
+            if not rect.contains(pos):
+                continue
+            self._open_role_picker(event, kind, payload, payload2)
+            return True
+        return False
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        return self._handle_click(event)
+
+    # ------------------------------------------------------------ tooltips
+    # Per-cell tooltip: when hovering a cell whose drawn text was elided we
+    # set the QGraphicsItem.toolTip to the full string. Move outside any
+    # tooltip cell → clear tooltip. This lives next to ParamRow's hover-rect
+    # logic — we keep the base class behaviour (highlight on interactive
+    # cells) by always invoking super.
+
+    def hoverMoveEvent(self, event):  # type: ignore[override]
+        pos = event.pos()
+        full = ""
+        for cell_rect, cell_text in self._tooltip_cells:
+            if cell_rect.contains(pos):
+                full = cell_text
+                break
+        # Only mutate when the value actually changes — avoids fighting Qt's
+        # own tooltip-show timer.
+        if self.toolTip() != full:
+            self.setToolTip(full)
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):  # type: ignore[override]
+        if self.toolTip():
+            self.setToolTip("")
+        super().hoverLeaveEvent(event)
+
+    def _open_role_picker(
+        self, event: QGraphicsSceneMouseEvent,
+        kind: str, payload, payload2,
+    ) -> None:
+        if self._mapper is None:
+            return
+        # Build choice list: (Unassigned) + catalog labels + (Out of Scope)
+        choices = [_BM_LABEL_UNASSIGNED] + self._catalog_labels + [_BM_LABEL_OUT_OF_SCOPE]
+        # current selection
+        if kind == "role_assigned":
+            body, role_id = payload, payload2
+            current = next(
+                (r.label for r in self._mapper.roles if r.role_id == role_id),
+                _BM_LABEL_UNASSIGNED,
+            )
+        else:
+            body = payload
+            current = (
+                _BM_LABEL_OUT_OF_SCOPE if payload2 == "oos"
+                else _BM_LABEL_UNASSIGNED
+            )
+
+        def _on_pick(selected):
+            if selected is None:
+                return
+            if isinstance(selected, list):
+                if not selected:
+                    return
+                val = selected[0]
+            else:
+                val = selected
+            self._apply_role_pick(body, val)
+
+        def _label_for(raw):
+            if raw == _BM_LABEL_UNASSIGNED:
+                return tr(_BM_LABEL_UNASSIGNED_KEY, raw)
+            if raw == _BM_LABEL_OUT_OF_SCOPE:
+                return tr(_BM_LABEL_OUT_OF_SCOPE_KEY, raw)
+            return str(raw)
+
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=current,
+            multi=False,
+            leading_mode="checkbox",
+            on_commit=_on_pick,
+            label_resolver=_label_for,
+        )
+
+    def _apply_role_pick(self, body: str, label: str) -> None:
+        if self._mapper is None or not body:
+            return
+        if label == _BM_LABEL_UNASSIGNED:
+            if body in self._mapper.out_of_scope_bodies():
+                self._mapper.clear_out_of_scope(body)
+            else:
+                self._mapper.reassign_role(body, None)
+        elif label == _BM_LABEL_OUT_OF_SCOPE:
+            self._mapper.mark_out_of_scope(body)
+        else:
+            new_role_id = self._label_to_role_id.get(label)
+            if new_role_id:
+                self._mapper.reassign_role(body, new_role_id)
+            else:
+                return
+        self._persist()
+        self._schedule_rebuild()
+
+    # ---------------------------------------- owner asset_id change polling
+
+    def maybe_refresh_for_asset_change(self) -> None:
+        """Called by NodeItem after a sibling row's set_value (asset_id)
+        committed. Compares current asset_id against the cached one and
+        reschedules rebuild if they differ. Cheap no-op when unchanged.
+        """
+        cur = str(self._owner.params.get("asset_id", "") or "").strip()
+        if cur != self._asset_id_last:
+            self._schedule_rebuild()
+
+
+# =============================================================================
+# ActiveFileTableRow — widget="active_file_table"
+# Robot.active_override 的多行表格控件。三行（MJCF / USD / URDF），每行显示文件
+# 类型标签 + 已注册路径状态 + ✔ 标记。点击 Loaded 行切换 active_override 到该
+# 类型；点击当前 active 行恢复 "auto"。布局与 DEMO
+# ``training_node_items.py:_make_active_file_table`` 视觉契约对齐，但走 SDK
+# Config.get_color 主题与 QGraphicsItem self-paint。
+# =============================================================================
+
+_AF_HDR_H = 14
+_AF_ROW_H = 20
+_AF_FRAME_PAD = 4
+_AF_COL_GAP = 6
+
+
+class ActiveFileTableRow(ParamRow):
+    """Robot.active_override 三行 file-type 表格 / 3-row file-type table.
+
+    动态高度（preferred_height）= 4 (frame top) + 14 (header) + 3*20 (rows) + 4 (frame bottom)
+    通过 ``asset_id`` 解析当前 robot 的 RobotAsset；点击 Loaded 行写入
+    ``active_override``；点击 active 行恢复 ``"auto"``。
+    """
+
+    _OPEN_ON_RELEASE = True
+    _ROWS_SPEC = (
+        ("MJCF", "mjcf"),
+        ("USD",  "usd"),
+        ("URDF", "urdf"),
+    )
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._asset = None              # RobotAsset | None
+        self._asset_id_last: str = ""
+        self._row_hits: List[tuple] = []   # [(file_kind, rect, loaded)]
+        self._height = float(self._compute_height())
+        self._height_callbacks: list = []
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._rebuild)
+
+    # ---- height contract ----
+
+    def preferred_height(self) -> float:
+        return float(self._height)
+
+    def on_height_changed(self, callback) -> None:
+        if callable(callback) and callback not in self._height_callbacks:
+            self._height_callbacks.append(callback)
+
+    def _set_height(self, h: float) -> None:
+        h = float(max(PARAM_ROW_H, h))
+        if abs(h - self._height) < 0.5:
+            return
+        self.prepareGeometryChange()
+        self._height = h
+        self.update()
+        for cb in list(self._height_callbacks):
+            try:
+                cb(h)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _compute_height() -> int:
+        return _AF_FRAME_PAD * 2 + _AF_HDR_H + len(ActiveFileTableRow._ROWS_SPEC) * _AF_ROW_H + 2
+
+    # ---- asset resolve ----
+
+    def _resolve_asset(self):
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            from registers import resolve_robot_sku
+            from registers import robots as _robots_registry
+        except Exception:
+            return None
+        raw = str(self._owner.params.get("asset_id", "") or "").strip()
+        self._asset_id_last = raw
+        if not raw:
+            return None
+        sku = raw if _robots_registry.get_robot(raw) is not None else (
+            _robots_registry.resolve_id(raw)
+        )
+        if sku is None and "." in raw:
+            brand, _, model = raw.partition(".")
+            sku = resolve_robot_sku(brand, model)
+        if sku is None:
+            return None
+        try:
+            return get_robot_asset_service().resolve(sku)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _kind_available(asset, kind: str) -> bool:
+        """True iff ``asset`` has a usable resource for ``kind``.
+
+        For USD, a cloud Nucleus URL (``usd_url``) counts as available
+        even when the local ``usd_path`` is None — that's how IsaacLab
+        ships its built-in USD library, and the user must be able to
+        select USD as the active format on those assets.
+        """
+        if asset is None:
+            return False
+        if getattr(asset, f"{kind}_path", None) is not None:
+            return True
+        if kind == "usd" and getattr(asset, "usd_url", None):
+            return True
+        return False
+
+    def _current_active(self) -> str:
+        """Return the file kind that currently owns the ✔ marker.
+
+        Explicit ``active_override`` (``"mjcf"``/``"usd"``/``"urdf"``) wins
+        unconditionally. ``"auto"`` resolves to a backend-aware fallback:
+        Isaac Lab prefers USD > URDF > MJCF; SB3/MuJoCo prefers MJCF > USD > URDF.
+        """
+        raw = str(self._owner.params.get(self.spec.key, "auto") or "auto").strip().lower()
+        if raw in ("mjcf", "usd", "urdf"):
+            return raw
+        a = self._asset
+        if a is None:
+            return ""
+        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        if backend == "isaac_lab":
+            order = ("usd", "urdf", "mjcf")
+        else:
+            order = ("mjcf", "usd", "urdf")
+        for kind in order:
+            if self._kind_available(a, kind):
+                return kind
+        return ""
+
+    def _rebuild(self) -> None:
+        self._asset = self._resolve_asset()
+        self._set_height(self._compute_height())
+        self.update()
+
+    def _schedule_rebuild(self) -> None:
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._rebuild)
+
+    # ---- painting ----
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
+        # NOTE: 表格内容必须在所有 LOD 档位下都渲染 —— 用户明确要求"任何内容
+        # 不允许因为缩放消失"。这里不做 tier 早返回（与 _InlineTableRow 同。
+        rect_full = QRectF(
+            SEP_X + 4, _AF_FRAME_PAD,
+            self._width - (SEP_X + 4) - VALUE_PAD_RIGHT,
+            self._height - _AF_FRAME_PAD * 2,
+        )
+        bg = QColor(Config.get_color("bg_1", "#1A1A1A"))
+        border = QColor(Config.get_color("border_2", "#3d3d3d"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(rect_full, 4, 4)
+
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+
+        muted = QColor(Config.get_color("canvas_node_param_text", "#aaaaaa"))
+        text_c = QColor(Config.get_color("main_t1", "#cccccc"))
+        ok_c = QColor(Config.get_color("safe_zone", "#4CAF50"))
+        skip_c = QColor(Config.get_color("border_2", "#777777"))
+        cloud_c = QColor(Config.get_color("robot_asset_status_cloud", "#4A9EFF"))
+
+        inner_x = rect_full.left() + 4
+        inner_w = max(0.0, rect_full.width() - 8)
+        # Three columns: Type | Status | ✔
+        col_chk_w = 22.0
+        col_status_w = max(40.0, inner_w * 0.32)
+        col_type_w = max(0.0, inner_w - col_chk_w - col_status_w - _AF_COL_GAP * 2)
+        col_type_x = inner_x
+        col_status_x = col_type_x + col_type_w + _AF_COL_GAP
+        col_chk_x = col_status_x + col_status_w + _AF_COL_GAP
+
+        # ---- header ----
+        y = rect_full.top() + 1
+        hdr_font = QFont(font)
+        hdr_font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(hdr_font)
+        painter.setPen(QPen(muted))
+        painter.drawText(
+            QRectF(col_type_x + 2, y, col_type_w, _AF_HDR_H),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            tr("canvas.active_file.col_type", "Type"),
+        )
+        painter.drawText(
+            QRectF(col_status_x, y, col_status_w, _AF_HDR_H),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            tr("canvas.active_file.col_status", "Status"),
+        )
+        painter.setFont(font)
+        y += _AF_HDR_H
+
+        active = self._current_active()
+        zebra = QColor(Config.get_color("bg_1", "#1A1A1A")).lighter(108)
+        self._row_hits = []
+
+        for idx, (label, file_kind) in enumerate(self._ROWS_SPEC):
+            path_value = (
+                getattr(self._asset, f"{file_kind}_path", None)
+                if self._asset is not None else None
+            )
+            cloud_only = (
+                file_kind == "usd"
+                and path_value is None
+                and self._asset is not None
+                and bool(getattr(self._asset, "usd_url", None))
+            )
+            loaded = path_value is not None
+            available = loaded or cloud_only
+            is_active = available and (file_kind == active)
+            row_rect = QRectF(inner_x, y, inner_w, _AF_ROW_H)
+
+            # zebra stripe + hover highlight
+            if self._hover_rect is not None and self._hover_rect == row_rect:
+                painter.setBrush(QBrush(QColor(Config.get_color("bg_1", "#2A2A2A")).lighter(120)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRect(row_rect)
+            elif idx % 2 == 0:
+                painter.setBrush(QBrush(zebra))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRect(row_rect)
+
+            # type label
+            painter.setPen(QPen(text_c if available else skip_c))
+            label_rect = QRectF(col_type_x + 2, y, col_type_w, _AF_ROW_H)
+            label_text = fm.elidedText(label, Qt.TextElideMode.ElideRight, label_rect.width())
+            painter.drawText(
+                label_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                label_text,
+            )
+
+            # status: Loaded (local) | Cloud (URL only) | — (missing)
+            if loaded:
+                status_text, status_pen = tr("canvas.active_file.status_loaded", "Loaded"), ok_c
+            elif cloud_only:
+                status_text, status_pen = tr("canvas.active_file.status_cloud", "Cloud"), cloud_c
+            else:
+                status_text, status_pen = tr("canvas.row.empty", "—"), skip_c
+            painter.setPen(QPen(status_pen))
+            painter.drawText(
+                QRectF(col_status_x, y, col_status_w, _AF_ROW_H),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                status_text,
+            )
+
+            # ✔ marker
+            if is_active:
+                painter.setPen(QPen(cloud_c if cloud_only else ok_c))
+                check_font = QFont(font)
+                check_font.setPixelSize(int(Config.get_font_size("size_small", 12)) + 2)
+                check_font.setBold(True)
+                painter.setFont(check_font)
+                painter.drawText(
+                    QRectF(col_chk_x, y, col_chk_w, _AF_ROW_H),
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+                    "✔",
+                )
+                painter.setFont(font)
+
+            # hit-test record (cloud-only rows are clickable too)
+            self._row_hits.append((file_kind, QRectF(row_rect), available, is_active))
+            y += _AF_ROW_H
+
+    # ---- interaction ----
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [r for (_kind, r, loaded, _act) in self._row_hits if loaded]
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        pos = event.pos()
+        for kind, rect, loaded, is_active in self._row_hits:
+            if not loaded:
+                continue
+            if not rect.contains(pos):
+                continue
+            self.set_value("auto" if is_active else kind)
+            self._schedule_rebuild()
+            return True
+        return False
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        return self._handle_click(event)
+
+    # ---- asset_id sibling poll ----
+
+    def maybe_refresh_for_asset_change(self) -> None:
+        cur = str(self._owner.params.get("asset_id", "") or "").strip()
+        if cur != self._asset_id_last:
+            self._schedule_rebuild()
+
+
+# =============================================================================
+# Inline registry / training-item TABLES — DEMO `_RegistryModuleEditor` /
+# `_TrainingItemEditor` faithful migration
+# =============================================================================
+#
+# DEMO 在节点体内直接渲染多行表格（顶部 selector + ⚙，下方加边框的行表格，
+# 每行 [badge | name | NodeSlider]）。RELEASE 之前是单行 summary "N items" +
+# 弹 popup —— 视觉与交互完全偏离 DEMO。本节把两个表格做 inline 自绘 ParamRow，
+# 与 ``BodyMappingTableRow`` 同款变高 + 自绘 + 命中测试，**绝不**用
+# QGraphicsProxyWidget（项目硬性禁止）。
+#
+# 几何（与 DEMO 像素对齐 ± SDK 主题约束）：
+#   header 行：24px，含 selector chrome（"N items ▾"）+ 22px ⚙ 按钮
+#   frame  ：bordered ``canvas_widget_input_bg`` / ``canvas_widget_border``
+#   per row：32px，[18px badge | 96px name (elide) | flex slider | 44px value]
+# =============================================================================
+
+_INL_HDR_H = 24
+_INL_ROW_H = 32
+_INL_FRAME_PAD = 4
+_INL_BADGE_W = 18
+_INL_NAME_W = 110
+_INL_VAL_W = 56
+_INL_GAP = 4
+_INL_KEY_GAP = 8       # gap between header "key:" text and the selector picker
+_INL_HDR_TOP_PAD = 2   # top breathing space above header
+_INL_HDR_BOT_PAD = 4   # gap between header and the table frame
+_INL_LANE_HDR_H = 20   # phase-lane header height (when phase_aware=true)
+_INL_LANE_EMPTY_H = 26 # phase-lane "uncovered" placeholder height (warning state)
+_INL_LANE_COVERED_H = 14  # phase-lane "covered by unconditional" hint height (informational)
+_INL_LANE_BAR_W = 4    # left color bar inside a phase-lane header
+_INL_CHIP_H = 14       # phase-id chip height drawn on multi-phase reward rows
+_INL_CHIP_PAD_X = 6    # chip horizontal padding around its text
+_INL_CHIP_GAP = 3      # gap between adjacent chips
+_INL_PHASE_BTN_W = 30  # phase-summary chip button width on each reward row (phase-aware mode)
+_INL_PHASE_BTN_GAP = 4 # gap between phase-summary chip button and slider/value
+_PHASE_UNCONDITIONAL = "__unconditional__"  # synthetic lane id for applies_to == []
+
+
+def _kind_from_registry_id(registry_id: str) -> str:
+    """Map ``meta.registry_id`` → scripts.lookup ``kind`` argument."""
+    rid = (registry_id or "").lower()
+    if "termination" in rid:
+        return "termination"
+    if "obs" in rid:
+        return "observation"
+    if "discriminator" in rid:
+        return "discriminator"
+    return "reward"
+
+
+# ---------------------------------------------------------------------------
+# Registry-row slider curve
+# ---------------------------------------------------------------------------
+#
+# Almost every registry-row slider has an extreme dynamic range relative to
+# the typical value the user actually sets. For instance:
+#   * IL terminations: ``illegal_contact`` ∈ [0.1, 200]  default 1.0
+#   * IL terminations: ``time_out``        ∈ [1, 300]    default 20.0
+#   * IL rewards:      ``joint_accel_penalty`` ∈ [-1e-3, 0] default -2.5e-7
+#   * IL rewards:      ``joint_torque_penalty`` ∈ [-0.01, 0] default -2e-4
+#
+# On a linear slider, those defaults render at <1% / ~99% of the track — the
+# user has no usable resolution near the working point. The audit confirmed
+# every reward / termination / observation registry item is single-signed
+# (vmin >= 0 OR vmax <= 0) except SB3's ``goal_distance`` [-5, +10]; that
+# single span-zero entry stays linear because 0 is a meaningful midpoint
+# there.
+#
+# Curve contract: ``curve(0.5) == 0.2`` — the first half of the slider
+# track covers 20 % of the value range, the second half covers the
+# remaining 80 %. Implemented as a pure power law ``v_frac = pos^k`` with
+# ``k = log(0.2)/log(0.5) ≈ 2.32``. POS ranges are dense at the ``vmin``
+# end (where small thresholds / small positive weights live); NEG ranges
+# mirror so they stay dense at ``vmax == 0`` (where small-magnitude
+# penalty weights live). The displayed numeric value is always the true
+# value (not the position) — only the handle's *horizontal placement* is
+# warped, so users still see "0.0002" rather than "78 %".
+_SLIDER_CURVE_K = math.log(0.2) / math.log(0.5)
+
+
+def _slider_curve_mode(vmin: float, vmax: float) -> str:
+    """Pick curve direction from the sign of the [vmin, vmax] interval."""
+    if vmax <= vmin:
+        return "linear"
+    if vmin >= 0.0:
+        return "pos"
+    if vmax <= 0.0:
+        return "neg"
+    return "linear"
+
+
+def _slider_value_to_pos(value: float, vmin: float, vmax: float) -> float:
+    """Map a value in [vmin, vmax] → normalized slider position in [0, 1]."""
+    mode = _slider_curve_mode(vmin, vmax)
+    if mode == "linear":
+        if vmax <= vmin:
+            return 0.0
+        return max(0.0, min(1.0, (value - vmin) / (vmax - vmin)))
+    if mode == "pos":
+        frac = max(0.0, min(1.0, (value - vmin) / (vmax - vmin)))
+        return frac ** (1.0 / _SLIDER_CURVE_K)
+    # "neg" — dense at vmax (== 0 for our penalty terms).
+    frac = max(0.0, min(1.0, (vmax - value) / (vmax - vmin)))
+    return 1.0 - frac ** (1.0 / _SLIDER_CURVE_K)
+
+
+def _slider_pos_to_value(pos: float, vmin: float, vmax: float) -> float:
+    """Inverse of :func:`_slider_value_to_pos`."""
+    pos = max(0.0, min(1.0, pos))
+    mode = _slider_curve_mode(vmin, vmax)
+    if mode == "linear":
+        return vmin + pos * (vmax - vmin)
+    if mode == "pos":
+        return vmin + (vmax - vmin) * (pos ** _SLIDER_CURVE_K)
+    return vmax - (vmax - vmin) * ((1.0 - pos) ** _SLIDER_CURVE_K)
+
+
+class _InlineTableRow(ParamRow):
+    """变高内联表格基类 / Variable-height inline-table base.
+
+    布局（full-width，跨 key + value 两列；不渲染 base ParamRow 的 key 列 +
+    分隔线）：
+
+        ┌──────────────────────────────────────────────────────────────┐
+        │  reward_terms:  [N items ▾]                            [⚙]   │  ← header (24px)
+        ├──────────────────────────────────────────────────────────────┤
+        │  ┌────────────────────────────────────────────────────────┐  │
+        │  │ ◉  Velocity Tracking         ━━━●━━━━━━━━━━━━━  1.000  │  │
+        │  │ ◉  Alive Bonus               ━●━━━━━━━━━━━━━━  0.500  │  │
+        │  │ ▣  Energy Penalty            ━━━━━━━━━●━━━━━━ -0.0001 │  │
+        │  └────────────────────────────────────────────────────────┘  │  ← frame (full width)
+        └──────────────────────────────────────────────────────────────┘
+
+    Header 第 1 行宽度 = ``KEY_PAD_LEFT .. width-VALUE_PAD_RIGHT``（即原 key 半 + value 半合并）。
+    子类实现：
+        - ``_refresh_payloads()`` 从 ``self._value`` 重建 row payload list
+        - ``_paint_row(painter, idx, payload)`` 行内自绘（badge + name + slider + value）
+        - ``_row_min/_max/_step/_value/_set_value`` 单行数值契约
+        - ``_header_summary_text()`` selector 按钮上的文本（"3 items" 等）
+        - ``_on_selector_clicked(event)`` 顶部 picker 点击 → multi-choice popup
+        - ``_on_modal_clicked(event)`` ⚙ 点击 → 模态 Editor
+    """
+
+    _OPEN_ON_RELEASE = False  # slider drag 必须 press 触发
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._row_payloads: list = []
+        self._dragging_row: Optional[int] = None
+        self._height_callbacks: list = []
+        self._height = float(self._compute_height())
+
+    # ---- 高度契约 ----
+
+    def preferred_height(self) -> float:
+        return float(self._height)
+
+    def on_height_changed(self, callback) -> None:
+        if callable(callback) and callback not in self._height_callbacks:
+            self._height_callbacks.append(callback)
+
+    def _set_height(self, h: float) -> None:
+        h = float(max(PARAM_ROW_H, h))
+        if abs(h - self._height) < 0.5:
+            return
+        self.prepareGeometryChange()
+        self._height = h
+        self.update()
+        for cb in list(self._height_callbacks):
+            try:
+                cb(h)
+            except Exception:
+                pass
+
+    def _compute_height(self) -> int:
+        n = len(self._row_payloads)
+        body = (n if n > 0 else 1) * _INL_ROW_H + _INL_FRAME_PAD * 2
+        return _INL_HDR_TOP_PAD + _INL_HDR_H + _INL_HDR_BOT_PAD + body + 2
+
+    # ---- 几何（full-width，跨 key + value 两列）----
+
+    def _full_rect(self) -> QRectF:
+        """整行可用矩形 — 从节点 ``KEY_PAD_LEFT`` 到 ``width - VALUE_PAD_RIGHT``，
+        跨原 key 列 + value 列。
+        """
+        return QRectF(
+            KEY_PAD_LEFT, 0,
+            max(0.0, self._width - KEY_PAD_LEFT - VALUE_PAD_RIGHT),
+            self._height,
+        )
+
+    def _key_text(self) -> str:
+        """Header 左边的 "title text"：直接用 ``spec.key``（与 base ParamRow 一致）。"""
+        return self.spec.key
+
+    def _key_font(self) -> QFont:
+        f = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        f.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        return f
+
+    def _key_text_width(self) -> float:
+        fm = QFontMetricsF(self._key_font())
+        return fm.horizontalAdvance(self._key_text() + ":")
+
+    def _hdr_band_rect(self) -> QRectF:
+        full = self._full_rect()
+        return QRectF(
+            full.left(),
+            full.top() + _INL_HDR_TOP_PAD,
+            full.width(),
+            float(_INL_HDR_H),
+        )
+
+    def _hdr_key_rect(self) -> QRectF:
+        band = self._hdr_band_rect()
+        return QRectF(band.left(), band.top(), self._key_text_width(), band.height())
+
+    def _hdr_picker_rect(self) -> QRectF:
+        band = self._hdr_band_rect()
+        x_start = band.left() + self._key_text_width() + _INL_KEY_GAP
+        x_end = band.right() - _GEAR_BTN_W - _INL_GAP
+        return QRectF(
+            x_start, band.top() + 2,
+            max(40.0, x_end - x_start), band.height() - 4,
+        )
+
+    def _hdr_gear_rect(self) -> QRectF:
+        band = self._hdr_band_rect()
+        return QRectF(
+            band.right() - _GEAR_BTN_W, band.top() + 2,
+            float(_GEAR_BTN_W), band.height() - 4,
+        )
+
+    def _frame_rect(self) -> QRectF:
+        full = self._full_rect()
+        top = full.top() + _INL_HDR_TOP_PAD + _INL_HDR_H + _INL_HDR_BOT_PAD
+        return QRectF(
+            full.left(), top,
+            full.width(), self._height - (top - full.top()) - 2,
+        )
+
+    def _row_rect(self, idx: int) -> QRectF:
+        f = self._frame_rect()
+        y = f.top() + _INL_FRAME_PAD + idx * _INL_ROW_H
+        return QRectF(
+            f.left() + _INL_FRAME_PAD, y,
+            f.width() - _INL_FRAME_PAD * 2, _INL_ROW_H,
+        )
+
+    def _row_badge_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        bw = min(float(_INL_BADGE_W), r.height() - 8)
+        return QRectF(r.left(), r.top() + (r.height() - bw) * 0.5, bw, bw)
+
+    def _row_name_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        return QRectF(
+            r.left() + _INL_BADGE_W + _INL_GAP, r.top(),
+            float(_INL_NAME_W), r.height(),
+        )
+
+    def _row_slider_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        x_start = r.left() + _INL_BADGE_W + _INL_GAP + _INL_NAME_W + _INL_GAP
+        x_end = r.right() - _INL_VAL_W - _INL_GAP
+        return QRectF(x_start, r.top() + 6, max(20.0, x_end - x_start), r.height() - 12)
+
+    def _row_value_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        return QRectF(r.right() - _INL_VAL_W, r.top(), float(_INL_VAL_W), r.height())
+
+    # ---- 命中测试 ----
+
+    def _interactive_regions(self) -> List[QRectF]:
+        regions = [self._hdr_picker_rect(), self._hdr_gear_rect()]
+        for i in range(len(self._row_payloads)):
+            regions.append(self._row_slider_rect(i))
+            regions.append(self._row_value_rect(i))
+        return regions
+
+    # ---- paint ----
+
+    def paint(self, painter, option, widget=None):  # type: ignore[override]
+        """Full-width override — 不渲染 base ParamRow 的 key 列文字 + 中部分隔线。
+
+        ``_InlineTableRow`` 自己负责整行的 header（含 inline key text + picker +
+        ⚙）以及下方的 frame/rows，跨原 key + value 两列。
+        """
+        tier = tier_for_painter(painter)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # Hover 高亮（保留 base 行为，但不画 key/separator）
+        if self._hover_rect is not None:
+            hover_bg = QColor(Config.get_color("bg_1", "#2A2A2A")).lighter(115)
+            painter.setBrush(QBrush(hover_bg))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(self._hover_rect)
+        # 全部交给 _paint_value（header + frame + rows）
+        self._paint_value(painter, tier)
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        # NOTE: 表格内容必须在所有 LOD 档位下都渲染 —— 用户明确要求"任何内容
+        # 不允许因为缩放消失"。这里不做 tier 早返回。
+        self._paint_header(painter)
+        if not self._row_payloads:
+            self._paint_frame(painter)
+            self._paint_empty_text(painter)
+            return
+        self._paint_frame(painter)
+        for idx, payload in enumerate(self._row_payloads):
+            try:
+                self._paint_row(painter, idx, payload)
+            except Exception:
+                pass
+        self._paint_row_separators(painter)
+
+    def _paint_row_separators(self, painter: QPainter) -> None:
+        """每两行 item 之间画 1px 水平分隔线 / Horizontal dividers between rows."""
+        n = len(self._row_payloads)
+        if n < 2:
+            return
+        sep = QColor(Config.get_color("border_1", "#444444"))
+        sep.setAlpha(140)
+        painter.setPen(QPen(sep, 0.6))
+        f = self._frame_rect()
+        x_l = f.left() + _INL_FRAME_PAD + 4
+        x_r = f.right() - _INL_FRAME_PAD - 4
+        for i in range(1, n):
+            r = self._row_rect(i)
+            y = r.top()
+            painter.drawLine(QPointF(x_l, y), QPointF(x_r, y))
+
+    def _paint_header(self, painter: QPainter) -> None:
+        # Inline key text (e.g. "reward_terms:") at far left of header band.
+        key_rect = self._hdr_key_rect()
+        text_color = QColor(Config.get_color("canvas_node_param_text", "#C8C8C8"))
+        painter.setPen(QPen(text_color))
+        painter.setFont(self._key_font())
+        painter.drawText(
+            key_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            self._key_text() + ":",
+        )
+        # Picker chrome
+        btn = self._hdr_picker_rect()
+        bg = QColor(Config.get_color("btn_1"))
+        if self._is_hovering(btn):
+            bg = bg.lighter(115)
+        border = QColor(Config.get_color("border_1"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(btn, 3, 3)
+        text_color = QColor(Config.get_color("main_t1"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 11)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        text_rect = btn.adjusted(8, 0, -18, 0)
+        elided = fm.elidedText(self._header_summary_text(), Qt.TextElideMode.ElideRight, text_rect.width())
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+        # ▾
+        painter.setBrush(QBrush(text_color))
+        painter.setPen(Qt.PenStyle.NoPen)
+        cx = btn.right() - 10.0
+        cy = btn.top() + btn.height() * 0.5
+        painter.drawPolygon(QPolygonF([
+            QPointF(cx, cy + 3.0),
+            QPointF(cx - 4.5, cy - 2.5),
+            QPointF(cx + 4.5, cy - 2.5),
+        ]))
+        # ⚙
+        gear = self._hdr_gear_rect()
+        gbg = QColor(Config.get_color("btn_1"))
+        if self._is_hovering(gear):
+            gbg = gbg.lighter(115)
+        painter.setBrush(QBrush(gbg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(gear, 3, 3)
+        painter.setPen(QPen(text_color))
+        gear_font = QFont(font)
+        gear_font.setBold(True)
+        painter.setFont(gear_font)
+        painter.drawText(gear, int(Qt.AlignmentFlag.AlignCenter), "⚙")
+
+    def _paint_frame(self, painter: QPainter) -> None:
+        f = self._frame_rect()
+        bg = QColor(Config.get_color("bg_1", "#1A1A1A"))
+        border = QColor(Config.get_color("border_2", "#3d3d3d"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(f, 4, 4)
+
+    def _paint_empty_text(self, painter: QPainter) -> None:
+        f = self._frame_rect()
+        muted = QColor(Config.get_color("main_c2", "#888888"))
+        painter.setPen(QPen(muted))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 11)))
+        painter.setFont(font)
+        painter.drawText(f, int(Qt.AlignmentFlag.AlignCenter), self._empty_text())
+
+    def _empty_text(self) -> str:
+        return tr("canvas.row.no_items", "(no items)")
+
+    # ---- 子类钩子 ----
+
+    def _header_summary_text(self) -> str:
+        return f"{len(self._row_payloads)} items"
+
+    def _paint_row(self, painter: QPainter, idx: int, payload: dict) -> None:
+        pass
+
+    def _row_value(self, idx: int, payload: dict) -> float:
+        return 0.0
+
+    def _row_min(self, idx: int, payload: dict) -> float:
+        return 0.0
+
+    def _row_max(self, idx: int, payload: dict) -> float:
+        return 1.0
+
+    def _row_step(self, idx: int, payload: dict):
+        return None
+
+    def _row_set_value(self, idx: int, payload: dict, v: float) -> None:
+        pass
+
+    def _on_selector_clicked(self, event: QGraphicsSceneMouseEvent) -> bool:
+        return False
+
+    def _on_modal_clicked(self, event: QGraphicsSceneMouseEvent) -> bool:
+        return False
+
+    # ---- click + drag ----
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        pos = event.pos()
+        if self._hdr_gear_rect().contains(pos):
+            return self._on_modal_clicked(event)
+        if self._hdr_picker_rect().contains(pos):
+            return self._on_selector_clicked(event)
+        for idx in range(len(self._row_payloads)):
+            if self._row_value_rect(idx).contains(pos):
+                self._open_value_popup(idx, event)
+                return True
+        return False
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        return self._handle_click(event)
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            for idx in range(len(self._row_payloads)):
+                if self._row_slider_rect(idx).contains(event.pos()):
+                    self._dragging_row = idx
+                    self._commit_drag(idx, event.pos().x())
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._dragging_row is not None:
+            self._commit_drag(self._dragging_row, event.pos().x())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        if self._dragging_row is not None:
+            self._dragging_row = None
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def _commit_drag(self, idx: int, x: float) -> None:
+        payload = self._row_payloads[idx]
+        ht = RangeSliderHitTest(
+            self._row_slider_rect(idx),
+            vmin=self._row_min(idx, payload),
+            vmax=self._row_max(idx, payload),
+            dual=False,
+        )
+        v = ht.value_at(x)
+        self._row_set_value(idx, payload, v)
+        self.update()
+
+    def _open_value_popup(self, idx: int, event: QGraphicsSceneMouseEvent) -> None:
+        payload = self._row_payloads[idx]
+        cur = self._row_value(idx, payload)
+        # 锚定到单条 row 的 value cell —— 让 DataInput 高度 = 行高，而不是
+        # 整张表的高度。
+        sub = self._row_value_rect(idx)
+        open_number_popup(
+            view=_view_of(event), row=self,
+            value=float(cur), is_int=False,
+            minimum=self._row_min(idx, payload),
+            maximum=self._row_max(idx, payload),
+            on_commit=lambda v, _i=idx, _p=payload: (
+                self._row_set_value(_i, _p, float(v)), self.update(),
+            ),
+            sub_rect=sub,
+        )
+
+    # ---- 共享 painters：value 按钮（与 RangeRow._paint_end_button 同款） ----
+
+    _VAL_BTN_PAD_X = 2  # 与 RangeRow._BTN_PAD_X 同款 fit-content padding
+
+    def _val_btn_rect(self, idx: int, text: str) -> QRectF:
+        """fit-content 风格 value 按钮：在 ``_row_value_rect`` 内右对齐 + 垂直居中.
+
+        宽度 = ``advance(text) + 2 * pad_x``；高度 = ``fm.height()``；与
+        ``RangeRow._paint_end_button`` 几何契约一致。值串过长（``-0.0001`` 等）
+        会往左侵占一点 slider gap —— 视觉上仍贴在 value 列右端，可接受。
+        """
+        cell = self._row_value_rect(idx)
+        font = self._val_btn_font()
+        fm = QFontMetricsF(font)
+        from math import ceil
+        w = float(ceil(fm.horizontalAdvance(text)) + 2 * self._VAL_BTN_PAD_X)
+        h = float(ceil(fm.height()))
+        x = cell.right() - w - 2
+        y = cell.top() + (cell.height() - h) * 0.5
+        return QRectF(x, y, w, h)
+
+    def _val_btn_font(self) -> QFont:
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        return font
+
+    def _paint_value_button(
+        self, painter: QPainter, idx: int, text: str, *, accent: bool = True,
+    ) -> QRectF:
+        """画 [value] 按钮 —— 与 ``RangeRow._paint_end_button`` 同款样式."""
+        rect = self._val_btn_rect(idx, text)
+        bg_slot = "btn_1" if accent else "btn_1"
+        bg = QColor(Config.get_color(bg_slot, "#343636"))
+        if self._is_hovering(self._row_value_rect(idx)):
+            bg = bg.lighter(110)
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(rect, 3, 3)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        painter.setFont(self._val_btn_font())
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), text)
+        return rect
+
+
+class RegistryModuleInlineRow(_InlineTableRow):
+    """``widget="registry_module"`` — DEMO ``_RegistryModuleEditor`` 内联表格.
+
+    用于 reward_terms / termination_conditions / obs_terms / disc_modules。
+    每行 ``[polarity badge | TaskModuleItem.title | NodeSlider | weight]``，
+    元数据 (title/min/max/step/polarity) 来自 ``scripts.lookup(key, kind, backend)``。
+
+    Phase-aware mode (``meta.phase_aware = true`` + ``[Canvas]
+    phase_lanes_enabled = true``):
+        Rows are grouped into Motion-Phase lanes per
+        :mod:`registers.motion_phases`. Each reward entry may carry an
+        optional ``applies_to: [phase_id, ...]`` field; terms with empty
+        or missing ``applies_to`` land in the synthetic ``Unconditional``
+        lane (applied to every phase at runtime). Empty phase lanes are
+        rendered with an "under-bound" placeholder so the user spots
+        missing coverage at editing time — this is the canvas-side half
+        of the Reward × MotionPhase isolation feature targeting the Go2
+        idle limb-flailing bug.
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        # Lane state built by ``_rebuild_lane_segments``; consumed by
+        # ``_row_rect`` / ``_compute_height`` / ``_paint_value``.
+        # Each segment: dict(
+        #     id=<phase_id_or_unconditional>, display=<str>, color_slot=<str>,
+        #     start=<int>, end=<int>,             # payload index range [start, end)
+        #     rows_y=<float>, header_y=<float>,   # paint-time geometry
+        #     placeholder=<bool>,                 # True ⇒ empty lane placeholder
+        # )
+        self._lane_segments: list = []
+        # Cached ordered list of (phase_id_or_unconditional, MotionPhase|None)
+        # rebuilt on every ``_refresh_payloads``. The synthetic
+        # ``__unconditional__`` entry is always last and only present when
+        # at least one term has empty applies_to.
+        self._phase_order: list = []
+        super().__init__(spec, owner_node, width, parent)
+        self._refresh_payloads()
+
+    def set_value(self, v):  # type: ignore[override]
+        super().set_value(v)
+        self._refresh_payloads()
+
+    def _kind(self) -> str:
+        meta = self.spec.meta or {}
+        return _kind_from_registry_id(str(meta.get("registry_id", "")))
+
+    def _backend(self) -> str:
+        return str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+
+    def _lookup_item(self, key: str):
+        try:
+            from scripts import lookup as _lookup
+            return _lookup(key, kind=self._kind(), backend=self._backend())
+        except Exception:
+            return None
+
+    def _refresh_payloads(self) -> None:
+        d = _parse_dict_value(self._value) or {}
+        payloads = []
+        applies_to_key = str((self.spec.meta or {}).get("applies_to_key", "applies_to"))
+        for key, val in d.items():
+            if isinstance(val, dict):
+                weight = val.get("weight")
+                applies_raw = val.get(applies_to_key, []) or []
+            else:
+                weight = val
+                applies_raw = []
+            try:
+                weight = float(weight if weight is not None else 0.0)
+            except (TypeError, ValueError):
+                weight = 0.0
+            if isinstance(applies_raw, str):
+                applies = [s.strip() for s in applies_raw.split(",") if s.strip()]
+            elif isinstance(applies_raw, (list, tuple)):
+                applies = [str(s).strip() for s in applies_raw if str(s).strip()]
+            else:
+                applies = []
+            payloads.append({
+                "key": key,
+                "weight": weight,
+                "item": self._lookup_item(key),
+                "meta": val if isinstance(val, dict) else {},
+                "applies_to": applies,
+            })
+        if self._is_phase_aware():
+            payloads = self._sort_payloads_by_phase(payloads)
+        self._row_payloads = payloads
+        if self._is_phase_aware():
+            self._rebuild_lane_segments()
+        else:
+            self._lane_segments = []
+            self._phase_order = []
+        self._set_height(self._compute_height())
+
+    # ------------------------------------------------------------------
+    # Phase-aware helpers
+    # ------------------------------------------------------------------
+
+    def _is_phase_aware(self) -> bool:
+        """Phase Lane visualization is enabled.
+
+        Three gates must all pass: the param meta opts in via
+        ``phase_aware = true``, the global ``[Canvas] phase_lanes_enabled``
+        feature flag is on, and the registers.motion_phases registry was
+        loadable. Any failure path falls back to the flat-tile layout so
+        legacy canvases keep rendering.
+        """
+        meta = self.spec.meta or {}
+        if not bool(meta.get("phase_aware", False)):
+            return False
+        try:
+            from unitport_sdk import Config as _Cfg
+            enabled = _Cfg.get_value("Canvas", "phase_lanes_enabled", True, value_type=bool)
+        except Exception:
+            enabled = True
+        if not enabled:
+            return False
+        try:
+            from registers import motion_phases as _mp
+            return bool(_mp.list_ids())
+        except Exception:
+            return False
+
+    def _phase_layout_for_node(self) -> list:
+        """Resolve the phase entries this row should render with.
+
+        Order of precedence:
+            1. Per-canvas ``phase_layout`` parameter on the owner node
+               (JSON list of phase dicts) — usually empty.
+            2. Default factory phases from :mod:`registers.motion_phases`.
+
+        Returns a list of dicts with at least ``id``, ``display_name``,
+        ``theme_slot``, ``polarity_required``. Never raises — fall back
+        to an empty list on any error so the caller can degrade.
+        """
+        owner_params = getattr(self._owner, "params", {}) or {}
+        raw = owner_params.get("phase_layout", None)
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw) if raw.strip() else []
+            except Exception:
+                raw = []
+        if isinstance(raw, list) and raw:
+            out = []
+            for entry in raw:
+                if not isinstance(entry, dict) or "id" not in entry:
+                    continue
+                out.append({
+                    "id": str(entry["id"]),
+                    "display_name": str(entry.get("display_name") or entry["id"]),
+                    "theme_slot": str(entry.get("theme_slot") or "main_c2"),
+                    "polarity_required": str(entry.get("polarity_required") or "any"),
+                })
+            if out:
+                return out
+        try:
+            from registers import motion_phases as _mp
+            return [
+                {
+                    "id": p.id,
+                    "display_name": p.display_name_default,
+                    "theme_slot": p.theme_slot,
+                    "polarity_required": p.polarity_required,
+                }
+                for p in _mp.list_phases()
+            ]
+        except Exception:
+            return []
+
+    def _sort_payloads_by_phase(self, payloads: list) -> list:
+        """Stable-sort reward payloads so phase lanes group contiguously.
+
+        Within a lane the original insertion order is preserved.
+        Unconditional terms (empty applies_to) land last in the synthetic
+        ``__unconditional__`` lane.
+        """
+        layout = self._phase_layout_for_node()
+        order: dict = {entry["id"]: idx for idx, entry in enumerate(layout)}
+        order[_PHASE_UNCONDITIONAL] = len(layout)
+
+        def _bucket(payload: dict) -> int:
+            applies = payload.get("applies_to") or []
+            if not applies:
+                return order[_PHASE_UNCONDITIONAL]
+            # Use the term's first declared phase that exists in the
+            # layout — that defines which lane it visually lives in.
+            for pid in applies:
+                if pid in order:
+                    return order[pid]
+            # No declared phase matches the layout → group with the
+            # unconditional bucket so it still renders (the lane header
+            # paints an "unmapped" warning chip for these entries).
+            return order[_PHASE_UNCONDITIONAL]
+
+        indexed = list(enumerate(payloads))
+        indexed.sort(key=lambda pair: (_bucket(pair[1]), pair[0]))
+        return [pair[1] for pair in indexed]
+
+    def _rebuild_lane_segments(self) -> None:
+        """Compute lane segments + assign paint-time y offsets.
+
+        Called from ``_refresh_payloads`` after ``_sort_payloads_by_phase``
+        leaves ``_row_payloads`` contiguously grouped. Empty lanes get a
+        ``placeholder_kind`` field:
+
+        * ``"uncovered"`` — no phase-specific reward AND no unconditional
+          reward. Lane renders a warning-coloured dashed box: this is
+          the under-constrained / Go2 limb-flailing pattern.
+        * ``"covered"``   — no phase-specific reward, but at least one
+          reward has empty applies_to (Unconditional). Lane renders a
+          muted "Covered by Unconditional" pill — informational only,
+          since the unconditional rewards apply to every phase at runtime.
+        * ``""``           — lane has phase-specific members (normal rows).
+        """
+        layout = self._phase_layout_for_node()
+        layout_ids = [entry["id"] for entry in layout]
+        # First pass: bucket payloads by phase id (without geometry yet).
+        buckets: Dict[str, List[int]] = {pid: [] for pid in layout_ids}
+        buckets[_PHASE_UNCONDITIONAL] = []
+        for i, payload in enumerate(self._row_payloads):
+            applies = payload.get("applies_to") or []
+            target = _PHASE_UNCONDITIONAL
+            if applies:
+                for pid in applies:
+                    if pid in buckets:
+                        target = pid
+                        break
+                else:
+                    target = _PHASE_UNCONDITIONAL  # explicit fallback
+            buckets[target].append(i)
+
+        has_unconditional = bool(buckets.get(_PHASE_UNCONDITIONAL))
+
+        segments: list = []
+        cursor = 0
+        for entry in layout:
+            pid = entry["id"]
+            members = buckets.get(pid, [])
+            placeholder = len(members) == 0
+            if not placeholder:
+                placeholder_kind = ""
+            elif has_unconditional:
+                placeholder_kind = "covered"
+            else:
+                placeholder_kind = "uncovered"
+            segments.append({
+                "id": pid,
+                "display": entry["display_name"],
+                "color_slot": entry["theme_slot"],
+                "polarity_required": entry["polarity_required"],
+                "start": cursor,
+                "end": cursor + len(members),
+                "placeholder": placeholder,
+                "placeholder_kind": placeholder_kind,
+            })
+            cursor += len(members)
+        # Always emit the Unconditional lane when it has members so the user
+        # can see what stays globally on; omit it when empty (no need to
+        # advertise an empty bucket below the real phases).
+        uncond_members = buckets.get(_PHASE_UNCONDITIONAL, [])
+        if uncond_members:
+            segments.append({
+                "id": _PHASE_UNCONDITIONAL,
+                "display": "Unconditional",
+                "color_slot": "main_c2",
+                "polarity_required": "any",
+                "start": cursor,
+                "end": cursor + len(uncond_members),
+                "placeholder": False,
+                "placeholder_kind": "",
+            })
+            cursor += len(uncond_members)
+
+        # Second pass: paint-time y geometry. The frame's top-edge is at
+        # ``_frame_rect().top() + _INL_FRAME_PAD``; for each segment, lay
+        # down a lane header then either the row span or the placeholder
+        # (uncovered = full warning box, covered = small italic hint),
+        # with no extra padding between segments (the lane header itself
+        # provides visual breathing room).
+        y = 0.0
+        for seg in segments:
+            seg["header_y"] = y
+            y += _INL_LANE_HDR_H
+            seg["rows_y"] = y
+            if seg["placeholder"]:
+                kind = seg.get("placeholder_kind", "uncovered")
+                y += _INL_LANE_COVERED_H if kind == "covered" else _INL_LANE_EMPTY_H
+            else:
+                y += (seg["end"] - seg["start"]) * _INL_ROW_H
+        self._lane_segments = segments
+        self._phase_order = [seg["id"] for seg in segments]
+
+    def _header_summary_text(self) -> str:
+        n = len(self._row_payloads)
+        return f"{n} items" if n else "—"
+
+    # ------------------------------------------------------------------
+    # Phase-aware geometry + paint overrides
+    # ------------------------------------------------------------------
+
+    def _compute_height(self) -> int:
+        if not self._is_phase_aware() or not self._lane_segments:
+            return super()._compute_height()
+        body = _INL_FRAME_PAD * 2
+        for seg in self._lane_segments:
+            body += _INL_LANE_HDR_H
+            if seg["placeholder"]:
+                kind = seg.get("placeholder_kind", "uncovered")
+                body += _INL_LANE_COVERED_H if kind == "covered" else _INL_LANE_EMPTY_H
+            else:
+                body += (seg["end"] - seg["start"]) * _INL_ROW_H
+        return _INL_HDR_TOP_PAD + _INL_HDR_H + _INL_HDR_BOT_PAD + body + 2
+
+    def _row_rect(self, idx: int) -> QRectF:
+        if not self._is_phase_aware() or not self._lane_segments:
+            return super()._row_rect(idx)
+        f = self._frame_rect()
+        for seg in self._lane_segments:
+            if seg["placeholder"]:
+                continue
+            if seg["start"] <= idx < seg["end"]:
+                local = idx - seg["start"]
+                y = f.top() + _INL_FRAME_PAD + seg["rows_y"] + local * _INL_ROW_H
+                return QRectF(
+                    f.left() + _INL_FRAME_PAD, y,
+                    f.width() - _INL_FRAME_PAD * 2, _INL_ROW_H,
+                )
+        # idx is past the last segment (shouldn't happen) — degrade safely.
+        return super()._row_rect(idx)
+
+    def _lane_header_rect(self, seg: dict) -> QRectF:
+        f = self._frame_rect()
+        y = f.top() + _INL_FRAME_PAD + seg["header_y"]
+        return QRectF(
+            f.left() + _INL_FRAME_PAD, y,
+            f.width() - _INL_FRAME_PAD * 2, float(_INL_LANE_HDR_H),
+        )
+
+    def _lane_placeholder_rect(self, seg: dict) -> QRectF:
+        f = self._frame_rect()
+        y = f.top() + _INL_FRAME_PAD + seg["rows_y"]
+        kind = seg.get("placeholder_kind", "uncovered")
+        if kind == "covered":
+            return QRectF(
+                f.left() + _INL_FRAME_PAD + 8 + _INL_LANE_BAR_W + 8,
+                y,
+                f.width() - _INL_FRAME_PAD * 2 - 16 - _INL_LANE_BAR_W - 8,
+                float(_INL_LANE_COVERED_H),
+            )
+        return QRectF(
+            f.left() + _INL_FRAME_PAD + 8, y + 3,
+            f.width() - _INL_FRAME_PAD * 2 - 16, float(_INL_LANE_EMPTY_H) - 6,
+        )
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        if not self._is_phase_aware() or not self._lane_segments:
+            super()._paint_value(painter, tier)
+            return
+        self._paint_header(painter)
+        self._paint_frame(painter)
+        self._paint_phase_lanes(painter)
+        for idx, payload in enumerate(self._row_payloads):
+            try:
+                self._paint_row(painter, idx, payload)
+                self._paint_row_phase_button(painter, idx, payload)
+            except Exception:
+                pass
+        self._paint_row_separators_phase(painter)
+
+    # ------------------------------------------------------------------
+    # Phase-aware geometry: shrink slider to make room for the phase
+    # chip button (slider right edge = chip-button left edge − gap).
+    # ------------------------------------------------------------------
+
+    def _row_slider_rect(self, idx: int) -> QRectF:
+        base = super()._row_slider_rect(idx)
+        if not self._is_phase_aware():
+            return base
+        new_w = max(
+            20.0,
+            base.width() - (float(_INL_PHASE_BTN_W) + float(_INL_PHASE_BTN_GAP)),
+        )
+        return QRectF(base.left(), base.top(), new_w, base.height())
+
+    def _row_phase_btn_rect(self, idx: int) -> QRectF:
+        """Phase-summary chip button at the right end of a reward row.
+
+        Positioned in the gap between the slider (now shorter — see
+        ``_row_slider_rect``) and the value button. Single hit target
+        for opening the phase multi-select popup.
+        """
+        r = self._row_rect(idx)
+        val = self._row_value_rect(idx)
+        x_right = val.left() - float(_INL_PHASE_BTN_GAP)
+        x_left = x_right - float(_INL_PHASE_BTN_W)
+        y = r.top() + (r.height() - float(_INL_CHIP_H)) * 0.5
+        return QRectF(x_left, y, float(_INL_PHASE_BTN_W), float(_INL_CHIP_H))
+
+    def _paint_phase_lanes(self, painter: QPainter) -> None:
+        """Paint lane headers + empty-lane placeholders.
+
+        Each header is a thin band with a left color bar (slot from
+        :func:`_phase_layout_for_node`) and the phase's display name.
+        Empty lanes draw a dashed rectangle + "no reward — under-bound"
+        message styled with ``canvas_safety_warning`` to flag the Go2
+        idle-limb-flailing pattern at editing time.
+        """
+        if not self._lane_segments:
+            return
+        title_font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        title_font.setPixelSize(int(Config.get_font_size("size_small", 11)))
+        title_font.setBold(True)
+        body_font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        body_font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        body_font.setItalic(True)
+        title_text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        warn_color = QColor(Config.get_color("canvas_safety_warning", "#F59E0B"))
+
+        for seg in self._lane_segments:
+            header_rect = self._lane_header_rect(seg)
+            # 1. Left color bar (4 px wide) — phase identity at a glance.
+            bar_color = QColor(Config.get_color(seg["color_slot"], "#999999"))
+            painter.setBrush(QBrush(bar_color))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(
+                QRectF(
+                    header_rect.left(), header_rect.top() + 4,
+                    float(_INL_LANE_BAR_W), header_rect.height() - 8,
+                ),
+                1.5, 1.5,
+            )
+            # 2. Header label (display name).
+            painter.setPen(QPen(title_text_color))
+            painter.setFont(title_font)
+            label_rect = QRectF(
+                header_rect.left() + _INL_LANE_BAR_W + 8,
+                header_rect.top(),
+                header_rect.width() - _INL_LANE_BAR_W - 8,
+                header_rect.height(),
+            )
+            painter.drawText(
+                label_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                seg["display"],
+            )
+            # 3. Empty-lane placeholder — two kinds:
+            #    * "uncovered": no specific AND no unconditional reward.
+            #      Warning-coloured dashed box — the Go2 limb-flailing
+            #      pattern; the user MUST address it.
+            #    * "covered":   no specific reward, but unconditional
+            #      rewards exist. They apply to every phase at runtime,
+            #      so this is informational only — render a small muted
+            #      "Covered by Unconditional" hint, no warning frame.
+            if seg["placeholder"]:
+                kind = seg.get("placeholder_kind", "uncovered")
+                ph = self._lane_placeholder_rect(seg)
+                if kind == "covered":
+                    muted = QColor(Config.get_color("canvas_node_param_text", "#9CA3AF"))
+                    painter.setPen(QPen(muted))
+                    painter.setFont(body_font)
+                    msg = tr(
+                        "node.rewards.covered_lane",
+                        "covered by Unconditional",
+                    )
+                    fm = QFontMetricsF(body_font)
+                    elided = fm.elidedText(
+                        msg, Qt.TextElideMode.ElideRight, ph.width() - 8,
+                    )
+                    painter.drawText(
+                        ph,
+                        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                        elided,
+                    )
+                else:
+                    dash_pen = QPen(warn_color, 1.0)
+                    dash_pen.setStyle(Qt.PenStyle.DashLine)
+                    painter.setPen(dash_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawRoundedRect(ph, 3, 3)
+                    painter.setPen(QPen(warn_color))
+                    painter.setFont(body_font)
+                    empty_msg = tr(
+                        "node.rewards.empty_lane",
+                        "no reward — phase under-constrained",
+                    )
+                    fm = QFontMetricsF(body_font)
+                    elided = fm.elidedText(
+                        empty_msg, Qt.TextElideMode.ElideRight, ph.width() - 8,
+                    )
+                    painter.drawText(
+                        ph,
+                        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+                        elided,
+                    )
+
+    def _paint_row_separators_phase(self, painter: QPainter) -> None:
+        """Like the base separator pass, but never crosses a lane boundary."""
+        n = len(self._row_payloads)
+        if n < 2 or not self._lane_segments:
+            return
+        sep = QColor(Config.get_color("border_1", "#444444"))
+        sep.setAlpha(140)
+        painter.setPen(QPen(sep, 0.6))
+        f = self._frame_rect()
+        x_l = f.left() + _INL_FRAME_PAD + 4
+        x_r = f.right() - _INL_FRAME_PAD - 4
+        for seg in self._lane_segments:
+            if seg["placeholder"]:
+                continue
+            for i in range(seg["start"] + 1, seg["end"]):
+                r = self._row_rect(i)
+                y = r.top()
+                painter.drawLine(QPointF(x_l, y), QPointF(x_r, y))
+
+    def _phase_button_summary(self, applies: List[str]) -> tuple:
+        """Compute the chip label + bg color for a row's applies_to value.
+
+        Mapping (single source of truth for both paint and tooltip):
+            []                              -> ("All",  canvas_phase_global)
+            ["static"]                      -> ("S",    canvas_phase_static)
+            ["locomotion"]                  -> ("L",    canvas_phase_locomotion)
+            ["agile"]                       -> ("A",    canvas_phase_agile)
+            ["static", "locomotion"]        -> ("S+L",  canvas_phase_chip_bg)
+            ["locomotion", "agile"]         -> ("L+A",  canvas_phase_chip_bg)
+            three or more                   -> ("3 ph", canvas_phase_chip_bg)
+            any unmapped phase id           -> ("!?",   canvas_phase_unmapped)
+        """
+        layout = self._phase_layout_for_node()
+        layout_ids = [entry["id"] for entry in layout]
+        layout_set = set(layout_ids)
+        slot_by_id = {entry["id"]: entry["theme_slot"] for entry in layout}
+        if not applies:
+            return ("All", "main_c2")
+        unmapped = [pid for pid in applies if pid not in layout_set]
+        if unmapped:
+            return ("!?", "canvas_phase_unmapped")
+        mapped = [pid for pid in applies if pid in layout_set]
+        if len(mapped) == 1:
+            pid = mapped[0]
+            initial = pid[:1].upper() if pid else "?"
+            return (initial, slot_by_id.get(pid, "btn_1"))
+        if len(mapped) == 2:
+            # Keep the canonical phase order from the layout so "S+L" and
+            # "L+S" never both appear for the same selection.
+            ordered = [pid for pid in layout_ids if pid in mapped]
+            label = "+".join(p[:1].upper() for p in ordered)
+            return (label, "btn_1")
+        return (f"{len(mapped)} ph", "btn_1")
+
+    def _paint_row_phase_button(self, painter: QPainter, idx: int, payload: dict) -> None:
+        """Always-visible clickable chip showing the row's applies_to summary.
+
+        Single click on this rect opens the phase multi-select popup.
+        The chip is the only visible affordance for re-assigning a
+        reward term across phases — without it, the user can see the
+        lane grouping but has no way to move terms between lanes.
+        """
+        applies: List[str] = list(payload.get("applies_to") or [])
+        label, slot = self._phase_button_summary(applies)
+        rect = self._row_phase_btn_rect(idx)
+        bg = QColor(Config.get_color(slot, "#343636"))
+        if self._is_hovering(rect):
+            bg = bg.lighter(125)
+        fg = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 0.8))
+        painter.drawRoundedRect(rect, 3, 3)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(fg))
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), label)
+
+    def _interactive_regions(self) -> List[QRectF]:  # type: ignore[override]
+        regions = super()._interactive_regions()
+        if self._is_phase_aware():
+            for i in range(len(self._row_payloads)):
+                regions.append(self._row_phase_btn_rect(i))
+        return regions
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
+        # Phase-aware: a click on the row's phase chip button opens the
+        # multi-select popup *before* the base class hits its slider
+        # drag detection. Drop straight through to ``super()`` outside
+        # phase-aware mode.
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._is_phase_aware()
+        ):
+            for idx in range(len(self._row_payloads)):
+                if self._row_phase_btn_rect(idx).contains(event.pos()):
+                    self._open_phase_selector_popup(idx, event)
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
+    def _open_phase_selector_popup(
+        self, idx: int, event: QGraphicsSceneMouseEvent
+    ) -> None:
+        """Open a multi-select popup of phase ids for one reward row.
+
+        The popup lists every phase in the active phase layout. Toggling
+        rewrites the row's ``applies_to`` field — empty selection = ``[]``
+        (Unconditional). On commit the underlying dict is re-serialized
+        through the same setter the slider drag uses, so undo + canvas
+        invalidation work the same way as a weight change.
+        """
+        payload = self._row_payloads[idx]
+        layout = self._phase_layout_for_node()
+        if not layout:
+            return  # No phases registered — popup would be empty; skip.
+        choices = [entry["id"] for entry in layout]
+        labels = {
+            entry["id"]: f"{entry['display_name']}"
+            for entry in layout
+        }
+        descriptions = {
+            entry["id"]: tr(
+                f"motion.phase.{entry['id']}.desc",
+                f"Apply this reward only when the active task item maps to the "
+                f"{entry['display_name']!r} phase.",
+            )
+            for entry in layout
+        }
+        meta_map = {
+            pid: {"title": labels[pid], "description": descriptions[pid]}
+            for pid in choices
+        }
+        current = list(payload.get("applies_to") or [])
+
+        def _on_pick(selected_ids):
+            sel = selected_ids if isinstance(selected_ids, list) else (
+                [selected_ids] if selected_ids else []
+            )
+            # Preserve the canonical layout order so undo diffs stay
+            # readable ("static, locomotion" rather than user click order).
+            ordered = [pid for pid in choices if pid in sel]
+            self._set_applies_to(idx, payload, ordered)
+
+        open_choice_popup(
+            view=_view_of(event), row=self,
+            choices=choices, current=current,
+            multi=True, leading_mode="checkbox",
+            meta_map=meta_map,
+            on_commit=_on_pick,
+        )
+
+    def _set_applies_to(
+        self, idx: int, payload: dict, applies: List[str]
+    ) -> None:
+        """Write ``applies_to`` back into the reward_terms dict + reflow.
+
+        Mirrors the structure of ``_row_set_value`` (weight commit) so
+        the rest of the row machinery — Coverage Badge re-evaluation,
+        edge invalidation, undo wiring — picks the change up via the
+        single ``set_value`` entrypoint.
+        """
+        payload["applies_to"] = list(applies)
+        d = _parse_dict_value(self._value) or {}
+        cur = d.get(payload["key"])
+        if isinstance(cur, dict):
+            cur = dict(cur)
+        else:
+            # Legacy flat weight — upgrade to dict shape so applies_to
+            # can be carried alongside.
+            cur = {"weight": float(payload.get("weight", 0.0) or 0.0)}
+        cur["applies_to"] = list(applies)
+        d[payload["key"]] = cur
+        self.set_value(_serialize_for_spec(self.spec, d))
+
+    def _row_value(self, idx, payload):
+        return float(payload.get("weight", 0.0))
+
+    def _row_min(self, idx, payload):
+        item = payload.get("item")
+        if item is not None:
+            return float(getattr(item, "min_value", 0.0))
+        return -10.0
+
+    def _row_max(self, idx, payload):
+        item = payload.get("item")
+        if item is not None:
+            return float(getattr(item, "max_value", 1.0))
+        return 10.0
+
+    def _row_step(self, idx, payload):
+        item = payload.get("item")
+        if item is not None:
+            s = float(getattr(item, "step", 0.0) or 0.0)
+            return s if s > 0 else None
+        return None
+
+    def _row_set_value(self, idx, payload, v):
+        v = float(v)
+        step = self._row_step(idx, payload)
+        if step is not None and step > 0:
+            v = round(v / step) * step
+        payload["weight"] = v
+        d = _parse_dict_value(self._value) or {}
+        cur = d.get(payload["key"])
+        if isinstance(cur, dict):
+            cur["weight"] = v
+        else:
+            d[payload["key"]] = v
+        self.set_value(_serialize_for_spec(self.spec, d))
+
+    def _paint_row(self, painter, idx, payload):
+        kind = self._kind()
+        item = payload.get("item")
+
+        # Badge — 永远画极性圆点：reward kind 默认绿；termination 用 penalty 橙；
+        # 其它 kind 用 neutral。即便 scripts.lookup 没拿到 TaskModuleItem
+        # 也保持视觉一致，不再退化为序号。
+        badge_rect = self._row_badge_rect(idx)
+        if kind == "reward":
+            polarity = str(getattr(item, "polarity", "reward") or "reward")
+            badge_kind = polarity if polarity in (
+                "reward", "penalty", "bidirectional", "neutral"
+            ) else "reward"
+        elif kind == "termination":
+            badge_kind = "penalty"
+        else:
+            badge_kind = "neutral"
+        try:
+            draw_polarity_badge(painter, badge_rect, kind=badge_kind)
+        except Exception:
+            pass
+
+        # Name —— 解析顺序：items dict 覆写 title > 注册表 title > dict key。
+        # 这保证 Canvas 行、外部 picker、Editor 三处显示同一个 human-readable
+        # 标签；只有 TaskModuleItem 不存在且 dict 没覆写时才退化到 id。
+        name_rect = self._row_name_rect(idx)
+        title = ""
+        row_meta = payload.get("meta") or {}
+        if isinstance(row_meta, dict):
+            title = str(row_meta.get("title", "") or "").strip()
+        if not title and item is not None:
+            title = str(getattr(item, "title", "") or "").strip()
+        if not title:
+            title = payload["key"]
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 11)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        elided = fm.elidedText(str(title), Qt.TextElideMode.ElideRight, name_rect.width())
+        painter.drawText(
+            name_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), elided,
+        )
+
+        # Slider —— curve-aware. The SDK ``draw_range_slider`` is strictly
+        # linear in [vmin, vmax], so we pre-warp ``weight`` into a normalized
+        # position via :func:`_slider_value_to_pos` and tell the SDK we are
+        # drawing in [0, 1] space. The on-screen value-button still renders
+        # the *true* weight, only the handle's horizontal placement is
+        # warped per the per-row sign of [vmin, vmax].
+        slider_rect = self._row_slider_rect(idx)
+        weight = payload["weight"]
+        vmin = self._row_min(idx, payload)
+        vmax = self._row_max(idx, payload)
+        pos = _slider_value_to_pos(weight, vmin, vmax)
+        try:
+            draw_range_slider(
+                painter, slider_rect,
+                lo=pos,
+                vmin=0.0,
+                vmax=1.0,
+                dual=False,
+                hover_handle=("lo" if self._is_hovering(slider_rect) else None),
+            )
+        except Exception:
+            pass
+
+        # Value 按钮 —— 与 RangeRow 端点按钮同款
+        if abs(weight) >= 1000 or (weight != 0 and abs(weight) < 0.01):
+            text = f"{weight:.2e}"
+        else:
+            text = f"{weight:.3f}"
+        self._paint_value_button(painter, idx, text, accent=True)
+
+    def _commit_drag(self, idx: int, x: float) -> None:  # type: ignore[override]
+        """Curve-aware drag commit — mirrors the warping done in ``_paint_row``.
+
+        The base class implementation feeds ``x`` straight through a linear
+        ``RangeSliderHitTest`` over [vmin, vmax]. Here we hit-test against
+        the normalized [0, 1] slider space (matching what we drew), then
+        un-warp the resulting position into the true value via
+        :func:`_slider_pos_to_value`. Step quantisation still runs in
+        :meth:`_row_set_value` so coarse-step rows (``joint_limit_violation``
+        step=1, etc.) snap as before.
+        """
+        payload = self._row_payloads[idx]
+        vmin = self._row_min(idx, payload)
+        vmax = self._row_max(idx, payload)
+        ht = RangeSliderHitTest(
+            self._row_slider_rect(idx),
+            vmin=0.0, vmax=1.0,
+            dual=False,
+        )
+        pos = ht.value_at(x)
+        v = _slider_pos_to_value(pos, vmin, vmax)
+        self._row_set_value(idx, payload, v)
+        self.update()
+
+    def _on_selector_clicked(self, event) -> bool:
+        try:
+            from scripts.query import query_registry
+            registry = query_registry(kind=self._kind(), backend=self._backend())
+        except Exception:
+            return False
+        if not registry:
+            return False
+        d = _parse_dict_value(self._value) or {}
+        # popup 卡片标题用 TaskModuleItem.title，desc 当副标题 —— 与 Canvas 行
+        # 和 Editor 列表的标签规则一致。
+        meta_map: dict = {}
+        for k, v in registry.items():
+            label = str(getattr(v, "title", "") or "").strip() or k
+            meta_map[k] = {
+                "title": label,
+                "description": str(getattr(v, "desc", "") or ""),
+            }
+        # A-Z 排序：用户在大量奖励/观测条目里找项时，按显示 title 字母排序
+        # 显著加快查找；用 casefold 做 locale-agnostic 大小写折叠，相同 title
+        # fallback 到 key 保稳定。
+        choices = sorted(
+            registry.keys(),
+            key=lambda k: (meta_map[k]["title"].casefold(), k),
+        )
+        current = list(d.keys())
+
+        def _on_pick(selected):
+            sel_list = selected if isinstance(selected, list) else (
+                [selected] if selected else []
+            )
+            new_d: dict = {}
+            for k in sel_list:
+                if k in d:
+                    new_d[k] = d[k]
+                else:
+                    item = registry.get(k)
+                    new_d[k] = float(getattr(item, "default", 1.0)) if item is not None else 1.0
+            self.set_value(_serialize_for_spec(self.spec, new_d))
+
+        open_choice_popup(
+            view=_view_of(event), row=self,
+            choices=choices, current=current,
+            multi=True, leading_mode="checkbox",
+            meta_map=meta_map,
+            on_commit=_on_pick,
+        )
+        return True
+
+    def _on_modal_clicked(self, event) -> bool:
+        from application.ui.dialogs import open_reward_function_editor
+
+        meta = self.spec.meta or {}
+        backend = self._backend()
+        if backend == "isaac_lab":
+            registry_id = str(meta.get("registry_id_il") or meta.get("registry_id") or self.spec.key)
+        else:
+            registry_id = str(meta.get("registry_id") or self.spec.key)
+        items = _parse_dict_value(self._value)
+        result = open_reward_function_editor(
+            _view_of(event), dict(items),
+            registry_id=registry_id, kind=self._kind(),
+            canvas_backend=backend,
+        )
+        if result is not None:
+            self.set_value(_serialize_for_spec(self.spec, result))
+        return True
+
+    def maybe_refresh_for_asset_change(self) -> None:
+        # Rebuild on canvas backend swap or sibling param change.
+        self._refresh_payloads()
+        self.update()
+
+
+class TrainingItemsInlineRow(_InlineTableRow):
+    """``widget="training_items"`` — DEMO ``_TrainingItemEditor`` 内联表格.
+
+    每行 ``[clip indicator | item_id | smax slider | smax]``。Items dict 形如
+    ``{item_id: {"enabled": bool, "speed": [lo, hi], "clip": str|None, "advanced": dict}}``，
+    smax 在 [0, 1.5] 区间，step=0.05 —— 与 DEMO 完全一致。
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._refresh_payloads()
+
+    def set_value(self, v):  # type: ignore[override]
+        super().set_value(v)
+        self._refresh_payloads()
+
+    def _refresh_payloads(self) -> None:
+        # 仅显示 ``enabled=True`` 的 item —— 用户明确要求"checked 的 item 才在
+        # 表格中显示"。被取消勾选的 item 仍在 dict 中保留 ``enabled=False``，
+        # 但不进 row payload 列表。
+        d = _parse_dict_value(self._value) or {}
+        payloads = []
+        for item_id, entry in d.items():
+            if not isinstance(entry, dict):
+                entry = {"enabled": True, "speed": [0.0, float(entry or 1.0)],
+                         "clip": None, "advanced": {}}
+            if not bool(entry.get("enabled", True)):
+                continue
+            speed = entry.get("speed") or [0.0, 1.0]
+            try:
+                smax = float(speed[1]) if len(speed) >= 2 else 1.0
+            except (TypeError, ValueError):
+                smax = 1.0
+            smax = max(0.0, min(1.5, smax))
+            payloads.append({
+                "key": item_id,
+                "smax": smax,
+                "has_clip": bool(entry.get("clip")),
+                "enabled": True,
+                "entry": entry,
+            })
+        self._row_payloads = payloads
+        self._set_height(self._compute_height())
+
+    def _header_summary_text(self) -> str:
+        n = len(self._row_payloads)
+        if n == 0:
+            return "—"
+        enabled = sum(1 for p in self._row_payloads if p.get("enabled", True))
+        return f"{enabled}/{n} enabled"
+
+    def iter_inline_port_anchors(self):
+        """One ``reward_pipe`` input port per enabled training item.
+
+        Anchor = centre of the row's leading badge slot (formerly the clip
+        indicator). Returned in row-local coordinates — NodeItem translates
+        to node-local during layout. The PortSpec name is built from
+        ``training_motion.reward_port_name(item_id)`` so the canvas, the
+        IR loader, and the training-spec compiler agree on the key.
+        """
+        from application.compiler.nodes import PortSpec
+        from nodes.training_motion.node import reward_port_name
+
+        for idx, payload in enumerate(self._row_payloads):
+            item_id = str(payload.get("key", "") or "")
+            if not item_id:
+                continue
+            badge = self._row_badge_rect(idx)
+            anchor = QPointF(badge.left(), badge.top() + badge.height() * 0.5)
+            spec = PortSpec(
+                name=reward_port_name(item_id),
+                type="reward_pipe",
+                optional=True,
+                description=f"Per-item reward feed for '{item_id}'",
+            )
+            yield spec, anchor
+
+    def _row_value(self, idx, payload):
+        return float(payload.get("smax", 1.0))
+
+    def _row_min(self, idx, payload):
+        return 0.0
+
+    def _row_max(self, idx, payload):
+        return 1.5
+
+    def _row_step(self, idx, payload):
+        return 0.05
+
+    def _row_set_value(self, idx, payload, v):
+        v = max(0.0, min(1.5, float(v)))
+        v = round(v / 0.05) * 0.05
+        payload["smax"] = v
+        d = _parse_dict_value(self._value) or {}
+        cur = d.get(payload["key"])
+        if isinstance(cur, dict):
+            speed = list(cur.get("speed") or [0.0, 1.0])
+            lo = float(speed[0]) if speed else 0.0
+            if lo > v:
+                lo = v
+            cur["speed"] = [lo, v]
+        else:
+            d[payload["key"]] = {"enabled": True, "speed": [0.0, v], "clip": None, "advanced": {}}
+        self.set_value(_serialize_for_spec(self.spec, d))
+
+    def _paint_row(self, painter, idx, payload):
+        # v2: the legacy circular clip indicator was removed to free up the
+        # row-leading anchor for a per-item ``reward_pipe`` input port (the
+        # PortItem is laid out by NodeItem against ``_row_badge_rect(idx)``).
+        # Clip-bound state now drives the item name color instead: bound →
+        # theme_2 (the "reference highlight" accent), unbound → normal text.
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        # Name color: enabled+clip-bound → theme_2 reference highlight;
+        # enabled+unbound → default title color; disabled → dim main_c2.
+        name_rect = self._row_name_rect(idx)
+        if not payload.get("enabled", True):
+            text_color = QColor(Config.get_color("main_c2"))
+        elif payload.get("has_clip"):
+            text_color = QColor(Config.get_color("theme_2"))
+        else:
+            text_color = QColor(Config.get_color("main_t1"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 11)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        elided = fm.elidedText(str(payload["key"]), Qt.TextElideMode.ElideRight, name_rect.width())
+        painter.drawText(
+            name_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), elided,
+        )
+
+        # Slider for smax —— SDK 共享 ``draw_range_slider``
+        slider_rect = self._row_slider_rect(idx)
+        smax = payload["smax"]
+        try:
+            draw_range_slider(
+                painter, slider_rect,
+                lo=smax, vmin=0.0, vmax=1.5, dual=False,
+                hover_handle=("lo" if self._is_hovering(slider_rect) else None),
+            )
+        except Exception:
+            pass
+
+        # Value 按钮 —— 与 RangeRow 端点按钮同款
+        self._paint_value_button(painter, idx, f"{smax:.2f}", accent=True)
+
+    def _on_selector_clicked(self, event) -> bool:
+        # Multi-toggle the existing item_ids on/off (DEMO selector for training items
+        # gates each known item by checkbox; real registry of training_items lives in
+        # scripts.training_motion.library, not exposed here yet — fall back to
+        # toggling the entries currently in the dict).
+        d = _parse_dict_value(self._value) or {}
+        if not d:
+            return False
+        # A-Z 排序——和 RegistryModuleInlineRow 的 picker 行为对齐，便于查找。
+        choices = sorted(d.keys(), key=lambda k: str(k).casefold())
+        current = [k for k, v in d.items() if isinstance(v, dict) and v.get("enabled", True)]
+
+        def _on_pick(selected):
+            sel = selected if isinstance(selected, list) else ([selected] if selected else [])
+            sel_set = set(sel)
+            new_d = dict(d)
+            for k, v in new_d.items():
+                if isinstance(v, dict):
+                    v["enabled"] = (k in sel_set)
+            self.set_value(_serialize_for_spec(self.spec, new_d))
+
+        open_choice_popup(
+            view=_view_of(event), row=self,
+            choices=choices, current=current,
+            multi=True, leading_mode="checkbox",
+            on_commit=_on_pick,
+        )
+        return True
+
+    def _on_modal_clicked(self, event) -> bool:
+        from application.ui.dialogs import open_training_motion_editor
+
+        items = _parse_dict_value(self._value)
+        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        result = open_training_motion_editor(
+            _view_of(event), dict(items), canvas_backend=backend,
+        )
+        if result is not None:
+            self.set_value(_serialize_for_spec(self.spec, result))
+        return True
+
+    def maybe_refresh_for_asset_change(self) -> None:
+        self._refresh_payloads()
+        self.update()
+
+
+# =============================================================================
+# Export node — DEMO §1 / §2 / §3 widgets
+# =============================================================================
+#
+# DEMO 对应 (training_node_items.py 行号见各类 docstring)：
+#   _make_output_file_list           → OutputFileListRow            (widget="output_file_list")
+#   _make_start_point_compat_panel   → StartPointCompatPanelRow     (widget="start_point_compat_panel")
+#   _make_review_backend_picker      → ReviewBackendPickerRow       (widget="review_backend_picker")
+#   _make_review_scene_picker        → ReviewScenePickerRow         (widget="review_scene_picker")
+#   _make_review_launch_button       → ReviewLaunchButtonRow        (widget="review_launch_button")
+#
+# 所有颜色走 Config.get_color；行高动态（OutputFileListRow / StartPointCompatPanelRow
+# 通过 `preferred_height` + on_height_changed 触发 NodeItem reflow）。
+# 后端依赖（ExportedBundleRegistry / list_review_backends / list_review_scenes /
+# TrainingContext.compat_report / scene.review_launch_requested 信号）走防御性
+# import — Stage C/D 未到位时降级显示，不抛错。
+
+# ---- shared per-row constants ----
+_OFL_FRAME_PAD = 4
+_OFL_HDR_H = 18
+_OFL_FILE_H = 16
+_OFL_SEP_H = 1
+_OFL_OPEN_BTN_W = 42.0
+_OFL_OPEN_BTN_H = 14.0
+_OFL_OPEN_BTN_PAD = 6.0
+
+_SPC_FRAME_PAD = 4
+_SPC_HDR_H = 18
+_SPC_ROW_H = 16
+_SPC_FOOTER_H = 16
+
+_RLB_FRAME_PAD = 2  # outer pad inside the row's full-width value rect
+_RLB_TEXT = "▶  Launch Review"
+
+
+def _open_path_in_explorer(path) -> None:
+    """Open ``path`` (file or directory) in the OS file manager.
+
+    Cross-platform via QDesktopServices.openUrl(QUrl.fromLocalFile(...)). Mirrors
+    DEMO ``_open_path`` (training_node_items.py:8756-8761). Silently no-ops on
+    failure — caller already gates on path existence.
+    """
+    try:
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+    except Exception:
+        pass
+
+
+def _bundle_root_for(
+    bundle_name: str, version: str, overwrite: bool, backend_id: str = "",
+):
+    """Resolve the bundle directory the next training run will write to.
+
+    Layout (mirrors :class:`BundleExporter.export_from_artifacts`)::
+
+        <project>/training/exported/<backend_id>/<bundle_name>[_<version>]/
+
+    When no project is bound this returns a non-existent sentinel Path
+    (``<no project>/<bundle_name>``) — the UI row treats that as
+    "no real path yet" and ``.is_dir()`` reports False; exporting in this
+    state is rejected by BundleExporter itself.
+
+    ``backend_id`` should be the canvas-bound backend (the per-node
+    ``params['backend']`` hint, or ``current_backend()``). Falls back to
+    ``"unknown"`` when empty so paths stay deterministic.
+
+    Overwrite=True → ``<bundle_name>``; Overwrite=False →
+    ``<bundle_name>_<version>``. Returns ``Path`` even when bundle_name
+    is the ``<NEW>`` sentinel — caller should treat that case as
+    "no real path yet" and skip exists() checks.
+    """
+    from pathlib import Path
+
+    name = (bundle_name or "").strip()
+    if not overwrite and version:
+        name = f"{name}_{version}"
+
+    # Project-scoped path mirrors BundleExporter — partitioned by backend.
+    try:
+        from application.service.projects import current_project_info
+        proj = current_project_info()
+    except Exception:
+        proj = None
+    if proj is None:
+        return Path("<no project>") / name
+
+    bid = (backend_id or "").strip()
+    if not bid:
+        try:
+            from application.service.signals import current_backend
+            bid = (current_backend() or "").strip()
+        except Exception:
+            bid = ""
+    if not bid:
+        bid = "unknown"
+    return proj.path / "training" / "exported" / bid / name
+
+
+def _planned_export_files(host_params: dict) -> list:
+    """Return ``[(filename, required_bool), ...]`` ordered as DEMO renders them.
+
+    Mirrors DEMO ``_planned_files`` (training_node_items.py:8724-8740):
+    manifest.yaml + source.json are always emitted; ONNX / TorchScript / norm
+    stats are gated by their include_* toggles. Required flag is informational
+    — used to mark *.yaml/*.json as "always written" in a future tier.
+    """
+    files = [("manifest.yaml", True), ("source.json", True)]
+    if bool(host_params.get("include_onnx", True)):
+        files.append(("policy.onnx", False))
+    if bool(host_params.get("include_torchscript", True)):
+        files.append(("policy.pt", False))
+    if bool(host_params.get("include_normalization", True)):
+        files.append(("normalization.pkl", False))
+    return files
+
+
+# =============================================================================
+# OutputFileListRow — DEMO §1 Output Manifest
+# =============================================================================
+
+class OutputFileListRow(ParamRow):
+    """Read-only file manifest for the Export node.
+
+    DEMO 对应 ``_make_output_file_list`` (training_node_items.py:8595-8915).
+
+    Header row : <bundle dir name> [⚠ exists] [Open]
+    Separator  : 1px line, slot ``canvas_node_border``
+    File rows  : <filename> [⚠ Will Overwrite] <Exists / Planned> [Open]
+
+    Files come from ``_planned_export_files(host_params)`` so the include_*
+    toggles drive the visible list. Auto-rebuilds via the existing
+    ``maybe_refresh_for_asset_change`` hook NodeItem fires whenever any sibling
+    param commits.
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._planned: list = []      # [(filename, required), ...]
+        self._existing: set = set()   # filenames present on disk
+        self._bundle_dir = None       # Path | None
+        self._bundle_dir_exists: bool = False
+        self._open_hits: list = []    # [(QRectF, Path), ...]
+        self._height_callbacks: list = []
+        self._height = float(self._compute_height_empty())
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._rebuild)
+
+    # ---- height contract ----
+
+    def preferred_height(self) -> float:
+        return float(self._height)
+
+    def on_height_changed(self, callback) -> None:
+        if callable(callback) and callback not in self._height_callbacks:
+            self._height_callbacks.append(callback)
+
+    def _compute_height_empty(self) -> int:
+        return _OFL_FRAME_PAD * 2 + _OFL_HDR_H + _OFL_SEP_H + _OFL_FILE_H + 2
+
+    def _compute_height(self, n_files: int) -> int:
+        return (
+            _OFL_FRAME_PAD * 2
+            + _OFL_HDR_H + _OFL_SEP_H
+            + max(1, n_files) * _OFL_FILE_H
+            + 2
+        )
+
+    def _set_height(self, h: float) -> None:
+        h = float(max(_OFL_FILE_H, h))
+        if abs(h - self._height) < 0.5:
+            return
+        self.prepareGeometryChange()
+        self._height = h
+        self.update()
+        for cb in list(self._height_callbacks):
+            try:
+                cb(h)
+            except Exception:
+                pass
+
+    # ---- auto-refresh hook ----
+
+    def maybe_refresh_for_asset_change(self) -> None:
+        """NodeItem.on_param_changed fan-out — rebuild whenever any sibling
+        commits a value (cheap: planned-list compute + 1 Path.exists per file).
+        """
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        params = self._owner.params
+        bundle_name = str(params.get("bundle_name", "<NEW>") or "<NEW>").strip()
+        version = str(params.get("version", "v1") or "v1")
+        overwrite = bool(params.get("overwrite", True))
+        backend_id = str(params.get("backend", "") or "").strip()
+        bundle_dir = _bundle_root_for(bundle_name, version, overwrite, backend_id)
+        self._bundle_dir = bundle_dir
+        self._bundle_dir_exists = (
+            bundle_name not in ("", "<NEW>") and bundle_dir.is_dir()
+        )
+        self._planned = _planned_export_files(params)
+        self._existing = set()
+        if self._bundle_dir_exists:
+            for fname, _req in self._planned:
+                try:
+                    if (bundle_dir / fname).exists():
+                        self._existing.add(fname)
+                except OSError:
+                    pass
+        self._set_height(self._compute_height(len(self._planned)))
+        self.update()
+
+    # ---- click handling ----
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [r for r, _p in self._open_hits]
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        for r, path in self._open_hits:
+            if r.contains(event.pos()):
+                _open_path_in_explorer(path)
+                return True
+        return False
+
+    # ---- paint ----
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        # OutputFileListRow 是 full-width — value 半边自 SEP_X 一直到 _width。
+        rect = QRectF(SEP_X + 4, 0, self._width - SEP_X - 8, self._height)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        text_color = QColor(Config.get_color("canvas_node_param_text", "#9CA3AF"))
+        muted = QColor(Config.get_color("canvas_node_export_muted_text", "#888888"))
+        warn = QColor(Config.get_color("canvas_node_export_warn_text", "#F59E0B"))
+        ok = QColor(Config.get_color("canvas_node_export_ok_text", "#4CAF50"))
+        sep = QColor(Config.get_color("border_1", "#444444"))
+
+        self._open_hits = []
+
+        y = float(_OFL_FRAME_PAD)
+        # ---- Header row ----
+        hdr_rect = QRectF(rect.left(), y, rect.width(), _OFL_HDR_H)
+        bundle_label = (
+            self._bundle_dir.name if self._bundle_dir is not None
+            else tr("node.export.manifest.placeholder", "<NEW>")
+        )
+        # bundle name (bold-ish)
+        bold = QFont(font)
+        bold.setBold(True)
+        painter.setFont(bold)
+        painter.setPen(QPen(text_color))
+        fm = QFontMetricsF(bold)
+        # Reserve right side for ⚠ + Open if dir exists
+        right_x = hdr_rect.right()
+        if self._bundle_dir_exists and self._bundle_dir is not None:
+            btn_rect = QRectF(
+                right_x - _OFL_OPEN_BTN_W,
+                hdr_rect.center().y() - _OFL_OPEN_BTN_H * 0.5,
+                _OFL_OPEN_BTN_W, _OFL_OPEN_BTN_H,
+            )
+            self._draw_open_button(painter, btn_rect)
+            self._open_hits.append((btn_rect, self._bundle_dir))
+            right_x = btn_rect.left() - 4.0
+            # ⚠ tag just left of the button
+            painter.setPen(QPen(warn))
+            small = QFont(font); small.setPixelSize(max(9, int(font.pixelSize()) - 1))
+            painter.setFont(small)
+            warn_text = tr("node.export.manifest.exists_warn", "⚠ exists")
+            wfm = QFontMetricsF(small)
+            ww = wfm.horizontalAdvance(warn_text)
+            warn_rect = QRectF(right_x - ww - 4, hdr_rect.top(), ww + 4, hdr_rect.height())
+            painter.drawText(
+                warn_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                warn_text,
+            )
+            right_x = warn_rect.left() - 4.0
+            painter.setFont(bold)
+            painter.setPen(QPen(text_color))
+        name_rect = QRectF(hdr_rect.left(), hdr_rect.top(), max(0.0, right_x - hdr_rect.left()), hdr_rect.height())
+        elided = fm.elidedText(bundle_label, Qt.TextElideMode.ElideMiddle, name_rect.width())
+        painter.drawText(
+            name_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+        painter.setFont(font)
+
+        # ---- separator ----
+        y += _OFL_HDR_H
+        sep_pen = QPen(sep, 0.6); sep_pen.setCosmetic(True)
+        painter.setPen(sep_pen)
+        painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+        y += _OFL_SEP_H
+
+        # ---- file rows ----
+        for fname, _required in self._planned:
+            row_rect = QRectF(rect.left(), y, rect.width(), _OFL_FILE_H)
+            exists = fname in self._existing
+            # name on the left
+            painter.setPen(QPen(text_color if exists else muted))
+            name_w = max(0.0, row_rect.width() * 0.55)
+            painter.drawText(
+                QRectF(row_rect.left(), row_rect.top(), name_w, row_rect.height()),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                fname,
+            )
+            # right side: status + Open
+            right = row_rect.right()
+            if exists and self._bundle_dir is not None:
+                btn_rect = QRectF(
+                    right - _OFL_OPEN_BTN_W,
+                    row_rect.center().y() - _OFL_OPEN_BTN_H * 0.5,
+                    _OFL_OPEN_BTN_W, _OFL_OPEN_BTN_H,
+                )
+                self._draw_open_button(painter, btn_rect)
+                self._open_hits.append((btn_rect, self._bundle_dir / fname))
+                right = btn_rect.left() - 4.0
+            # status text
+            status_text = (
+                tr("node.export.manifest.status.exists", "Exists") if exists
+                else tr("node.export.manifest.status.planned", "Planned")
+            )
+            painter.setPen(QPen(warn if exists else ok))
+            sfm = QFontMetricsF(font)
+            sw = sfm.horizontalAdvance(status_text)
+            status_rect = QRectF(right - sw - 4, row_rect.top(), sw + 4, row_rect.height())
+            painter.drawText(
+                status_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                status_text,
+            )
+            y += _OFL_FILE_H
+
+    def _draw_open_button(self, painter: QPainter, btn: QRectF) -> None:
+        bg = QColor(Config.get_color("bg_1", "#1E1E1E"))
+        if self._is_hovering(btn):
+            bg = bg.lighter(125)
+        border = QColor(Config.get_color("border_2", "#3d3d3d"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 1.0))
+        painter.drawRoundedRect(btn, 2, 2)
+        text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        painter.setPen(QPen(text_color))
+        small = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        small.setPixelSize(9)
+        painter.setFont(small)
+        painter.drawText(
+            btn,
+            int(Qt.AlignmentFlag.AlignCenter),
+            tr("node.export.manifest.open", "Open"),
+        )
+
+
+# =============================================================================
+# StartPointCompatPanelRow — DEMO §2 Start Point Compatibility
+# =============================================================================
+
+_SPC_FIELDS = ("Framework", "Action dim", "Decimation", "Joint order")
+# i18n key per field name. The English labels above are kept as lookup keys
+# matching ``StartPointCompatReport.fields[*].label`` (data source emits English
+# labels); the dict maps them to translation slots for display only.
+_SPC_FIELD_KEYS = {
+    "Framework": "node.export.compat.field.framework",
+    "Action dim": "node.export.compat.field.action_dim",
+    "Decimation": "node.export.compat.field.decimation",
+    "Joint order": "node.export.compat.field.joint_order",
+}
+
+
+class StartPointCompatPanelRow(ParamRow):
+    """Read-only Start Point compatibility diff for the Export node.
+
+    DEMO 对应 ``_make_start_point_compat_panel`` (training_node_items.py
+    :8921-9200).
+
+    Header           : "Start Point Compatibility"
+    4 fixed rows     : Framework / Action dim / Decimation / Joint order
+                       each painted with [✓ / ⚠ / ✗] icon + old → new
+    Footer summary   : one-liner pulled from StartPointCompatReport.summary
+
+    Data source: ``application.training.training_context.get_training_context()``
+    + ``ctx.compat_report(graph)``. Stage B falls back to the placeholder
+    "Backend wiring pending" string until Stage D ports TrainingContext.
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._report = None         # StartPointCompatReport | None
+        self._error: str = ""
+        self._height_callbacks: list = []
+        self._height = float(self._compute_height())
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._rebuild)
+
+    def preferred_height(self) -> float:
+        return float(self._height)
+
+    def on_height_changed(self, callback) -> None:
+        if callable(callback) and callback not in self._height_callbacks:
+            self._height_callbacks.append(callback)
+
+    def _compute_height(self) -> int:
+        return (
+            _SPC_FRAME_PAD * 2
+            + _SPC_HDR_H
+            + len(_SPC_FIELDS) * _SPC_ROW_H
+            + _SPC_FOOTER_H + 2
+        )
+
+    def _set_height(self, h: float) -> None:
+        h = float(max(_SPC_ROW_H, h))
+        if abs(h - self._height) < 0.5:
+            return
+        self.prepareGeometryChange()
+        self._height = h
+        self.update()
+        for cb in list(self._height_callbacks):
+            try:
+                cb(h)
+            except Exception:
+                pass
+
+    def maybe_refresh_for_asset_change(self) -> None:
+        self._rebuild()
+
+    def _rebuild(self) -> None:
+        self._report = None
+        self._error = ""
+        scene = self.scene()
+        graph = None
+        if scene is not None:
+            try:
+                graph = scene.serialize_training_graph(for_compiler=True)
+            except Exception:
+                graph = None
+        if graph is None:
+            self._error = ""  # tier-1 fallback: render the static field skeleton
+            self._set_height(self._compute_height())
+            self.update()
+            return
+        try:
+            from application.training.training_context import (
+                get_training_context,
+            )
+            ctx = get_training_context()
+            self._report = ctx.compat_report(graph)
+        except Exception as e:
+            self._error = f"compat report unavailable: {e}"
+        self._set_height(self._compute_height())
+        self.update()
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return []  # read-only panel
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        rect = QRectF(SEP_X + 4, 0, self._width - SEP_X - 8, self._height)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        text_color = QColor(Config.get_color("canvas_node_param_text", "#9CA3AF"))
+        muted = QColor(Config.get_color("canvas_node_export_muted_text", "#888888"))
+        ok = QColor(Config.get_color("canvas_node_export_ok_text", "#4CAF50"))
+        warn = QColor(Config.get_color("canvas_node_export_warn_text", "#F59E0B"))
+        err = QColor(Config.get_color("canvas_safety_error", "#EF4444"))
+
+        y = float(_SPC_FRAME_PAD)
+        # ---- header ----
+        bold = QFont(font); bold.setBold(True)
+        painter.setFont(bold)
+        painter.setPen(QPen(text_color))
+        painter.drawText(
+            QRectF(rect.left(), y, rect.width(), _SPC_HDR_H),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            tr("node.export.compat.title", "Start Point Compatibility"),
+        )
+        painter.setFont(font)
+        y += _SPC_HDR_H
+
+        report = self._report
+        # Build a quick label→(status, old, new, detail) dict from the report.
+        field_data = {}
+        if report is not None and getattr(report, "fields", None):
+            for f in report.fields:
+                field_data[str(getattr(f, "label", ""))] = (
+                    str(getattr(f, "status", "")),
+                    str(getattr(f, "old_value", "")),
+                    str(getattr(f, "new_value", "")),
+                    str(getattr(f, "detail", "")),
+                )
+
+        for label in _SPC_FIELDS:
+            row_rect = QRectF(rect.left(), y, rect.width(), _SPC_ROW_H)
+            status, old_v, new_v, _detail = field_data.get(label, ("", "—", "—", ""))
+            if status == "ok":
+                icon, color = "✓", ok
+            elif status == "warning":
+                icon, color = "⚠", warn
+            elif status == "error":
+                icon, color = "✗", err
+            else:
+                icon, color = "·", muted
+            # icon column (12px)
+            painter.setPen(QPen(color))
+            painter.drawText(
+                QRectF(row_rect.left(), row_rect.top(), 12.0, row_rect.height()),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                icon,
+            )
+            # label
+            painter.setPen(QPen(text_color))
+            label_w = max(60.0, row_rect.width() * 0.32)
+            label_key = _SPC_FIELD_KEYS.get(label)
+            label_display = tr(label_key, label) if label_key else label
+            painter.drawText(
+                QRectF(row_rect.left() + 14.0, row_rect.top(), label_w, row_rect.height()),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                label_display,
+            )
+            # value (old → new)
+            painter.setPen(QPen(muted))
+            val_x = row_rect.left() + 14.0 + label_w + 4.0
+            val_rect = QRectF(val_x, row_rect.top(), max(0.0, row_rect.right() - val_x), row_rect.height())
+            value_text = old_v if old_v == new_v else f"{old_v} → {new_v}"
+            fm = QFontMetricsF(font)
+            painter.drawText(
+                val_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                fm.elidedText(value_text, Qt.TextElideMode.ElideRight, val_rect.width()),
+            )
+            y += _SPC_ROW_H
+
+        # ---- footer summary ----
+        if report is not None:
+            summary = str(getattr(report, "summary", "") or "")
+            overall = str(getattr(report, "overall_status", "") or "")
+        elif self._error:
+            summary, overall = self._error, "error"
+        else:
+            summary = tr(
+                "node.export.compat.no_connection",
+                "No Start Point connected — connect train_pipe to populate",
+            )
+            overall = "none"
+        if overall == "ok":
+            sc = ok
+        elif overall == "warning":
+            sc = warn
+        elif overall == "error":
+            sc = err
+        else:
+            sc = muted
+        painter.setPen(QPen(sc))
+        painter.drawText(
+            QRectF(rect.left(), y, rect.width(), _SPC_FOOTER_H),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            summary,
+        )
+
+
+# =============================================================================
+# ReviewBackendPickerRow — DEMO §3 review_backend dropdown
+# =============================================================================
+
+_REVIEW_BACKEND_FALLBACK = ("mujoco", "isaac_sim", "newton")
+_REVIEW_BACKEND_FALLBACK_META = {
+    "mujoco": {
+        "title": "MuJoCo",
+        "desc": "Fast local viewer (MJCF). Default.",
+    },
+    "isaac_sim": {
+        "title": "Isaac Sim",
+        "desc": "Subprocess viewer matching the training renderer 1:1.",
+    },
+    "newton": {
+        "title": "Newton",
+        "desc": "Reserved for a future UnitPort release — not yet available.",
+    },
+}
+
+
+class ReviewBackendPickerRow(_ChoicePickerRow):
+    """``widget="review_backend_picker"`` — single-select rich choice picker.
+
+    DEMO 对应 ``_make_review_backend_picker`` (training_node_items.py
+    :9202-9269). Choices come from ``registers.review_backends.list_review_
+    backends()`` when available; falls back to a static 3-entry list so the
+    picker still works before Stage C registers are wired up. Unavailable
+    backends are tagged ``(not yet available)`` in their description.
+    """
+
+    LEADING_MODE = "checkbox"
+    _OPEN_ON_RELEASE = True
+
+    def _resolve_backend_choices(self) -> tuple:
+        try:
+            from registers.review_backends import list_review_backends
+            backends = list_review_backends()
+            ids = [str(getattr(b, "backend_id", "")) for b in backends]
+            meta = {}
+            for b in backends:
+                bid = str(getattr(b, "backend_id", ""))
+                if not bid:
+                    continue
+                desc = str(getattr(b, "description", ""))
+                if not bool(getattr(b, "available", True)):
+                    desc = (desc + "  (not yet available)").strip()
+                meta[bid] = {
+                    "title": str(getattr(b, "display_name", bid)) or bid,
+                    "desc": desc,
+                }
+            if ids:
+                return ids, meta
+        except Exception:
+            pass
+        # Fallback when Stage C registers not yet ported.
+        return list(_REVIEW_BACKEND_FALLBACK), dict(_REVIEW_BACKEND_FALLBACK_META)
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        choices, meta = self._resolve_backend_choices()
+        if not choices:
+            return False
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=self._value,
+            multi=False,
+            leading_mode=self.LEADING_MODE,
+            meta_map=meta,
+            on_commit=self.set_value,
+        )
+        return True
+
+
+# =============================================================================
+# ReviewScenePickerRow — DEMO §3 review_scene_id dropdown
+# =============================================================================
+
+_REVIEW_SCENE_FALLBACK = ("flat_ground", "rough", "stairs")
+
+
+class ReviewScenePickerRow(_ChoicePickerRow):
+    """``widget="review_scene_picker"`` — backend-filtered scene dropdown.
+
+    DEMO 对应 ``_make_review_scene_picker`` (training_node_items.py
+    :9275-9367). Choices are filtered by the sibling ``review_backend`` param
+    and by the robot family detected from a Robot node on the canvas. Falls
+    back to a static 3-entry list before Stage C ``scene_registry`` is wired.
+    Re-resolves on every popup open so backend switches refresh immediately.
+    """
+
+    LEADING_MODE = "checkbox"
+    _OPEN_ON_RELEASE = True
+
+    def _detect_family(self) -> Optional[str]:
+        scene = self.scene()
+        if scene is None:
+            return None
+        try:
+            for it in scene.items():
+                manifest = getattr(it, "manifest", None)
+                params = getattr(it, "params", None)
+                if manifest is None or params is None:
+                    continue
+                mid = str(getattr(manifest, "id", "") or "")
+                if mid != "robot":
+                    continue
+                asset_id = str(params.get("asset_id", "") or "").strip()
+                if not asset_id:
+                    continue
+                # Best-effort: try registers.robots.resolve to get family.
+                try:
+                    from registers import robots as _robots_registry
+                    rob = _robots_registry.get_robot(asset_id)
+                    if rob is None:
+                        rob = _robots_registry.get_robot(
+                            _robots_registry.resolve_id(asset_id) or ""
+                        )
+                    if rob is not None:
+                        fams = getattr(rob, "families", None) or []
+                        if fams:
+                            return str(fams[0])
+                except Exception:
+                    pass
+                return None
+        except Exception:
+            return None
+        return None
+
+    def _resolve_scene_choices(self) -> tuple:
+        backend = str(self._owner.params.get("review_backend", "mujoco") or "mujoco")
+        family = self._detect_family()
+        try:
+            from application.training.scene_registry import list_review_scenes
+            scenes = list_review_scenes(review_backend=backend, family=family)
+            ids = [str(getattr(s, "scene_id", "")) for s in scenes]
+            meta = {}
+            for s in scenes:
+                sid = str(getattr(s, "scene_id", ""))
+                if not sid:
+                    continue
+                meta[sid] = {
+                    "title": str(getattr(s, "name", sid)) or sid,
+                    "desc": str(getattr(s, "description", "")),
+                }
+            if ids:
+                return ids, meta
+        except Exception:
+            pass
+        return list(_REVIEW_SCENE_FALLBACK), {
+            sid: {"title": sid, "desc": ""} for sid in _REVIEW_SCENE_FALLBACK
+        }
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        choices, meta = self._resolve_scene_choices()
+        if not choices:
+            return False
+        open_choice_popup(
+            view=_view_of(event),
+            row=self,
+            choices=choices,
+            current=self._value,
+            multi=False,
+            leading_mode=self.LEADING_MODE,
+            meta_map=meta,
+            on_commit=self.set_value,
+        )
+        return True
+
+
+# =============================================================================
+# ReviewLaunchButtonRow — DEMO §3 "▶ Launch Review" button
+# =============================================================================
+
+class ReviewLaunchButtonRow(ParamRow):
+    """``widget="review_launch_button"`` — full-width teal launch button.
+
+    DEMO 对应 ``_make_review_launch_button`` (training_node_items.py
+    :9373-9501). Click pipeline:
+        1. Walk scene → view → window for ``_run_safety_review(blocking=True)``
+        2. If SafetyReview passes (or wiring not yet there) → emit
+           ``scene.review_launch_requested(payload)`` so the workspace can
+           spawn the review subprocess.
+    Defensive: missing ``_run_safety_review`` / missing signal both degrade
+    to a ``log_warning``; the button never raises into Qt.
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _btn_rect(self) -> QRectF:
+        # Full-width — span from KEY_PAD_LEFT all the way to the right edge.
+        # The base ParamRow paint still draws the key label in the left half;
+        # we paint the button on the right half (SEP_X..width-pad) so the row
+        # reads as "review_launch  [▶  Launch Review]".
+        x = SEP_X + _RLB_FRAME_PAD
+        return QRectF(
+            x,
+            _RLB_FRAME_PAD,
+            max(0.0, self._width - x - _RLB_FRAME_PAD - VALUE_PAD_RIGHT + 4),
+            self._height - _RLB_FRAME_PAD * 2,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        btn = self._btn_rect()
+        idle = QColor(Config.get_color("canvas_node_review_launch_bg", "#00695C"))
+        hover = QColor(
+            Config.get_color("canvas_node_review_launch_hover_bg", "#00897B")
+        )
+        text_color = QColor(
+            Config.get_color("main_t2", "#FFFFFF")
+        )
+        bg = hover if self._is_hovering(btn) else idle
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(btn, 4, 4)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(text_color))
+        painter.drawText(
+            btn,
+            int(Qt.AlignmentFlag.AlignCenter),
+            "▶  " + tr("canvas.review_launch.button", "Launch Review"),
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        from unitport_sdk import log_warning
+
+        # 1. Resolve owning window.
+        scene = self.scene()
+        window = None
+        if scene is not None:
+            try:
+                views = scene.views()
+                if views:
+                    window = views[0].window()
+            except Exception:
+                window = None
+
+        # 2. SafetyReview gate (optional — degrades to "skip" when missing).
+        ok = True
+        runner = getattr(window, "_run_safety_review", None) if window else None
+        if callable(runner):
+            try:
+                ok = bool(runner(blocking=True))
+            except Exception as e:
+                log_warning(f"review_launch: safety review raised: {e}")
+                ok = False
+        if not ok:
+            log_warning("review_launch: SafetyReview reported errors — aborted")
+            return True
+
+        # 3. Build payload + emit scene signal.
+        params = self._owner.params
+        payload = {
+            "backend": str(params.get("review_backend", "mujoco") or "mujoco"),
+            "scene_id": str(params.get("review_scene_id", "flat_ground") or "flat_ground"),
+            "bundle_name": str(params.get("bundle_name", "") or ""),
+            "version": str(params.get("version", "v1") or "v1"),
+            "overwrite": bool(params.get("overwrite", True)),
+        }
+        sig = getattr(scene, "review_launch_requested", None) if scene else None
+        if sig is None:
+            log_warning(
+                "review_launch: scene.review_launch_requested signal not yet wired "
+                "(Stage D pending) — payload would be %r" % (payload,)
+            )
+            return True
+        try:
+            sig.emit(payload)
+        except Exception as e:
+            log_warning(f"review_launch: signal emit failed: {e}")
+        return True
+
+
+# =============================================================================
+# JointPoseTableRow / ActorReviewPoseButtonRow —— ActorSettingNode 专用
+# =============================================================================
+#
+# ActorSettingNode.init_joint_angles 旧 widget="code" → 改 widget="joint_pose_table"。
+# 单击打开 ``JointPoseEditorDialog``，每个 IR role 一行 slider+spinbox，slider
+# 物理量程取自上游 RobotNode → MJCF ``jnt_range``（``jnt_limited=False`` 回落 ±π）。
+#
+# 配套 widget="actor_review_pose_button" 全宽 teal 按钮，复用
+# ``canvas_node_review_launch_*`` theme slot —— 视觉与 Export 节点的 Review
+# Launch 按钮一致，行为不同：这里走 RobotReviewTask（纯加载 MJCF + 注入 pose），
+# 不走 Export 的 SafetyReview / training subprocess pipeline。
+
+_JOINT_POSE_ROW_PAD = 2  # outer pad inside the row's full-width value rect
+
+
+def _upstream_robot_sku(actor_node: "NodeItem") -> Optional[str]:
+    """Walk ``actor_node`` 's ``robot_pipe`` input back to the RobotNode and
+    resolve its ``asset_id`` to a canonical SKU.
+
+    Returns ``None`` when the upstream is missing / not a RobotNode /
+    ``asset_id`` can't be resolved via ``registers.robots.resolve_id``.
+    All failure paths are silent — the caller logs.
+    """
+    in_ports = getattr(actor_node, "_in_ports", None)
+    if not in_ports:
+        return None
+    target_port = None
+    for p in in_ports:
+        try:
+            if getattr(p.spec, "name", "") == "robot_pipe":
+                target_port = p
+                break
+        except Exception:
+            continue
+    if target_port is None:
+        return None
+    for conn in list(getattr(target_port, "connections", []) or []):
+        src_port = getattr(conn, "src_port", None)
+        if src_port is None:
+            continue
+        try:
+            src_node = src_port.parent_node()
+        except Exception:
+            src_node = None
+        if src_node is None:
+            continue
+        try:
+            node_id = str(getattr(src_node.manifest, "id", "") or "")
+        except Exception:
+            node_id = ""
+        if node_id != "robot":
+            continue
+        params = getattr(src_node, "params", None) or {}
+        asset_id = str(params.get("asset_id", "") or "")
+        if not asset_id:
+            return None
+        try:
+            from registers.robots import resolve_id
+            sku = resolve_id(asset_id)
+        except Exception:
+            return None
+        if sku:
+            return sku
+        # Some RobotNode params may already store the canonical SKU
+        # directly — accept that as a fallback.
+        return asset_id
+    return None
+
+
+def _resolve_mjcf_joint_ranges(sku: str):
+    """Build the (ir_roles_in_qpos_order, ranges_by_role, sku_display_name)
+    triple needed by :class:`JointPoseEditorDialog`.
+
+    ``ranges_by_role[role]`` is ``(lo, hi)`` for limited joints and ``None``
+    for unlimited joints. Free / ball joints are skipped (no IR role).
+    Returns ``None`` on any failure (caller falls back to JSON code editor).
+    """
+    try:
+        from application.service.runtime.simulation.mujoco.mj_actor import (
+            MjActor,
+        )
+        from registers.robots import get_robot
+    except Exception:
+        return None
+    try:
+        actor = MjActor.from_sku(sku)
+    except Exception:
+        return None
+    mj_model = actor.mj_model
+    entry = get_robot(sku) or {}
+    joints_block = entry.get("joints", {}) or {}
+    # registers.robots stores joints as a dict whose VALUES are joint specs
+    # {name, ir_role, ...}; build physical_name -> ir_role.
+    name_to_ir: Dict[str, str] = {}
+    for v in joints_block.values():
+        if not isinstance(v, dict):
+            continue
+        n = str(v.get("name", "") or "")
+        r = str(v.get("ir_role", "") or "")
+        if n and r:
+            name_to_ir[n] = r
+
+    try:
+        import mujoco
+        FREE = int(mujoco.mjtJoint.mjJNT_FREE)
+        BALL = int(mujoco.mjtJoint.mjJNT_BALL)
+    except Exception:
+        return None
+
+    rows = []  # list of (qposadr, ir_role, lo_or_None, hi_or_None)
+    for jid in range(int(mj_model.njnt)):
+        try:
+            jtype = int(mj_model.jnt_type[jid])
+            if jtype == FREE or jtype == BALL:
+                continue
+            qposadr = int(mj_model.jnt_qposadr[jid])
+            name = mujoco.mj_id2name(
+                mj_model, mujoco.mjtObj.mjOBJ_JOINT, jid
+            )
+        except Exception:
+            continue
+        if not name:
+            continue
+        ir_role = name_to_ir.get(name)
+        if not ir_role:
+            continue
+        try:
+            limited = bool(mj_model.jnt_limited[jid])
+            lo = float(mj_model.jnt_range[jid, 0])
+            hi = float(mj_model.jnt_range[jid, 1])
+        except Exception:
+            limited = False
+            lo, hi = 0.0, 0.0
+        if not limited or hi <= lo:
+            rows.append((qposadr, ir_role, None, None))
+        else:
+            rows.append((qposadr, ir_role, lo, hi))
+
+    rows.sort(key=lambda r: r[0])
+    ir_roles_in_order = [r[1] for r in rows]
+    ranges: Dict[str, Optional[tuple]] = {}
+    for _adr, role, lo, hi in rows:
+        ranges[role] = None if lo is None else (lo, hi)
+
+    display_name = str(entry.get("name", "") or sku)
+    return ir_roles_in_order, ranges, display_name
+
+
+def _submit_actor_pose_review(
+    actor_node: "NodeItem", joint_pos_by_ir: Dict[str, float]
+) -> None:
+    """Construct an :class:`InitPoseOverride` from ``actor_node`` 's current
+    base_pos params + ``joint_pos_by_ir``, submit a ``RobotReviewTask``.
+
+    Defensive — log_warning on any failure, never raises into Qt.
+    """
+    from unitport_sdk import get_tasks_manager, log_info, log_warning
+
+    sku = _upstream_robot_sku(actor_node)
+    if not sku:
+        log_warning(
+            "[actor_setting] Review Pose: no upstream Robot node connected "
+            "or asset_id unresolved — connect a Robot node first."
+        )
+        return
+    try:
+        from application.service.robot_init_poses import InitPoseOverride
+        from application.service.runtime.simulation.mujoco.robot_review_session import (
+            RobotReviewTask,
+        )
+    except Exception as exc:
+        log_warning(f"[actor_setting] Review Pose: import failed: {exc}")
+        return
+
+    params = getattr(actor_node, "params", None) or {}
+    try:
+        bx = float(params.get("init_pos_x", 0.0) or 0.0)
+        by = float(params.get("init_pos_y", 0.0) or 0.0)
+        bz = float(params.get("init_pos_z", 0.4) or 0.4)
+    except (TypeError, ValueError):
+        bx, by, bz = 0.0, 0.0, 0.4
+
+    cleaned: Dict[str, float] = {}
+    for k, v in (joint_pos_by_ir or {}).items():
+        try:
+            cleaned[str(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+
+    override = InitPoseOverride(
+        base_pos=(bx, by, bz),
+        joint_pos_by_ir=cleaned,
+    )
+    try:
+        task = RobotReviewTask(
+            sku,
+            "flat_ground",
+            live_physics=False,
+            init_pose_override=override,
+        )
+        tid = get_tasks_manager().submit(task)
+        log_info(
+            f"[actor_setting] Review Pose: submitted RobotReviewTask "
+            f"id={tid} sku={sku} joints={len(cleaned)}"
+        )
+    except Exception as exc:
+        log_warning(f"[actor_setting] Review Pose: submit failed: {exc}")
+
+
+class JointPoseTableRow(CodeRow):
+    """``widget="joint_pose_table"`` — IR-role keyed slider table editor.
+
+    Inline paint inherits CodeRow (single-line JSON preview); click pops the
+    new ``JointPoseEditorDialog`` instead of the code popup. When the upstream
+    RobotNode / SKU / MJCF can't be resolved, falls back to the original
+    CodeRow JSON popup so the user still has an escape hatch.
+    """
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        from unitport_sdk import log_warning
+
+        sku = _upstream_robot_sku(self._owner)
+        if not sku:
+            log_warning(
+                "[joint_pose_table] no upstream Robot node — falling back "
+                "to raw JSON editor."
+            )
+            return super()._handle_click(event)
+
+        resolved = _resolve_mjcf_joint_ranges(sku)
+        if resolved is None:
+            log_warning(
+                f"[joint_pose_table] failed to resolve MJCF joint ranges for "
+                f"sku={sku!r} — falling back to raw JSON editor."
+            )
+            return super()._handle_click(event)
+        ir_roles_in_order, ranges, display_name = resolved
+
+        v = self._value
+        if isinstance(v, dict):
+            initial: Dict[str, float] = {}
+            for k, val in v.items():
+                try:
+                    initial[str(k)] = float(val)
+                except (TypeError, ValueError):
+                    continue
+        elif isinstance(v, str) and v.strip():
+            try:
+                parsed = json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                parsed = {}
+            initial = {}
+            if isinstance(parsed, dict):
+                for k, val in parsed.items():
+                    try:
+                        initial[str(k)] = float(val)
+                    except (TypeError, ValueError):
+                        continue
+        else:
+            initial = {}
+
+        owner = self._owner
+
+        def _on_review(snapshot: Dict[str, float]) -> None:
+            _submit_actor_pose_review(owner, snapshot)
+
+        from .joint_pose_dialog import JointPoseEditorDialog
+
+        view = _view_of(event)
+        parent_widget = view.window() if view is not None else None
+        dialog = JointPoseEditorDialog(
+            sku=sku,
+            sku_display_name=display_name,
+            ir_roles_in_order=ir_roles_in_order,
+            joint_ranges=ranges,
+            initial_joints=initial,
+            on_review=_on_review,
+            parent=parent_widget,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.set_value(dict(dialog.result_joint_pos_by_ir))
+        return True
+
+
+class ActorReviewPoseButtonRow(ParamRow):
+    """``widget="actor_review_pose_button"`` — full-width teal Review Pose.
+
+    Visual identical to :class:`ReviewLaunchButtonRow` (shares theme slots).
+    Click submits a ``RobotReviewTask`` constructed from the owner's current
+    ``init_pos_{x,y,z}`` + ``init_joint_angles`` params, against the upstream
+    RobotNode's resolved SKU. SKU unresolved → log_warning, no Qt raise.
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _btn_rect(self) -> QRectF:
+        x = SEP_X + _JOINT_POSE_ROW_PAD
+        return QRectF(
+            x,
+            _JOINT_POSE_ROW_PAD,
+            max(
+                0.0,
+                self._width
+                - x
+                - _JOINT_POSE_ROW_PAD
+                - VALUE_PAD_RIGHT
+                + 4,
+            ),
+            self._height - _JOINT_POSE_ROW_PAD * 2,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        btn = self._btn_rect()
+        idle = QColor(
+            Config.get_color("canvas_node_review_launch_bg", "#00695C")
+        )
+        hover = QColor(
+            Config.get_color("canvas_node_review_launch_hover_bg", "#00897B")
+        )
+        text_color = QColor(
+            Config.get_color("main_t2", "#FFFFFF")
+        )
+        bg = hover if self._is_hovering(btn) else idle
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(btn, 4, 4)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(text_color))
+        painter.drawText(
+            btn,
+            int(Qt.AlignmentFlag.AlignCenter),
+            "▶  " + tr(
+                "canvas.actor_setting.review_pose.button",
+                "Review Pose",
+            ),
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        params = getattr(self._owner, "params", None) or {}
+        raw = params.get("init_joint_angles")
+        joints: Dict[str, float] = {}
+        if isinstance(raw, dict):
+            for k, v in raw.items():
+                try:
+                    joints[str(k)] = float(v)
+                except (TypeError, ValueError):
+                    continue
+        elif isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                parsed = {}
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    try:
+                        joints[str(k)] = float(v)
+                    except (TypeError, ValueError):
+                        continue
+        _submit_actor_pose_review(self._owner, joints)
+        return True
+
+
+# =============================================================================
+# RewardConflictTableRow — widget="reward_conflict_table"
+# Inline self-painted table for the TrainingMotion node's ``reward_analysis``
+# JSON blob (single field carrying ``analysis_result`` list + ``applied_overrides``
+# dict). Renders [☑, 项, current → suggested] rows + ⚡Analyze button + Apply.
+# Migrated from DEMO ``_AMPResultsPanel`` (training_node_items.py).
+# =============================================================================
+
+_RC_HDR_H = 20
+_RC_ROW_H = 18
+_RC_BTN_H = 22
+_RC_FRAME_PAD = 4
+_RC_FOOTER_GAP = 4
+
+
+class RewardConflictTableRow(ParamRow):
+    """Inline AMP reward-conflict analysis table.
+
+    Backing JSON schema (single ``reward_analysis`` param)::
+
+        {"analysis_result": [{"key", "display_name", "current_weight",
+                              "expert_mean_score", "verdict",
+                              "suggested_weight", "reason"}, ...],
+         "applied_overrides": {"reward_key": new_weight, ...}}
+
+    Top "⚡ Analyze" button → calls
+    :func:`application.training.amp.conflict_analyzer.evaluate_rewards_on_clips`
+    with reward_terms scraped from upstream Rewards node + motion clips from
+    own ``training_items`` and writes back ``analysis_result``.
+
+    Bottom "Apply Checked" button → writes selected rows'
+    ``suggested_weight`` into ``applied_overrides``; spec_compiler reads this
+    on next compile to override per-item reward weights.
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._checked: set = set()  # selected reward keys for Apply
+        self._items: List[Dict[str, Any]] = self._parse_items()
+        self._analyze_btn_rect: QRectF = QRectF()
+        self._apply_btn_rect: QRectF = QRectF()
+        self._height = float(self._compute_height())
+        self._height_callbacks: list = []
+        # Pre-check conflict rows by default
+        for it in self._items:
+            if str(it.get("verdict", "")).lower() == "conflict":
+                self._checked.add(str(it.get("key", "")))
+
+    # ---------------------------------------------------- data parse / height
+
+    def _parse_items(self) -> List[Dict[str, Any]]:
+        v = self._value
+        blob: Any = v
+        if isinstance(v, str) and v.strip():
+            try:
+                blob = json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                blob = {}
+        if not isinstance(blob, dict):
+            return []
+        ar = blob.get("analysis_result", [])
+        if not isinstance(ar, list):
+            return []
+        # Sort: conflicts first, ok second, skip last
+        order = {"conflict": 0, "ok": 1, "skip": 2}
+        return sorted(
+            (it for it in ar if isinstance(it, dict)),
+            key=lambda it: order.get(str(it.get("verdict", "")).lower(), 3),
+        )
+
+    def _parse_overrides(self) -> Dict[str, Any]:
+        v = self._value
+        blob: Any = v
+        if isinstance(v, str) and v.strip():
+            try:
+                blob = json.loads(v)
+            except (json.JSONDecodeError, ValueError):
+                blob = {}
+        if not isinstance(blob, dict):
+            return {}
+        ov = blob.get("applied_overrides", {})
+        return dict(ov) if isinstance(ov, dict) else {}
+
+    def _visible_items(self) -> List[Dict[str, Any]]:
+        # Skip rows are hidden from the canvas table (still in JSON for audit).
+        return [it for it in self._items
+                if str(it.get("verdict", "")).lower() != "skip"]
+
+    def preferred_height(self) -> float:
+        return float(self._height)
+
+    def on_height_changed(self, callback) -> None:
+        if callable(callback) and callback not in self._height_callbacks:
+            self._height_callbacks.append(callback)
+
+    def _set_height(self, h: float) -> None:
+        h = float(max(PARAM_ROW_H, h))
+        if abs(h - self._height) < 0.5:
+            return
+        self.prepareGeometryChange()
+        self._height = h
+        self.update()
+        for cb in list(self._height_callbacks):
+            try:
+                cb(h)
+            except Exception:
+                pass
+
+    def _compute_height(self) -> int:
+        n_rows = max(1, len(self._visible_items()))
+        return (
+            _RC_FRAME_PAD * 2
+            + _RC_BTN_H              # Analyze
+            + _RC_FOOTER_GAP
+            + _RC_HDR_H              # Header row
+            + n_rows * _RC_ROW_H
+            + _RC_FOOTER_GAP
+            + _RC_BTN_H              # Apply
+            + 2
+        )
+
+    # ---------------------------------------------------- painting
+
+    def _value_rect(self) -> QRectF:
+        x = SEP_X + _RC_FRAME_PAD
+        return QRectF(
+            x, _RC_FRAME_PAD,
+            max(0.0, self._width - x - _RC_FRAME_PAD - VALUE_PAD_RIGHT + 4),
+            self._height - _RC_FRAME_PAD * 2,
+        )
+
+    def _layout_rects(self) -> None:
+        v = self._value_rect()
+        self._analyze_btn_rect = QRectF(v.left(), v.top(), v.width(), _RC_BTN_H)
+        self._apply_btn_rect = QRectF(
+            v.left(), v.bottom() - _RC_BTN_H, v.width(), _RC_BTN_H,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        self._layout_rects()
+        return [self._analyze_btn_rect, self._apply_btn_rect]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        self._layout_rects()
+        v = self._value_rect()
+
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+
+        # --- Top "⚡ Analyze" button ----------------------------------------
+        ana_bg = QColor(Config.get_color("btn_1", "#343636"))
+        if self._is_hovering(self._analyze_btn_rect):
+            ana_bg = ana_bg.lighter(115)
+        painter.setBrush(QBrush(ana_bg))
+        painter.setPen(QPen(QColor(Config.get_color("border_1", "#444444")), 1.0))
+        painter.drawRoundedRect(self._analyze_btn_rect, 3, 3)
+        painter.setPen(QPen(QColor(Config.get_color("main_t1", "#D6D3C7"))))
+        painter.drawText(
+            self._analyze_btn_rect,
+            int(Qt.AlignmentFlag.AlignCenter),
+            "⚡  " + tr("canvas.amp_helper.analyze", "Analyze"),
+        )
+
+        # --- Header row -----------------------------------------------------
+        header_y = self._analyze_btn_rect.bottom() + _RC_FOOTER_GAP
+        hdr_rect = QRectF(v.left(), header_y, v.width(), _RC_HDR_H)
+        hdr_color = QColor(Config.get_color("canvas_node_param_label", "#999999"))
+        painter.setPen(QPen(hdr_color))
+        # ☑ col (16), Name col (~110), Values col (rest)
+        check_w = 16.0
+        name_w = min(110.0, max(80.0, v.width() * 0.35))
+        gap = 4.0
+        check_rect = QRectF(hdr_rect.left(), hdr_rect.top(), check_w, hdr_rect.height())
+        name_rect = QRectF(check_rect.right() + gap, hdr_rect.top(),
+                            name_w, hdr_rect.height())
+        val_rect = QRectF(name_rect.right() + gap, hdr_rect.top(),
+                           hdr_rect.right() - (name_rect.right() + gap),
+                           hdr_rect.height())
+        painter.drawText(name_rect,
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         tr("canvas.amp_helper.col_item", "项 Item"))
+        painter.drawText(val_rect,
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         tr("canvas.amp_helper.col_value", "当前 → 推荐 Current → Suggested"))
+
+        # --- Rows -----------------------------------------------------------
+        rows = self._visible_items()
+        if not rows:
+            empty_rect = QRectF(v.left(), hdr_rect.bottom(), v.width(), _RC_ROW_H)
+            painter.setPen(QPen(QColor(Config.get_color("canvas_node_param_label", "#888888"))))
+            painter.drawText(
+                empty_rect,
+                int(Qt.AlignmentFlag.AlignCenter),
+                tr("canvas.amp_helper.no_data", "Click ⚡ Analyze to populate"),
+            )
+        else:
+            ok_color = QColor(Config.get_color("canvas_node_text_ok", "#60c060"))
+            conflict_color = QColor(Config.get_color("canvas_node_text_warn", "#e06060"))
+            for i, item in enumerate(rows):
+                y = hdr_rect.bottom() + i * _RC_ROW_H
+                verdict = str(item.get("verdict", "")).lower()
+                key = str(item.get("key", ""))
+                is_conflict = verdict == "conflict"
+                # checkbox
+                cb_rect = QRectF(v.left() + 2, y + 3, 12, 12)
+                painter.setPen(QPen(QColor(Config.get_color("border_1", "#666"))))
+                painter.setBrush(QBrush(QColor(Config.get_color("bg_1", "#222"))))
+                painter.drawRect(cb_rect)
+                if is_conflict and key in self._checked:
+                    painter.setPen(QPen(conflict_color, 1.5))
+                    painter.drawLine(cb_rect.topLeft() + QPointF(2, 6),
+                                     cb_rect.topLeft() + QPointF(5, 9))
+                    painter.drawLine(cb_rect.topLeft() + QPointF(5, 9),
+                                     cb_rect.topLeft() + QPointF(10, 3))
+                # name
+                name_text = str(item.get("display_name", key))
+                row_name_rect = QRectF(check_rect.right() + gap, y,
+                                        name_w, _RC_ROW_H)
+                painter.setPen(QPen(conflict_color if is_conflict else ok_color))
+                elided_name = fm.elidedText(name_text, Qt.TextElideMode.ElideRight,
+                                              row_name_rect.width())
+                painter.drawText(row_name_rect,
+                                  int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                                  elided_name)
+                # values
+                cur_w = item.get("current_weight", 0.0)
+                sug_w = item.get("suggested_weight", cur_w)
+                if is_conflict:
+                    val_text = f"{cur_w:g} → {sug_w:g}"
+                else:
+                    val_text = f"{cur_w:g}"
+                row_val_rect = QRectF(name_rect.right() + gap, y,
+                                       val_rect.width(), _RC_ROW_H)
+                painter.setPen(QPen(QColor(Config.get_color("canvas_node_text", "#D6D3C7"))))
+                painter.drawText(row_val_rect,
+                                  int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                                  val_text)
+
+        # --- Apply Checked button ------------------------------------------
+        has_checked = bool(self._checked)
+        if has_checked:
+            ap_idle = QColor(Config.get_color("canvas_node_review_launch_bg", "#00695C"))
+            ap_hover = QColor(Config.get_color("canvas_node_review_launch_hover_bg", "#00897B"))
+            ap_text = QColor(Config.get_color("main_t2", "#FFFFFF"))
+            ap_bg = ap_hover if self._is_hovering(self._apply_btn_rect) else ap_idle
+        else:
+            ap_bg = QColor(Config.get_color("btn_1", "#343636"))
+            ap_text = QColor(Config.get_color("canvas_node_param_label", "#888"))
+        painter.setBrush(QBrush(ap_bg))
+        painter.setPen(QPen(QColor(Config.get_color("border_1", "#444"))))
+        painter.drawRoundedRect(self._apply_btn_rect, 3, 3)
+        painter.setPen(QPen(ap_text))
+        n_checked = len(self._checked)
+        label = tr("canvas.amp_helper.apply_checked", "Apply Checked")
+        if n_checked:
+            label = f"{label} ({n_checked})"
+        painter.drawText(self._apply_btn_rect,
+                         int(Qt.AlignmentFlag.AlignCenter), label)
+
+    # ---------------------------------------------------- interactions
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        pos = event.pos()
+        self._layout_rects()
+        # Analyze button
+        if self._analyze_btn_rect.contains(pos):
+            self._run_analyze()
+            return True
+        # Apply button
+        if self._apply_btn_rect.contains(pos) and self._checked:
+            self._apply_overrides()
+            return True
+        # Row checkbox toggle
+        v = self._value_rect()
+        header_y = self._analyze_btn_rect.bottom() + _RC_FOOTER_GAP
+        for i, item in enumerate(self._visible_items()):
+            y = header_y + _RC_HDR_H + i * _RC_ROW_H
+            row_rect = QRectF(v.left(), y, v.width(), _RC_ROW_H)
+            if row_rect.contains(pos) and str(item.get("verdict", "")).lower() == "conflict":
+                key = str(item.get("key", ""))
+                if key in self._checked:
+                    self._checked.discard(key)
+                else:
+                    self._checked.add(key)
+                self.update()
+                return True
+        return False
+
+    def _scrape_upstream_reward_terms(self) -> Dict[str, float]:
+        """Collect ``reward_terms`` from every rewards node on the scene."""
+        terms: Dict[str, float] = {}
+        try:
+            scene = self._owner.scene() if hasattr(self._owner, "scene") else None
+            for it in (scene.items() if scene else []):
+                if not hasattr(it, "manifest"):
+                    continue
+                if getattr(it.manifest, "id", None) != "rewards":
+                    continue
+                raw = it.params.get("reward_terms", "{}") if hasattr(it, "params") else "{}"
+                parsed: Any = raw
+                if isinstance(raw, str):
+                    try:
+                        parsed = json.loads(raw)
+                    except (json.JSONDecodeError, ValueError):
+                        parsed = {}
+                if not isinstance(parsed, dict):
+                    continue
+                for k, v in parsed.items():
+                    try:
+                        terms[str(k)] = float(v if not isinstance(v, dict)
+                                              else v.get("weight", 0.0))
+                    except (TypeError, ValueError):
+                        continue
+        except Exception:
+            pass
+        return terms
+
+    def _effective_reward_terms(self) -> Dict[str, float]:
+        """Upstream Rewards.reward_terms with this node's applied_overrides merged.
+
+        Used as the analyzer's input — Apply Checked must immediately re-score
+        against the *effective* weight (base ⊕ override), so the user sees
+        which conflicts disappear and which new ones surface.
+        """
+        base = self._scrape_upstream_reward_terms()
+        for k, v in self._parse_overrides().items():
+            try:
+                base[str(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
+        return base
+
+    def _collect_clip_paths(self) -> List[Any]:
+        """Pull motion-clip paths from own ``training_items`` enabled entries."""
+        clip_paths: List[Any] = []
+        ti_raw = self._owner.params.get("training_items", "{}") if hasattr(self._owner, "params") else "{}"
+        try:
+            if isinstance(ti_raw, str):
+                ti_raw = json.loads(ti_raw)
+            if isinstance(ti_raw, dict):
+                from pathlib import Path
+                for entry in ti_raw.values():
+                    if not isinstance(entry, dict) or not entry.get("enabled", False):
+                        continue
+                    clip = entry.get("clip")
+                    if isinstance(clip, str) and clip:
+                        clip_paths.append(Path(clip))
+        except Exception:
+            pass
+        return clip_paths
+
+    def _run_analyze(self) -> None:
+        """Recompute analysis_result against the *effective* reward weights.
+
+        ``current_weight`` per row reflects upstream rewards ⊕ applied_overrides,
+        so post-Apply the table shows the new operating weights and re-scored
+        verdicts. ``applied_overrides`` is preserved across re-analysis.
+        """
+        try:
+            from application.training.amp.conflict_analyzer import (
+                evaluate_rewards_on_clips,
+            )
+        except Exception:
+            return
+        reward_terms = self._effective_reward_terms()
+        clip_paths = self._collect_clip_paths()
+        report = evaluate_rewards_on_clips(
+            reward_terms=reward_terms,
+            motion_clips=clip_paths,
+            discriminator_cfg=None,
+        )
+        existing_overrides = self._parse_overrides()
+        new_blob = {
+            "analysis_result": [it.to_dict() for it in report.items],
+            "applied_overrides": existing_overrides,
+        }
+        self.set_value(json.dumps(new_blob, ensure_ascii=False))
+        self._items = self._parse_items()
+        self._checked = {str(it.get("key", "")) for it in self._items
+                          if str(it.get("verdict", "")).lower() == "conflict"}
+        self._set_height(self._compute_height())
+
+    def _apply_overrides(self) -> None:
+        """Write checked rows' ``suggested_weight`` into ``applied_overrides``,
+        then immediately re-run the analyzer so the table reflects the new
+        effective weights (current_weight column) and re-scored verdicts."""
+        new_overrides = dict(self._parse_overrides())
+        items_by_key = {str(it.get("key", "")): it for it in self._items}
+        for key in self._checked:
+            it = items_by_key.get(key)
+            if it is None:
+                continue
+            try:
+                new_overrides[key] = float(it.get("suggested_weight", 0.0))
+            except (TypeError, ValueError):
+                continue
+        # Persist overrides first so _run_analyze can see them via
+        # _parse_overrides() when merging into effective reward_terms.
+        new_blob = {
+            "analysis_result": [dict(it) for it in self._items],
+            "applied_overrides": new_overrides,
+        }
+        self.set_value(json.dumps(new_blob, ensure_ascii=False))
+        # Re-score against the new effective weights; this rewrites
+        # analysis_result with fresh current_weight + verdict columns.
+        self._run_analyze()
+
+
+# =============================================================================
+# Factory / dispatcher —— 节点脚本 → 图形的「自动转换」入口
+# =============================================================================
+
+# 分发表（widget hint 优先；否则按 type）
+WIDGET_DISPATCH = {
+    # 通用 7 种
+    "path":                       PathRow,
+    "code":                       CodeRow,
+    "range":                      RangeRow,
+    "range_list":                 RangeListRow,
+    "index":                      IndexRow,
+    "badge":                      BadgeRow,
+    "table_readonly":             TableReadOnlyRow,
+    # 节点专属 11 种 — SDK Node_* picker / editor
+    "picker_scene":               SceneTypeRow,
+    "picker_task_type":           TaskTypeRow,
+    "picker_start_point":         StartPointRow,
+    "picker_project_checkpoint":  CheckpointPickerRow,
+    "picker_export_bundle":       ExportBundleRow,
+    "picker_motion_library":      MotionLibraryRow,
+    "picker_obs_components":      ObsComponentsRow,
+    "registry_module":            RegistryModuleInlineRow,
+    "training_items":             TrainingItemsInlineRow,
+    "stage_editor":               StageEditorRow,
+    "curve":                      CurveRow,
+    "buffer_size":                BufferSizeRow,
+    "picker_robot_asset":         RobotAssetPickerRow,
+    "body_mapping_table":         BodyMappingTableRow,
+    "active_file_table":          ActiveFileTableRow,
+    # Export node — DEMO §1 / §2 / §3 widgets
+    "output_file_list":           OutputFileListRow,
+    "start_point_compat_panel":   StartPointCompatPanelRow,
+    "review_backend_picker":      ReviewBackendPickerRow,
+    "review_scene_picker":        ReviewScenePickerRow,
+    "review_launch_button":       ReviewLaunchButtonRow,
+    # ActorSettingNode — joint pose slider table + Review Pose button
+    "joint_pose_table":           JointPoseTableRow,
+    "actor_review_pose_button":   ActorReviewPoseButtonRow,
+    # TrainingMotionNode — AMP reward-conflict analysis inline table
+    "reward_conflict_table":      RewardConflictTableRow,
+}
+
+TYPE_DISPATCH = {
+    "bool":     BoolRow,
+    "int":      NumberRow,
+    "float":    NumberRow,
+    "number":   NumberRow,
+    "string":   StringRow,
+    "enum":     ChoiceRow,
+    "json":     CodeRow,
+    # 兼容老/容错
+    "dict":     CodeRow,
+    "list":     CodeRow,
+}
+
+VALID_WIDGETS = frozenset(WIDGET_DISPATCH.keys())
+VALID_TYPES = frozenset(("bool", "int", "float", "string", "enum", "json"))
+
+
+def validate_param_spec(spec: ParamSpec) -> Optional[str]:
+    """启动期 schema 校验 / Validate ParamSpec at discovery time.
+
+    返回 ``None`` 表示通过；返回非空 str 表示错误信息。
+
+    检查项：
+    - ``spec.widget`` 必须在 ``VALID_WIDGETS`` 内（或 None）
+    - ``spec.type`` 必须在 ``VALID_TYPES`` 内
+    - ``spec.type == "enum"`` 时 ``spec.choices`` 必须非空
+    - ``spec.widget == "range"`` 时 ``spec.meta`` 必须含 ``min`` / ``max``
+    - ``spec.widget == "index"`` 时 ``spec.type`` 必须是 ``int``
+    """
+    widget = (spec.widget or "").strip().lower()
+    if widget and widget not in VALID_WIDGETS:
+        return (
+            f"param {spec.key!r}: widget {spec.widget!r} 未识别；"
+            f"有效值 {sorted(VALID_WIDGETS)} 或 None"
+        )
+    t = (spec.type or "").strip().lower()
+    if t not in VALID_TYPES:
+        # 留个口子接受 dict/list/number 旧拼法（warn 但不阻断）
+        if t not in ("dict", "list", "number"):
+            return (
+                f"param {spec.key!r}: type {spec.type!r} 未识别；"
+                f"有效值 {sorted(VALID_TYPES)}"
+            )
+    if t == "enum" and not spec.choices:
+        return f"param {spec.key!r}: type='enum' 时 choices 不能为空"
+    if widget == "range":
+        meta = spec.meta or {}
+        if "min" not in meta or "max" not in meta:
+            return f"param {spec.key!r}: widget='range' 时 meta 必须含 min / max"
+    if widget == "range_list":
+        meta = spec.meta or {}
+        if "min" not in meta or "max" not in meta:
+            return f"param {spec.key!r}: widget='range_list' 时 meta 必须含 min / max"
+        if t not in ("list", "json"):
+            return f"param {spec.key!r}: widget='range_list' 时 type 必须是 'list' 或 'json'"
+    if widget == "index" and t != "int":
+        return f"param {spec.key!r}: widget='index' 时 type 必须是 'int'"
+    if widget == "picker_robot_asset" and t != "string":
+        return f"param {spec.key!r}: widget='picker_robot_asset' 时 type 必须是 'string'"
+    if widget == "body_mapping_table" and t != "json":
+        return f"param {spec.key!r}: widget='body_mapping_table' 时 type 必须是 'json'"
+    if widget == "active_file_table" and t != "enum":
+        return f"param {spec.key!r}: widget='active_file_table' 时 type 必须是 'enum'"
+    # Export node §1 / §2 / §3 widgets
+    if widget in ("output_file_list", "start_point_compat_panel",
+                  "review_launch_button", "review_scene_picker") and t != "string":
+        return (
+            f"param {spec.key!r}: widget={spec.widget!r} 时 type 必须是 'string'"
+        )
+    if widget == "review_backend_picker":
+        if t != "enum":
+            return (
+                f"param {spec.key!r}: widget='review_backend_picker' 时 type 必须是 'enum'"
+            )
+        if not spec.choices:
+            return (
+                f"param {spec.key!r}: widget='review_backend_picker' 时 choices 不能为空"
+            )
+    return None
+
+
+def create_param_row(
+    spec: ParamSpec,
+    owner_node: "NodeItem",
+    width: float,
+) -> ParamRow:
+    """根据 ``spec.widget`` / ``spec.type`` 选 ParamRow 子类 / Pick row class.
+
+    优先级：``widget`` > ``type``。``choices`` 非空且 ``type`` 不是 enum 时也走 ChoiceRow.
+
+    本函数容忍未知 type（兜底 ``StringRow``）；启动期严格校验由
+    ``validate_param_spec`` 在 discovery 阶段执行。
+    """
+    widget = (spec.widget or "").strip().lower()
+    if widget in WIDGET_DISPATCH:
+        return WIDGET_DISPATCH[widget](spec, owner_node, width)
+
+    t = (spec.type or "").strip().lower()
+    # enum-via-choices 兼容（type=string but has choices → ChoiceRow）
+    if t == "string" and spec.choices:
+        return ChoiceRow(spec, owner_node, width)
+    if t in TYPE_DISPATCH:
+        return TYPE_DISPATCH[t](spec, owner_node, width)
+    # 兜底
+    return StringRow(spec, owner_node, width)
+
+
+__all__ = [
+    "ParamRow",
+    # 通用 10
+    "BoolRow",
+    "NumberRow",
+    "StringRow",
+    "ChoiceRow",
+    "PathRow",
+    "IndexRow",
+    "RangeRow",
+    "RangeListRow",
+    "BadgeRow",
+    "CodeRow",
+    "TableReadOnlyRow",
+    # 节点专属（SDK Node_* picker / editor）
+    "SceneTypeRow",
+    "TaskTypeRow",
+    "StartPointRow",
+    "ExportBundleRow",
+    "MotionLibraryRow",
+    "ObsComponentsRow",
+    "RegistryItemListRow",
+    "TrainingItemsRow",
+    "StageEditorRow",
+    "CurveRow",
+    "BufferSizeRow",
+    "RobotAssetPickerRow",
+    "BodyMappingTableRow",
+    # Export node §1 / §2 / §3 widgets
+    "OutputFileListRow",
+    "StartPointCompatPanelRow",
+    "ReviewBackendPickerRow",
+    "ReviewScenePickerRow",
+    "ReviewLaunchButtonRow",
+    # ActorSettingNode init pose slider editor + Review Pose button
+    "JointPoseTableRow",
+    "ActorReviewPoseButtonRow",
+    # factory + 分发表
+    "create_param_row",
+    "validate_param_spec",
+    "WIDGET_DISPATCH",
+    "TYPE_DISPATCH",
+    "VALID_WIDGETS",
+    "VALID_TYPES",
+    "PARAM_ROW_H",
+]

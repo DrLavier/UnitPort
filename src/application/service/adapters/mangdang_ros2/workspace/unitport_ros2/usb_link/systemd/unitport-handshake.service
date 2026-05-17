@@ -1,0 +1,24 @@
+[Unit]
+Description=UnitPort handshake probe (robot→host)
+Documentation=file:///opt/unitport/ros2_ws/src/unitport_ros2/usb_link/README.md
+After=unitport-usb-gadget.service sys-subsystem-net-devices-usb0.device
+# BindsTo (not just Wants): when gadget fails handshake fails loudly with
+# a journal line, instead of silently inactive on the old
+# ConditionPathExists=/sys/class/net/usb0 gate. Diagnostics over silent skip.
+BindsTo=unitport-usb-gadget.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/unitport-handshake-probe.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+# Handshake probe is a network client — small footprint, keep it off the
+# critical boot path. 10s is plenty for the urllib open + process.
+TimeoutStartSec=10s
+
+[Install]
+# Handshake probe should keep polling across isolate — it's how the robot
+# notices when the host app restarts. Wanted by both targets.
+WantedBy=multi-user.target unitport.target

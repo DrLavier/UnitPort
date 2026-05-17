@@ -1,0 +1,12 @@
+[default]
+canvas_saved = Canvas saved: {path}
+feature_pending = 
+history_missing = Run [{}] {} no longer exists on disk
+history_no_chart = Selected run: {} (chart not ready)
+history_selected = Run selected:
+no_project = No project loaded
+policy_missing = Policy [{}] {} selected, but bundle path is missing on disk
+policy_no_project = No project loaded
+policy_selected = Policy selected: [{}] {}
+ready = UnitPort ready
+

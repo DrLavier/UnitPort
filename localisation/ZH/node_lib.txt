@@ -1,0 +1,11 @@
+[default]
+empty = 未注册任何节点
+
+[layer]
+a = 配置
+b = 环境
+c = 训练
+d = 导出
+il = 模仿学习
+custom = 自定义
+tools = 工具

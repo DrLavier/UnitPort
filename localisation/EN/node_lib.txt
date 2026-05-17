@@ -1,0 +1,12 @@
+[default]
+empty = No nodes registered
+
+[layer]
+a = Configuration
+b = Environment
+c = Training
+d = Export
+il = Imitation Learning
+custom = Custom
+tools = Tools
+

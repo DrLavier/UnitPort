@@ -1,0 +1,1018 @@
+name: unitport_sdk
+version: "1.2"
+purpose: >
+  PyQt6 desktop application infrastructure (single package, 3 modules). Provides:
+  cross-thread logging hub + cmd console, atomic file I/O
+  (INI/JSON/YAML/TOML/pickle/parquet/xlsx/csv/text/bytes), ini theme/font-size config,
+  resource lookup (external + bundled), uncaught exception routing, i18n with three-tier
+  fallback, N-slot concurrent tasks, themed Qt widget family (button/label/combo/progress
+  bar/switch/wheel/tag input/checkbox/group box).
+  Suitable for: scraping panels, batch GUIs, ops tools, any Qt desktop app with background
+  task progress.
+
+# ============================================================================
+# 0. Core rules (agent must read)
+# ============================================================================
+rules: |
+  - Sole import entry point: from unitport_sdk import X. Never use
+    from unitport_sdk.sys import ... / from unitport_sdk.ui import ...; only refer to
+    __all__ in __init__.py.
+  - Two-layer config: system.ini = factory defaults (read-only at runtime); user.ini =
+    overlay (Config.set_value writes here). Config.get_value reads user.ini first,
+    falls back to system.ini. system.ini is never mutated by user/business code.
+  - File I/O discipline: Config for system.ini ⊕ user.ini; DataManager for any other
+    on-disk file (atomic temp + os.replace); Paths for path constants; Storage.push /
+    push_data for per-user state under USER_CONFIG_DIR (default ~/UnitPort) or the
+    cloud channel (Supabase, currently a WIP stub). Business code must NOT call
+    open() / Path(...) / ConfigParser() directly.
+  - Cross-thread communication only via pyqtSignal (LogSignal / TaskSignal); calling
+    log_* directly from a child thread is safe.
+  - Inside Task.run, use self.sleep(s) for blocking; time.sleep is non-interruptible
+    and breaks cancel().
+  - Colors and font sizes always go through Config.get_color(slot, fallback) /
+    Config.get_font_size(slot); hard-coded hex is forbidden. Add new theme slots to
+    system.ini [Theme]; users override them by adding the same slot to user.ini [Theme].
+
+# ============================================================================
+# 1. Source code and resources
+# ============================================================================
+source:
+  package_root: src/unitport_sdk/
+  modules: |
+    src/unitport_sdk/__init__.py   Public facade + __all__ contract + triggers I18n.init()
+    src/unitport_sdk/logger.py     Pure logging (headless-capable); LogSignal, log_*, loguru sink
+    src/unitport_sdk/sys.py        Paths / Config / DataManager / Storage / Assets / I18n / CrashHook / Task system
+    src/unitport_sdk/ui.py         All themed Qt widgets + i18n bindings
+  external_resources: |
+    src/config/system.ini              Factory defaults — owned by SDK, read-only at runtime
+    src/config/user.ini                Overlay + application sections — written by Config.set_value
+    src/application/bin/assets/        Project-level assets (icons/sound/graphic) — Paths.ASSETS_DIR
+    log/                               Crash + sdk session logs — Paths.LOGS_DIR
+    ~/UnitPort/                        Per-user state (overridable via [Resources].user_config_dir) — Paths.USER_CONFIG_DIR
+  no_demo_module: |
+    The SDK no longer ships unitport_sdk/demo.py. Run main.py for an end-to-end smoke
+    boot (init_verification → data_load → build_ui → project_load).
+
+# ============================================================================
+# 2. Install & integration
+# ============================================================================
+install:
+  python: ">=3.10"
+  required: [PyQt6, loguru]
+  optional: |
+    pandas    parquet/xlsx/csv
+    pyyaml    yaml/yml
+    tomli     reading toml on Python<3.11
+    tomli_w   writing toml
+  steps: |
+    1. SDK lives at src/unitport_sdk/ inside the RELEASE tree (not a drop-in package).
+    2. pip install PyQt6 loguru
+    3. main.py injects src/ onto sys.path before any import.
+    4. At entry point use: from unitport_sdk import ...
+  side_effects_on_import: |
+    - Paths._resolve_dynamic() runs once: reads system.ini ⊕ user.ini [Resources]
+      and fills LOGS_DIR / ASSETS_DIR / REGISTERS_DIR / RUNTIME_DIR / USER_CONFIG_DIR.
+    - Installs the loguru terminal sink (with \r single-line progress mode)
+    - Registers all built-in DataManager handlers
+    - Calls I18n.init(); creates system.ini on demand and fills missing sections/keys
+      from _DEFAULTS (self-healing schema migration; touches system.ini only at first
+      import — never on user-driven set_value calls)
+    - Does NOT install the crash hook, does NOT create QApplication, does NOT start
+      TasksManager (trigger these manually as needed)
+
+# ============================================================================
+# 3. Public import cheatsheet (use: from unitport_sdk import ...)
+# ============================================================================
+public_api:
+  logger: |
+    flags:    DEBUG_FLAG, INFO_FLAG
+    classes:  LogSignal, LoguruHandler
+    funcs:    log, log_info, log_success, log_warning, log_error, log_debug
+              install_loguru_bridge        # Idempotent; once installed, log_* renders twice
+              set_debug_flag, get_debug_flag, set_info_flag, get_info_flag
+  sys_infra: |
+    classes:  Paths, Config, CrashHook
+    funcs:    install_crash_hook, uninstall_crash_hook
+    alias:    config == Config
+  data_io: |
+    classes:  DataManager
+    funcs:    load_data, read_data, save_data, up_data, get_data_value
+  assets: |
+    classes:  Assets
+  i18n: |
+    classes:  I18n
+    funcs:    tr
+  tasks: |
+    enums:    TaskStatus
+    excs:     TaskCancelledException
+    classes:  TaskSignal, Task, TaskWorker, TaskSlot, TasksManager
+    funcs:    get_tasks_manager, get_task_signal, set_max_slots
+  ui: |
+    threads:    TyperThread
+    bindings:   I18nLabel, I18nButton, i18n_bind
+    widgets:    SwitchButton, CmdLogWidget, LaviLabel, LaviButton, LaviProgressBar,
+                LaviComboBox, SettingConfirm, TitleGroupBox, WheelSelector,
+                SliderSwitch, TagInput, CheckboxItem
+    factories:  setButton, setText, setComboBox, setTitleGroupBox, setWheelSelector,
+                setSliderSwitch, setTagInput, setCheckboxItem
+
+# ============================================================================
+# 4. Paths: project path constants — Tier-A bootstrap + Tier-B configurable
+# ============================================================================
+paths:
+  tier_a_bootstrap: |
+    Derived from __file__ at import time; NOT configurable. They describe where
+    the SDK *lives* on disk, not where it stores things. You cannot read where
+    system.ini is from inside system.ini.
+      SDK_ROOT      RELEASE/src/unitport_sdk/
+      SRC_ROOT      RELEASE/src/
+      PROJECT_ROOT  RELEASE/
+      APP_ROOT      RELEASE/src/application/
+      CONFIG_DIR    RELEASE/src/config/      (system.ini only — see USER_INI below)
+      SYSTEM_INI    RELEASE/src/config/system.ini
+      SDK_INI       == SYSTEM_INI   (legacy alias for older code)
+
+  tier_b_configurable: |
+    Read from system.ini[Resources] with user.ini[Resources] overlay (user wins).
+    Empty value → built-in default; relative value → resolved under PROJECT_ROOT;
+    absolute value → used as-is. Resolved once at module load by
+    Paths._resolve_dynamic(); subsequent INI changes need a fresh import.
+      LOGS_DIR         [Resources].logs_dir         → default RELEASE/log/
+      ASSETS_DIR       [Resources].assets_dir       → default RELEASE/src/application/bin/assets/
+      REGISTERS_DIR    [Resources].registers_dir    → default RELEASE/src/registers/
+      RUNTIME_DIR      [Resources].runtime_dir      → default RELEASE/src/runtime/
+      USER_CONFIG_DIR  [Resources].user_config_dir  → default Path.home() / "UnitPort"
+                                                       (Windows: C:\Users\<u>\UnitPort)
+      USER_INI         (no INI key)                 → derived USER_CONFIG_DIR / "user.ini"
+
+    USER_INI is Tier-B even though it's a file (not a directory): its location
+    follows USER_CONFIG_DIR. Going forward, EVERY user-customised setting file
+    lives under USER_CONFIG_DIR, separate from the project tree, so
+    redeploys / git pulls never clobber user data.
+
+  bootstrap_exception_user_config_dir: |
+    user_config_dir is the ONE [Resources] key that does NOT support user.ini
+    overlay: user.ini lives under USER_CONFIG_DIR, so it cannot itself
+    determine where USER_CONFIG_DIR points (chicken-egg). It is read from
+    system.ini only. All other Tier-B keys read system.ini ⊕ user.ini overlay.
+
+  classmethods: |
+    resolve_under_project_root(raw, fallback) -> Path
+        # Absolute paths pass through; empty string returns fallback;
+        # relative paths are resolved against PROJECT_ROOT.
+    get_logs_dir() -> Path
+        # Backward-compat shim — returns Paths.LOGS_DIR (already resolved).
+    get_assets_dirs() -> List[Path]
+        # Layered search: [overlay-resolved ASSETS_DIR, canonical install dir].
+        # Used by Assets.find() so SDK-shipped icons remain reachable when an
+        # external override is configured.
+
+  agent_note: |
+    Paths._read_resource / _read_resource_from read INI files directly via raw
+    ConfigParser, bypassing Config. This is the bootstrap-bypass that breaks the
+    logger import cycle: logger.py calls Paths.get_logs_dir() during its module
+    body; routing through Config → DataManager.write failure path would
+    `from .logger import log_error` against a half-initialized module. Both
+    system.ini and user.ini reads share this same bypass — keep as-is, do NOT
+    "fix" it to go through Config.
+
+    Resolution order in _resolve_dynamic:
+      1) USER_CONFIG_DIR   — system.ini only (bootstrap exception)
+      2) USER_INI          — derived USER_CONFIG_DIR / "user.ini"
+      3) other Tier-B paths — full system.ini ⊕ user.ini overlay (user wins)
+
+# ============================================================================
+# 5. Config: two-layer overlay reader for system.ini ⊕ user.ini
+# ============================================================================
+config:
+  layer_model: |
+    system.ini  Factory defaults — shipped with the SDK; read-only at runtime.
+                Self-healing: on first import, missing keys from _DEFAULTS are
+                injected once (SDK-driven schema migration, never overwrites
+                existing values; not user-driven).
+    user.ini    Overlay + application sections. Config.set_value writes here
+                (creates section/file as needed). Sections without a system.ini
+                counterpart (e.g. [App] [Project] [Window] [Auth]) are perfectly
+                valid and reachable through Config.get_value too — overlay
+                semantics are a strict superset of single-file reads.
+
+    Read order: user.ini → system.ini → fallback arg.
+    Empty string in either layer = "not set" → falls through to the next layer.
+
+  classmethods: |
+    get_value(section, key, fallback=None, value_type=str) -> Any
+        # value_type ∈ {str, int, float, bool}; empty string treated as unset.
+        # Reads user.ini first; if not present (or empty), falls back to system.ini.
+    set_value(section, key, value)
+        # Writes to user.ini ONLY (atomic temp + os.replace). system.ini stays
+        # immutable. Lazily creates user.ini on disk if it didn't exist.
+        # Calls DataManager.clear(USER_INI) so subsequent get_data_value re-reads.
+    reload()
+        # Drop both parser caches. Use this when user.ini was mutated through
+        # DataManager (outside Config) and Config's overlay view needs to refresh.
+    get_color(slot, fallback="#000000") -> str
+        # = get_value("Theme", slot, fallback)
+    get_font_size(slot, fallback_size=12) -> int
+        # = get_value("Font", slot, fallback_size, int)
+
+  module_aliases: |
+    Top-level shortcuts (from unitport_sdk import ...):
+      get_value     == Config.get_value
+      set_value     == Config.set_value
+      get_color     == Config.get_color
+      get_font_size == Config.get_font_size
+
+  system_ini_schema: |
+    Owned by the SDK. Missing keys are auto-filled from _DEFAULTS on first import.
+
+    [Theme]
+      text     main_t1, main_t2, main_c1, main_c2, sub_t1, sub_t2,
+               highlight, safe_zone, danger_zone
+      cards    bg_1, bg_2, row_1, row_2, btn_1, btn_2,
+               hover_1, hover_2, checked_1, checked_2,
+               border_1, border_2, spec_cmd
+      states   highlight_hover, safe_zone_hover, danger_zone_hover,
+               highlight_checked, safe_zone_checked, danger_zone_checked
+      misc     misc_1..4, theme_1, theme_2
+
+    [Font]
+      family       Microsoft YaHei
+      sizes        size_mini, size_small, size_normal, size_large
+
+    [SwitchButton]
+      width, height, slider_margin, animation_duration
+
+    [System]   CmdLogWidget dual-toggle persistence
+      cmd_log_debug, cmd_log_info
+
+    [Localisation]
+      dir          Translation files root; relative paths resolve under PROJECT_ROOT
+      lang         Default "EN"; I18n.set_language() writes back here
+                   (note: this is the one section_value the SDK still writes
+                   directly to system.ini — it pre-dates the overlay model and
+                   should migrate to user.ini in a follow-up)
+
+    [Resources]   Empty value → built-in default; relative → resolved under
+                  PROJECT_ROOT; absolute → used as-is.
+      assets_dir, logs_dir, registers_dir, runtime_dir, user_config_dir
+
+  user_ini_schema: |
+    Lives at USER_CONFIG_DIR / "user.ini" (default ~/UnitPort/user.ini), NOT
+    inside the project tree. First run: file does not exist; created lazily on
+    the first Config.set_value call.
+
+    Two kinds of sections:
+
+    1) Overlay sections — same name as in system.ini; user-set values win.
+       (e.g. [Theme].bg_1 = "#FF0000" → Config.get_color("bg_1") returns red)
+       NOTE: [Resources].user_config_dir is the ONE key here that has no effect
+       — bootstrap exception, see paths.bootstrap_exception_user_config_dir.
+
+    2) User-only sections — no counterpart in system.ini.
+       [App]      language, first_run
+       [Project]  last_path, recent_paths
+       [Window]   geometry, maximized
+       [Auth]     last_user
+
+    Sparse: only set keys are persisted. Empty/missing keys fall through to
+    system.ini (for overlay sections) or to the caller's fallback arg.
+
+    Going forward: every user-customised setting file (not just user.ini) lives
+    under USER_CONFIG_DIR. Project tree stays clean across redeploys.
+
+# ============================================================================
+# 6. DataManager: generic thread-safe file I/O (classmethod API, no instantiation)
+# ============================================================================
+data_manager:
+  api: |
+    load(path, *, force_reload=False, format=None, **kw) -> Any
+        # Read disk into cache (returns cached on hit). force_reload forces a re-read.
+    read(path, *, format=None) -> Any
+        # Read from cache; auto-loads on miss.
+    write(path, value, *, format=None, **kw) -> bool
+        # Whole-file write + cache refresh; returns False on failure and calls log_error.
+    get(path, *keys, fallback=None, value_type=None, format=None) -> Any
+        # INI:        get(p, section, key, value_type=int, fallback=...)
+        # dict-like:  get(p, "a", "b", "c") or get(p, "a.b.c")
+        # No keys:    returns the whole value; with keys, missing path → fallback
+    update(path, *, section=None, key=None, value=None,
+           data=None, merge=True, format=None, **kw) -> bool
+        # INI:    update(p, section=, key=, value=) or update(p, data={sec:{k:v}})
+        # dict:   update(p, key=, value=) or update(p, data={...}, merge=True/False)
+        # Other formats (DataFrame/text/bytes) must use write()
+    clear(path=None)                   # Clear a single file's cache or the whole cache
+    reload_all()                        # Force re-read of all cached files
+    register_handler(ext, handler)      # ext can be ".foo" / "foo" / iterable
+
+  handlers_matrix: |
+    .ini / .cfg                                             ConfigParser (strict=False)
+    .json                                                   dict / list / any (indent=2, ensure_ascii=False)
+    .yaml / .yml                                            dict (lazy import pyyaml)
+    .toml                                                   dict (read via stdlib tomllib or tomli; write via tomli_w)
+    .pkl / .pickle                                          any Python object (HIGHEST_PROTOCOL)
+    .txt / .md / .log / .xml / .urdf / .xacro / .svg /
+       .html / .htm                                         str
+    .parquet / .xlsx / .csv                                 pandas.DataFrame (lazy; reads return .copy())
+    Other extensions                                        bytes (catch-all _BytesHandler)
+
+  atomic_write: |
+    Every write uses a temp file (.{name}.{uuid}.tmp) + os.replace; atomic within the same volume.
+    Internal helper: _atomic_write(path, write_fn) — custom handlers should also use it.
+    Note: os.replace is only atomic within the same volume; source and target must share a drive letter.
+
+  module_aliases: |
+    Top-level shortcuts:
+      load_data       == DataManager.load
+      read_data       == DataManager.read
+      save_data       == DataManager.write
+      up_data         == DataManager.update
+      get_data_value  == DataManager.get   # Note: get_value is reserved by Config
+
+# ============================================================================
+# 7. Storage: generic data-push dispatch (per-user FS + cloud Supabase WIP)
+# ============================================================================
+storage:
+  rationale: |
+    Whereas DataManager operates on caller-owned absolute Paths, Storage takes
+    a relative path/key and routes to a channel-specific destination. Use it
+    for runtime artifacts that belong outside the project tree:
+      - login tokens, session caches
+      - exported policies / project bundles
+      - telemetry batches
+      - per-user preferences that don't belong in user.ini
+    Stay in DataManager when the caller already owns an absolute Path.
+
+  api: |
+    Storage.push(rel_path, value, *, channel="local",
+                 format=None, **handler_kw) -> bool
+        # rel_path is interpreted relative to the channel's destination.
+        # Format dispatch is delegated to DataManager (extension-based, or
+        # override with format=). Returns True on success, False on failure.
+
+  channels: |
+    local       Writes value to (Paths.USER_CONFIG_DIR / rel_path) via
+                DataManager.write — atomic, parent dir auto-created.
+                Default base dir: ~/UnitPort (overridable via
+                [Resources].user_config_dir overlay).
+
+    cloud       Reserved for Supabase push tied to the logged-in account.
+                Currently a USER-AUTHORIZED WIP STUB: logs an error
+                ("[Storage.push] WIP: cloud channel ...") and returns False.
+                Wiring callsites against channel="cloud" today is fine; the
+                Supabase transport lands later. Do NOT remove this branch
+                during cleanup passes — it is intentionally stubbed.
+
+    (any other) Logs an error ("unknown channel: ...") and returns False.
+
+  module_alias: |
+    Top-level shortcut:
+      push_data == Storage.push   # mirrors load_data / read_data / save_data style
+
+# ============================================================================
+# 8. Assets: resource lookup (external + bundled, external takes priority)
+# ============================================================================
+assets:
+  api: |
+    search_dirs() -> List[Path]
+        # [overlay-resolved ASSETS_DIR, canonical install dir] — both must exist
+        # to be in the list; deduplicates if they're the same path.
+    find(rel) -> Optional[Path]
+        # Any relative or absolute path
+    find_icon(name) -> Optional[Path]
+        # stem ("icon_close") / relative ("icon/foo.png") / absolute path are all accepted
+    list_icons() -> List[str]
+        # All available stems (overlay-resolved dir overrides canonical install dir
+        # entries with the same name)
+  icon_extensions: [.svg, .png, .ico]   # find_icon probe order
+  builtin_icon_stems: |
+    icon_close, icon_mini, icon_pause, icon_play, icon_reset, icon_setting,
+    icon_stop, icon_yes, icon_no
+  override_setup: |
+    # Override the assets dir via system.ini or user.ini:
+    [Resources]
+    assets_dir = D:/my_custom_assets       # absolute → as-is
+    # or
+    assets_dir = ../external_assets        # relative → resolved under PROJECT_ROOT
+    #
+    # The canonical install dir (RELEASE/src/application/bin/assets/) remains
+    # in the search list as a fallback so SDK-shipped icons stay reachable.
+
+# ============================================================================
+# 9. I18n: three-tier fallback (current language → EN → default arg)
+# ============================================================================
+i18n:
+  api: |
+    init()                                      # Auto-called on SDK import; idempotent
+    tr(key, default="") -> str                  # Top-level alias == I18n.tr
+    set_language(lang)                          # Loads files → writes back to system.ini [Localisation].lang → emits language_changed
+                                                # (note: pre-overlay code path; should migrate to user.ini in a follow-up)
+    get_language() -> str
+    available_languages() -> List[str]          # Scans subdirectories under [Localisation].dir
+    export_template(lang=None, merge=True) -> Path
+        # Collects every (key, default) seen via tr() and writes them split into
+        # {lang}/{category}.txt files (one file per key's first segment).
+        # merge=True only appends missing entries; False rewrites everything.
+        # Returns the {lang}/ directory path.
+    registered_keys() -> Dict[str, str]         # Copy of all observed (key, default) pairs
+  base_lang: EN
+  signal: language_changed(str)                 # Auto-wired by i18n_bind / I18nLabel / I18nButton
+  file_format: |
+    # Chunked layout: localisation/{LANG}/{category}.txt (each file is INI with .txt extension)
+    #
+    # localisation/EN/ui.txt
+    [button]
+    ok = OK
+    cancel = Cancel
+    [menu]
+    file = File
+    edit = Edit
+    #
+    # localisation/EN/app.txt
+    [default]
+    title = My App
+    #
+    # localisation/EN/default.txt   (catch-all for keys with no dots)
+    [default]
+    loose_key = Loose default
+  key_convention: "category.section.option"     # 3-level split on first two dots.
+                                                # ≥3 segments → (cat, sec, rest); 2 segments → (cat, "default", opt);
+                                                # 1 segment → ("default", "default", key)
+
+# ============================================================================
+# 10. CrashHook: uncaught exception routing
+# ============================================================================
+crash_hook:
+  api: |
+    install(write_file=True)        # Takes over sys.excepthook + threading.excepthook
+    uninstall()
+  aliases: [install_crash_hook, uninstall_crash_hook]
+  behavior: |
+    - Uncaught exception → log_error + optional write to LOGS_DIR/crash_YYYYMMDD.log
+    - KeyboardInterrupt is delegated to the original hook (preserves Ctrl+C exit)
+    - install is idempotent; to change options, uninstall first
+
+# ============================================================================
+# 11. Task system: N-slot concurrency + FIFO queue
+# ============================================================================
+tasks:
+  TaskStatus: [PENDING, RUNNING, COMPLETED, FAILED, CANCELLED]
+  TaskCancelledException: After cancel(), sleep()/check_cancelled() raises this
+
+  TaskSignal: |
+    QObject singleton, broadcasts across threads. All signals:
+      progress_updated(slot: int, ratio: float, text: str)
+      status_changed(slot: int, task_id: str, status: str)
+          # status ∈ {running, completed, failed, cancelled}
+      notify_requested(title: str, message: str, type: str)
+      input_requested(req_id: str, title: str, message: str,
+                      input_type: str, options: list)
+      input_response(req_id: str, response: object)
+      task_finished(task_id: str, success: bool, result: object)
+      slot_released(slot: int)
+      file_select_requested(req_id: str, title: str, filter: str)
+      file_select_response(req_id: str, paths: list)
+    input_types: confirm | input | choice
+
+  Task: |
+    ABC; subclasses must implement run().
+
+    ctor:
+      Task(name="Task")
+
+    must_override:
+      run() -> Any                                # Return value → task.result
+
+    progress:
+      set_progress(ratio: float, text="")         # Updates the UI slot progress bar only
+      progress_line(ratio, text="", bar_width=30) # UI slot + cmd single-line progress (single-owner)
+
+    logging (auto-prefixed with [self.name]):
+      log(text, level="info")
+      log_info / log_success / log_warning / log_error
+
+    interactive (blocks waiting on main thread; cancel wakes the call and returns None):
+      notify(title, message, notify_type="info")
+      confirm(message, title="Confirm") -> bool
+      input_text(prompt, title="Input") -> Optional[str]
+      input_choice(prompt, options: List[str], title="Select") -> Optional[int]
+
+    control:
+      cancel()                                    # Sets _cancelled, wakes input_condition
+      check_cancelled()                           # Raises TaskCancelledException
+      sleep(seconds)                              # 100ms-step interruptible; must be used in run() instead of time.sleep
+
+    fields:
+      id, name, status, progress, result, error
+
+  internal_classes: |
+    TaskWorker(QThread)        # One thread per task; releases cmd progress ownership in finally
+    TaskSlot(index, signal)    # execute(task, on_finished_callback)
+
+  TasksManager: |
+    Singleton.
+    DEFAULT_SLOTS = 4
+    HARD_MAX = 16
+
+    api:
+      submit(task) -> task_id          # Starts immediately if a slot is free; otherwise FIFO-enqueues
+      cancel(task_id) -> bool          # Dequeues if queued; calls task.cancel() if running
+      get_task(task_id) -> Optional[Task]
+      get_slot_status() -> List[Dict]  # {index, busy, task_id, task_name, progress}
+      configure(max_slots) -> bool     # Returns True only when all slots are idle and the queue is empty
+
+    helpers:
+      get_tasks_manager()
+      get_task_signal()
+      set_max_slots(n)                 # == manager.configure(n)
+
+  invariant_cmd_progress: |
+    Globally only one task may own the cmd console's single-line progress bar
+    (_claim_cmd_progress / _release_cmd_progress).
+    Other concurrent tasks calling progress_line still update the graphic progress
+    bar (ratio is correctly refreshed) but do not write to the cmd console.
+    When ratio>=1.0, the owner writes the final line with wrap=True and releases;
+    TaskWorker.finally also releases as a safety net.
+    ⇒ Seeing only one progress bar in the cmd console under concurrent tasks is
+    expected behavior.
+
+# ============================================================================
+# 12. UI: themed widget family (every factory returns an instance with QSS + i18n attached)
+# ============================================================================
+ui:
+  theme_lifecycle: |
+    User edits user.ini [Theme] (or system.ini [Theme] for new defaults) →
+    iterate all widgets and call .refresh_style() → Config.get_color re-reads
+    via the overlay (user.ini wins, falls back to system.ini).
+    All widgets expose refresh_style(); new widgets must implement it.
+
+  i18n_bindings: |
+    i18n_bind(widget, setter, key, default="")
+        # Calls setter once immediately, then attaches I18n.language_changed for auto re-translate
+        # Example: i18n_bind(window, "setWindowTitle", "app.title", default="My App")
+    I18nLabel(key, default="", parent=None)     # QLabel subclass, auto re-translates
+    I18nButton(key, default="", parent=None)    # QPushButton subclass, auto re-translates
+
+  TyperThread: |
+    TyperThread(text, interval=30)              # QThread; emits char_ready(str) per character
+    methods: run, stop
+    signals: char_ready(str), finished()
+
+  SwitchButton: |
+    SwitchButton(parent=None, checked=False)    # Two-state gradient switch
+    api:    isChecked / setChecked(b, animated=True) / toggle / set_colors / refresh_style
+    signal: toggled(bool)
+    reads:  [SwitchButton] section + Theme(btn_1, theme_2, sub_t1, alt_t1)
+
+  CmdLogWidget: |
+    CmdLogWidget(parent=None)                   # Built-in cmd console; auto-wired to LogSignal
+    features:
+      - DEBUG/INFO dual toggles, persisted to [System].cmd_log_debug / cmd_log_info
+      - Toggling re-renders the last 5000 history entries (HISTORY_LIMIT, drops oldest 1/4)
+      - wrap=False progress lines overwrite in place; only wrap=True lines enter history
+      - 5 color levels (debug #8B8B8B / info #FFFFFF / success #00D26A
+                       / warning #FFC107 / error #FF6B6B)
+      - Line format: [HH:MM:SS] [LEVEL] text
+    methods: clear, refresh_style
+
+  LaviLabel / setText: |
+    LaviLabel(id, *, default="", kind="title"|"content",
+              font=None, color=None, size=None, parent=None)
+    setText(id, *, default="", kind="title", font=None, color=None,
+            size=None, parent=None) -> LaviLabel
+
+    kind_map:
+      title    → main_t1 + size_large
+      content  → main_c1 + size_normal
+    note: When id="", i18n_bind is skipped and only default is shown (suitable for dynamic text)
+
+  LaviButton / setButton: |
+    LaviButton(id, *, default="", kind, spec, icon=None, overrides=None,
+               checkable=False, disabled=False, icon_only=False,
+               width=None, height=None, parent=None)
+
+    setButton(id, width, height, *,
+              kind="normal", spec="none",
+              icon=None, default="",
+              font_color=None, border_color=None, bg_color=None,
+              hover_color=None, hover_fg_color=None,
+              checked_color=None, checked_fg_color=None,
+              checkable=False, disabled=False, icon_only=False,
+              parent=None) -> LaviButton
+
+    kinds:    normal | border | light          # Three base styles for bg/border
+    specs:    none | notice | save | danger    # Semantic role; non-none uses bold font + spec colors
+    icon:     Assets.find_icon → stem ("icon_play") / relative / absolute all work
+    icon_only=True: Skips i18n text binding, pure icon button (id only acts as i18n key placeholder)
+    Override priority: explicit color args > spec colors > kind defaults
+
+  LaviProgressBar: |
+    LaviProgressBar(task_key="", *, default_name="Task",
+                    total=100, slot_idx=None, parent=None)
+
+    layout:  "Task: [bar] NN% | current/total | Status"
+    states:  idle | running | pause | success | failed | cancelled
+    fill_colors:
+      running           → highlight
+      success           → safe_zone
+      failed/cancelled  → danger_zone
+      pause             → sub_t1
+    api:
+      set_total(n) / set_progress(current=, ratio=) / set_state(state) / reset()
+      set_task_name(key, default="") / bind_slot(slot_idx) / refresh_style()
+    auto_binding:
+      Once slot_idx is set, auto-subscribes to progress_updated / status_changed / slot_released
+    The cancelled state automatically falls back to idle after 1s
+
+  LaviComboBox / setComboBox: |
+    LaviComboBox(items, *, highlight=False, parent=None)             # Read-only combo box
+    setComboBox(items, *, width=None, height=None,
+                highlight=False, parent=None) -> LaviComboBox
+
+    items:    [str | (key, default)]   # str doubles as both key and default
+    api:      currentKey() / setItems(items) / refresh_style()
+    note:     editable=True has been removed (focus-stealing issues)
+
+  SettingConfirm: |
+    SettingConfirm(size=20, parent=None)        # Confirm/Cancel paired-icon button group
+    signals: clicked(bool), confirmed(), cancelled()
+    api:     refresh_style()
+
+  TitleGroupBox / setTitleGroupBox: |
+    TitleGroupBox(id, *, default="", parent=None)               # Themed QGroupBox + i18n title
+    setTitleGroupBox(id, *, default="", parent=None) -> TitleGroupBox
+    note: When id="", uses static default as the title
+    Usage: attach content yourself with QVBoxLayout(group), etc.
+
+  WheelSelector / setWheelSelector: |
+    WheelSelector(items, *, visible_count=5, radius=100,
+                  font_size=None, i18n=False, parent=None)
+
+    items shapes:
+      str                     Single line
+      (key, default)          With i18n=True single line; with i18n=False interpreted as (main, sub) two lines
+      [main_spec, sub_spec]   Explicit two lines (avoids ambiguity in i18n mode)
+    signals:
+      currentIndexChanged(idx: int, raw: str)   # raw=key (i18n) / default (non-i18n)
+      item_activated(idx: int, raw: str)        # Fired when clicking the current item
+    api:
+      setItems / currentIndex / currentText / currentDisplay
+      setCurrentIndex / selectNext / selectPrev
+    sound: Auto-plays assets/sound/slip.wav (QtMultimedia optional; silent if missing)
+
+  SliderSwitch / setSliderSwitch: |
+    SliderSwitch(options, *, height=44, min_segment_width=84,
+                 font_size=None, animation_ms=180, parent=None)
+
+    options:  [str | (key, default)]
+    signal:   current_changed(idx: int, key: str)
+    api:
+      currentIndex / currentKey / currentText
+      setCurrentIndex(i, animated=True, emit=True)
+      setCurrentKey(key, ...) / set_options / setHeight / refresh_style
+
+  TagInput / setTagInput: |
+    TagInput(*, mode="input"|"select", options=None,
+             placeholder_key="", placeholder="Type and press Enter",
+             font_size=None, parent=None)
+
+    modes:
+      input   QLineEdit; Enter appends; Backspace on empty input removes the last tag
+      select  QComboBox; selecting auto-appends
+    signal:   changed()
+    api:      get_values / set_values / add_value / clear / has_values / refresh_style
+
+  CheckboxItem / setCheckboxItem: |
+    CheckboxItem(id, *, default="", checked=False,
+                 font_size=None, parent=None)
+
+    signal:   toggled(bool)
+    api:      isChecked / setChecked / toggle / setTitle / refresh_style
+    note:     When id="", uses static default as the title
+
+# ============================================================================
+# 13. Gotchas (agent must avoid)
+# ============================================================================
+gotchas: |
+  - only_top_level_import:
+      Always: from unitport_sdk import X. Private module names (sys/ui/logger) are not part of the contract.
+
+  - tier_a_paths_anchored_to_file:
+      Tier-A path constants (SDK_ROOT, SRC_ROOT, PROJECT_ROOT, APP_ROOT, CONFIG_DIR,
+      SYSTEM_INI, USER_INI) are derived from __file__ at import time and independent of cwd.
+      Do NOT chdir before/after import expecting them to behave like relative paths.
+
+  - tier_b_paths_resolved_once:
+      LOGS_DIR / ASSETS_DIR / REGISTERS_DIR / RUNTIME_DIR / USER_CONFIG_DIR / USER_INI
+      are resolved once at module load by Paths._resolve_dynamic(). Editing
+      system.ini or user.ini [Resources] at runtime does NOT re-resolve them —
+      restart the process. (Tier-A paths are computed before the class body
+      runs and are never reread.)
+
+  - user_config_dir_bootstrap_exception:
+      [Resources].user_config_dir is the ONE Tier-B key that does NOT support
+      user.ini overlay: user.ini lives under USER_CONFIG_DIR, so it cannot
+      itself determine where USER_CONFIG_DIR points. Set it in system.ini only.
+      A user_config_dir entry in user.ini is silently ignored.
+
+  - user_ini_outside_project_tree:
+      USER_INI lives at USER_CONFIG_DIR/user.ini (default ~/UnitPort/user.ini),
+      NOT inside src/config/. The project tree stays clean across redeploys.
+      First run: the file does not exist and Config falls back to system.ini
+      defaults; the file is created lazily on the first Config.set_value call.
+      Going forward, every user-customised setting file lives under
+      USER_CONFIG_DIR — do NOT introduce new user-state files in the project
+      tree.
+
+  - config_overlay_read_order:
+      Config.get_value reads user.ini first, falls back to system.ini, then to the
+      caller's fallback arg. Empty string in either layer counts as "not set" and
+      falls through. Do NOT rely on system.ini values being authoritative — a user
+      override hides them.
+
+  - config_set_value_writes_user_ini:
+      Config.set_value writes to user.ini ONLY. system.ini is treated as immutable
+      factory defaults at runtime. To distribute new defaults, edit system.ini in
+      the source tree (not at runtime).
+
+  - config_vs_datamanager_user_ini_cache:
+      Config and DataManager both touch user.ini with independent caches.
+      Config._flush calls DataManager.clear(USER_INI) after writing → DataManager
+      always sees the latest. The reverse direction (DataManager.update on user.ini
+      → Config's overlay parser stale) requires a manual Config.reload().
+
+  - storage_cloud_is_wip:
+      Storage.push(channel="cloud") logs log_error and returns False. This is a
+      USER-AUTHORIZED WIP stub — wiring callsites against it today is fine. Do NOT
+      "clean up" the branch during refactor passes; the Supabase transport lands later.
+
+  - storage_local_under_user_config:
+      Storage.push(channel="local") writes under Paths.USER_CONFIG_DIR (default
+      ~/UnitPort), NOT under the project tree. Use this for per-user state (login
+      tokens, exported policies, telemetry caches) that should outlive a project.
+
+  - dataframe_returns_copy:
+      DataManager.read/load returns .copy() for DataFrames; to persist changes you must call write()/update().
+
+  - update_typed_only:
+      update() supports only INI and dict-like; DataFrame/text/bytes must use write().
+
+  - get_value_naming:
+      Top-level get_value == Config.get_value (INI-only, overlay-aware);
+      DataManager.get is exposed as get_data_value.
+
+  - must_use_self_sleep:
+      In Task.run, use self.sleep(s) for blocking; time.sleep is non-interruptible and breaks cancel.
+
+  - cmd_progress_single_owner:
+      Under concurrent tasks, only one writes to the cmd single-line progress bar; others only refresh
+      graphic bars — this is by design, not a bug.
+
+  - tasks_configure_when_idle:
+      TasksManager.configure(n) returns True only when all slots are idle and the queue is empty;
+      otherwise returns False.
+
+  - loguru_bridge_doubles:
+      After install_loguru_bridge, log_* renders twice (emit + loguru re-injection);
+      do NOT install unless mirroring a third-party logger.
+
+  - i18n_init_on_import:
+      Importing unitport_sdk calls I18n.init(); on first import system.ini is
+      created on demand and missing _DEFAULTS keys are filled in once.
+
+  - assets_layered_lookup:
+      [Resources].assets_dir override (system.ini ⊕ user.ini overlay) is resolved
+      into Paths.ASSETS_DIR; Assets.find() searches it first, then the canonical
+      install dir (RELEASE/src/application/bin/assets/). External entries with the
+      same name override install entries.
+
+  - localisation_dir_default:
+      [Localisation].dir resolves under PROJECT_ROOT; override with an absolute
+      path or one relative to PROJECT_ROOT.
+
+  - ini_strict_false:
+      All ini reads use strict=False; duplicate keys within a section do not raise.
+
+  - atomic_write_same_volume:
+      os.replace is only atomic within the same volume; source and target must share a drive letter.
+
+  - theme_slots_not_hardcode:
+      Always go through Config.get_color/get_font_size for colors and font sizes;
+      add new theme slots in system.ini [Theme]; users override via user.ini [Theme]
+      with the same slot name.
+
+  - paths_read_resource_bypass_config:
+      Paths._read_resource / _read_resource_from / get_logs_dir / get_assets_dirs
+      intentionally bypass Config (logger import-time cycle). Both system.ini and
+      user.ini reads share this same bypass. Do NOT "fix" it.
+
+# ============================================================================
+# 14. Recipes (copy-paste)
+# ============================================================================
+recipes:
+
+  app_bootstrap: |
+    import sys
+    from PyQt6.QtWidgets import QApplication
+    from unitport_sdk import install_crash_hook, set_max_slots, log_info
+
+    install_crash_hook()                     # Child-thread exceptions → log_error + crash log
+    app = QApplication(sys.argv)
+    set_max_slots(4)                         # Default 4, HARD_MAX=16
+    win = MainWindow(); win.show()
+    log_info("Startup complete")
+    sys.exit(app.exec())
+
+  custom_task: |
+    from unitport_sdk import Task
+
+    class FetchTask(Task):
+        def __init__(self, urls):
+            super().__init__(f"Fetch {len(urls)} items")
+            self.urls = urls
+
+        def run(self):
+            results = []
+            n = len(self.urls)
+            for i, url in enumerate(self.urls):
+                self.check_cancelled()
+                self.progress_line((i + 1) / n, f"{i+1}/{n} {url}")
+                results.append(self._fetch(url))
+                self.sleep(0.05)             # Interruptible blocking
+            return results
+
+  submit_and_track: |
+    from unitport_sdk import get_tasks_manager, get_task_signal, log_success
+
+    mgr = get_tasks_manager()
+    tid = mgr.submit(FetchTask(urls))
+
+    def _on_finish(task_id, success, result):
+        if task_id == tid:
+            log_success(f"Done: {len(result)} items" if success else "Failed")
+    get_task_signal().task_finished.connect(_on_finish)
+
+  read_write_app_config: |
+    # Business config goes through DataManager (decoupled from system.ini / user.ini)
+    from unitport_sdk import save_data, read_data, get_data_value, up_data
+    save_data("config/app.json", {"window": {"w": 1280, "h": 800}})
+    cfg = read_data("config/app.json")
+    w   = get_data_value("config/app.json", "window", "w",
+                         fallback=1024, value_type=int)
+    up_data("config/app.json", data={"window": {"w": 1600}})    # merge=True
+
+  custom_handler: |
+    import json
+    from unitport_sdk import DataManager
+
+    class JsonlHandler:
+        def read(self, path, **kw):
+            if not path.exists():
+                return []
+            return [json.loads(l) for l in
+                    path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        def write(self, path, value, **kw):
+            from unitport_sdk.sys import _atomic_write   # Internal helper
+            _atomic_write(path, lambda tmp: tmp.write_text(
+                "\n".join(json.dumps(x, ensure_ascii=False) for x in value),
+                encoding="utf-8"))
+
+    DataManager.register_handler(".jsonl", JsonlHandler())
+
+  themed_button: |
+    from unitport_sdk import setButton
+    btn = setButton("btn.save", 100, 32,
+                    kind="normal", spec="save",
+                    icon="icon_play", default="Save")
+    grid.addWidget(btn, row, col)
+
+  i18n_label_and_switch: |
+    from unitport_sdk import I18n, I18nLabel, i18n_bind, log_info
+
+    title = I18nLabel("app.title", default="My App")
+    i18n_bind(window, "setWindowTitle", "app.title", default="My App")
+
+    I18n.set_language("ZH")                  # Fires language_changed → all bound widgets re-translate
+    log_info(f"available: {I18n.available_languages()}")
+    I18n.export_template("ZH", merge=True)   # Dump every tr() key collected from code into ZH.txt
+
+  resolve_asset: |
+    from unitport_sdk import Assets
+    p = Assets.find_icon("icon_play")        # → unitport_sdk/assets/icon/icon_play.svg
+    p = Assets.find("sound/notify.wav")      # Any relative path
+    # system.ini [Resources].assets_dir = "../assets"     # default override (relative → resolved under PROJECT_ROOT)
+    # user.ini   [Resources].assets_dir = "D:/my_assets"  # per-user override; wins over system.ini
+
+  cross_thread_log: |
+    import threading
+    from unitport_sdk import log_info
+    # log_* internally goes through LogSignal.pyqtSignal, auto-marshalled to the main thread for rendering
+    threading.Thread(target=lambda: log_info("from worker"), daemon=True).start()
+
+  progress_bar_widget: |
+    # Auto-renders live progress for slot 0 (driven by TaskSignal)
+    from unitport_sdk import LaviProgressBar
+    bar = LaviProgressBar(task_key="task.fetch", default_name="Fetch",
+                          total=100, slot_idx=0)
+    layout.addWidget(bar)
+
+# ============================================================================
+# 15. Recommended project layout
+# ============================================================================
+layout: |
+  RELEASE/                        # PROJECT_ROOT — clean across git pulls / redeploys
+    main.py                       # UnitPortMain entry: init_verification → data_load → build_ui → project_load
+    log/                          # Paths.LOGS_DIR (auto-created)
+    localisation/                 # Translation files (Paths-resolved [Localisation].dir)
+    src/
+      config/                     # Paths.CONFIG_DIR
+        system.ini                # Factory defaults — SDK-owned, read-only at runtime.
+                                  # NO user.ini here — that lives under USER_CONFIG_DIR.
+      unitport_sdk/               # The SDK package (do NOT mix business code in here)
+      registers/                  # Paths.REGISTERS_DIR — global registry source-of-truth
+      runtime/                    # Paths.RUNTIME_DIR — cache/artifacts (NOT source code)
+      application/
+        bin/assets/               # Paths.ASSETS_DIR
+        ui/                       # Pages, widgets, nodes, dialogs
+        tools/                    # Pure compute (compiler, IR, training pipeline...)
+        service/                  # Stateful I/O (engine, runtime, adapters, brands...)
+
+  ~/UnitPort/                     # Paths.USER_CONFIG_DIR (per-user state, OUTSIDE project tree)
+    user.ini                      # Paths.USER_INI — overlay + app sections (set_value writes here)
+    auth/                         # e.g. login tokens via Storage.push("auth/...", ...)
+    cache/                        # e.g. exported policies, telemetry batches
+    ...                           # any future user-customised setting file goes here
+
+# ============================================================================
+# 16. Modifying the SDK vs extending in the project
+# ============================================================================
+extension_policy:
+  prefer_project_extension: |
+    - Business Task subclasses → src/application/service/ (or registers/, depending on stateful-vs-pure split)
+    - Project-specific theme slots → add to system.ini [Theme]; users can override per-slot in user.ini
+    - Custom DataManager handlers → register at project entry (main.py or an init module)
+    - Translation entries → maintain localisation/{LANG}/{category}.txt or auto-collect via I18n.export_template
+
+  modify_sdk_when: |
+    - A new atomic-write format shared across projects → goes into sys.py (DataManager handlers)
+    - A general-purpose widget that depends on system.ini schema → goes into ui.py and extends [Theme] / [Font]
+    - Cross-project changes to crash-routing or task-system semantics → goes into sys.py (CrashHook / Task)
+    - Cross-project changes to path resolution model → Paths Tier-A/B split lives here
+
+  do_not: |
+    - Inject business paths into Paths (Paths only describes the project skeleton)
+    - Import business modules from inside the SDK
+    - Break the __all__ contract (external code uses: from unitport_sdk import)
+    - Bypass DataManager / Config / Paths / Storage by calling open() / Path() / ConfigParser() directly
+    - Write to system.ini at runtime (it's factory; use Config.set_value → user.ini)
+    - Remove the Storage cloud-channel WIP stub (user-authorized; will be filled in later)
+
+# ============================================================================
+# 17. Verification / self-check
+# ============================================================================
+verify:
+  app_boot: |
+    cd D:\Unitport\EXE\RELEASE
+    python main.py
+    # Expected:
+    # - The four UnitPortMain workflow stages succeed in order:
+    #     [init] verifying environment...                 → all Paths print correctly
+    #     [data] loading persisted state...               → user.ini loaded; registers stub OK
+    #     [ui] building main window...                    → MainWindow constructed and shown
+    #     [project] showing picker (or opens last_path)
+    # - log/sdk_YYYY-MM-DD.log exists; no uncaught exceptions
+    # - System.ini is unchanged; user.ini has only the values the app explicitly set
+
+  paths_resolution: |
+    cd D:\Unitport\EXE\RELEASE\src
+    python -c "from unitport_sdk import Paths; \
+      print('LOGS:', Paths.LOGS_DIR); \
+      print('ASSETS:', Paths.ASSETS_DIR); \
+      print('REGISTERS:', Paths.REGISTERS_DIR); \
+      print('RUNTIME:', Paths.RUNTIME_DIR); \
+      print('USER_CONFIG:', Paths.USER_CONFIG_DIR)"
+    # Expected (with empty [Resources] in system.ini and user.ini):
+    #   LOGS:        D:\Unitport\EXE\RELEASE\log
+    #   ASSETS:      D:\Unitport\EXE\RELEASE\src\application\bin\assets
+    #   REGISTERS:   D:\Unitport\EXE\RELEASE\src\registers
+    #   RUNTIME:     D:\Unitport\EXE\RELEASE\src\runtime
+    #   USER_CONFIG: <home>\UnitPort   (Windows: C:\Users\<u>\UnitPort)
+
+  config_overlay: |
+    python -c "from unitport_sdk import Config; \
+      Config.set_value('Theme', 'bg_1', '#FF0000'); \
+      print(Config.get_color('bg_1', '#000'))"
+    # Expected: #FF0000 — and user.ini now contains [Theme] bg_1=#FF0000;
+    #           system.ini is unchanged. Revert by hand if you want to clean up.
+
+  storage_push: |
+    python -c "from unitport_sdk import push_data, Paths; \
+      ok = push_data('cache/smoke.json', {'hello':'world'}); \
+      print('local ok:', ok); \
+      print('exists:', (Paths.USER_CONFIG_DIR / 'cache' / 'smoke.json').exists()); \
+      print('cloud:', push_data('x', 1, channel='cloud'))"
+    # Expected: local ok: True; exists: True; WIP error logged; cloud: False
+
+  syntax_check: |
+    cd D:\Unitport\EXE\RELEASE\src
+    python -m py_compile unitport_sdk/__init__.py unitport_sdk/logger.py \
+                         unitport_sdk/sys.py unitport_sdk/ui.py

@@ -1,42 +1,76 @@
-# Celebrimbor - Robot Visual Programming Platform
-# Python dependency list
+# UnitPort RELEASE - Python dependency list
+#
+# Mirrors DEMO/requirements.txt to keep DEMO and RELEASE environments in sync.
+# The single intentional divergence: RELEASE uses PyQt6 (DEMO uses PySide6).
+# All other packages are identical so a sim/training/RL stack tested in DEMO
+# behaves the same in RELEASE.
+#
+# Install:
+#   cd D:\Unitport\EXE\RELEASE
+#   install.bat                              # creates .venv311 and installs everything
 
-# Core runtime dependencies
-PySide6>=6.5.0
+# --- Qt binding (the one forced divergence vs DEMO) ---
+PyQt6>=6.5.0
+
+# --- Core runtime dependencies ---
 mujoco>=3.0.0
-numpy>=1.24.0
+numpy>=1.24.0,<2.0
 PyYAML>=6.0
 onnx>=1.14
 onnxruntime>=1.17
-# PyTorch: install.bat/install.sh install the CUDA build first when an
-# NVIDIA GPU is detected.  This bare specifier acts as a fallback for
-# CPU-only machines and satisfies the version constraint in either case.
+# PyTorch: install.bat installs the CUDA build first when an NVIDIA GPU is
+# detected. This bare specifier acts as a fallback for CPU-only machines and
+# satisfies the version constraint in either case.
 torch>=2.0.0
 huggingface_hub==1.7.1
 psutil>=5.9
 loguru>=0.7.0
 rlottie-python>=1.3.0
 gymnasium
+pygame
 stable-baselines3>=2.0.0
+tensorboard>=2.15
 
-# Optional: test/development
+# --- Serialization helpers expected by unitport_sdk DataManager ---
+tomli>=2.0; python_version < "3.11"
+tomli_w>=1.0
+pandas>=2.0
+
+# --- Optional: test/development ---
 pytest>=7.4.0
-# black>=23.0.0
-# pylint>=2.17.0
 
-# Optional: Unitree SDK2
+# --- Optional: Unitree SDK2 ---
 # The project imports `unitree_sdk2py`, but this is typically installed from
 # Unitree's official SDK distribution (local/vendor path), not PyPI.
 # unitree_sdk2py
 
-# CycloneDDS — required by unitree_sdk2py for real-robot communication.
-# 0.10.2 (pinned by unitree_sdk2py) has no Windows binary wheel and requires
-# the CycloneDDS C library to build from source.  11.x ships a pre-built wheel
-# for Windows/Python 3.11 and is API-compatible for the channel primitives used
-# here.  Install with --only-binary :all: to avoid the C-build path.
+# --- CycloneDDS - HARD requirement: idl_messages/builtin_interfaces.py uses
+# ``cyclonedds.idl.IdlStruct`` as a class base, and that import chain is pulled
+# in eagerly by MainWindow -> widgets -> adapters -> ros2 native bridge. The
+# app cannot reach the LoadingScreen without cyclonedds installed. install.bat
+# / install.sh install it in the bootstrap stage with ``--only-binary :all:``
+# so pip never falls through to a source build (which would need the CycloneDDS
+# C library + a C++17 toolchain on Windows). ProvisioningTask's re-probe pass
+# catches any drift.
 cyclonedds>=0.10.2
+mcap>=1.0
+mcap-ros2-support>=0.5.0
 pyqtgraph>=0.13
 
-# Remote training (cloud SSH backend)
+# --- Connection orchestrator (SSH into Mini Pupper for bringup) ---
 paramiko>=3.0
+
+# --- Remote training (cloud SSH backend) ---
 keyring>=25.0
+
+# --- XACRO expansion - used by Robot Asset sidebar's Calibrate action.
+# Pure-Python standalone fork of the ROS xacro tool (no ROS install required).
+xacro>=2.1
+
+# --- Supabase Auth - HTTP client for REST calls against the Auth REST API.
+# Plain REST keeps the dependency tree small (no postgrest / realtime pull-ins).
+httpx>=0.27
+
+# --- Version comparison for the in-app update checker. ``packaging.version``
+# is the only stdlib-quality semver parser; otherwise transitive via httpx.
+packaging>=23.0

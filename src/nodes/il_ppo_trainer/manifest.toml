@@ -1,0 +1,350 @@
+schema = "unitport.node/v1"
+id = "il_ppo_trainer"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "training"
+layer = "IL"
+display_name_key = "node.il_ppo_trainer.display"
+description_key = "node.il_ppo_trainer.desc"
+icon = "il_trainer.svg"
+# mission_panel 训练配置卡靠 is_trainer 在画布上动态发现承载训练超参的节点；
+# 字段暴露由各 ParamSpec.meta.mission_expose 控制。
+is_trainer = true
+
+# IL Trainer — Isaac Lab 统一 trainer (PPO / AMP_PPO 切换).
+#
+# AMP_PPO 模式：
+#   - reference_motion_config / discriminator_config 端口必须连
+#   - 多出 7 个 AMP 专用 hyperparams (amp_reward_coef ... disc_lr)
+#   - lerp_schedule + lerp_schedule_json 启用
+#
+# PPO 模式：上述 AMP 专属端口 / 参数自动隐藏。Conditional 行为由 node.py 的
+# `_AMP_ONLY_KEYS` 与 `_CONDITIONAL_PORTS` 表达。
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+
+[[inputs]]
+name = "policy"
+type = "policy"
+
+[[inputs]]
+name = "command_pipe"
+type = "command_pipe"
+description = "Aggregated command + per-item rewards stream (from training_motion)"
+
+[[inputs]]
+name = "termination_config"
+type = "termination_config"
+
+[[inputs]]
+name = "domain_rand_config"
+type = "domain_rand_config"
+
+[[inputs]]
+name = "obs_vector"
+type = "obs_vector"
+
+[[inputs]]
+name = "scene_pipe"
+type = "scene_pipe"
+
+[[inputs]]
+name = "checkpoint"
+type = "checkpoint"
+optional = true
+description = "Start Point resume/warm-start checkpoint (optional)"
+
+[[inputs]]
+name = "reference_motion_config"
+type = "reference_motion_config"
+optional = true
+description = "Required in AMP_PPO mode (auto-hidden in PPO mode)"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" } }
+
+[[inputs]]
+name = "discriminator_config"
+type = "discriminator_config"
+optional = true
+description = "Required in AMP_PPO mode (auto-hidden in PPO mode)"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" } }
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "train_pipe"
+type = "train_pipe"
+
+[[outputs]]
+name = "training_metrics"
+type = "dict"
+
+# ---------------------------------------------------------------------------
+# Parameters — Mode + scale
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "training_mode"
+type = "enum"
+default = "PPO"
+choices = ["PPO", "AMP_PPO"]
+description = "训练模式 / Training mode"
+meta = { mode_gate = true, pin_on_collapse = true }
+
+[[parameters]]
+key = "num_envs"
+type = "int"
+default = 4096
+widget = "index"
+description = "并行 env / Parallel envs"
+meta = { min = 1, max = 65536, mission_expose = true, mission_label_i18n = "mission.train.field.num_envs", pin_on_collapse = true }
+
+# ---------------------------------------------------------------------------
+# Parameters — 16 shared PPO hyperparams
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "max_iterations"
+type = "int"
+default = 1500
+widget = "index"
+description = "最大迭代 / Max outer iterations"
+meta = { min = 1, max = 1000000, mission_expose = true, mission_label_i18n = "mission.train.field.max_iterations", pin_on_collapse = true }
+
+[[parameters]]
+key = "num_steps_per_env"
+type = "int"
+default = 24
+widget = "index"
+description = "每 env 步数"
+meta = { min = 1, max = 1024, pin_on_collapse = true }
+
+[[parameters]]
+key = "num_learning_epochs"
+type = "int"
+default = 5
+widget = "index"
+description = "PPO 学习 epoch"
+meta = { min = 1, max = 64, pin_on_collapse = true }
+
+[[parameters]]
+key = "num_minibatches"
+type = "int"
+default = 4
+widget = "index"
+description = "PPO mini-batch 数"
+meta = { min = 1, max = 64, pin_on_collapse = true }
+
+[[parameters]]
+key = "learning_rate"
+type = "float"
+default = 0.001
+widget = "range"
+description = "学习率"
+meta = { min = 1e-5, max = 1e-2, step = 1e-5, mission_expose = true, mission_label_i18n = "mission.train.field.lr", pin_on_collapse = true }
+
+[[parameters]]
+key = "discount_factor"
+type = "float"
+default = 0.99
+widget = "range"
+description = "折扣因子 γ"
+meta = { min = 0.0, max = 1.0, step = 0.001, mission_expose = true, mission_label_i18n = "mission.train.field.gamma" }
+
+[[parameters]]
+key = "gae_lambda"
+type = "float"
+default = 0.95
+widget = "range"
+description = "GAE λ"
+meta = { min = 0.0, max = 1.0, step = 0.001 }
+
+[[parameters]]
+key = "clip_param"
+type = "float"
+default = 0.2
+widget = "range"
+description = "PPO clip ε"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "entropy_coef"
+type = "float"
+default = 0.01
+widget = "range"
+description = "熵系数"
+meta = { min = 0.0, max = 1.0, step = 0.001, mission_expose = true, mission_label_i18n = "mission.train.field.ent_coef" }
+
+[[parameters]]
+key = "value_loss_coef"
+type = "float"
+default = 1.0
+widget = "range"
+description = "value loss 权重"
+meta = { min = 0.0, max = 2.0, step = 0.01 }
+
+[[parameters]]
+key = "max_grad_norm"
+type = "float"
+default = 1.0
+widget = "range"
+description = "梯度裁剪上限"
+meta = { min = 0.0, max = 10.0, step = 0.05 }
+
+[[parameters]]
+key = "schedule"
+type = "enum"
+default = "adaptive"
+choices = ["adaptive", "fixed"]
+description = "学习率调度 / LR schedule"
+
+[[parameters]]
+key = "desired_kl"
+type = "float"
+default = 0.01
+widget = "range"
+description = "adaptive KL 目标"
+meta = { min = 0.0, max = 0.1, step = 0.001 }
+
+[[parameters]]
+key = "save_interval"
+type = "int"
+default = 100
+widget = "index"
+description = "checkpoint 保存间隔"
+meta = { min = 1, max = 100000 }
+
+[[parameters]]
+key = "seed"
+type = "int"
+default = 42
+widget = "index"
+description = "随机种子"
+meta = { min = 0, max = 100000000, mission_expose = true, mission_label_i18n = "mission.train.field.seed" }
+
+[[parameters]]
+key = "headless"
+type = "bool"
+default = true
+description = "无头模式（仅在生产训练用）"
+
+# ---------------------------------------------------------------------------
+# Parameters — 9 AMP-only hyperparams (DEPRECATED on trainer node)
+# ---------------------------------------------------------------------------
+# Single source of truth is now the ``discriminator`` node. spec_compiler
+# only reads these fields from the trainer when no discriminator node
+# exists on the canvas (legacy fallback). New canvases should leave them
+# at the manifest defaults — UI may hide them under ``deprecated = true``.
+
+[[parameters]]
+key = "amp_reward_coef"
+type = "float"
+default = 2.0
+widget = "range"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, min = 0.0, max = 10.0, step = 0.05, deprecated = true }
+
+[[parameters]]
+key = "task_reward_lerp"
+type = "float"
+default = 0.5
+widget = "range"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, min = 0.0, max = 1.0, step = 0.01, deprecated = true }
+
+[[parameters]]
+key = "disc_grad_penalty"
+type = "float"
+default = 10.0
+widget = "range"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, min = 0.0, max = 20.0, step = 0.1, deprecated = true }
+
+[[parameters]]
+key = "disc_label_smoothing"
+type = "float"
+default = 0.9
+widget = "range"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, min = 0.0, max = 1.0, step = 0.01, deprecated = true }
+
+[[parameters]]
+key = "amp_replay_buffer_size"
+type = "int"
+default = 1000000
+widget = "buffer_size"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, min = 1000, max = 100000000, deprecated = true }
+
+[[parameters]]
+key = "num_preload_transitions"
+type = "int"
+default = 2000000
+widget = "index"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, min = 0, max = 100000000, deprecated = true }
+
+[[parameters]]
+key = "disc_lr"
+type = "float"
+default = 0.0001
+widget = "range"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, min = 1e-5, max = 1e-2, step = 1e-5, deprecated = true }
+
+# ---------------------------------------------------------------------------
+# Parameters — RSI-AMP lerp schedule (DEPRECATED on trainer node)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "lerp_schedule"
+type = "enum"
+default = "none"
+choices = ["none", "slow_anneal", "fast_anneal", "warmup_then_anneal", "custom"]
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, deprecated = true }
+
+[[parameters]]
+key = "lerp_schedule_json"
+type = "string"
+default = ""
+widget = "code"
+description = "[DEPRECATED — configure on discriminator node]"
+meta = { conditional_on = { key = "training_mode", op = "==", value = "AMP_PPO" }, language = "json", deprecated = true }
+
+# ---------------------------------------------------------------------------
+# Parameters — Entropy schedule
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "entropy_schedule_enabled"
+type = "bool"
+default = false
+description = "启用熵系数退火"
+
+[[parameters]]
+key = "entropy_schedule_start"
+type = "float"
+default = 0.01
+widget = "range"
+description = "熵起始值"
+meta = { min = 0.0, max = 1.0, step = 0.001 }
+
+[[parameters]]
+key = "entropy_schedule_end"
+type = "float"
+default = 0.003
+widget = "range"
+description = "熵终值"
+meta = { min = 0.0, max = 1.0, step = 0.001 }
+
+[[parameters]]
+key = "entropy_schedule_ramp_iters"
+type = "int"
+default = 1500
+widget = "index"
+description = "熵退火持续 iter 数"
+meta = { min = 1, max = 1000000 }

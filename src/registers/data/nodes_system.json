@@ -1,0 +1,5473 @@
+{
+  "schema": "unitport.nodes_system/v1",
+  "version": "1.0.0",
+  "_doc": "由 registers.nodes.load() 自动维护的内置节点快照；可 git diff review",
+  "system": {
+    "actor_setting": {
+      "schema": "unitport.node/v1",
+      "id": "actor_setting",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.actor_setting.display",
+      "description_key": "node.actor_setting.desc",
+      "icon": "actor_setting.svg",
+      "inputs": [
+        {
+          "name": "robot_pipe",
+          "type": "robot_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "Structural body list / joint names from the paired Robot node",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "actor_pipe",
+          "type": "actor_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "Superset Actor block consumed by rewards / DR / obs / action / cmd",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "init_pos_x",
+          "type": "float",
+          "default": 0.0,
+          "choices": null,
+          "description": "初始 X 位置 / Init world-frame X (m)",
+          "widget": "range",
+          "meta": {
+            "min": -100.0,
+            "max": 100.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "init_pos_y",
+          "type": "float",
+          "default": 0.0,
+          "choices": null,
+          "description": "初始 Y 位置 / Init world-frame Y (m)",
+          "widget": "range",
+          "meta": {
+            "min": -100.0,
+            "max": 100.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "init_pos_z",
+          "type": "float",
+          "default": 0.4,
+          "choices": null,
+          "description": "初始 Z 位置 / Init world-frame Z (m)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "init_joint_angles",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "初始关节角 (IR-role → radians) / Init joint angles (slider editor)",
+          "widget": "joint_pose_table",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "init_pose_mode",
+          "type": "enum",
+          "default": "default",
+          "choices": [
+            "default",
+            "reference_frame_0",
+            "keyframe",
+            "custom"
+          ],
+          "description": "起始姿态模式 / Episode init-pose mode",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "init_pose_noise_scale",
+          "type": "float",
+          "default": 0.05,
+          "choices": null,
+          "description": "起始姿态噪声 (rad) / Init-pose joint noise",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "init_pose_keyframe_name",
+          "type": "string",
+          "default": "home",
+          "choices": null,
+          "description": "MJCF keyframe 名 (mode=keyframe) [SB3/MJCF only: IL 路径用 USD 无 keyframe 概念；IL canvas 上 mode=keyframe 退化为 default]",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "init_pose_mode",
+              "op": "==",
+              "value": "keyframe"
+            }
+          }
+        },
+        {
+          "key": "init_pose_rsi_prob",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "RSI 概率 (mode=reference_frame_0) / RSI probability",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "conditional_on": {
+              "key": "init_pose_mode",
+              "op": "==",
+              "value": "reference_frame_0"
+            }
+          }
+        },
+        {
+          "key": "init_pose_rsi_sample_mode",
+          "type": "enum",
+          "default": "frame_0",
+          "choices": [
+            "frame_0",
+            "uniform_phase"
+          ],
+          "description": "RSI 采样模式 / RSI sample mode",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "init_pose_mode",
+              "op": "==",
+              "value": "reference_frame_0"
+            }
+          }
+        },
+        {
+          "key": "contact_body_names",
+          "type": "json",
+          "default": "[]",
+          "choices": null,
+          "description": "接触 body 名 (JSON list) / Contact-sensor body names",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "contact_history_length",
+          "type": "int",
+          "default": 3,
+          "choices": null,
+          "description": "接触历史长度 / Contact history length",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 64
+          }
+        },
+        {
+          "key": "contact_track_air_time",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "追踪 air time / Track air time",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "stiffness",
+          "type": "float",
+          "default": 25.0,
+          "choices": null,
+          "description": "刚度 / Joint stiffness (PD P gain)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 200.0,
+            "step": 1.0
+          }
+        },
+        {
+          "key": "damping",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "阻尼 / Joint damping (PD D gain)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "effort_limit",
+          "type": "float",
+          "default": 30.0,
+          "choices": null,
+          "description": "扭矩上限 / Effort (torque) limit",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 200.0,
+            "step": 1.0
+          }
+        },
+        {
+          "key": "velocity_limit",
+          "type": "float",
+          "default": 30.0,
+          "choices": null,
+          "description": "速度上限 / Joint velocity limit",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 100.0,
+            "step": 0.5
+          }
+        },
+        {
+          "key": "action_joint_names_expr",
+          "type": "json",
+          "default": "[]",
+          "choices": null,
+          "description": "动作关节名表达 (JSON list / regex) / Action joint names expr",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "action_scale",
+          "type": "float",
+          "default": 0.25,
+          "choices": null,
+          "description": "动作缩放 / Action scale",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "action_use_default_offset",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "动作使用默认 offset / Use default joint offset",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "action_scale_curriculum_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用 action_scale 课程 / Enable action-scale curriculum",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "action_scale_curriculum_start",
+          "type": "float",
+          "default": 0.15,
+          "choices": null,
+          "description": "课程起始 scale / Curriculum start scale",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "action_scale_curriculum_end",
+          "type": "float",
+          "default": 0.25,
+          "choices": null,
+          "description": "课程结束 scale / Curriculum end scale",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "action_scale_curriculum_ramp_iters",
+          "type": "int",
+          "default": 300,
+          "choices": null,
+          "description": "课程 ramp 迭代数 / Curriculum ramp iterations",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000
+          }
+        },
+        {
+          "key": "_review_pose",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "▶ Review init pose in MuJoCo viewer",
+          "widget": "actor_review_pose_button",
+          "meta": {
+            "full_width_widget": true
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "algorithm_config": {
+      "schema": "unitport.node/v1",
+      "id": "algorithm_config",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "C",
+      "display_name_key": "node.algorithm_config.display",
+      "description_key": "node.algorithm_config.desc",
+      "icon": "algorithm.svg",
+      "inputs": [
+        {
+          "name": "checkpoint",
+          "type": "checkpoint",
+          "multi": false,
+          "optional": true,
+          "description": "来自 BaseAssetNode；scratch 时可悬空",
+          "meta": null
+        },
+        {
+          "name": "total_steps",
+          "type": "int",
+          "multi": false,
+          "optional": true,
+          "description": "来自 MultiGatedRewardNode；覆盖 total_timesteps（NodeRow 合并显示）",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "algo_config",
+          "type": "algo_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "algorithm",
+          "type": "enum",
+          "default": "PPO",
+          "choices": [
+            "PPO",
+            "SAC",
+            "TD3"
+          ],
+          "description": "算法 / Algorithm",
+          "widget": null,
+          "meta": {
+            "algorithm_gate": true,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "total_timesteps",
+          "type": "int",
+          "default": 1000000,
+          "choices": null,
+          "description": "总训练步数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000000,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.total_timesteps",
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "learning_rate",
+          "type": "float",
+          "default": 0.0003,
+          "choices": null,
+          "description": "学习率",
+          "widget": "range",
+          "meta": {
+            "min": 1e-05,
+            "max": 0.01,
+            "step": 1e-05,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.lr",
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "batch_size",
+          "type": "int",
+          "default": 256,
+          "choices": null,
+          "description": "Batch size",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1048576,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.batch_size",
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "gamma",
+          "type": "float",
+          "default": 0.99,
+          "choices": null,
+          "description": "折扣因子 γ",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.gamma"
+          }
+        },
+        {
+          "key": "seed",
+          "type": "int",
+          "default": 42,
+          "choices": null,
+          "description": "随机种子",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 100000000,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.seed"
+          }
+        },
+        {
+          "key": "device",
+          "type": "enum",
+          "default": "auto",
+          "choices": [
+            "auto",
+            "cpu",
+            "cuda"
+          ],
+          "description": "设备",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "hidden_dim_1",
+          "type": "int",
+          "default": 256,
+          "choices": null,
+          "description": "隐藏层 1 维度",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 8192
+          }
+        },
+        {
+          "key": "hidden_dim_2",
+          "type": "int",
+          "default": 256,
+          "choices": null,
+          "description": "隐藏层 2 维度",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 8192
+          }
+        },
+        {
+          "key": "activation",
+          "type": "enum",
+          "default": "relu",
+          "choices": [
+            "relu",
+            "tanh",
+            "elu"
+          ],
+          "description": "激活函数",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "ent_coef",
+          "type": "string",
+          "default": "auto",
+          "choices": null,
+          "description": "熵系数 (\"auto\" 或浮点字符串)",
+          "widget": null,
+          "meta": {
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.ent_coef"
+          }
+        },
+        {
+          "key": "checkpoint_interval",
+          "type": "int",
+          "default": 50000,
+          "choices": null,
+          "description": "Checkpoint 保存间隔",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "resume_mode",
+          "type": "enum",
+          "default": "scratch",
+          "choices": [
+            "scratch",
+            "resume",
+            "warm_start_actor"
+          ],
+          "description": "Resume 模式（被 checkpoint.load_mode 覆盖）",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "policy_id_out",
+          "type": "string",
+          "default": "trained_policy",
+          "choices": null,
+          "description": "输出策略 id",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "gae_lambda",
+          "type": "float",
+          "default": 0.95,
+          "choices": null,
+          "description": "[PPO] GAE λ",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "==",
+              "value": "PPO"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "n_steps",
+          "type": "int",
+          "default": 2048,
+          "choices": null,
+          "description": "[PPO] n_steps",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "==",
+              "value": "PPO"
+            },
+            "min": 1,
+            "max": 1000000
+          }
+        },
+        {
+          "key": "n_epochs",
+          "type": "int",
+          "default": 10,
+          "choices": null,
+          "description": "[PPO] n_epochs",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "==",
+              "value": "PPO"
+            },
+            "min": 1,
+            "max": 1024
+          }
+        },
+        {
+          "key": "lr_schedule",
+          "type": "enum",
+          "default": "cosine",
+          "choices": [
+            "cosine",
+            "linear",
+            "constant"
+          ],
+          "description": "[PPO] 学习率调度",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "==",
+              "value": "PPO"
+            }
+          }
+        },
+        {
+          "key": "gradient_steps",
+          "type": "int",
+          "default": 1,
+          "choices": null,
+          "description": "[Off-policy] 梯度更新步数",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            },
+            "min": 1,
+            "max": 1024
+          }
+        },
+        {
+          "key": "tau",
+          "type": "float",
+          "default": 0.005,
+          "choices": null,
+          "description": "[Off-policy] target 网络软更新系数",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "target_entropy",
+          "type": "string",
+          "default": "auto",
+          "choices": null,
+          "description": "[SAC/TD3] target entropy (\"auto\" 或浮点字符串)",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            }
+          }
+        },
+        {
+          "key": "buffer_size_mode",
+          "type": "enum",
+          "default": "auto",
+          "choices": [
+            "auto",
+            "manual"
+          ],
+          "description": "[Off-policy] Buffer 大小模式",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            }
+          }
+        },
+        {
+          "key": "buffer_size",
+          "type": "int",
+          "default": 1000000,
+          "choices": null,
+          "description": "[Off-policy] Replay buffer 容量",
+          "widget": "buffer_size",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            },
+            "min": 10000,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "learning_starts",
+          "type": "int",
+          "default": 10000,
+          "choices": null,
+          "description": "[Off-policy] 学习起始步",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            },
+            "min": 0,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "use_per",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "[Off-policy] 启用 Prioritized Experience Replay",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            }
+          }
+        },
+        {
+          "key": "per_alpha",
+          "type": "float",
+          "default": 0.6,
+          "choices": null,
+          "description": "[PER] α (优先级强度)",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "per_beta",
+          "type": "float",
+          "default": 0.4,
+          "choices": null,
+          "description": "[PER] β (importance sampling 校正)",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "in",
+              "value": [
+                "SAC",
+                "TD3"
+              ]
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "collapse_guard",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "崩溃保护",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "collapse_threshold",
+          "type": "float",
+          "default": 0.65,
+          "choices": null,
+          "description": "崩溃阈值（best ratio）",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "collapse_patience",
+          "type": "int",
+          "default": 5,
+          "choices": null,
+          "description": "崩溃容忍 epoch 数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000
+          }
+        },
+        {
+          "key": "collapse_lr_factor",
+          "type": "float",
+          "default": 0.3,
+          "choices": null,
+          "description": "崩溃后学习率乘子",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "collapse_max_rollbacks",
+          "type": "int",
+          "default": 0,
+          "choices": null,
+          "description": "崩溃最大回滚次数（0 = 无限制）",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 1000
+          }
+        }
+      ],
+      "is_trainer": true
+    },
+    "amp_trainer": {
+      "schema": "unitport.node/v1",
+      "id": "amp_trainer",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "training",
+      "layer": "IL",
+      "display_name_key": "node.amp_trainer.display",
+      "description_key": "node.amp_trainer.desc",
+      "icon": "il_trainer.svg",
+      "inputs": [
+        {
+          "name": "policy",
+          "type": "policy",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "command_pipe",
+          "type": "command_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "Aggregated command + per-item rewards stream (from training_motion)",
+          "meta": null
+        },
+        {
+          "name": "termination_config",
+          "type": "termination_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "domain_rand_config",
+          "type": "domain_rand_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "obs_vector",
+          "type": "obs_vector",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "scene_pipe",
+          "type": "scene_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "checkpoint",
+          "type": "checkpoint",
+          "multi": false,
+          "optional": true,
+          "description": "Start Point resume/warm-start checkpoint (optional)",
+          "meta": null
+        },
+        {
+          "name": "reference_motion_config",
+          "type": "reference_motion_config",
+          "multi": false,
+          "optional": true,
+          "description": "Required in AMP_PPO mode (default mode for this legacy alias)",
+          "meta": null
+        },
+        {
+          "name": "discriminator_config",
+          "type": "discriminator_config",
+          "multi": false,
+          "optional": true,
+          "description": "Required in AMP_PPO mode (default mode for this legacy alias)",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "train_pipe",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "training_metrics",
+          "type": "dict",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "training_mode",
+          "type": "enum",
+          "default": "AMP_PPO",
+          "choices": [
+            "PPO",
+            "AMP_PPO"
+          ],
+          "description": "训练模式 / Training mode (legacy alias defaults to AMP_PPO)",
+          "widget": null,
+          "meta": {
+            "mode_gate": true,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_envs",
+          "type": "int",
+          "default": 4096,
+          "choices": null,
+          "description": "并行 env / Parallel envs",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 65536,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "max_iterations",
+          "type": "int",
+          "default": 1500,
+          "choices": null,
+          "description": "最大迭代 / Max outer iterations",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_steps_per_env",
+          "type": "int",
+          "default": 24,
+          "choices": null,
+          "description": "每 env 步数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1024,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_learning_epochs",
+          "type": "int",
+          "default": 5,
+          "choices": null,
+          "description": "PPO 学习 epoch",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 64,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_minibatches",
+          "type": "int",
+          "default": 4,
+          "choices": null,
+          "description": "PPO mini-batch 数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 64,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "learning_rate",
+          "type": "float",
+          "default": 0.001,
+          "choices": null,
+          "description": "学习率",
+          "widget": "range",
+          "meta": {
+            "min": 1e-05,
+            "max": 0.01,
+            "step": 1e-05,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "discount_factor",
+          "type": "float",
+          "default": 0.99,
+          "choices": null,
+          "description": "折扣因子 γ",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "gae_lambda",
+          "type": "float",
+          "default": 0.95,
+          "choices": null,
+          "description": "GAE λ",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "clip_param",
+          "type": "float",
+          "default": 0.2,
+          "choices": null,
+          "description": "PPO clip ε",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "entropy_coef",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "熵系数",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "value_loss_coef",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "value loss 权重",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 2.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "max_grad_norm",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "梯度裁剪上限",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "schedule",
+          "type": "enum",
+          "default": "adaptive",
+          "choices": [
+            "adaptive",
+            "fixed"
+          ],
+          "description": "学习率调度 / LR schedule",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "desired_kl",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "adaptive KL 目标",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 0.1,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "save_interval",
+          "type": "int",
+          "default": 100,
+          "choices": null,
+          "description": "checkpoint 保存间隔",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 100000
+          }
+        },
+        {
+          "key": "seed",
+          "type": "int",
+          "default": 42,
+          "choices": null,
+          "description": "随机种子",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "headless",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "无头模式（仅在生产训练用）",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "amp_reward_coef",
+          "type": "float",
+          "default": 2.0,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.05,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "task_reward_lerp",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "disc_grad_penalty",
+          "type": "float",
+          "default": 10.0,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 20.0,
+            "step": 0.1,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "disc_label_smoothing",
+          "type": "float",
+          "default": 0.9,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "amp_replay_buffer_size",
+          "type": "int",
+          "default": 1000000,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "buffer_size",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 1000,
+            "max": 100000000,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "num_preload_transitions",
+          "type": "int",
+          "default": 2000000,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0,
+            "max": 100000000,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "disc_lr",
+          "type": "float",
+          "default": 0.0001,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 1e-05,
+            "max": 0.01,
+            "step": 1e-05,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "lerp_schedule",
+          "type": "enum",
+          "default": "none",
+          "choices": [
+            "none",
+            "slow_anneal",
+            "fast_anneal",
+            "warmup_then_anneal",
+            "custom"
+          ],
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "deprecated": true
+          }
+        },
+        {
+          "key": "lerp_schedule_json",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "code",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "language": "json",
+            "deprecated": true
+          }
+        },
+        {
+          "key": "entropy_schedule_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用熵系数退火",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "entropy_schedule_start",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "熵起始值",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "entropy_schedule_end",
+          "type": "float",
+          "default": 0.003,
+          "choices": null,
+          "description": "熵终值",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "entropy_schedule_ramp_iters",
+          "type": "int",
+          "default": 1500,
+          "choices": null,
+          "description": "熵退火持续 iter 数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "base_asset": {
+      "schema": "unitport.node/v1",
+      "id": "base_asset",
+      "kind": "custom",
+      "version": "2.0.0",
+      "category": "config",
+      "layer": "C",
+      "display_name_key": "node.base_asset.display",
+      "description_key": "node.base_asset.desc",
+      "icon": "base_asset.svg",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "checkpoint",
+          "type": "checkpoint",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "start_point",
+          "type": "enum",
+          "default": "__new__",
+          "choices": [
+            "__new__",
+            "__latest__",
+            "__load__"
+          ],
+          "description": "起点语义：New / Latest（本画布最近 run） / Load（项目内任意 checkpoint）",
+          "widget": "picker_start_point",
+          "meta": null
+        },
+        {
+          "key": "checkpoint_id",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "二级 checkpoint 选择，仅 start_point=__load__ 时可见；存储格式 run:<abs> 或 export:<abs>",
+          "widget": "picker_project_checkpoint",
+          "meta": {
+            "conditional_on": {
+              "key": "start_point",
+              "op": "==",
+              "value": "__load__"
+            }
+          }
+        },
+        {
+          "key": "load_mode",
+          "type": "enum",
+          "default": "scratch",
+          "choices": [
+            "scratch",
+            "resume",
+            "warm_start_actor"
+          ],
+          "description": "加载模式（start_point=__new__ 时该行隐藏，patch 自动落回 scratch）",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "start_point",
+              "op": "!=",
+              "value": "__new__"
+            }
+          }
+        },
+        {
+          "key": "last_run_id",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "本画布最近一次训练的 run_id（trainer 启动时回写，UI 不渲染）",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "discriminator": {
+      "schema": "unitport.node/v1",
+      "id": "discriminator",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "IL",
+      "display_name_key": "node.discriminator.display",
+      "description_key": "node.discriminator.desc",
+      "icon": "discriminator.svg",
+      "inputs": [
+        {
+          "name": "reference_motion_config",
+          "type": "reference_motion_config",
+          "multi": false,
+          "optional": false,
+          "description": "Motion clip metadata; forwarded into discriminator_config",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "discriminator_config",
+          "type": "discriminator_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "disc_modules",
+          "type": "json",
+          "default": "{\"disc_forward\": 1.0, \"disc_compute_grad_pen\": 1.0, \"disc_predict_reward\": 1.0}",
+          "choices": null,
+          "description": "判别器模块字典 (JSON {key:1.0}) [暂未实装：launcher 通过 disc_overrides_file 接受 user-edited function bodies；本字段是更早设计的 module-level switch，保留 schema 兼容但运行时不消费]",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "disc_hidden_dims",
+          "type": "json",
+          "default": "[1024, 512]",
+          "choices": null,
+          "description": "判别器 MLP 隐藏维度 (JSON list) / Discriminator hidden dims",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "amp_reward_coef",
+          "type": "float",
+          "default": 2.0,
+          "choices": null,
+          "description": "AMP discriminator 奖励权重 / AMP reward coefficient",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "task_reward_lerp",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "task vs disc 奖励 lerp / Task vs discriminator reward lerp",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "lerp_schedule",
+          "type": "enum",
+          "default": "none",
+          "choices": [
+            "none",
+            "slow_anneal",
+            "fast_anneal",
+            "warmup_then_anneal",
+            "custom"
+          ],
+          "description": "lerp 预设调度 / Lerp schedule preset",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "lerp_schedule_json",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "custom lerp 调度 (JSON) / Custom lerp schedule",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "disc_lr",
+          "type": "float",
+          "default": 0.0001,
+          "choices": null,
+          "description": "判别器学习率 / Discriminator learning rate",
+          "widget": "range",
+          "meta": {
+            "min": 1e-05,
+            "max": 0.01,
+            "step": 1e-05
+          }
+        },
+        {
+          "key": "disc_grad_penalty",
+          "type": "float",
+          "default": 10.0,
+          "choices": null,
+          "description": "梯度惩罚 / Discriminator gradient penalty",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 20.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "disc_label_smoothing",
+          "type": "float",
+          "default": 0.9,
+          "choices": null,
+          "description": "判别器标签平滑 / Discriminator label smoothing",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "amp_replay_buffer_size",
+          "type": "int",
+          "default": 1000000,
+          "choices": null,
+          "description": "AMP replay buffer 容量 / AMP replay buffer size",
+          "widget": "index",
+          "meta": {
+            "min": 1000,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "num_preload_transitions",
+          "type": "int",
+          "default": 200000,
+          "choices": null,
+          "description": "预加载 transition 数 / Number of preload transitions",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "amp_obs_fields",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "AMP 观测字段（逗号分隔） / AMP observation fields (comma-separated)",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "auto_inject_ref_obs",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "自动注入参考观测 / Auto-inject reference observations",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "disc_logit_clamp_max",
+          "type": "float",
+          "default": 4.0,
+          "choices": null,
+          "description": "discriminator logit clamp 上限 / Discriminator logit clamp max",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 50.0,
+            "step": 0.5
+          }
+        },
+        {
+          "key": "reward_clamp_per_step",
+          "type": "float",
+          "default": 50.0,
+          "choices": null,
+          "description": "单步 reward clamp 上限 / Per-step reward clamp",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 200.0,
+            "step": 1.0
+          }
+        },
+        {
+          "key": "policy_std_clamp_max",
+          "type": "float",
+          "default": 1.5,
+          "choices": null,
+          "description": "policy std clamp 上限 / Policy std clamp max",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "domain_rand": {
+      "schema": "unitport.node/v1",
+      "id": "domain_rand",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.domain_rand.display",
+      "description_key": "node.domain_rand.desc",
+      "icon": "domain_rand.svg",
+      "inputs": [
+        {
+          "name": "actor_pipe",
+          "type": "actor_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "Actor stream (IL only — auto-hidden in SB3 mode)",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "domain_rand_config",
+          "type": "domain_rand_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "rand_schedule",
+          "type": "enum",
+          "default": "none",
+          "choices": [
+            "none",
+            "linear"
+          ],
+          "description": "DR 强度调度 [SB3-only: Isaac Lab Event system 不支持 runtime params mutation；IL 路径下永远满强度]",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "rand_schedule_start_step",
+          "type": "int",
+          "default": 0,
+          "choices": null,
+          "description": "DR 激活起始全局步 [SB3-only]",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "key": "rand_schedule_end_step",
+          "type": "int",
+          "default": 500000,
+          "choices": null,
+          "description": "DR 达到满强度的全局步 [SB3-only]",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "key": "enabled",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[SB3] 启用",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            }
+          }
+        },
+        {
+          "key": "mass_range",
+          "type": "list",
+          "default": "[0.8, 1.2]",
+          "choices": null,
+          "description": "[SB3] 质量缩放范围",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "friction_range",
+          "type": "list",
+          "default": "[0.5, 1.5]",
+          "choices": null,
+          "description": "[SB3] 摩擦缩放范围",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "motor_strength_range",
+          "type": "list",
+          "default": "[0.9, 1.1]",
+          "choices": null,
+          "description": "[SB3] 电机扭矩缩放范围",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "joint_damping_range",
+          "type": "list",
+          "default": "[0.95, 1.05]",
+          "choices": null,
+          "description": "[SB3] 关节阻尼缩放范围",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
+            "min": 0.0,
+            "max": 2.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "obs_noise_std",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "[SB3] 观测高斯噪声 std",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "push_robot",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "[SB3] 启用外力推扰",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            }
+          }
+        },
+        {
+          "key": "push_interval_steps",
+          "type": "int",
+          "default": 200,
+          "choices": null,
+          "description": "[SB3] 推扰间隔（步）",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
+            "min": 1,
+            "max": 1000000
+          }
+        },
+        {
+          "key": "push_force_range",
+          "type": "list",
+          "default": "[50, 150]",
+          "choices": null,
+          "description": "[SB3] 推扰力范围（N）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
+            "min": 0.0,
+            "max": 1000.0,
+            "step": 1.0
+          }
+        },
+        {
+          "key": "enable_friction_rand",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[IL] 启用摩擦随机化",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "friction_mode",
+          "type": "enum",
+          "default": "reset",
+          "choices": [
+            "reset",
+            "interval",
+            "startup"
+          ],
+          "description": "[IL] 摩擦事件触发模式",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "static_friction_range",
+          "type": "list",
+          "default": "[0.5, 1.25]",
+          "choices": null,
+          "description": "[IL] 静摩擦范围",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "dynamic_friction_range",
+          "type": "list",
+          "default": "[0.5, 1.25]",
+          "choices": null,
+          "description": "[IL] 动摩擦范围",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "restitution_range",
+          "type": "list",
+          "default": "[0.0, 0.4]",
+          "choices": null,
+          "description": "[IL] 弹性系数范围",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "enable_mass_rand",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[IL] 启用质量随机化",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "mass_mode",
+          "type": "enum",
+          "default": "reset",
+          "choices": [
+            "reset",
+            "interval",
+            "startup"
+          ],
+          "description": "[IL] 质量事件触发模式",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "mass_target_body",
+          "type": "string",
+          "default": "base",
+          "choices": null,
+          "description": "[IL] 质量随机化目标 body",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "mass_offset_range",
+          "type": "list",
+          "default": "[-0.5, 0.5]",
+          "choices": null,
+          "description": "[IL] 质量偏移范围（kg）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": -10.0,
+            "max": 10.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "mass_operation",
+          "type": "enum",
+          "default": "add",
+          "choices": [
+            "add",
+            "scale",
+            "abs"
+          ],
+          "description": "[IL] 质量随机化操作模式：add=偏移叠加 / scale=按比例缩放 / abs=直接替换",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "enable_external_push",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[IL] 启用外力推扰",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "push_mode",
+          "type": "enum",
+          "default": "interval",
+          "choices": [
+            "reset",
+            "interval",
+            "startup"
+          ],
+          "description": "[IL] 推扰事件触发模式",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "push_interval_range_s",
+          "type": "list",
+          "default": "[10.0, 15.0]",
+          "choices": null,
+          "description": "[IL] 推扰时间间隔范围（s）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": 0.0,
+            "max": 60.0,
+            "step": 0.5
+          }
+        },
+        {
+          "key": "push_velocity_x_range",
+          "type": "list",
+          "default": "[-0.5, 0.5]",
+          "choices": null,
+          "description": "[IL] 推扰 X 速度增量范围（m/s）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": -5.0,
+            "max": 5.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "push_velocity_y_range",
+          "type": "list",
+          "default": "[-0.5, 0.5]",
+          "choices": null,
+          "description": "[IL] 推扰 Y 速度增量范围（m/s）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": -5.0,
+            "max": 5.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "enable_init_pose_rand",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[IL] 启用初始位姿随机化",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "init_pose_mode",
+          "type": "enum",
+          "default": "reset",
+          "choices": [
+            "reset",
+            "interval",
+            "startup"
+          ],
+          "description": "[IL] 初始位姿事件触发模式",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "init_pos_x_range",
+          "type": "list",
+          "default": "[-0.5, 0.5]",
+          "choices": null,
+          "description": "[IL] 初始 X 位置范围（m）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": -10.0,
+            "max": 10.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "init_pos_y_range",
+          "type": "list",
+          "default": "[-0.5, 0.5]",
+          "choices": null,
+          "description": "[IL] 初始 Y 位置范围（m）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": -10.0,
+            "max": 10.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "init_yaw_range",
+          "type": "list",
+          "default": "[-3.14, 3.14]",
+          "choices": null,
+          "description": "[IL] 初始 Yaw 范围（rad）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": -3.14159,
+            "max": 3.14159,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "enable_joint_noise",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[IL] 启用关节噪声",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "joint_noise_mode",
+          "type": "enum",
+          "default": "reset",
+          "choices": [
+            "reset",
+            "interval",
+            "startup"
+          ],
+          "description": "[IL] 关节噪声事件触发模式",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "joint_pos_noise",
+          "type": "float",
+          "default": 0.25,
+          "choices": null,
+          "description": "[IL] 关节位置噪声幅度",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "joint_vel_noise",
+          "type": "float",
+          "default": 0.1,
+          "choices": null,
+          "description": "[IL] 关节速度噪声幅度",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.001
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "env_assembler": {
+      "schema": "unitport.node/v1",
+      "id": "env_assembler",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "B",
+      "display_name_key": "node.env_assembler.display",
+      "description_key": "node.env_assembler.desc",
+      "icon": "env_assembler.svg",
+      "inputs": [
+        {
+          "name": "actor_pipe",
+          "type": "actor_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "§1 Actor block (optional in legacy SB3 canvases)",
+          "meta": null
+        },
+        {
+          "name": "scene_pipe",
+          "type": "scene_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "§2 Scene from PlayGroundSetting (optional)",
+          "meta": null
+        },
+        {
+          "name": "command_pipe",
+          "type": "command_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "§4 Training Commands (optional)",
+          "meta": null
+        },
+        {
+          "name": "physics_config",
+          "type": "physics_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "task_config",
+          "type": "task_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "obs_action_config",
+          "type": "obs_action_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "domain_rand_config",
+          "type": "domain_rand_config",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "reference_motion_config",
+          "type": "reference_motion_config",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "env_config",
+          "type": "env_config",
+          "multi": false,
+          "optional": false,
+          "description": "Aggregated SB3 env config consumed by TrainNode",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "n_envs",
+          "type": "int",
+          "default": 8,
+          "choices": null,
+          "description": "并行 env 数 (1 不可接受) / Parallel envs (1 = unacceptable for robot RL)",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 4096
+          }
+        },
+        {
+          "key": "vec_type",
+          "type": "enum",
+          "default": "subproc",
+          "choices": [
+            "dummy",
+            "subproc"
+          ],
+          "description": "向量化类型 / Vectorisation type",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "obs_normalize",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "观测归一化 / Observation normalisation wrapper",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "reward_normalize",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "奖励归一化 / Reward normalisation wrapper",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "clip_obs",
+          "type": "float",
+          "default": 10.0,
+          "choices": null,
+          "description": "观测裁剪范围 / Observation clip",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1000.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "clip_reward",
+          "type": "float",
+          "default": 10.0,
+          "choices": null,
+          "description": "奖励裁剪范围 / Reward clip",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1000.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "action_clip_range",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "ActionClip 包装范围 / ActionClip wrapper range [-x, x]",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 100.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "enable_monitor",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "启用 Monitor 包装 / Monitor wrapper (records episode stats)",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "time_limit_override",
+          "type": "int",
+          "default": 0,
+          "choices": null,
+          "description": "TimeLimit 覆盖 (0 = 继承 PhysicsConfig) / TimeLimit override (0 = inherit)",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "eval_disable_rand",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "评估时禁用域随机化 / Disable domain randomisation during eval",
+          "widget": null,
+          "meta": null
+        }
+      ],
+      "is_trainer": false
+    },
+    "eval_config": {
+      "schema": "unitport.node/v1",
+      "id": "eval_config",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "D",
+      "display_name_key": "node.eval_config.display",
+      "description_key": "node.eval_config.desc",
+      "icon": "eval_config.svg",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "eval_config",
+          "type": "eval_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "eval_episodes",
+          "type": "int",
+          "default": 20,
+          "choices": null,
+          "description": "评估回合数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 10000
+          }
+        },
+        {
+          "key": "deterministic",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "确定性策略",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "success_threshold",
+          "type": "float",
+          "default": 0.8,
+          "choices": null,
+          "description": "成功阈值",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "record_video",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "录制视频",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "eval_interval",
+          "type": "int",
+          "default": 50000,
+          "choices": null,
+          "description": "训练间隔评估步数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "save_best_model",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "保存最佳模型",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "video_dir",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "视频输出目录",
+          "widget": "path",
+          "meta": {
+            "is_dir": true
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "export": {
+      "schema": "unitport.node/v1",
+      "id": "export",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "D",
+      "display_name_key": "node.export.display",
+      "description_key": "node.export.desc",
+      "icon": "export.svg",
+      "inputs": [
+        {
+          "name": "train_pipe",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "eval_config",
+          "type": "eval_config",
+          "multi": false,
+          "optional": true,
+          "description": "Optional legacy SB3 eval port",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "bundle_path",
+          "type": "string",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "bundle_name",
+          "type": "string",
+          "default": "<NEW>",
+          "choices": null,
+          "description": "bundle 名（<NEW> sentinel 由 SafetyReview 阻塞训练启动）/ Bundle / checkpoint name",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "overwrite",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "覆盖同名 bundle / Overwrite existing bundle",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "version",
+          "type": "string",
+          "default": "v1",
+          "choices": null,
+          "description": "版本 tag（仅 overwrite=False 时显示）/ Version tag — appended to bundle dir name when Overwrite is OFF",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "overwrite",
+              "op": "==",
+              "value": false
+            }
+          }
+        },
+        {
+          "key": "include_onnx",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "包含 ONNX / Include policy.onnx",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "include_torchscript",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "包含 TorchScript / Include policy.pt",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "include_normalization",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "包含归一化统计 / Include normalization.pkl",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "output_files",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "下次训练将产出的文件清单（含 Open 按钮 + ⚠ 覆盖标签）— 随 bundle_name / version / include_* 自动刷新",
+          "widget": "output_file_list",
+          "meta": {
+            "full_width_widget": true,
+            "row_height": 24
+          }
+        },
+        {
+          "key": "start_point_compat",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "上游 Start Point bundle 与当前画布的结构化兼容性 diff (framework / action_dim / decimation / joint_order)",
+          "widget": "start_point_compat_panel",
+          "meta": {
+            "full_width_widget": true,
+            "row_height": 24
+          }
+        },
+        {
+          "key": "review_backend",
+          "type": "enum",
+          "default": "mujoco",
+          "choices": [
+            "mujoco",
+            "isaac_sim",
+            "newton"
+          ],
+          "description": "复盘后端 / Review backend (MuJoCo / Isaac Sim / Newton)",
+          "widget": "review_backend_picker",
+          "meta": null
+        },
+        {
+          "key": "review_scene_id",
+          "type": "string",
+          "default": "flat_ground",
+          "choices": null,
+          "description": "复盘场景 ID — 按 review_backend + 检测到的 robot family 过滤 / Review scene id",
+          "widget": "review_scene_picker",
+          "meta": null
+        },
+        {
+          "key": "review_launch",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "▶ Launch Review — 触发 SafetyReview 后启动 review subprocess",
+          "widget": "review_launch_button",
+          "meta": {
+            "full_width_widget": true,
+            "row_height": 28,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "bundle_targets",
+          "type": "json",
+          "default": "[\"runtime_bundle\"]",
+          "choices": null,
+          "description": "[lowering] 导出目标多选 / Export bundle targets",
+          "widget": "picker_export_bundle",
+          "meta": {
+            "hidden": true
+          }
+        },
+        {
+          "key": "export_target",
+          "type": "string",
+          "default": "runtime_bundle",
+          "choices": null,
+          "description": "[legacy] bundle_exporter.py 后向兼容 / Legacy alias",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        },
+        {
+          "key": "export_onnx",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[legacy] mirror of include_onnx",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        },
+        {
+          "key": "export_torchscript",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[legacy] mirror of include_torchscript",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        },
+        {
+          "key": "include_norm_stats",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[legacy] mirror of include_normalization",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        },
+        {
+          "key": "auto_import",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "[legacy] 训练完成后自动导入 — spec_compiler.py:1007 consumes this; UI hidden because DEMO never exposed it",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "il_observation": {
+      "schema": "unitport.node/v1",
+      "id": "il_observation",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "IL",
+      "display_name_key": "node.il_observation.display",
+      "description_key": "node.il_observation.desc",
+      "icon": "il_observation.svg",
+      "inputs": [
+        {
+          "name": "actor_pipe",
+          "type": "actor_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "command_pipe",
+          "type": "command_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "obs_vector",
+          "type": "obs_vector",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "obs_terms",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "观测项 dict / Observation terms (IL registry-backed)",
+          "widget": "registry_module",
+          "meta": {
+            "registry_id": "il_obs"
+          }
+        },
+        {
+          "key": "group_name",
+          "type": "string",
+          "default": "policy",
+          "choices": null,
+          "description": "ObsGroup 名",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "enable_corruption",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "启用观测噪声",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "corruption_noise_std",
+          "type": "float",
+          "default": 0.05,
+          "choices": null,
+          "description": "噪声标准差",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "obs_noise_curriculum_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用 obs noise curriculum",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "obs_noise_curriculum_start",
+          "type": "float",
+          "default": 0.25,
+          "choices": null,
+          "description": "curriculum 起始倍率",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "obs_noise_curriculum_end",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "curriculum 终止倍率",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "obs_noise_curriculum_ramp_iters",
+          "type": "int",
+          "default": 500,
+          "choices": null,
+          "description": "curriculum ramp iter 数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "il_policy_network": {
+      "schema": "unitport.node/v1",
+      "id": "il_policy_network",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "IL",
+      "display_name_key": "node.il_policy_network.display",
+      "description_key": "node.il_policy_network.desc",
+      "icon": "il_policy_network.svg",
+      "inputs": [
+        {
+          "name": "obs_vector",
+          "type": "obs_vector",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "policy",
+          "type": "policy",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "actor_hidden_dims",
+          "type": "list",
+          "default": "[128, 64, 32]",
+          "choices": null,
+          "description": "actor 隐藏层 (JSON list)",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "critic_hidden_dims",
+          "type": "list",
+          "default": "[128, 64, 32]",
+          "choices": null,
+          "description": "critic 隐藏层 (JSON list)",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "activation",
+          "type": "enum",
+          "default": "elu",
+          "choices": [
+            "relu",
+            "elu",
+            "tanh",
+            "leaky_relu"
+          ],
+          "description": "激活函数",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "init_noise_std",
+          "type": "float",
+          "default": -1.0,
+          "choices": null,
+          "description": "初始噪声 std（-1=自动）",
+          "widget": "range",
+          "meta": {
+            "min": -1.0,
+            "max": 2.0,
+            "step": 0.001
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "il_ppo_trainer": {
+      "schema": "unitport.node/v1",
+      "id": "il_ppo_trainer",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "training",
+      "layer": "IL",
+      "display_name_key": "node.il_ppo_trainer.display",
+      "description_key": "node.il_ppo_trainer.desc",
+      "icon": "il_trainer.svg",
+      "inputs": [
+        {
+          "name": "policy",
+          "type": "policy",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "command_pipe",
+          "type": "command_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "Aggregated command + per-item rewards stream (from training_motion)",
+          "meta": null
+        },
+        {
+          "name": "termination_config",
+          "type": "termination_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "domain_rand_config",
+          "type": "domain_rand_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "obs_vector",
+          "type": "obs_vector",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "scene_pipe",
+          "type": "scene_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "checkpoint",
+          "type": "checkpoint",
+          "multi": false,
+          "optional": true,
+          "description": "Start Point resume/warm-start checkpoint (optional)",
+          "meta": null
+        },
+        {
+          "name": "reference_motion_config",
+          "type": "reference_motion_config",
+          "multi": false,
+          "optional": true,
+          "description": "Required in AMP_PPO mode (auto-hidden in PPO mode)",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            }
+          }
+        },
+        {
+          "name": "discriminator_config",
+          "type": "discriminator_config",
+          "multi": false,
+          "optional": true,
+          "description": "Required in AMP_PPO mode (auto-hidden in PPO mode)",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            }
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "train_pipe",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "training_metrics",
+          "type": "dict",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "training_mode",
+          "type": "enum",
+          "default": "PPO",
+          "choices": [
+            "PPO",
+            "AMP_PPO"
+          ],
+          "description": "训练模式 / Training mode",
+          "widget": null,
+          "meta": {
+            "mode_gate": true,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_envs",
+          "type": "int",
+          "default": 4096,
+          "choices": null,
+          "description": "并行 env / Parallel envs",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 65536,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.num_envs",
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "max_iterations",
+          "type": "int",
+          "default": 1500,
+          "choices": null,
+          "description": "最大迭代 / Max outer iterations",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.max_iterations",
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_steps_per_env",
+          "type": "int",
+          "default": 24,
+          "choices": null,
+          "description": "每 env 步数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1024,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_learning_epochs",
+          "type": "int",
+          "default": 5,
+          "choices": null,
+          "description": "PPO 学习 epoch",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 64,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "num_minibatches",
+          "type": "int",
+          "default": 4,
+          "choices": null,
+          "description": "PPO mini-batch 数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 64,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "learning_rate",
+          "type": "float",
+          "default": 0.001,
+          "choices": null,
+          "description": "学习率",
+          "widget": "range",
+          "meta": {
+            "min": 1e-05,
+            "max": 0.01,
+            "step": 1e-05,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.lr",
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "discount_factor",
+          "type": "float",
+          "default": 0.99,
+          "choices": null,
+          "description": "折扣因子 γ",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.gamma"
+          }
+        },
+        {
+          "key": "gae_lambda",
+          "type": "float",
+          "default": 0.95,
+          "choices": null,
+          "description": "GAE λ",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "clip_param",
+          "type": "float",
+          "default": 0.2,
+          "choices": null,
+          "description": "PPO clip ε",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "entropy_coef",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "熵系数",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.ent_coef"
+          }
+        },
+        {
+          "key": "value_loss_coef",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "value loss 权重",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 2.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "max_grad_norm",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "梯度裁剪上限",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "schedule",
+          "type": "enum",
+          "default": "adaptive",
+          "choices": [
+            "adaptive",
+            "fixed"
+          ],
+          "description": "学习率调度 / LR schedule",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "desired_kl",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "adaptive KL 目标",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 0.1,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "save_interval",
+          "type": "int",
+          "default": 100,
+          "choices": null,
+          "description": "checkpoint 保存间隔",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 100000
+          }
+        },
+        {
+          "key": "seed",
+          "type": "int",
+          "default": 42,
+          "choices": null,
+          "description": "随机种子",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 100000000,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.seed"
+          }
+        },
+        {
+          "key": "headless",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "无头模式（仅在生产训练用）",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "amp_reward_coef",
+          "type": "float",
+          "default": 2.0,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.05,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "task_reward_lerp",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "disc_grad_penalty",
+          "type": "float",
+          "default": 10.0,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 20.0,
+            "step": 0.1,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "disc_label_smoothing",
+          "type": "float",
+          "default": 0.9,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "amp_replay_buffer_size",
+          "type": "int",
+          "default": 1000000,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "buffer_size",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 1000,
+            "max": 100000000,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "num_preload_transitions",
+          "type": "int",
+          "default": 2000000,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 0,
+            "max": 100000000,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "disc_lr",
+          "type": "float",
+          "default": 0.0001,
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "min": 1e-05,
+            "max": 0.01,
+            "step": 1e-05,
+            "deprecated": true
+          }
+        },
+        {
+          "key": "lerp_schedule",
+          "type": "enum",
+          "default": "none",
+          "choices": [
+            "none",
+            "slow_anneal",
+            "fast_anneal",
+            "warmup_then_anneal",
+            "custom"
+          ],
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "deprecated": true
+          }
+        },
+        {
+          "key": "lerp_schedule_json",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "[DEPRECATED — configure on discriminator node]",
+          "widget": "code",
+          "meta": {
+            "conditional_on": {
+              "key": "training_mode",
+              "op": "==",
+              "value": "AMP_PPO"
+            },
+            "language": "json",
+            "deprecated": true
+          }
+        },
+        {
+          "key": "entropy_schedule_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用熵系数退火",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "entropy_schedule_start",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "熵起始值",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "entropy_schedule_end",
+          "type": "float",
+          "default": 0.003,
+          "choices": null,
+          "description": "熵终值",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "entropy_schedule_ramp_iters",
+          "type": "int",
+          "default": 1500,
+          "choices": null,
+          "description": "熵退火持续 iter 数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000
+          }
+        }
+      ],
+      "is_trainer": true
+    },
+    "multigated_reward": {
+      "schema": "unitport.node/v1",
+      "id": "multigated_reward",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.multigated_reward.display",
+      "description_key": "node.multigated_reward.desc",
+      "icon": "multigated_reward.svg",
+      "inputs": [
+        {
+          "name": "stage_0",
+          "type": "total_reward",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "stage_1",
+          "type": "total_reward",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "total_reward",
+          "type": "total_reward",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "total_steps",
+          "type": "int",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "max_step_stage0",
+          "type": "int",
+          "default": 0,
+          "choices": null,
+          "description": "stage 0 硬超时 (0=不限)",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 1000000000
+          }
+        },
+        {
+          "key": "reward_threshold_ratio",
+          "type": "float",
+          "default": 0.75,
+          "choices": null,
+          "description": "stage 切换阈值比例 (rolling mean / best_ever)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "min_ep_window",
+          "type": "int",
+          "default": 10,
+          "choices": null,
+          "description": "最小回合窗口",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000
+          }
+        },
+        {
+          "key": "plateau_window",
+          "type": "int",
+          "default": 10,
+          "choices": null,
+          "description": "稳定性窗口",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000
+          }
+        },
+        {
+          "key": "plateau_eps",
+          "type": "float",
+          "default": 0.005,
+          "choices": null,
+          "description": "稳定性 ε",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.0001
+          }
+        },
+        {
+          "key": "blend_steps",
+          "type": "int",
+          "default": 3000,
+          "choices": null,
+          "description": "切换混合步数",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "key": "stage_behavior",
+          "type": "enum",
+          "default": "replace",
+          "choices": [
+            "replace",
+            "accumulate"
+          ],
+          "description": "Stage 行为：替换 / 累加",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "ep_reward_window",
+          "type": "int",
+          "default": 20,
+          "choices": null,
+          "description": "回合 reward 窗口",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 10000
+          }
+        },
+        {
+          "key": "stage1_ratio",
+          "type": "float",
+          "default": 1.5,
+          "choices": null,
+          "description": "stage 1 budget = max_step_stage0 × stage1_ratio",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.1
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "note": {
+      "schema": "unitport.node/v1",
+      "id": "note",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "annotation",
+      "layer": "TOOLS",
+      "display_name_key": "node.note.display",
+      "description_key": "node.note.desc",
+      "icon": "note.svg",
+      "inputs": [],
+      "outputs": [],
+      "parameters": [
+        {
+          "key": "title",
+          "type": "string",
+          "default": "Note",
+          "choices": null,
+          "description": "Note 标题",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "body",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "Note 正文（多行）",
+          "widget": "code",
+          "meta": {
+            "language": "text"
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "obs_action_config": {
+      "schema": "unitport.node/v1",
+      "id": "obs_action_config",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.obs_action_config.display",
+      "description_key": "node.obs_action_config.desc",
+      "icon": "obs_action_config.svg",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "obs_action_config",
+          "type": "obs_action_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "contract_preset",
+          "type": "enum",
+          "default": "custom",
+          "choices": [
+            "custom",
+            "unitport_go2_v1",
+            "community_go2_sac_34d"
+          ],
+          "description": "契约预设（非 custom 时锁定下方字段）",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "obs_components",
+          "type": "string",
+          "default": "joint_pos joint_vel imu command previous_action",
+          "choices": null,
+          "description": "观测组件（多选）",
+          "widget": "picker_obs_components",
+          "meta": {
+            "choices": [
+              "joint_pos",
+              "joint_vel",
+              "imu",
+              "command",
+              "previous_action",
+              "height_scan",
+              "contact",
+              "phase"
+            ]
+          }
+        },
+        {
+          "key": "obs_clip_range",
+          "type": "float",
+          "default": 100.0,
+          "choices": null,
+          "description": "观测裁剪范围",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 100.0,
+            "step": 0.5
+          }
+        },
+        {
+          "key": "frame_stack",
+          "type": "int",
+          "default": 1,
+          "choices": null,
+          "description": "帧栈深度",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 32
+          }
+        },
+        {
+          "key": "action_type",
+          "type": "enum",
+          "default": "joint_position",
+          "choices": [
+            "joint_position",
+            "torque"
+          ],
+          "description": "动作类型",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "action_scale",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "动作缩放",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "action_clip",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "动作裁剪上限",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.05
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "physics_config": {
+      "schema": "unitport.node/v1",
+      "id": "physics_config",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.physics_config.display",
+      "description_key": "node.physics_config.desc",
+      "icon": "physics_config.svg",
+      "inputs": [
+        {
+          "name": "robot_pipe",
+          "type": "robot_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "robot_spec",
+          "type": "robot_spec",
+          "multi": false,
+          "optional": true,
+          "description": "Legacy robot spec port — both inputs are sim-agnostic",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "physics_config",
+          "type": "physics_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "sim_dt",
+          "type": "float",
+          "default": 0.002,
+          "choices": null,
+          "description": "物理步长 (s)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0001,
+            "max": 0.05,
+            "step": 0.0001
+          }
+        },
+        {
+          "key": "control_dt",
+          "type": "float",
+          "default": 0.02,
+          "choices": null,
+          "description": "控制步长 (s) — 必须是 sim_dt 的整数倍",
+          "widget": "range",
+          "meta": {
+            "min": 0.001,
+            "max": 0.1,
+            "step": 0.0001
+          }
+        },
+        {
+          "key": "episode_max_steps",
+          "type": "int",
+          "default": 1000,
+          "choices": null,
+          "description": "回合最大步数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "action_type",
+          "type": "enum",
+          "default": "joint_position",
+          "choices": [
+            "joint_position",
+            "torque",
+            "joint_velocity"
+          ],
+          "description": "动作类型",
+          "widget": null,
+          "meta": null
+        }
+      ],
+      "is_trainer": false
+    },
+    "play_ground_setting": {
+      "schema": "unitport.node/v1",
+      "id": "play_ground_setting",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.play_ground_setting.display",
+      "description_key": "node.play_ground_setting.desc",
+      "icon": "play_ground.svg",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "scene_pipe",
+          "type": "scene_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "scene_id",
+          "type": "string",
+          "default": "flat_ground",
+          "choices": null,
+          "description": "场景 id（registry-backed picker）",
+          "widget": "picker_scene",
+          "meta": null
+        },
+        {
+          "key": "scene_type",
+          "type": "enum",
+          "default": "flat",
+          "choices": [
+            "flat",
+            "rough"
+          ],
+          "description": "场景类型（auto-synced from scene_id on pick）",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "gravity_z",
+          "type": "float",
+          "default": -9.81,
+          "choices": null,
+          "description": "重力 Z 分量",
+          "widget": "range",
+          "meta": {
+            "min": -20.0,
+            "max": 0.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "arena_extent_x",
+          "type": "float",
+          "default": 10.0,
+          "choices": null,
+          "description": "竞技场 X 范围",
+          "widget": "range",
+          "meta": {
+            "min": 1.0,
+            "max": 1000.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "arena_extent_y",
+          "type": "float",
+          "default": 10.0,
+          "choices": null,
+          "description": "竞技场 Y 范围",
+          "widget": "range",
+          "meta": {
+            "min": 1.0,
+            "max": 1000.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "friction_static",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "静摩擦",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "friction_dynamic",
+          "type": "float",
+          "default": 0.8,
+          "choices": null,
+          "description": "动摩擦",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "roughness_amplitude",
+          "type": "float",
+          "default": 0.08,
+          "choices": null,
+          "description": "粗糙地面幅度",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "slope_max",
+          "type": "float",
+          "default": 20.0,
+          "choices": null,
+          "description": "最大坡度（度）",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 60.0,
+            "step": 0.5
+          }
+        },
+        {
+          "key": "curriculum_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用地形难度 curriculum",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            }
+          }
+        },
+        {
+          "key": "difficulty_levels",
+          "type": "int",
+          "default": 10,
+          "choices": null,
+          "description": "curriculum 难度层数",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "key": "height_scan_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用 height scan",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "scan_resolution",
+          "type": "float",
+          "default": 0.1,
+          "choices": null,
+          "description": "扫描分辨率（m）",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "height_scan_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.01,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "scan_size_x",
+          "type": "float",
+          "default": 1.6,
+          "choices": null,
+          "description": "扫描区域 X（m）",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "height_scan_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.1,
+            "max": 10.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "scan_size_y",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "扫描区域 Y（m）",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "height_scan_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.1,
+            "max": 10.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "sim_dt",
+          "type": "float",
+          "default": 0.005,
+          "choices": null,
+          "description": "物理步长（s）",
+          "widget": "range",
+          "meta": {
+            "min": 0.0001,
+            "max": 0.05,
+            "step": 0.0001
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "rewards": {
+      "schema": "unitport.node/v1",
+      "id": "rewards",
+      "kind": "custom",
+      "version": "2.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.rewards.display",
+      "description_key": "node.rewards.desc",
+      "icon": "rewards.svg",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "reward_pipe",
+          "type": "reward_pipe",
+          "multi": true,
+          "optional": false,
+          "description": "Per-item reward feed (connect to training_motion item rows)",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "reward_terms",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "奖励项字典 / Reward terms (registry-backed editor)",
+          "widget": "registry_module",
+          "meta": {
+            "registry_id": "rewards",
+            "registry_id_il": "il_rewards",
+            "backend_keyed": true,
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "std",
+          "type": "float",
+          "default": 0.25,
+          "choices": null,
+          "description": "全局 std (奖励项 default σ)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "threshold",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "全局 threshold",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "robot": {
+      "schema": "unitport.node/v1",
+      "id": "robot",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.robot.display",
+      "description_key": "node.robot.desc",
+      "icon": "robot.svg",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "robot_pipe",
+          "type": "robot_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "Bundles asset identity, joint_names, body list, and default metadata",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "asset_id",
+          "type": "string",
+          "default": "unitree_go2",
+          "choices": null,
+          "description": "资产 id / Robot asset id (registry-backed picker)",
+          "widget": "picker_robot_asset",
+          "meta": {
+            "registry_id": "robots",
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "active_override",
+          "type": "enum",
+          "default": "auto",
+          "choices": [
+            "auto",
+            "mjcf",
+            "usd",
+            "urdf"
+          ],
+          "description": "格式覆盖 / Active asset format override (3-row file-type table)",
+          "widget": "active_file_table",
+          "meta": null
+        },
+        {
+          "key": "body_mapping",
+          "type": "json",
+          "default": "",
+          "choices": null,
+          "description": "body→IR-role 映射 (auto-resolved) / Body→IR-role mapping",
+          "widget": "body_mapping_table",
+          "meta": null
+        },
+        {
+          "key": "target_height",
+          "type": "float",
+          "default": 0.0,
+          "choices": null,
+          "description": "目标高度 (0 = 跟随资产 nominal_height) / Standing-height override (0 = use asset nominal)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "stage_switch": {
+      "schema": "unitport.node/v1",
+      "id": "stage_switch",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "training",
+      "layer": "IL",
+      "display_name_key": "node.stage_switch.display",
+      "description_key": "node.stage_switch.desc",
+      "icon": "stage_switch.svg",
+      "inputs": [
+        {
+          "name": "stage_0",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "stage_1",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "stage_2",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "stage_3",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "stage_4",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "stage_5",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "train_pipe",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "stages_config",
+          "type": "list",
+          "default": "[]",
+          "choices": null,
+          "description": "阶段调度 / Stage schedule (Node_StageSwitchEditorWidget)",
+          "widget": "stage_editor",
+          "meta": {
+            "max_stages": 6
+          }
+        },
+        {
+          "key": "checkpoint_strategy",
+          "type": "enum",
+          "default": "both",
+          "choices": [
+            "both",
+            "best",
+            "last"
+          ],
+          "description": "checkpoint 保存策略",
+          "widget": null,
+          "meta": null
+        }
+      ],
+      "is_trainer": false
+    },
+    "task_config": {
+      "schema": "unitport.node/v1",
+      "id": "task_config",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.task_config.display",
+      "description_key": "node.task_config.desc",
+      "icon": "",
+      "inputs": [
+        {
+          "name": "total_reward",
+          "type": "total_reward",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "termination_config",
+          "type": "termination_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "task_config",
+          "type": "task_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "task_type",
+          "type": "enum",
+          "default": "velocity_tracking",
+          "choices": [
+            "velocity_tracking"
+          ],
+          "description": "任务类型 / Task type",
+          "widget": "picker_task_type",
+          "meta": null
+        },
+        {
+          "key": "command_mode",
+          "type": "enum",
+          "default": "fixed",
+          "choices": [
+            "fixed",
+            "random"
+          ],
+          "description": "命令模式 / Command mode",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "target_lin_vel_x",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "目标 X 速度 / Target linear velocity X",
+          "widget": "range",
+          "meta": {
+            "min": -3.0,
+            "max": 3.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "target_lin_vel_y",
+          "type": "float",
+          "default": 0.0,
+          "choices": null,
+          "description": "目标 Y 速度 / Target linear velocity Y",
+          "widget": "range",
+          "meta": {
+            "min": -3.0,
+            "max": 3.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "target_ang_vel_z",
+          "type": "float",
+          "default": 0.0,
+          "choices": null,
+          "description": "目标偏航角速度 / Target yaw rate",
+          "widget": "range",
+          "meta": {
+            "min": -3.14,
+            "max": 3.14,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "curriculum",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用 curriculum / Enable curriculum",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "success_threshold",
+          "type": "float",
+          "default": 0.8,
+          "choices": null,
+          "description": "成功阈值 / Success threshold",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "truncation_max_steps",
+          "type": "int",
+          "default": 0,
+          "choices": null,
+          "description": "截断最大步数（0=禁用） / Truncation max steps (0 = disabled)",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 1000000
+          }
+        },
+        {
+          "key": "curriculum_schedule",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "curriculum 调度 (JSON) / Curriculum schedule",
+          "widget": "code",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "resampling_time_range",
+          "type": "list",
+          "default": "[0.0, 0.0]",
+          "choices": null,
+          "description": "命令重采样时间窗 / Command resampling time range",
+          "widget": "range_list",
+          "meta": {
+            "min": 0.0,
+            "max": 30.0,
+            "step": 0.1
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "terminations": {
+      "schema": "unitport.node/v1",
+      "id": "terminations",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "A",
+      "display_name_key": "node.terminations.display",
+      "description_key": "node.terminations.desc",
+      "icon": "terminations.svg",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "termination_config",
+          "type": "termination_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "termination_conditions",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "终止条件 dict / Termination terms",
+          "widget": "registry_module",
+          "meta": {
+            "registry_id": "terminations",
+            "registry_id_il": "il_terminations",
+            "backend_keyed": true
+          }
+        },
+        {
+          "key": "termination_curriculum_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用 base_height termination curriculum",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "termination_curriculum_start",
+          "type": "float",
+          "default": 0.18,
+          "choices": null,
+          "description": "curriculum 起始阈值 (m)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "termination_curriculum_end",
+          "type": "float",
+          "default": 0.22,
+          "choices": null,
+          "description": "curriculum 终止阈值 (m)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "termination_curriculum_ramp_iters",
+          "type": "int",
+          "default": 500,
+          "choices": null,
+          "description": "curriculum ramp 迭代数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000000
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "train": {
+      "schema": "unitport.node/v1",
+      "id": "train",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "training",
+      "layer": "C",
+      "display_name_key": "node.train.display",
+      "description_key": "node.train.desc",
+      "icon": "train.svg",
+      "inputs": [
+        {
+          "name": "env_config",
+          "type": "env_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "algo_config",
+          "type": "algo_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "eval_config",
+          "type": "eval_config",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "train_config",
+          "type": "train_config",
+          "multi": false,
+          "optional": true,
+          "description": "DEPRECATED — 旧版 backward-compat 端口（画布隐藏）",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "train_pipe",
+          "type": "train_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "vis_check",
+          "type": "vis_check",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [],
+      "is_trainer": false
+    },
+    "training_motion": {
+      "schema": "unitport.node/v1",
+      "id": "training_motion",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "B",
+      "display_name_key": "node.training_motion.display",
+      "description_key": "node.training_motion.desc",
+      "icon": "training_motion.svg",
+      "inputs": [
+        {
+          "name": "actor_pipe",
+          "type": "actor_pipe",
+          "multi": false,
+          "optional": true,
+          "description": "Actor stream (from actor_setting)",
+          "meta": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "command_pipe",
+          "type": "command_pipe",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        },
+        {
+          "name": "reference_motion_config",
+          "type": "reference_motion_config",
+          "multi": false,
+          "optional": false,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "parameters": [
+        {
+          "key": "training_items",
+          "type": "json",
+          "default": "{\"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": \"pack:unitport_builtin:mocap_motions/stand.txt\", \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.2, 1.0], \"clip\": null, \"advanced\": {}}, \"turn\": {\"enabled\": true, \"speed\": [0.3, 0.8], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": false, \"speed\": [0.5, 1.2], \"clip\": null, \"advanced\": {}}}",
+          "choices": null,
+          "description": "训练项字典（item_id → {enabled, speed, clip, advanced}）",
+          "widget": "training_items",
+          "meta": {
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "reward_analysis",
+          "type": "json",
+          "default": "{\"analysis_result\": [], \"applied_overrides\": {}}",
+          "choices": null,
+          "description": "AMP 奖励冲突分析（[项, 当前值, 推荐值] 表 + Analyze/Apply）/ AMP reward-conflict table",
+          "widget": "reward_conflict_table",
+          "meta": {
+            "language": "json",
+            "conditional_on": {
+              "key": "consumer_mode",
+              "op": "==",
+              "value": "amp"
+            }
+          }
+        },
+        {
+          "key": "mapping_mode",
+          "type": "enum",
+          "default": "linear",
+          "choices": [
+            "linear",
+            "deadzone",
+            "exponential"
+          ],
+          "description": "命令映射模式 [deploy-only: CommandBus 在 deploy 时处理 stick 输入；IL/SB3 sim 训练时 CommandTerm 直接生成命令，不消费此字段]",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "deadzone",
+          "type": "float",
+          "default": 0.1,
+          "choices": null,
+          "description": "死区 [deploy-only: 仅 deploy 时 stick 映射使用，不影响 sim 训练]",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "conditional_on": {
+              "key": "mapping_mode",
+              "op": "==",
+              "value": "deadzone"
+            }
+          }
+        },
+        {
+          "key": "curve_exponent",
+          "type": "float",
+          "default": 2.0,
+          "choices": null,
+          "description": "曲线指数 [deploy-only: 仅 deploy 时 stick 映射使用，不影响 sim 训练]",
+          "widget": "range",
+          "meta": {
+            "min": 0.1,
+            "max": 10.0,
+            "step": 0.01,
+            "conditional_on": {
+              "key": "mapping_mode",
+              "op": "==",
+              "value": "exponential"
+            }
+          }
+        },
+        {
+          "key": "runtime_clip",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "运行时裁剪命令 [deploy-only: 仅 deploy 时 CommandBus 应用；sim 训练 CommandTerm 用 ranges 内部约束]",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "gait_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用 gait 参数化",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "gait_frequency_range",
+          "type": "list",
+          "default": "[1.5, 3.5]",
+          "choices": null,
+          "description": "步频范围（Hz）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "gait_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.0,
+            "max": 10.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "body_height_range",
+          "type": "list",
+          "default": "[0.28, 0.40]",
+          "choices": null,
+          "description": "身体高度范围（m）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "gait_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.0,
+            "max": 2.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "step_height_range",
+          "type": "list",
+          "default": "[0.03, 0.15]",
+          "choices": null,
+          "description": "抬腿高度范围（m）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "gait_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.0,
+            "max": 0.5,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "gait_presets",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "gait 预设名",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "gait_enabled",
+              "op": "==",
+              "value": true
+            }
+          }
+        },
+        {
+          "key": "gain_lin_forward",
+          "type": "float",
+          "default": 2.0,
+          "choices": null,
+          "description": "前进方向最大速度 (m/s) / Forward velocity cap",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "gain_lin_backward",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "后退方向最大速度 (m/s) / Backward velocity cap",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "gain_lin_lateral",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "侧向最大速度 (m/s) / Lateral velocity cap",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 3.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "gain_yaw",
+          "type": "float",
+          "default": 1.5,
+          "choices": null,
+          "description": "yaw 最大角速度 (rad/s) / Yaw rate cap",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "resampling_time_range",
+          "type": "list",
+          "default": "[4.0, 12.0]",
+          "choices": null,
+          "description": "命令重采样时间范围（s）",
+          "widget": "range_list",
+          "meta": {
+            "min": 0.0,
+            "max": 30.0,
+            "step": 0.1
+          }
+        },
+        {
+          "key": "zero_command_probability",
+          "type": "float",
+          "default": 0.1,
+          "choices": null,
+          "description": "零命令概率",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "cmd_step_change_prob",
+          "type": "float",
+          "default": 0.01,
+          "choices": null,
+          "description": "每步命令切换概率",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.001
+          }
+        },
+        {
+          "key": "consumer_mode",
+          "type": "enum",
+          "default": "amp",
+          "choices": [
+            "tracking",
+            "amp",
+            "both"
+          ],
+          "description": "Reference clip 消费模式",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "phase_mode",
+          "type": "enum",
+          "default": "loop",
+          "choices": [
+            "loop",
+            "once",
+            "clamp"
+          ],
+          "description": "Phase 模式",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "motion_fps",
+          "type": "float",
+          "default": 50.0,
+          "choices": null,
+          "description": "Motion clip FPS",
+          "widget": "range",
+          "meta": {
+            "min": 10.0,
+            "max": 240.0,
+            "step": 1.0
+          }
+        },
+        {
+          "key": "random_start_phase",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "随机起始 phase",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "command_curriculum_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "启用命令速度 curriculum",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "command_curriculum_start",
+          "type": "float",
+          "default": 0.25,
+          "choices": null,
+          "description": "Curriculum 起始倍率",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "command_curriculum_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "command_curriculum_end",
+          "type": "float",
+          "default": 1.0,
+          "choices": null,
+          "description": "Curriculum 终止倍率",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "command_curriculum_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "command_curriculum_ramp_iters",
+          "type": "int",
+          "default": 800,
+          "choices": null,
+          "description": "Curriculum ramp 外层 iter 数",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "command_curriculum_enabled",
+              "op": "==",
+              "value": true
+            },
+            "min": 1,
+            "max": 1000000
+          }
+        },
+        {
+          "key": "reference_state_init_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "AMP RSI 开关 / Reference State Initialization (AMP_PPO only)",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "rsi_prob",
+          "type": "float",
+          "default": 0.8,
+          "choices": null,
+          "description": "RSI 触发概率 / RSI activation probability",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05,
+            "conditional_on": {
+              "key": "reference_state_init_enabled",
+              "op": "==",
+              "value": true
+            }
+          }
+        },
+        {
+          "key": "rsi_joint_noise",
+          "type": "float",
+          "default": 0.02,
+          "choices": null,
+          "description": "RSI 关节噪声幅度 / RSI joint angle noise",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 0.2,
+            "step": 0.005,
+            "conditional_on": {
+              "key": "reference_state_init_enabled",
+              "op": "==",
+              "value": true
+            }
+          }
+        }
+      ],
+      "is_trainer": false
+    },
+    "vis_check": {
+      "schema": "unitport.node/v1",
+      "id": "vis_check",
+      "kind": "custom",
+      "version": "1.0.0",
+      "category": "config",
+      "layer": "D",
+      "display_name_key": "node.vis_check.display",
+      "description_key": "node.vis_check.desc",
+      "icon": "vis_check.svg",
+      "inputs": [
+        {
+          "name": "vis_check",
+          "type": "vis_check",
+          "multi": false,
+          "optional": true,
+          "description": "",
+          "meta": null
+        }
+      ],
+      "outputs": [],
+      "parameters": [
+        {
+          "key": "trigger_mode",
+          "type": "enum",
+          "default": "step_interval",
+          "choices": [
+            "step_interval",
+            "episode_split"
+          ],
+          "description": "触发模式 / Trigger mode",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "vis_start_step",
+          "type": "int",
+          "default": 50000,
+          "choices": null,
+          "description": "起始步 (step_interval mode)",
+          "widget": "index",
+          "meta": {
+            "min": 0,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "vis_interval_steps",
+          "type": "int",
+          "default": 50000,
+          "choices": null,
+          "description": "间隔步 (step_interval mode)",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 100000000
+          }
+        },
+        {
+          "key": "num_vis_checks",
+          "type": "int",
+          "default": 5,
+          "choices": null,
+          "description": "总检查次数 (episode_split mode)",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 1000
+          }
+        },
+        {
+          "key": "vis_episodes",
+          "type": "int",
+          "default": 3,
+          "choices": null,
+          "description": "每次回合数",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 100
+          }
+        },
+        {
+          "key": "deterministic",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "确定性策略 / Deterministic actions",
+          "widget": null,
+          "meta": null
+        }
+      ],
+      "is_trainer": false
+    }
+  },
+  "custom_scan_dirs": [
+    "D:\\Unitport\\EXE\\RELEASE\\custom_mods\\nodes"
+  ]
+}

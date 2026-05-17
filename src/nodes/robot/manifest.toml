@@ -1,0 +1,62 @@
+schema = "unitport.node/v1"
+id = "robot"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "A"
+display_name_key = "node.robot.display"
+description_key = "node.robot.desc"
+icon = "robot.svg"
+
+# Robot — 机器人资产 / Robot asset (information display).
+#
+# Single source of truth for robot IDENTITY and STRUCTURAL metadata. The
+# canvas display panels (asset files / joint & IR list / init pose default /
+# actuator defaults) are read-only projections of the selected asset_id.
+# Settings live on the paired ActorSettingNode; do not add editable fields
+# here beyond `asset_id`, `active_override`, `body_mapping` (auto-resolved),
+# and `target_height` (per-project override for base_height reward).
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "robot_pipe"
+type = "robot_pipe"
+description = "Bundles asset identity, joint_names, body list, and default metadata"
+
+# ---------------------------------------------------------------------------
+# Parameters (full DEMO alignment)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "asset_id"
+type = "string"
+default = "unitree_go2"
+widget = "picker_robot_asset"
+description = "资产 id / Robot asset id (registry-backed picker)"
+meta = { registry_id = "robots", pin_on_collapse = true }
+
+[[parameters]]
+key = "active_override"
+type = "enum"
+default = "auto"
+choices = ["auto", "mjcf", "usd", "urdf"]
+widget = "active_file_table"
+description = "格式覆盖 / Active asset format override (3-row file-type table)"
+
+[[parameters]]
+key = "body_mapping"
+type = "json"
+default = ""
+widget = "body_mapping_table"
+description = "body→IR-role 映射 (auto-resolved) / Body→IR-role mapping"
+
+[[parameters]]
+key = "target_height"
+type = "float"
+default = 0.0
+widget = "range"
+description = "目标高度 (0 = 跟随资产 nominal_height) / Standing-height override (0 = use asset nominal)"
+meta = { min = 0.0, max = 5.0, step = 0.01 }

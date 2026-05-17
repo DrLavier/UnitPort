@@ -1,0 +1,21 @@
+[default]
+adapter_none = (none)
+add_joint = + 关节
+brand_ph = 例如：unitree
+browse = ...
+browse_title = 选择 {kind} 文件
+cancel = 取消
+col_joint = 关节名称
+col_role = IR 角色
+confirm_delete_body = 移除此用户层机器人？规范条目不会受影响。
+confirm_delete_title = 删除机器人
+del_joint = − 关节
+delete = 删除
+error_required = 品牌和型号为必填项。
+error_title = 输入无效
+family_placeholder = 添加分类（humanoid、quadruped、…）
+model_ph = 例如：go2
+name_ph = 显示名称
+path_placeholder = 相对或绝对路径
+save = 保存
+

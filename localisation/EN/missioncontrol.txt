@@ -1,0 +1,16 @@
+[btn]
+node_lib.tip = Toggle Node Library panel
+redo.tip = Redo (Ctrl+Shift+Z)
+save.tip = Save canvas
+undo.tip = Undo (Ctrl+Z)
+
+[tooltip]
+chart_opacity = Chart overlay opacity
+
+[color]
+palette.tip = Customize this line's color
+picker.title = Pick a color
+hex_input.placeholder = #RRGGBB
+btn.confirm.tip = Confirm
+btn.cancel.tip = Cancel
+

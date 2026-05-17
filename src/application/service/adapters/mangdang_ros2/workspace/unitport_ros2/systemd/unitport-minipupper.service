@@ -1,0 +1,48 @@
+[Unit]
+Description=UnitPort Mini Pupper factory stack (CHAMP + servo_interface)
+# CHAMP + servo_interface only need the network up. The e-stop and bridge
+# services are orthogonal peers — if they're also running, great (start
+# order is preserved below), but a missing/masked e-stop must NOT block
+# this unit from starting. Hard Requires= used to be here and made a
+# `systemctl mask unitport-estop.service` (historical or manual) kill the
+# whole ROS2 control path. Soft Wants= is the right shape: systemd tries
+# to start them, doesn't fail us if it can't.
+After=network.target unitport-estop.service
+Before=unitport-bridge.service
+Wants=unitport-estop.service
+#
+# Hardware mutex — the factory Mangdang Flask panel on :8080 holds the
+# PCA9685 I2C bus; servo_interface here also needs exclusive I2C. They
+# cannot coexist. systemd auto-stops the Flask unit the moment we start
+# (and vice-versa via the unitport-conflicts.conf drop-in shipped into
+# <flask-unit>.d/). See knowledge_base/mini_pupper_v2_ros2_cmdvel_debug.yaml
+# for the root-cause trace.
+Conflicts=mini_pupper_web.service
+# StartLimit* directives belong in [Unit] per systemd >= 230. Some distros
+# accept them in [Service] as a legacy alias, others (Mangdang's Ubuntu 22.04
+# image included) emit "Unknown key name 'StartLimitIntervalSec'" when they
+# sit in [Service]. Same value (5 restarts in 60s); just the right section.
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/unitport/env
+EnvironmentFile=-/etc/unitport/dds/active.env
+# The vendored workspace is installed by host-side `vendor_sdk.stage_vendor_sdk`.
+# bringup.launch.py is idempotent: --hardware_connected:=true wires the real
+# servo_interface; flip to false in environments where only sim is wanted.
+ExecStart=/bin/bash -c 'source /opt/unitport/vendor_ws/install/setup.bash && exec ros2 launch mini_pupper_bringup bringup.launch.py hardware_connected:=true'
+# If we stop for any reason — crash, Conflicts-driven stop by mini_pupper_web,
+# `unitport_mode.sh off` — hand the I2C bus back to the factory Flask panel
+# so the browser at http://<robot>:8080 keeps working. Idempotent under
+# systemd's recursion rules: when the *reason* we're stopping is that Flask
+# is already being started (Conflicts chain), this becomes a no-op.
+ExecStopPost=/bin/systemctl start mini_pupper_web.service
+Restart=on-failure
+# Give servos time to park before the next restart attempt so we don't fight
+# a transient I2C glitch forever. (StartLimit* moved to [Unit] section above.)
+RestartSec=3
+
+[Install]
+WantedBy=unitport.target

@@ -1,0 +1,325 @@
+schema = "unitport.node/v1"
+id = "algorithm_config"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "C"
+display_name_key = "node.algorithm_config.display"
+description_key = "node.algorithm_config.desc"
+icon = "algorithm.svg"
+# mission_panel 训练配置卡靠 is_trainer 在画布上动态发现承载训练超参的节点；
+# 字段暴露由各 ParamSpec.meta.mission_expose 控制。
+is_trainer = true
+
+# Algorithm Config — RL 算法 + 超参（Layer C）.
+#
+# 端口：
+#   checkpoint   (optional)  — 来自 BaseAssetNode；resume / warm-start
+#   total_steps  (optional)  — 来自 MultiGatedRewardNode；覆盖 total_timesteps，
+#                              在 NodeRow UI 中合并到 total_timesteps 行（_HIDDEN_PORTS）
+#
+# 算法 gating：
+#   algorithm == "PPO"           → 显示 gae_lambda / n_steps / n_epochs
+#   algorithm in ("SAC", "TD3")  → 显示 gradient_steps / tau / target_entropy /
+#                                   buffer_size_mode / buffer_size / learning_starts /
+#                                   use_per (+ per_alpha / per_beta when use_per)
+#   lr_schedule 仅 PPO 出现；resume_mode / collapse_* 始终可见
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+
+[[inputs]]
+name = "checkpoint"
+type = "checkpoint"
+optional = true
+description = "来自 BaseAssetNode；scratch 时可悬空"
+
+[[inputs]]
+name = "total_steps"
+type = "int"
+optional = true
+description = "来自 MultiGatedRewardNode；覆盖 total_timesteps（NodeRow 合并显示）"
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "algo_config"
+type = "algo_config"
+
+# ---------------------------------------------------------------------------
+# Parameters — Algorithm gate (always visible)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "algorithm"
+type = "enum"
+default = "PPO"
+choices = ["PPO", "SAC", "TD3"]
+description = "算法 / Algorithm"
+meta = { algorithm_gate = true, pin_on_collapse = true }
+
+# NOTE: training backend is NOT a per-node parameter. The canvas itself
+# carries a single ``backend`` field at the top level (set when the canvas
+# was created); every backend-dependent decision downstream — algorithm
+# kind, reward registry, termination registry, domain-rand registry —
+# reads from that one canvas-level source. Letting Node parameters
+# define their own ``backend`` (and then silently reconciling them) was
+# the root cause of the obs_scale finalize regression; removed.
+
+# ---------------------------------------------------------------------------
+# Parameters — Shared (always visible)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "total_timesteps"
+type = "int"
+default = 1000000
+widget = "index"
+description = "总训练步数"
+meta = { min = 1, max = 1000000000, mission_expose = true, mission_label_i18n = "mission.train.field.total_timesteps", pin_on_collapse = true }
+
+[[parameters]]
+key = "learning_rate"
+type = "float"
+default = 0.0003
+widget = "range"
+description = "学习率"
+meta = { min = 1e-5, max = 1e-2, step = 1e-5, mission_expose = true, mission_label_i18n = "mission.train.field.lr", pin_on_collapse = true }
+
+[[parameters]]
+key = "batch_size"
+type = "int"
+default = 256
+widget = "index"
+description = "Batch size"
+meta = { min = 1, max = 1048576, mission_expose = true, mission_label_i18n = "mission.train.field.batch_size", pin_on_collapse = true }
+
+[[parameters]]
+key = "gamma"
+type = "float"
+default = 0.99
+widget = "range"
+description = "折扣因子 γ"
+meta = { min = 0.0, max = 1.0, step = 0.001, mission_expose = true, mission_label_i18n = "mission.train.field.gamma" }
+
+[[parameters]]
+key = "seed"
+type = "int"
+default = 42
+widget = "index"
+description = "随机种子"
+meta = { min = 0, max = 100000000, mission_expose = true, mission_label_i18n = "mission.train.field.seed" }
+
+[[parameters]]
+key = "device"
+type = "enum"
+default = "auto"
+choices = ["auto", "cpu", "cuda"]
+description = "设备"
+
+[[parameters]]
+key = "hidden_dim_1"
+type = "int"
+default = 256
+widget = "index"
+description = "隐藏层 1 维度"
+meta = { min = 1, max = 8192 }
+
+[[parameters]]
+key = "hidden_dim_2"
+type = "int"
+default = 256
+widget = "index"
+description = "隐藏层 2 维度"
+meta = { min = 1, max = 8192 }
+
+[[parameters]]
+key = "activation"
+type = "enum"
+default = "relu"
+choices = ["relu", "tanh", "elu"]
+description = "激活函数"
+
+[[parameters]]
+key = "ent_coef"
+type = "string"
+default = "auto"
+description = "熵系数 (\"auto\" 或浮点字符串)"
+meta = { mission_expose = true, mission_label_i18n = "mission.train.field.ent_coef" }
+
+[[parameters]]
+key = "checkpoint_interval"
+type = "int"
+default = 50000
+widget = "index"
+description = "Checkpoint 保存间隔"
+meta = { min = 1, max = 100000000 }
+
+[[parameters]]
+key = "resume_mode"
+type = "enum"
+default = "scratch"
+choices = ["scratch", "resume", "warm_start_actor"]
+description = "Resume 模式（被 checkpoint.load_mode 覆盖）"
+
+[[parameters]]
+key = "policy_id_out"
+type = "string"
+default = "trained_policy"
+description = "输出策略 id"
+
+# ---------------------------------------------------------------------------
+# Parameters — PPO-only (visible only when algorithm == "PPO")
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "gae_lambda"
+type = "float"
+default = 0.95
+widget = "range"
+description = "[PPO] GAE λ"
+meta = { conditional_on = { key = "algorithm", op = "==", value = "PPO" }, min = 0.0, max = 1.0, step = 0.001 }
+
+[[parameters]]
+key = "n_steps"
+type = "int"
+default = 2048
+widget = "index"
+description = "[PPO] n_steps"
+meta = { conditional_on = { key = "algorithm", op = "==", value = "PPO" }, min = 1, max = 1000000 }
+
+[[parameters]]
+key = "n_epochs"
+type = "int"
+default = 10
+widget = "index"
+description = "[PPO] n_epochs"
+meta = { conditional_on = { key = "algorithm", op = "==", value = "PPO" }, min = 1, max = 1024 }
+
+[[parameters]]
+key = "lr_schedule"
+type = "enum"
+default = "cosine"
+choices = ["cosine", "linear", "constant"]
+description = "[PPO] 学习率调度"
+meta = { conditional_on = { key = "algorithm", op = "==", value = "PPO" } }
+
+# ---------------------------------------------------------------------------
+# Parameters — Off-policy (SAC / TD3) only
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "gradient_steps"
+type = "int"
+default = 1
+widget = "index"
+description = "[Off-policy] 梯度更新步数"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 1, max = 1024 }
+
+[[parameters]]
+key = "tau"
+type = "float"
+default = 0.005
+widget = "range"
+description = "[Off-policy] target 网络软更新系数"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 0.0, max = 1.0, step = 0.001 }
+
+[[parameters]]
+key = "target_entropy"
+type = "string"
+default = "auto"
+description = "[SAC/TD3] target entropy (\"auto\" 或浮点字符串)"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] } }
+
+[[parameters]]
+key = "buffer_size_mode"
+type = "enum"
+default = "auto"
+choices = ["auto", "manual"]
+description = "[Off-policy] Buffer 大小模式"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] } }
+
+[[parameters]]
+key = "buffer_size"
+type = "int"
+default = 1000000
+widget = "buffer_size"
+description = "[Off-policy] Replay buffer 容量"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 10000, max = 100000000 }
+
+[[parameters]]
+key = "learning_starts"
+type = "int"
+default = 10000
+widget = "index"
+description = "[Off-policy] 学习起始步"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 0, max = 100000000 }
+
+# Prioritized Experience Replay (off-policy only)
+[[parameters]]
+key = "use_per"
+type = "bool"
+default = false
+description = "[Off-policy] 启用 Prioritized Experience Replay"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] } }
+
+[[parameters]]
+key = "per_alpha"
+type = "float"
+default = 0.6
+widget = "range"
+description = "[PER] α (优先级强度)"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "per_beta"
+type = "float"
+default = 0.4
+widget = "range"
+description = "[PER] β (importance sampling 校正)"
+meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 0.0, max = 1.0, step = 0.01 }
+
+# ---------------------------------------------------------------------------
+# Parameters — Collapse guard (always visible)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "collapse_guard"
+type = "bool"
+default = true
+description = "崩溃保护"
+
+[[parameters]]
+key = "collapse_threshold"
+type = "float"
+default = 0.65
+widget = "range"
+description = "崩溃阈值（best ratio）"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "collapse_patience"
+type = "int"
+default = 5
+widget = "index"
+description = "崩溃容忍 epoch 数"
+meta = { min = 1, max = 1000 }
+
+[[parameters]]
+key = "collapse_lr_factor"
+type = "float"
+default = 0.3
+widget = "range"
+description = "崩溃后学习率乘子"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "collapse_max_rollbacks"
+type = "int"
+default = 0
+widget = "index"
+description = "崩溃最大回滚次数（0 = 无限制）"
+meta = { min = 0, max = 1000 }

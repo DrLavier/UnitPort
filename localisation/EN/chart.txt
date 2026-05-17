@@ -1,0 +1,13 @@
+[empty]
+no_visible_series = No visible series
+
+[runs]
+clear = Clear
+empty = No runs
+n_selected = 
+none_selected = Select runs
+select_all = Select all
+tag.failed = [failed]
+tag.finished = [finished]
+tag.running = [ON-GOING]
+

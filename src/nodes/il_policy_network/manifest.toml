@@ -1,0 +1,50 @@
+schema = "unitport.node/v1"
+id = "il_policy_network"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "IL"
+display_name_key = "node.il_policy_network.display"
+description_key = "node.il_policy_network.desc"
+icon = "il_policy_network.svg"
+
+# IL Policy Net — Isaac Lab MLP actor-critic 架构配置.
+
+[[inputs]]
+name = "obs_vector"
+type = "obs_vector"
+
+[[outputs]]
+name = "policy"
+type = "policy"
+
+[[parameters]]
+key = "actor_hidden_dims"
+type = "list"
+default = "[128, 64, 32]"
+widget = "code"
+description = "actor 隐藏层 (JSON list)"
+meta = { language = "json" }
+
+[[parameters]]
+key = "critic_hidden_dims"
+type = "list"
+default = "[128, 64, 32]"
+widget = "code"
+description = "critic 隐藏层 (JSON list)"
+meta = { language = "json" }
+
+[[parameters]]
+key = "activation"
+type = "enum"
+default = "elu"
+choices = ["relu", "elu", "tanh", "leaky_relu"]
+description = "激活函数"
+
+[[parameters]]
+key = "init_noise_std"
+type = "float"
+default = -1.0
+widget = "range"
+description = "初始噪声 std（-1=自动）"
+meta = { min = -1.0, max = 2.0, step = 0.001 }

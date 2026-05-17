@@ -1,0 +1,7 @@
+[start_point]
+asset_desc = 从已注册的训练资产热启动角色。
+latest_export = 最新导出
+latest_export_desc = 从工作区中最新的导出包继续。
+new = 新建（随机初始化）
+new_desc = 以随机初始化从头开始训练。
+

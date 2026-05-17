@@ -1,0 +1,53 @@
+schema = "unitport.node/v1"
+id = "base_asset"
+kind = "CUSTOM"
+version = "2.0.0"
+category = "config"
+layer = "C"
+display_name_key = "node.base_asset.display"
+description_key = "node.base_asset.desc"
+icon = "base_asset.svg"
+
+# Start Point — three semantic categories:
+#   __new__     scratch
+#   __latest__  cumulative training from this canvas's last produced run
+#   __load__    transfer learning — pick any project-local checkpoint
+#
+# Latest visibility depends on disk state (last_run_id resolved against
+# the active project's runs/), so the picker filters at popup-open time
+# rather than baking it into the manifest choices list.
+
+[[outputs]]
+name = "checkpoint"
+type = "checkpoint"
+
+[[parameters]]
+key = "start_point"
+type = "enum"
+default = "__new__"
+choices = ["__new__", "__latest__", "__load__"]
+widget = "picker_start_point"
+description = "起点语义：New / Latest（本画布最近 run） / Load（项目内任意 checkpoint）"
+
+[[parameters]]
+key = "checkpoint_id"
+type = "string"
+default = ""
+widget = "picker_project_checkpoint"
+description = "二级 checkpoint 选择，仅 start_point=__load__ 时可见；存储格式 run:<abs> 或 export:<abs>"
+meta = { conditional_on = { key = "start_point", op = "==", value = "__load__" } }
+
+[[parameters]]
+key = "load_mode"
+type = "enum"
+default = "scratch"
+choices = ["scratch", "resume", "warm_start_actor"]
+description = "加载模式（start_point=__new__ 时该行隐藏，patch 自动落回 scratch）"
+meta = { conditional_on = { key = "start_point", op = "!=", value = "__new__" } }
+
+[[parameters]]
+key = "last_run_id"
+type = "string"
+default = ""
+description = "本画布最近一次训练的 run_id（trainer 启动时回写，UI 不渲染）"
+meta = { hidden = true }

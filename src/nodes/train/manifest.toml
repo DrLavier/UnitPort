@@ -1,0 +1,39 @@
+schema = "unitport.node/v1"
+id = "train"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "training"
+layer = "C"
+display_name_key = "node.train.display"
+description_key = "node.train.desc"
+icon = "train.svg"
+
+# SB3 Train — SB3 训练执行节点（passthrough，无可编辑参数）.
+# train_config 端口为 deprecated 兼容口，画布层隐藏。
+
+[[inputs]]
+name = "env_config"
+type = "env_config"
+
+[[inputs]]
+name = "algo_config"
+type = "algo_config"
+
+[[inputs]]
+name = "eval_config"
+type = "eval_config"
+optional = true
+
+[[inputs]]
+name = "train_config"
+type = "train_config"
+optional = true
+description = "DEPRECATED — 旧版 backward-compat 端口（画布隐藏）"
+
+[[outputs]]
+name = "train_pipe"
+type = "train_pipe"
+
+[[outputs]]
+name = "vis_check"
+type = "vis_check"

@@ -1,0 +1,65 @@
+schema = "unitport.node/v1"
+id = "eval_config"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "D"
+display_name_key = "node.eval_config.display"
+description_key = "node.eval_config.desc"
+icon = "eval_config.svg"
+
+# Eval Config — 训练后评估配置（可选，喂给 TrainNode/ExportNode）.
+
+[[outputs]]
+name = "eval_config"
+type = "eval_config"
+
+[[parameters]]
+key = "eval_episodes"
+type = "int"
+default = 20
+widget = "index"
+description = "评估回合数"
+meta = { min = 1, max = 10000 }
+
+[[parameters]]
+key = "deterministic"
+type = "bool"
+default = true
+description = "确定性策略"
+
+[[parameters]]
+key = "success_threshold"
+type = "float"
+default = 0.8
+widget = "range"
+description = "成功阈值"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "record_video"
+type = "bool"
+default = false
+description = "录制视频"
+
+[[parameters]]
+key = "eval_interval"
+type = "int"
+default = 50000
+widget = "index"
+description = "训练间隔评估步数"
+meta = { min = 1, max = 100000000 }
+
+[[parameters]]
+key = "save_best_model"
+type = "bool"
+default = true
+description = "保存最佳模型"
+
+[[parameters]]
+key = "video_dir"
+type = "string"
+default = ""
+widget = "path"
+description = "视频输出目录"
+meta = { is_dir = true }

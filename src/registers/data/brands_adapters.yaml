@@ -1,0 +1,25 @@
+# Source: DEMO/runtime/ros2/workspace/unitport_ros2/unitport_bringup/config/adapter_registry.yaml
+# ROS2 桥接 adapter 注册（出厂只读）。Deploy 时 SCP 到 /etc/unitport/adapter_registry.yaml。
+
+schema_version: 1
+schema: brands/adapters
+
+built_in:
+  champ:            unitport_bridge.adapters.champ_adapter.ChampAdapter
+  diff_drive:       unitport_bridge.adapters.diff_drive_adapter.DiffDriveAdapter
+  joint_trajectory: unitport_bridge.adapters.joint_trajectory_adapter.JointTrajectoryAdapter
+  legged_gym:       unitport_bridge.adapters.joint_trajectory_adapter.JointTrajectoryAdapter
+  custom:           unitport_bridge.adapters.custom_adapter.CustomAdapter
+
+# Host-side adapter classes. The robot-side adapters above ship inside the
+# UnitPort ROS2 workspace and run ON the robot; these run on the host (the
+# Studio process) and translate UnitPort core commands to the robot-side
+# bridge. Each entry maps RobotSpec.adapter (a brand-level adapter key) to
+# a Python dotted-path resolvable by AdapterFactory.
+host_built_in:
+  mangdang_ros2: application.service.adapters.mangdang_ros2.MangdangROS2Adapter
+  # Unitree Go2 Air uses RoboVerse go2_webrtc (LAN aiortc + sport API) instead
+  # of ROS2/DDS — Unitree does not expose a DDS surface for the Air SKU. The
+  # adapter subclasses BaseAdapter directly (NOT BaseROS2Adapter) because no
+  # cyclonedds / domain_id / ROS msg-type plumbing applies on this link.
+  unitree_go2_air_webrtc: application.service.adapters.unitree_go2_air_webrtc.Go2AirWebRTCAdapter

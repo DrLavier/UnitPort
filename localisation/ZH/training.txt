@@ -1,0 +1,5 @@
+[default]
+already_running = 已有训练任务正在运行
+no_canvas = 未加载画布
+started = 训练已开始：run={run} backend={backend} algo={algo}
+

@@ -1,0 +1,58 @@
+[default]
+busy_oauth = Waiting for browser confirmation...
+busy_sending_reset = Sending reset email...
+busy_signing_in = Signing in...
+busy_signing_up = Creating account...
+close_button = Close
+confirm_password_label = Confirm password
+continue_github = Continue with GitHub
+continue_google = Continue with Google
+continue_with = or continue with
+dialog_title = UnitPort Account
+email_label = Email
+email_placeholder = you@example.com
+error_email_taken = An account with this email already exists.
+error_empty_email = Email is required.
+error_empty_password = Password is required.
+error_generic = Sign-in failed: {message}
+error_invalid_credentials = Incorrect email or password.
+error_network = Network error — check your connection.
+error_password_mismatch = Passwords do not match.
+error_password_too_short = Password must be at least 6 characters.
+forgot_password = Forgot password?
+info_email_confirmation = Account created. Check {email} to confirm your address.
+password_label = Password
+password_placeholder = at least 6 characters
+restart_body_signin = Signed in as {email}. Restart UnitPort now to load this account's workspace?
+restart_body_signout = Signed out. Restart UnitPort now to return to the guest workspace?
+restart_button_later = Later
+restart_button_now = Restart now
+restart_title = Restart required
+sidebar_sign_in_button = Sign in
+sidebar_sign_out = Sign out
+sidebar_signed_out_hint = Sign in to UnitPort
+sign_in_button = Sign in
+sign_up_button = Create account
+tab_sign_in = Sign In
+tab_sign_up = Sign Up
+busy_linking = Linking {provider} account...
+busy_unlinking = Unlinking...
+busy_setting_password = Updating password...
+busy_changing_email = Sending verification...
+error_oauth_busy = Another sign-in operation is pending. Please wait.
+error_single_identity_not_deletable = Can't unlink the only sign-in method.
+error_identity_already_exists = This account is already linked to another user.
+info_email_change_pending = Verification email sent. Click the link to confirm the change.
+info_password_updated = Password updated.
+info_unlink_current_provider = You unlinked your current sign-in method. You may be signed out shortly.
+error_email_rate_limited = Too many requests. Wait a minute and try again.
+identity_conflict_title = Identity already in use
+identity_conflict_body = Couldn't link {provider}.
+
+	That account already belongs to a separate UnitPort user, and Supabase can't merge two existing accounts.
+
+	You can sign in with {provider} directly instead, or try a different {provider} account.
+
+	Provider message: {message}
+identity_conflict_switch = Sign in with {provider} instead
+

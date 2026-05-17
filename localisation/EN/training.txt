@@ -1,0 +1,5 @@
+[default]
+already_running = A training run is already active
+no_canvas = No canvas loaded
+started = Training started: run={run} backend={backend} algo={algo}
+

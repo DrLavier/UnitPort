@@ -1,0 +1,6 @@
+{
+  "version": "1.0.0",
+  "schema": "engines/scenes",
+  "_doc": "训练场景注册。Source: DEMO/src/system/training/scene_registry.py. 阶段 B 占位；实际场景在阶段 C 与 application/tools/training/ 一并填入。",
+  "scenes": []
+}

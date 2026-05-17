@@ -1,0 +1,184 @@
+schema = "unitport.node/v1"
+id = "play_ground_setting"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "A"
+display_name_key = "node.play_ground_setting.display"
+description_key = "node.play_ground_setting.desc"
+icon = "play_ground.svg"
+
+# Play Ground Setting — 统一场景配置节点（General §2 Scene）
+#
+# Single source of truth for everything scene-related: subsumes legacy
+# SceneConfigNode (SB3) + ILTerrainConfigNode + full ILSimulationConfigNode
+# (gravity / sim_dt / gpu_*).
+#
+# Conditional fields:
+#   - roughness_amplitude / slope_max / curriculum_enabled / difficulty_levels
+#       visible only when scene_type == "rough"
+#   - scan_resolution / scan_size_x / scan_size_y
+#       visible only when height_scan_enabled == true
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "scene_pipe"
+type = "scene_pipe"
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.1 Scene identity
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "scene_id"
+type = "string"
+default = "flat_ground"
+widget = "picker_scene"
+description = "场景 id（registry-backed picker）"
+
+[[parameters]]
+key = "scene_type"
+type = "enum"
+default = "flat"
+choices = ["flat", "rough"]
+description = "场景类型（auto-synced from scene_id on pick）"
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.2 World physics
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "gravity_z"
+type = "float"
+default = -9.81
+widget = "range"
+description = "重力 Z 分量"
+meta = { min = -20.0, max = 0.0, step = 0.01 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.3 Arena
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "arena_extent_x"
+type = "float"
+default = 10.0
+widget = "range"
+description = "竞技场 X 范围"
+meta = { min = 1.0, max = 1000.0, step = 0.1 }
+
+[[parameters]]
+key = "arena_extent_y"
+type = "float"
+default = 10.0
+widget = "range"
+description = "竞技场 Y 范围"
+meta = { min = 1.0, max = 1000.0, step = 0.1 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.4 Ground material
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "friction_static"
+type = "float"
+default = 1.0
+widget = "range"
+description = "静摩擦"
+meta = { min = 0.0, max = 5.0, step = 0.01 }
+
+[[parameters]]
+key = "friction_dynamic"
+type = "float"
+default = 0.8
+widget = "range"
+description = "动摩擦"
+meta = { min = 0.0, max = 5.0, step = 0.01 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.5 Rough-terrain knobs (conditional on scene_type == "rough")
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "roughness_amplitude"
+type = "float"
+default = 0.08
+widget = "range"
+description = "粗糙地面幅度"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "slope_max"
+type = "float"
+default = 20.0
+widget = "range"
+description = "最大坡度（度）"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 60.0, step = 0.5 }
+
+[[parameters]]
+key = "curriculum_enabled"
+type = "bool"
+default = false
+description = "启用地形难度 curriculum"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" } }
+
+[[parameters]]
+key = "difficulty_levels"
+type = "int"
+default = 10
+widget = "index"
+description = "curriculum 难度层数"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 1, max = 100 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.6 Height scan (backend-agnostic)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "height_scan_enabled"
+type = "bool"
+default = false
+description = "启用 height scan"
+
+[[parameters]]
+key = "scan_resolution"
+type = "float"
+default = 0.1
+widget = "range"
+description = "扫描分辨率（m）"
+meta = { conditional_on = { key = "height_scan_enabled", op = "==", value = true }, min = 0.01, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "scan_size_x"
+type = "float"
+default = 1.6
+widget = "range"
+description = "扫描区域 X（m）"
+meta = { conditional_on = { key = "height_scan_enabled", op = "==", value = true }, min = 0.1, max = 10.0, step = 0.1 }
+
+[[parameters]]
+key = "scan_size_y"
+type = "float"
+default = 1.0
+widget = "range"
+description = "扫描区域 Y（m）"
+meta = { conditional_on = { key = "height_scan_enabled", op = "==", value = true }, min = 0.1, max = 10.0, step = 0.1 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.7 Sim engine globals (merged from ILSimulationConfigNode)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "sim_dt"
+type = "float"
+default = 0.005
+widget = "range"
+description = "物理步长（s）"
+meta = { min = 0.0001, max = 0.05, step = 0.0001 }
+
+# gpu_max_rigid_patch_count / gpu_max_rigid_contact_count removed
+# 2026-05-10 — auto-computed by env_cfg_compiler from
+# num_envs × terrain_density. Never user-editable.

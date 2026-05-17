@@ -1,0 +1,15 @@
+[engine]
+unavailable = 不可用
+
+[error]
+create_failed = 无法创建项目“{name}”（详见日志）
+exists = 画布已存在：{path}
+invalid_name = 画布名称不能为空（仅允许字母、数字、_ 和 -）
+invalid_project_name = 项目名称不能为空（仅允许字母、数字、_ 和 -）
+no_engine = 请选择训练引擎
+no_project_name = 输入项目名称以选择或创建
+
+[placeholder]
+canvas = 例如：main
+project = 输入以搜索项目
+

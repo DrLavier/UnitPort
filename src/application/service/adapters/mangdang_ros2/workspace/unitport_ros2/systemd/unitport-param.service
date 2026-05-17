@@ -1,0 +1,13 @@
+[Unit]
+Description=UnitPort live parameter service
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/unitport/env
+ExecStart=/bin/bash -c 'source /opt/unitport/ros2_ws/install/setup.bash && ros2 run unitport_param_srv param_srv_node'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=unitport.target

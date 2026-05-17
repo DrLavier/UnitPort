@@ -1,0 +1,31 @@
+[default]
+add_server = Add...
+cloud_none = No servers
+cloud_summary = {n} server(s); default: {d}
+confirm_remove_text = Remove server {name}?
+confirm_remove_title = Remove server
+edit_server = Edit...
+error_title = Error
+local_builtin = Built-in (pip), v{ver}
+local_missing = Not installed
+local_registered_no_module = {root} (module not importable)
+local_unregistered = Not registered
+pick_generic = Select engine installation root
+pick_isaac = Select Isaac Lab installation root
+remove_server = Remove
+set_default = Set as default
+settings_hint = SSH-style training servers for {engine}. Passwords live in the OS keyring; nothing here is persisted in plaintext.
+settings_title = Cloud servers — {engine}
+
+[server_editor]
+add = Add server
+edit = Edit server
+host = Host
+host_required = Host is required.
+invalid_title = Invalid
+name = Display name
+name_required = Display name is required.
+name_taken = A server named {name} already exists.
+port = Port
+user = User
+

@@ -1,0 +1,11 @@
+# Mirror of src/system/runtime/ros2/onboarding/adapter_registry.yaml —
+# SCP'd to /etc/unitport/adapter_registry.yaml by the host at deploy time.
+
+schema_version: 1
+
+built_in:
+  champ:            unitport_bridge.adapters.champ_adapter.ChampAdapter
+  diff_drive:       unitport_bridge.adapters.diff_drive_adapter.DiffDriveAdapter
+  joint_trajectory: unitport_bridge.adapters.joint_trajectory_adapter.JointTrajectoryAdapter
+  legged_gym:       unitport_bridge.adapters.joint_trajectory_adapter.JointTrajectoryAdapter
+  custom:           unitport_bridge.adapters.custom_adapter.CustomAdapter

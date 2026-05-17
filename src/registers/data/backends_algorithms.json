@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "schema": "engines/algorithms",
+  "_doc": "RL 算法注册。Source: DEMO/src/system/training/task_module_registry.py.",
+  "algorithms": [
+    {"id": "PPO",      "framework": "sb3",       "stable": true,  "label": "PPO (SB3)"},
+    {"id": "SAC",      "framework": "sb3",       "stable": true,  "label": "SAC (SB3)"},
+    {"id": "TD3",      "framework": "sb3",       "stable": true,  "label": "TD3 (SB3)"},
+    {"id": "AMP-PPO",  "framework": "isaac_lab", "stable": false, "label": "AMP-PPO (Isaac Lab)"},
+    {"id": "PPO-WALK", "framework": "isaac_lab", "stable": false, "label": "PPO-WALK (Isaac Lab)"}
+  ]
+}

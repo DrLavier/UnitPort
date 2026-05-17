@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UnitPort Fast-DDS profile — restricts UDPv4 transport to the usb0 address
+  (192.168.55.1). `is_default_profile="true"` on the participant makes this
+  binding apply to every participant created under RMW Fast-DDS unless a
+  more specific profile overrides it.
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>unitport_udp_usb</transport_id>
+      <type>UDPv4</type>
+      <interfaceWhiteList>
+        <address>192.168.55.1</address>
+      </interfaceWhiteList>
+    </transport_descriptor>
+  </transport_descriptors>
+
+  <participant profile_name="unitport_usb_participant" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>unitport_udp_usb</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>

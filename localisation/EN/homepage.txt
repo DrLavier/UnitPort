@@ -1,0 +1,116 @@
+; Homepage — four-card empty-state landing page strings.
+;
+; Section names are the second segment of each tr() key:
+;   tr("homepage.user.headline_signed_out", ...)
+;   → file homepage.txt, section [user], option headline_signed_out
+;
+; New keys land here as we extend the homepage. Keep entries grouped by
+; the card that consumes them.
+
+[user]
+title = Account
+welcome_back_title = Welcome Back,
+headline_signed_out = Welcome to UnitPort Studio
+sub_signed_out = Sign in to your account to sync projects and unlock cloud features.
+signin_prompt = Sign In / Join in
+btn_google = Continue with Google
+btn_github = Continue with GitHub
+btn_email = Continue with Email
+welcome_back = Welcome back, {name}
+welcome_back_static = Welcome back,
+uuid_label = UUID: {uuid}
+uuid_copy_tooltip = Copy UUID
+uuid_copied_toast = UUID copied to clipboard
+cloud_usage_label = Cloud Usage
+welcome_sub = Manage your account and sync your projects across devices.
+methods_prompt = Sign-in methods
+sign_out = Sign out
+learn_more = Learn more
+workspace_synced = Synced workspace · projects mirror to your account
+
+[news]
+title = News
+view_all = View all
+coming_soon = News feed coming soon.
+
+[projects]
+title = Local Files
+view_all = View all workspaces
+refresh = Refresh
+refresh_tooltip = Refresh local files
+search_placeholder = Search canvases…
+btn_migrate = Migrate
+btn_open_workspace = Open Local Workspace →
+migrate_title = Choose new workspace root
+migrate_confirm_title = Migrate workspace
+migrate_confirm_body = Move the workspace root from\n  {old}\nto\n  {new}?\n\nAll projects, canvases, and per-user data will be moved. The app will reload its workspace state when done.
+migrate_failed_title = Migration failed
+migrate_failed_body = Could not migrate workspace:\n{err}
+migrate_success_title = Migration complete
+migrate_success_body = Workspace root is now:\n{path}
+empty = No local workspaces yet — create your first project on the right.
+col_user = User
+col_project = Project
+col_canvas = Canvas
+col_robot = Robot
+col_engine = Engine
+col_time = Last Modified
+col_action = Action
+user_guest = Guest
+status_recent = Recent
+status_idle = Idle
+robot_unset = —
+engine_unset = —
+engine_mixed = Mixed ({n})
+time_unknown = —
+time_just_now = just now
+time_min_one = 1 minute ago
+time_min_n = {n} minutes ago
+time_hr_one = 1 hour ago
+time_hr_n = {n} hours ago
+time_yesterday = yesterday
+time_day_n = {n} days ago
+btn_load = Load
+load_tooltip = Open this canvas
+reveal_tooltip = Show in folder
+delete_tooltip = Delete this canvas file
+delete_confirm_title = Delete canvas
+delete_confirm_body = Permanently delete '{name}'?\n\nThis only removes the canvas file — the project itself is kept.
+delete_failed_title = Delete failed
+delete_failed_body = Could not delete '{name}':\n{err}
+cross_user_open_title = Open another user's canvas
+cross_user_open_body = This canvas belongs to {owner}. Copy it into your own workspace for an isolated backup, or open the original in place — any edit / delete will be logged for {owner} to review on their next sign-in.
+cross_user_open_copy = Copy to my workspace (recommended)
+cross_user_open_inplace = Open in place
+cross_user_open_cancel = Cancel
+cross_user_delete_warn_title = Delete another user's canvas
+cross_user_delete_warn_body = '{name}' belongs to {owner}. Deleting it now will be logged so {owner} can review or restore it on their next sign-in.\n\nDelete anyway?
+cross_user_audit_recorded = Logged for {owner}'s review
+cross_user_copy_failed_title = Copy failed
+cross_user_copy_failed_body = Could not copy '{name}' into your workspace:\n{err}
+
+[create]
+title = Create New Project
+btn = Create Canvas
+section_project = Project
+section_canvas = Canvas
+mode_new = New Project
+mode_existing = To Project
+label_project_name = Project Name
+label_pick_project = Pick a project
+label_canvas_name = Canvas Name
+label_backend = Backend
+label_template = Choose a template
+placeholder_name = e.g. quadruped_demo (letters, digits, _ and -)
+placeholder_canvas = e.g. main
+engine_unavailable = unavailable
+error_no_name = Type a project name first.
+error_invalid_name = Project name may only contain letters, digits, '_' and '-'.
+error_no_existing = Pick an existing project from the list, or switch to 'New Project'.
+error_existing_missing = That project is no longer on disk — refresh the list and pick again.
+error_no_canvas_name = Type a canvas name (e.g. 'main').
+error_invalid_canvas_name = Canvas name may only contain letters, digits, '_' and '-'.
+error_no_backend = Pick a backend before creating.
+error_no_template = Pick a template (or '<Blank>') before creating.
+error_create_failed = Could not create project '{name}' (name may clash with an existing one — check the log).
+no_templates = No templates available for this backend.

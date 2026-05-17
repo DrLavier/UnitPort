@@ -1,0 +1,63 @@
+[toolbar]
+group = Group
+ungroup = Ungroup
+collapse = Fold
+expand = Expand
+skip = Disable
+enable = Enable
+delete = Delete
+
+[group]
+default_title = Group
+
+[menu]
+duplicate = Duplicate (Ctrl+D)
+copy = Copy (Ctrl+C)
+disconnect_all = Disconnect All Edges
+disconnect = Disconnect
+delete = Delete
+add_node = Add Node
+paste_here = Paste Here (Ctrl+V)
+
+[btn]
+node_lib.tip = Node Library
+
+[port]
+optional = (opt)
+
+[row]
+empty = —
+selected = {n} selected
+entries = {n} entries
+true = True
+false = False
+no_items = (no items)
+bool_check = ✔
+
+[body_mapping]
+col_current = Current
+col_role = Role
+select_asset = Select an asset_id
+no_roles = No body roles for this asset
+refresh = Refresh
+label_unassigned = (Unassigned)
+label_out_of_scope = (Out of Scope)
+warn_joints = ⚠ {n} joint(s) not matched — assign or mark out of scope: {preview}
+
+[active_file]
+col_type = Type
+col_status = Status
+status_loaded = Loaded
+status_cloud = Cloud
+
+[review_launch]
+button = Launch Review
+
+[actor_setting]
+init_pose.dialog_title = Init Pose Editor
+init_pose.joints_label = Joint angles [rad] — range from MJCF
+init_pose.unlimited_hint = (unlimited)
+init_pose.empty = No joints available for this SKU.
+init_pose.review_button = Review
+review_pose.button = Review Pose
+

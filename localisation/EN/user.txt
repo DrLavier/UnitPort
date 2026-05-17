@@ -1,0 +1,31 @@
+[default]
+engines_cloud_settings = Configure cloud servers
+engines_local_settings = Configure local installation
+open_workspace = Open User Workspace
+open_workspace_tip = Open the UnitPort user data directory in the file explorer
+linked_accounts_label = Sign-in methods:
+linked_account_btn_signedout_email = Email: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = Email: (none)
+linked_account_btn_unlinked_google = Google: (not linked)
+linked_account_btn_unlinked_github = GitHub: (not linked)
+linked_account_status_linked = linked
+linked_account_unlink_confirm_title = Unlink {provider}?
+linked_account_unlink_only_body = This is your only sign-in method. You can't unlink it.
+linked_account_unlink_current_body = You'll be signed out after unlinking, because this is your current sign-in method.
+linked_account_unlink_normal_body = You'll no longer be able to sign in with {provider}.
+linked_account_unlink_button = Unlink {provider}
+workspace_email_label = Workspace:
+workspace_email_confirm_title = Switch workspace storage email?
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+	If a workspace already exists for that email, it will be used as-is and your current data will stay at the previous slug.
+workspace_email_switched = Workspace storage moved to {path}.
+workspace_email_failed = Could not switch workspace: {error}
+email_identity_title = Email sign-in
+email_identity_send_to = We'll send a verification link to:
+email_identity_security_hint = Click the link in your inbox to set or update your sign-in password.
+	For security, password changes can't be made inside the app — all changes go through email verification.
+email_identity_send_button = Send link
+email_identity_no_email = (no email available)
+

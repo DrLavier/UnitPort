@@ -1,0 +1,56 @@
+{
+  "version": "1.1.0",
+  "schema": "brands/packages",
+  "_doc": "出厂品牌包索引。Source: 由 DEMO/src/system/brand_packages/ 扫描得出。adapter_key 与 robot.adapter 字段对齐。sdk_project_urls 用于 SdkManager.ensure_selected_sdks / ensure_registered_sdks 在 PostSetupTask 阶段 git clone。",
+  "brands": {
+    "unitree": {
+      "id": "unitree",
+      "display_name": "Unitree",
+      "adapter_key": "unitree_sdk2",
+      "sdk_project_keys": ["unitree_sdk2_python", "unitree_mujoco", "go2_webrtc"],
+      "sdk_project_urls": {
+        "unitree_sdk2_python": "https://github.com/unitreerobotics/unitree_sdk2_python.git",
+        "unitree_mujoco": "https://github.com/unitreerobotics/unitree_mujoco.git",
+        "go2_webrtc": "https://github.com/tfoldi/go2-webrtc.git"
+      },
+      "sdk_project_install_subdir": {
+        "go2_webrtc": "python"
+      },
+      "ros2_onboarding_compatible": true,
+      "default_controller_type": "champ"
+    },
+    "boston_dynamics": {
+      "id": "boston_dynamics",
+      "display_name": "Boston Dynamics",
+      "adapter_key": "spot_sdk",
+      "sdk_project_keys": ["spot-sdk"],
+      "sdk_project_urls": {
+        "spot-sdk": "https://github.com/boston-dynamics/spot-sdk.git"
+      },
+      "ros2_onboarding_compatible": false,
+      "default_controller_type": ""
+    },
+    "mangdang": {
+      "id": "mangdang",
+      "display_name": "MangDang",
+      "adapter_key": "mangdang_ros2",
+      "sdk_project_keys": ["mini_pupper_ros"],
+      "sdk_project_urls": {
+        "mini_pupper_ros": "https://github.com/mangdangroboticsclub/mini_pupper_ros.git"
+      },
+      "ros2_onboarding_compatible": true,
+      "default_controller_type": "champ"
+    },
+    "xiaomi": {
+      "id": "xiaomi",
+      "display_name": "XiaoMi",
+      "adapter_key": "cyberdog_sdk",
+      "sdk_project_keys": ["cyberdog_ros2"],
+      "sdk_project_urls": {
+        "cyberdog_ros2": "https://github.com/MiRoboticsLab/cyberdog_ros2.git"
+      },
+      "ros2_onboarding_compatible": false,
+      "default_controller_type": ""
+    }
+  }
+}

@@ -1,0 +1,14 @@
+# /etc/sudoers.d/unitport-mode-switch
+#
+# Narrow sudo grant letting the SSH user flip between UnitPort ROS2 mode
+# and the factory Flask panel without a password prompt. Only the specific
+# `systemctl` invocations the adapter needs are allowed — no general
+# systemctl privilege, no shell, no pipes.
+#
+# Installed by deploy_brand_runtime.ensure_brand_runtime() on Mini Pupper v2
+# robots (UnitPort-authored brand). Removed by uninstall_robot.sh.
+#
+# The username placeholder %UNITPORT_USER% is substituted to the robot's
+# primary SSH account at install time (typically "ubuntu" on Mangdang images).
+
+%UNITPORT_USER% ALL=(root) NOPASSWD: /bin/systemctl start unitport-minipupper.service, /bin/systemctl start mini_pupper_web.service, /bin/systemctl stop unitport-minipupper.service, /bin/systemctl is-active unitport-minipupper.service, /bin/systemctl is-active mini_pupper_web.service, /bin/systemctl list-unit-files mini_pupper*.service, /bin/systemctl daemon-reload, /bin/mkdir -p /opt/unitport/vendor_ws/src, /bin/chown -R * /opt/unitport/vendor_ws

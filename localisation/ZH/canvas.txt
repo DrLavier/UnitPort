@@ -1,0 +1,63 @@
+[toolbar]
+group = 成组
+ungroup = 解组
+collapse = 收纳
+expand = 展开
+skip = 禁用
+enable = 启用
+delete = 删除
+
+[group]
+default_title = 分组
+
+[menu]
+duplicate = 复制 (Ctrl+D)
+copy = 复制 (Ctrl+C)
+disconnect_all = 断开全部连线
+disconnect = 断开
+delete = 删除
+add_node = 添加节点
+paste_here = 粘贴到此 (Ctrl+V)
+
+[btn]
+node_lib.tip = 节点库
+
+[port]
+optional = (可选)
+
+[row]
+empty = —
+selected = 已选 {n}
+entries = 共 {n} 项
+true = 是
+false = 否
+no_items = （无内容）
+bool_check = ✔
+
+[body_mapping]
+col_current = 当前
+col_role = 角色
+select_asset = 请选择 asset_id
+no_roles = 该资产没有可用 body 角色
+refresh = 刷新
+label_unassigned = （未指派）
+label_out_of_scope = （超出范围）
+warn_joints = ⚠ {n} 个关节未匹配 — 请指派或标记为超出范围：{preview}
+
+[active_file]
+col_type = 类型
+col_status = 状态
+status_loaded = 已加载
+status_cloud = 云端
+
+[review_launch]
+button = 启动复盘
+
+[actor_setting]
+init_pose.dialog_title = 初始姿态编辑器
+init_pose.joints_label = 关节角度 [弧度] — 量程来自 MJCF
+init_pose.unlimited_hint = （无限制）
+init_pose.empty = 该 SKU 没有可用关节。
+init_pose.review_button = 预览
+review_pose.button = 预览姿态
+

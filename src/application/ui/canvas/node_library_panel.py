@@ -1,0 +1,413 @@
+"""application.ui.canvas.node_library_panel — Node Library 面板（移植自 DEMO ModulePalette）.
+
+- 数据源 / data: ``registers.nodes.list_nodes()`` —— 启动期由 ``RegistryHub.load_all()``
+  扫描 ``src/nodes/`` + ``custom_mods/nodes/`` 自动发现，运行期 ``reload()`` 后调用方
+  emit ``app_signals.nodes_changed`` 通知本面板刷新。
+- 归档 / grouping: 按 ``manifest.layer``（A/B/C/D/IL/CUSTOM）分组，与
+  ``CanvasPage._populate_add_node_menu`` 已确立的层级语义一致。
+- 引擎感知 / engine-aware: 订阅 ``app_signals.current_backend_changed``。如果
+  ``backends.get_installed(engine_id)`` 含 ``"node_categories": [...]`` 字段，则按
+  ``manifest.category`` 过滤；否则不过滤（hook 已就位，等 backends_installed.json
+  声明该字段后自动生效）。
+- 交互 / interaction:
+  - 双击叶节点 → emit ``node_requested(node_id)`` （上层调 ``CanvasPage.spawn_node``）
+  - 拖动叶节点 → ``QDrag`` + MIME ``application/x-unitport-node`` payload = ``node_id``
+    （由 ``canvas/view.py`` 的 ``dropEvent`` 接收 + ``mapToScene`` 后 spawn）
+
+DEMO 参考：``DEMO/bin/pages/layout/module_cards.py:117``（``ModulePalette``）—— UI 壳
+照搬，但 DEMO 的硬编码节点列表 + 无引擎订阅的限制都在本实现中替换为 registry 驱动。
+"""
+
+from __future__ import annotations
+
+from typing import Dict, List, Optional
+
+from PyQt6.QtCore import QMimeData, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QDrag, QPainter, QPixmap
+from PyQt6.QtWidgets import (
+    QAbstractItemView,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from unitport_sdk import Config, I18n, log_warning, tr
+
+
+# ---- MIME 协议 ------------------------------------------------------------------
+
+#: drag/drop MIME type；payload = utf-8 编码的 node_id（``manifest.id``）
+MIME_NODE_ID = "application/x-unitport-node"
+
+
+# ---- 内部 roles + 常量 ----------------------------------------------------------
+
+# QTreeWidgetItem.data(0, ROLE_NODE_ID) → str | None；叶行才有
+ROLE_NODE_ID = Qt.ItemDataRole.UserRole + 1
+# QTreeWidgetItem.data(0, ROLE_IS_GROUP) → bool；组行 True
+ROLE_IS_GROUP = Qt.ItemDataRole.UserRole + 2
+
+# layer 显示顺序（与 CanvasPage._populate_add_node_menu 对齐）
+# TOOLS 放最后 —— 注释/分组/辅助类节点(Note 等)与编译流水线无关,
+# 远离 A→D 配置→训练→导出主线,视觉降权。
+_LAYER_ORDER = ["A", "B", "C", "D", "IL", "CUSTOM", "TOOLS"]
+
+# layer 业务显示名 — 替代裸字母 A/B/C/D/IL/CUSTOM/TOOLS
+_LAYER_DISPLAY_NAMES: Dict[str, str] = {
+    "A": "Configuration",
+    "B": "Environment",
+    "C": "Training",
+    "D": "Export",
+    "IL": "Imitation Learning",
+    "CUSTOM": "Custom",
+    "TOOLS": "Tools",
+}
+
+
+# =============================================================================
+# Delegate —— 组行底色 + 字号统一
+# =============================================================================
+
+class _NodeTreeDelegate(QStyledItemDelegate):
+    """自绘组行底色（DEMO ``module_cards.NodeTreeDelegate`` 的 RELEASE 化）.
+
+    叶行走默认渲染；组行用 ``Config.get_color('bg_2')`` 作背景，加粗显示。
+    主题切换时 ``_NodeTree.refresh_style()`` 会触发 viewport().update() 重绘。
+    """
+
+    def initStyleOption(
+        self,
+        option: QStyleOptionViewItem,
+        index,
+    ) -> None:  # type: ignore[override]
+        super().initStyleOption(option, index)
+        is_group = bool(index.data(ROLE_IS_GROUP))
+        if is_group:
+            from PyQt6.QtGui import QBrush, QColor, QPalette
+            bg_hex = Config.get_color("bg_2", "#2A2A2A")
+            option.backgroundBrush = QBrush(QColor(bg_hex))
+            # 折叠栏文本走 highlight 色（system.ini[Theme] slot 名 highlight）
+            hl_hex = Config.get_color("highlight", "#F6D393")
+            hl_color = QColor(hl_hex)
+            for role in (
+                QPalette.ColorRole.Text,
+                QPalette.ColorRole.WindowText,
+                QPalette.ColorRole.ButtonText,
+                QPalette.ColorRole.HighlightedText,
+            ):
+                option.palette.setColor(role, hl_color)
+            # 折叠栏字号 size_small（与叶节点 stylesheet 同字号）
+            font = option.font
+            font.setBold(True)
+            font.setPixelSize(int(Config.get_font_size("size_small")))
+            option.font = font
+
+
+# =============================================================================
+# Tree —— 重写 startDrag 走自定义 MIME
+# =============================================================================
+
+class _NodeTree(QTreeWidget):
+    """QTreeWidget 子类：仅叶行可拖；MIME = ``application/x-unitport-node``."""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setHeaderHidden(True)
+        self.setRootIsDecorated(True)
+        self.setIndentation(14)
+        self.setUniformRowHeights(True)
+        self.setAnimated(False)
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setItemDelegate(_NodeTreeDelegate(self))
+        self.setMouseTracking(True)
+        self.refresh_style()
+
+    # ---- 鼠标 cursor：叶节点显示手型 ----
+
+    def mouseMoveEvent(self, event) -> None:  # type: ignore[override]
+        item = self.itemAt(event.pos())
+        if item is not None and not bool(item.data(0, ROLE_IS_GROUP)) \
+                and item.data(0, ROLE_NODE_ID):
+            self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.viewport().unsetCursor()
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event) -> None:  # type: ignore[override]
+        self.viewport().unsetCursor()
+        super().leaveEvent(event)
+
+    # ---- 主题刷新 ----
+
+    def refresh_style(self) -> None:
+        """重读主题色 + 字号；主题切换或挂载完成时调用."""
+        bg = Config.get_color("bg_1", "#1E1E1E")
+        fg = Config.get_color("main_t1", "#D6D3C7")
+        # 叶节点 + 折叠栏字号统一 size_small（迁入 Sidebar 弹出面板后由用户敲定）
+        size = int(Config.get_font_size("size_small"))
+        family = Config.get_value("Font", "family", "Microsoft YaHei")
+        self.setStyleSheet(
+            f"""
+            QTreeWidget {{
+                background-color: {bg};
+                color: {fg};
+                border: 0;
+                font-family: "{family}";
+                font-size: {size}px;
+                outline: 0;
+            }}
+            QTreeWidget::item {{
+                padding: 3px 6px;
+            }}
+            QTreeWidget::item:selected {{
+                background-color: {Config.get_color("hover_1", "#525252")};
+                color: {Config.get_color("main_t2", "#FFFFFF")};
+            }}
+            QTreeWidget::item:hover {{
+                background-color: {Config.get_color("hover_1", "#525252")};
+            }}
+            """
+        )
+        self.viewport().update()
+
+    # ---- 拖拽 ----
+
+    def startDrag(self, supportedActions) -> None:  # type: ignore[override]
+        item = self.currentItem()
+        if item is None:
+            return
+        node_id = item.data(0, ROLE_NODE_ID)
+        if not node_id:
+            # 组行 / 占位行 → 不发起 drag
+            return
+
+        mime = QMimeData()
+        mime.setData(MIME_NODE_ID, str(node_id).encode("utf-8"))
+
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+
+        # pixmap：用 item 文本作为拖影标签（DEMO 同样无 icon）
+        label_text = item.text(0) or str(node_id)
+        pixmap = self._make_label_pixmap(label_text)
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(pixmap.rect().center())
+
+        drag.exec(Qt.DropAction.CopyAction)
+
+    @staticmethod
+    def _make_label_pixmap(text: str) -> QPixmap:
+        """简易拖影：圆角矩形 + 文本居中."""
+        from PyQt6.QtGui import QColor, QFont, QPainterPath, QPen
+
+        family = Config.get_value("Font", "family", "Microsoft YaHei")
+        size = int(Config.get_font_size("size_normal"))
+        font = QFont(family, size - 2 if size > 12 else size)
+        # 估算宽度
+        from PyQt6.QtGui import QFontMetrics
+        fm = QFontMetrics(font)
+        w = max(80, fm.horizontalAdvance(text) + 24)
+        h = max(24, fm.height() + 10)
+        pixmap = QPixmap(w, h)
+        pixmap.fill(QColor(0, 0, 0, 0))
+        p = QPainter(pixmap)
+        try:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            bg = QColor(Config.get_color("btn_1", "#3A3A3A"))
+            bg.setAlpha(230)
+            border = QColor(Config.get_color("border_1", "#444444"))
+            path = QPainterPath()
+            path.addRoundedRect(0.5, 0.5, w - 1, h - 1, 6, 6)
+            p.fillPath(path, bg)
+            p.setPen(QPen(border, 1))
+            p.drawPath(path)
+            p.setPen(QColor(Config.get_color("main_t1", "#D6D3C7")))
+            p.setFont(font)
+            p.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, text)
+        finally:
+            p.end()
+        return pixmap
+
+
+# =============================================================================
+# Panel —— 主部件
+# =============================================================================
+
+class NodeLibraryPanel(QWidget):
+    """Node Library 主面板 / Node Library main panel.
+
+    Signals:
+        node_requested(str): 双击某个节点叶行时发出，参数 ``node_id``（manifest.id）
+    """
+
+    node_requested = pyqtSignal(str)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self._tree = _NodeTree(self)
+        self._tree.itemDoubleClicked.connect(self._on_double_click)
+        layout.addWidget(self._tree, 1)
+
+        # 订阅 app 信号（registry 内容变 / 引擎切换 → 刷新）
+        from application.service.signals import get_app_signals
+        sig = get_app_signals()
+        sig.nodes_changed.connect(self._refresh)
+        sig.current_backend_changed.connect(self._on_backend_changed)
+        # 语种切换 → 重建树（节点 display_name + layer 分组 label + 占位
+        # 文案都是 tr() 在 _refresh 里一次性拿的，不重建会卡在旧语种）。
+        I18n.instance().language_changed.connect(self._refresh)
+
+        self._refresh()
+
+    def sizeHint(self) -> QSize:  # type: ignore[override]
+        return QSize(240, 360)
+
+    # ---- 主题 ----
+
+    def refresh_style(self) -> None:
+        """主题切换时由上层（card / overlay）调用."""
+        self._tree.refresh_style()
+
+    # ---- 数据刷新 ----
+
+    def _on_backend_changed(self, _engine_id: str) -> None:
+        self._refresh()
+
+    def _refresh(self) -> None:
+        """重建 tree：query registers → engine 过滤 → 按 layer 分组."""
+        # 延迟 import：避免画布 import 链在 registers 未就绪时炸
+        try:
+            from registers import nodes as nodes_registry
+        except Exception as e:
+            log_warning(f"[node_library] registers.nodes 未就绪: {e!r}")
+            self._tree.clear()
+            self._show_empty_placeholder()
+            return
+
+        try:
+            manifests = list(nodes_registry.list_nodes())
+        except Exception as e:
+            log_warning(f"[node_library] list_nodes() 失败: {e!r}")
+            self._tree.clear()
+            self._show_empty_placeholder()
+            return
+
+        # 引擎过滤：仅当 backends_installed.json 声明 node_categories 时才过滤
+        manifests = self._apply_engine_filter(manifests)
+
+        self._tree.clear()
+        if not manifests:
+            self._show_empty_placeholder()
+            return
+
+        # 按 layer 分组
+        groups: Dict[str, List] = {}
+        for m in manifests:
+            layer = (getattr(m, "layer", None) or "CUSTOM").upper()
+            groups.setdefault(layer, []).append(m)
+
+        # 显示顺序：固定 A/B/C/D/IL/CUSTOM，其他按字母末尾追加
+        ordered_keys: List[str] = [k for k in _LAYER_ORDER if k in groups]
+        ordered_keys += sorted(k for k in groups if k not in _LAYER_ORDER)
+
+        for layer in ordered_keys:
+            label = self._layer_label(layer)
+            group_item = QTreeWidgetItem([label])
+            group_item.setData(0, ROLE_IS_GROUP, True)
+            group_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled  # 不可选 + 不可拖
+            )
+            self._tree.addTopLevelItem(group_item)
+
+            for m in sorted(groups[layer], key=lambda x: x.id):
+                leaf = self._make_leaf_item(m)
+                group_item.addChild(leaf)
+
+            group_item.setExpanded(True)
+
+    def _apply_engine_filter(self, manifests: List) -> List:
+        """根据当前后端过滤 manifests.
+
+        过滤条件：``backends.get_installed(engine_id)`` 含 ``node_categories: [str]``，
+        则保留 ``m.category in node_categories``；否则不过滤（hook 就位但宽松）。
+        """
+        from application.service.signals import current_backend
+        engine_id = current_backend()
+        if not engine_id:
+            return manifests
+        try:
+            from registers import backends as backends_registry
+            info = backends_registry.get_installed(engine_id) or {}
+        except Exception:
+            return manifests
+        cats = info.get("node_categories")
+        if not isinstance(cats, list) or not cats:
+            return manifests
+        cat_set = {str(c) for c in cats}
+        return [m for m in manifests if str(getattr(m, "category", "")) in cat_set]
+
+    def _make_leaf_item(self, manifest) -> QTreeWidgetItem:
+        node_id = str(manifest.id)
+        # 显示名走 display_name_key — 与画布上 NodeItem._resolve_title 一致
+        # （items.py:476-484），保证拖入前后标题完全一致；缺译时回退 node_id
+        name_key = getattr(manifest, "display_name_key", "") or ""
+        display = tr(name_key, node_id) if name_key else node_id
+        item = QTreeWidgetItem([display])
+        item.setData(0, ROLE_NODE_ID, node_id)
+        item.setData(0, ROLE_IS_GROUP, False)
+        # tooltip：node_id + category + kind（信息密度高于显示名）
+        kind_val = getattr(manifest, "kind", None)
+        kind_str = (
+            kind_val.value if hasattr(kind_val, "value") else str(kind_val or "")
+        )
+        category = str(getattr(manifest, "category", "") or "")
+        tip_lines = [f"id: {node_id}"]
+        if category:
+            tip_lines.append(f"category: {category}")
+        if kind_str:
+            tip_lines.append(f"kind: {kind_str}")
+        item.setToolTip(0, "\n".join(tip_lines))
+        item.setFlags(
+            Qt.ItemFlag.ItemIsEnabled
+            | Qt.ItemFlag.ItemIsSelectable
+            | Qt.ItemFlag.ItemIsDragEnabled
+        )
+        return item
+
+    def _show_empty_placeholder(self) -> None:
+        msg = tr("node_lib.empty", "No nodes registered")
+        item = QTreeWidgetItem([msg])
+        item.setData(0, ROLE_IS_GROUP, False)
+        item.setFlags(Qt.ItemFlag.NoItemFlags)  # 不可选 / 不可拖 / 不可双击
+        self._tree.addTopLevelItem(item)
+
+    @staticmethod
+    def _layer_label(layer: str) -> str:
+        # 业务命名：A→Configuration / B→Environment / C→Training / D→Export
+        # / IL→Imitation Learning / CUSTOM→Custom；i18n key 仍保留以便后续接翻译
+        fallback = _LAYER_DISPLAY_NAMES.get(layer, layer.title())
+        return tr(f"node_lib.layer.{layer.lower()}", fallback)
+
+    # ---- 交互 ----
+
+    def _on_double_click(self, item: QTreeWidgetItem, _column: int) -> None:
+        node_id = item.data(0, ROLE_NODE_ID)
+        if not node_id:
+            return
+        self.node_requested.emit(str(node_id))
+
+
+__all__ = [
+    "MIME_NODE_ID",
+    "NodeLibraryPanel",
+]

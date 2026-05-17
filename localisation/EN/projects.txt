@@ -1,0 +1,5 @@
+[default]
+empty = No projects found
+open_folder_tip = Open the projects folder in OS file browser
+refresh_tip = Rescan projects folder
+

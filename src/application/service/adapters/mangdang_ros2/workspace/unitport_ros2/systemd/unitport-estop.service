@@ -1,0 +1,16 @@
+[Unit]
+Description=UnitPort e-stop watchdog
+After=network.target
+# Estop MUST come up before anything that publishes to /cmd_vel so a
+# stale heartbeat never lets the robot crawl off a table.
+Before=unitport-bridge.service unitport-state-pub.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/unitport/env
+ExecStart=/bin/bash -c 'source /opt/unitport/ros2_ws/install/setup.bash && ros2 run unitport_estop estop_node'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=unitport.target

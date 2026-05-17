@@ -1,0 +1,16 @@
+[btn]
+node_lib.tip = 切换节点库面板
+redo.tip = 重做 (Ctrl+Shift+Z)
+save.tip = 保存画布
+undo.tip = 撤销 (Ctrl+Z)
+
+[tooltip]
+chart_opacity = 图表叠加层透明度
+
+[color]
+palette.tip = 自定义此折线的颜色
+picker.title = 选择颜色
+hex_input.placeholder = #RRGGBB
+btn.confirm.tip = 确认
+btn.cancel.tip = 取消
+

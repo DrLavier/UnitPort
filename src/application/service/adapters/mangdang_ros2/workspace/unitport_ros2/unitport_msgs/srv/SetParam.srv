@@ -1,0 +1,12 @@
+# Service backing the Host-side Live PD Tuning panel.
+# Request:
+#   name   — dotted parameter name, e.g. "pd.Kp", "gait.swing_height"
+#   scope  — "global" | "joint:<name>" | "leg:<FL|FR|RL|RR>"
+#   value  — JSON-encoded payload so scalar/array/dict all flow through
+
+string name
+string scope
+string value
+---
+bool ok
+string reason

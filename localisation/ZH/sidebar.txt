@@ -1,0 +1,10 @@
+[language]
+tip = 语言
+
+[update]
+tip = 更新
+tip_latest = 当前已是最新版本
+tip_needed = 有新版本可用 — 点击应用
+short_latest = 最新
+short_needed = 更新
+

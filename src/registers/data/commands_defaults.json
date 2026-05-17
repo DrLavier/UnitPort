@@ -1,0 +1,172 @@
+{
+  "version": "1.0.0",
+  "schema": "commands/defaults",
+  "_doc": "Factory training-command (velocity-template) registry. The 11 entries below are shipped with UnitPort as a default catalog of trainable behavior patterns: 4 minimal Python-equivalent items (stand/walk/turn/pace) + 7 directional items (forward_slow/forward_fast/backward/strafe_left/strafe_right/turn_left/turn_right). Source: DEMO/src/system/training/training_item_registry.py + DEMO/custom_mods/training/training_items.yaml. User-side overlay lives at ~/UnitPort/registers/commands_custom.json (merged on load via registers.commands.merge_user_extensions).",
+  "items": [
+    {
+      "id": "stand",
+      "display_name": "Stand",
+      "default_motion_tag": "stand",
+      "command_template": {
+        "lin_vel_x": [0.0, 0.0],
+        "lin_vel_y": [0.0, 0.0],
+        "ang_vel_z": [0.0, 0.0]
+      },
+      "speed_channel": "lin_vel_x",
+      "zero_channels": ["lin_vel_x", "lin_vel_y", "ang_vel_z"],
+      "gait_hint": null,
+      "description": "Stationary stance — all velocity channels forced to zero.",
+      "builtin": true
+    },
+    {
+      "id": "walk",
+      "display_name": "Walk",
+      "default_motion_tag": "walk",
+      "command_template": {
+        "lin_vel_x": [0.0, 1.0],
+        "lin_vel_y": [-0.2, 0.2],
+        "ang_vel_z": [-0.3, 0.3]
+      },
+      "speed_channel": "lin_vel_x",
+      "zero_channels": [],
+      "gait_hint": {"frequency_hz": 2.0, "type": "trot"},
+      "description": "Forward locomotion tracking lin_vel_x.",
+      "builtin": true
+    },
+    {
+      "id": "turn",
+      "display_name": "Turn",
+      "default_motion_tag": "turn",
+      "command_template": {
+        "lin_vel_x": [-0.2, 0.2],
+        "lin_vel_y": [-0.2, 0.2],
+        "ang_vel_z": [-1.5, 1.5]
+      },
+      "speed_channel": "ang_vel_z",
+      "zero_channels": [],
+      "gait_hint": {"frequency_hz": 2.0, "type": "trot"},
+      "description": "In-place or low-speed turning tracking ang_vel_z.",
+      "builtin": true
+    },
+    {
+      "id": "pace",
+      "display_name": "Pace",
+      "default_motion_tag": "pace",
+      "command_template": {
+        "lin_vel_x": [0.0, 1.2],
+        "lin_vel_y": [-0.2, 0.2],
+        "ang_vel_z": [-0.3, 0.3]
+      },
+      "speed_channel": "lin_vel_x",
+      "zero_channels": [],
+      "gait_hint": {"frequency_hz": 2.8, "type": "pace"},
+      "description": "High-frequency lateral-pair gait at higher stride rate.",
+      "builtin": true
+    },
+    {
+      "id": "forward_slow",
+      "display_name": "Forward (slow)",
+      "default_motion_tag": "walk",
+      "command_template": {
+        "lin_vel_x": [0.0, 1.0],
+        "lin_vel_y": [0.0, 0.0],
+        "ang_vel_z": [0.0, 0.0]
+      },
+      "speed_channel": "lin_vel_x",
+      "zero_channels": ["lin_vel_y", "ang_vel_z"],
+      "gait_hint": null,
+      "description": "Forward walk 0.0-1.0 m/s (straight-line, no turning).",
+      "builtin": true
+    },
+    {
+      "id": "forward_fast",
+      "display_name": "Forward (fast)",
+      "default_motion_tag": "run",
+      "command_template": {
+        "lin_vel_x": [1.0, 1.5],
+        "lin_vel_y": [0.0, 0.0],
+        "ang_vel_z": [0.0, 0.0]
+      },
+      "speed_channel": "lin_vel_x",
+      "zero_channels": ["lin_vel_y", "ang_vel_z"],
+      "gait_hint": {"frequency_hz": 2.8, "type": "trot"},
+      "description": "Forward run 1.0-1.5 m/s, straight-line only.",
+      "builtin": true
+    },
+    {
+      "id": "backward",
+      "display_name": "Backward",
+      "default_motion_tag": "backward",
+      "command_template": {
+        "lin_vel_x": [-1.2, 0.0],
+        "lin_vel_y": [0.0, 0.0],
+        "ang_vel_z": [0.0, 0.0]
+      },
+      "speed_channel": "lin_vel_x",
+      "zero_channels": ["lin_vel_y", "ang_vel_z"],
+      "gait_hint": null,
+      "description": "Backward locomotion -1.2 to 0.0 m/s.",
+      "builtin": true
+    },
+    {
+      "id": "strafe_left",
+      "display_name": "Strafe Left",
+      "default_motion_tag": "strafe",
+      "command_template": {
+        "lin_vel_x": [0.0, 0.0],
+        "lin_vel_y": [0.0, 0.8],
+        "ang_vel_z": [0.0, 0.0]
+      },
+      "speed_channel": "lin_vel_y",
+      "zero_channels": ["lin_vel_x", "ang_vel_z"],
+      "gait_hint": null,
+      "description": "Lateral sidestep to the left, 0.0-0.8 m/s.",
+      "builtin": true
+    },
+    {
+      "id": "strafe_right",
+      "display_name": "Strafe Right",
+      "default_motion_tag": "strafe",
+      "command_template": {
+        "lin_vel_x": [0.0, 0.0],
+        "lin_vel_y": [-0.8, 0.0],
+        "ang_vel_z": [0.0, 0.0]
+      },
+      "speed_channel": "lin_vel_y",
+      "zero_channels": ["lin_vel_x", "ang_vel_z"],
+      "gait_hint": null,
+      "description": "Lateral sidestep to the right, -0.8-0.0 m/s.",
+      "builtin": true
+    },
+    {
+      "id": "turn_left",
+      "display_name": "Turn Left",
+      "default_motion_tag": "turn",
+      "command_template": {
+        "lin_vel_x": [0.0, 0.5],
+        "lin_vel_y": [0.0, 0.0],
+        "ang_vel_z": [0.3, 1.0]
+      },
+      "speed_channel": "ang_vel_z",
+      "zero_channels": ["lin_vel_y"],
+      "gait_hint": {"frequency_hz": 2.0, "type": "trot"},
+      "description": "Left turn 0.3-1.0 rad/s with optional forward drift.",
+      "builtin": true
+    },
+    {
+      "id": "turn_right",
+      "display_name": "Turn Right",
+      "default_motion_tag": "turn",
+      "command_template": {
+        "lin_vel_x": [0.0, 0.5],
+        "lin_vel_y": [0.0, 0.0],
+        "ang_vel_z": [-1.0, -0.3]
+      },
+      "speed_channel": "ang_vel_z",
+      "zero_channels": ["lin_vel_y"],
+      "gait_hint": {"frequency_hz": 2.0, "type": "trot"},
+      "description": "Right turn -1.0 to -0.3 rad/s with optional forward drift.",
+      "builtin": true
+    }
+  ]
+}

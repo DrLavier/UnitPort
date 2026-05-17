@@ -1,0 +1,57 @@
+schema = "unitport.node/v1"
+id = "physics_config"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "A"
+display_name_key = "node.physics_config.display"
+description_key = "node.physics_config.desc"
+icon = "physics_config.svg"
+
+# Physics — 物理仿真时间步 + 执行器配置（robot_pipe / robot_spec 都可选）.
+
+[[inputs]]
+name = "robot_pipe"
+type = "robot_pipe"
+optional = true
+
+[[inputs]]
+name = "robot_spec"
+type = "robot_spec"
+optional = true
+description = "Legacy robot spec port — both inputs are sim-agnostic"
+
+[[outputs]]
+name = "physics_config"
+type = "physics_config"
+
+[[parameters]]
+key = "sim_dt"
+type = "float"
+default = 0.002
+widget = "range"
+description = "物理步长 (s)"
+meta = { min = 0.0001, max = 0.05, step = 0.0001 }
+
+[[parameters]]
+key = "control_dt"
+type = "float"
+default = 0.02
+widget = "range"
+description = "控制步长 (s) — 必须是 sim_dt 的整数倍"
+meta = { min = 0.001, max = 0.1, step = 0.0001 }
+
+[[parameters]]
+key = "episode_max_steps"
+type = "int"
+default = 1000
+widget = "index"
+description = "回合最大步数"
+meta = { min = 1, max = 100000000 }
+
+[[parameters]]
+key = "action_type"
+type = "enum"
+default = "joint_position"
+choices = ["joint_position", "torque", "joint_velocity"]
+description = "动作类型"

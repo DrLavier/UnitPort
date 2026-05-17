@@ -1,0 +1,26 @@
+[Unit]
+Description=UnitPort overlay target — additive stack on top of the vendor default.target
+#
+# IMPORTANT: this target is ADDITIVE. It MUST NOT conflict with, isolate, or
+# replace default.target. The factory vendor services (sshd, ROS2 bringup,
+# Flask panel on :8080, etc.) stay running underneath; UnitPort just adds
+# its own bridge / e-stop / banner / state publisher services on top.
+#
+# Rationale: on brownfield brands (Mangdang Mini Pupper, etc.) the Robot
+# Control Panel's Start / Gait / Active Controller buttons call through the
+# vendor Flask panel at <robot_ip>:8080, which runs under default.target.
+# If unitport.target were exclusive (Conflicts=default.target) a single
+# `systemctl isolate unitport.target` on the robot would take SSH + Flask
+# + vendor ROS2 offline — the user can no longer reach the robot at all.
+# See memory/architecture_additive_not_exclusive.md for the rule.
+#
+# DO NOT re-add `Conflicts=default.target` or `AllowIsolate=yes` without
+# explicit brand-level opt-in. The host-side P2_MODE_SWITCH already
+# respects ConnectionProfile.extends_factory_stack; this unit is the
+# robot-side backstop in case a stale unitport_mode.sh install still
+# points at `isolate`.
+#
+Requires=basic.target
+After=basic.target network.target ssh.service
+# Stay alive while default.target is up — we want SSH to keep answering.
+Wants=ssh.service

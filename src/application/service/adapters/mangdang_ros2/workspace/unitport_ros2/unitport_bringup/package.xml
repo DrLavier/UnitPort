@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>unitport_bringup</name>
+  <version>0.1.0</version>
+  <description>UnitPort launch files + config for the generic ROS2 bridge stack.</description>
+  <maintainer email="noreply@unitport.dev">UnitPort</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>unitport_bridge</exec_depend>
+  <exec_depend>unitport_state_pub</exec_depend>
+  <exec_depend>unitport_param_srv</exec_depend>
+  <exec_depend>unitport_estop</exec_depend>
+
+  <export><build_type>ament_cmake</build_type></export>
+</package>

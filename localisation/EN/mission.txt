@@ -1,0 +1,126 @@
+[train]
+title = Training Config Perspective
+section.status = Training Status
+section.task = Task Config
+section.hyper = Hyperparameters
+section.robot = Robot Config
+state.idle = Idle
+state.running = Running
+state.paused = Paused
+state.finished = Finished
+state.failed = Failed
+field.elapsed = Elapsed Time
+field.iterations = Iterations
+field.current_reward = Current Reward
+field.mean_reward = Mean Reward
+field.best_reward = Best Reward
+field.episode_length = Mean Episode Length
+field.fps = FPS
+field.task_env = Task Backend
+field.task_name = Task Name
+field.link = Link
+field.device = Training Device
+btn.task_configure = Configure Task
+field.lr = Learning Rate
+field.batch_size = Batch Size
+field.gamma = Gamma
+field.total_timesteps = Total Timesteps
+field.ent_coef = Entropy Coef
+field.seed = Random Seed
+field.num_envs = Parallel Envs
+field.max_iterations = Max Iterations
+btn.hyper_edit = Edit Hyperparameters
+field.training_asset = Training Asset
+field.active_files = Asset Files
+field.body_mapping = body_mapping
+field.target_height = Target Height (m)
+field.target_height_hint = 0 = use asset nominal
+btn.start = Start
+btn.pause = Pause
+btn.stop = Stop
+placeholder.empty = —
+placeholder.no_canvas = No canvas loaded
+placeholder.no_robot = No robot node
+body.col_robot = Robot
+body.col_role = Role
+body.unassigned = (Unassigned)
+body.out_of_scope = (Out of Scope)
+body.menu_unassign = Unassign
+body.menu_oos = Mark out of scope
+body.menu_restore = Restore (Unassigned)
+
+[robot]
+status.loaded = Loaded
+status.missing = Missing
+
+[link]
+local = Local
+cloud = Cloud
+
+[conn]
+title = Real Robot Connection
+section.ros2 = ROS2 Connection
+section.hardware = Robot Hardware
+section.sensor = Sensor Status
+field.domain_id = ROS2 Domain ID
+field.middleware = Middleware
+field.address = Address
+field.port = Port
+state.disconnected = Disconnected
+state.testing = Testing…
+state.connecting = Connecting…
+state.connected = Connected
+state.error = Error
+btn.test = Test
+btn.connect = Connect
+btn.disconnect = Disconnect
+field.brand = Brand
+field.model = Model
+field.serial = Serial
+field.firmware = Firmware
+field.battery = Battery
+field.temperature = Temperature
+field.uptime = Uptime
+sensor.imu = IMU
+sensor.joints = Joints
+sensor.lidar = Lidar
+sensor.camera = Camera
+sensor.torque = Torque
+sensor.battery = Battery
+level.ok = OK
+level.warn = Warn
+level.error = Error
+level.idle = Idle
+field.state = 连接状态
+hw.battery = 电量
+hw.no_selection = 未选择机器人
+hw.temperature = 温度
+hw.uptime = 运行时长
+
+[sim]
+title = Policy Simulation
+section.simconfig = Sim Config
+field.policy = Policy
+field.play_ground = Play Ground
+field.backend = Backend
+field.preview_physic = Preview Physic
+field.preview_physic.tip = Step physics live during Review Robot (gravity-only, no actuators)
+btn.run = Run
+btn.review_robot = Review Robot
+policy.empty = No exported policies
+backend.empty = No simulation backend
+section.init_pose = Init Pose Override
+field.init_pose_enable = Override init pose
+field.init_pose_enable.tip = Spawn the robot from the values below instead of the bundle defaults
+field.init_pose_preset = Preset
+field.init_pose_base = Base position [m]
+field.init_pose_joints = Joint angles [rad]
+btn.edit_pose = Edit…
+btn.save_pose = Save As…
+btn.delete_pose = Delete
+dialog.save_pose.title = Save init pose preset
+dialog.save_pose.prompt = Preset name:
+init_pose.editor.title = Init Pose Editor
+init_pose.empty = Select a policy with a known robot SKU to edit init pose.
+init_pose.custom = Custom (unsaved)
+

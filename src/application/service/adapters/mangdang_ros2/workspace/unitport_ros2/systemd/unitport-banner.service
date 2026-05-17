@@ -1,0 +1,22 @@
+[Unit]
+Description=UnitPort robot-side state banner (LCD + LED)
+# Binds the banner to the UnitPort target lifecycle so every transition into
+# or out of UnitPort mode — host-initiated SSH isolate, handshake-probe
+# self-switch, or manual `systemctl isolate unitport.target` — paints the
+# same LCD text + LED colour. Independent of the host pipeline: the robot
+# shows its own state by itself.
+After=unitport-bridge.service
+Wants=unitport-bridge.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# 10s is ample for the I2C/SPI writes that mini_pupper_driver does under
+# the hood. If the driver is missing (non-Mini-Pupper), the script still
+# exits 0 within milliseconds — banner never blocks mode switching.
+TimeoutStartSec=10s
+ExecStart=/usr/local/bin/unitport-banner.py on
+ExecStop=/usr/local/bin/unitport-banner.py off
+
+[Install]
+WantedBy=unitport.target

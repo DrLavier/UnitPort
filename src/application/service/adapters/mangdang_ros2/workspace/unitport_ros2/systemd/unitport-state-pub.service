@@ -1,0 +1,14 @@
+[Unit]
+Description=UnitPort unified robot-state publisher
+After=network.target unitport-bridge.service
+Requires=unitport-bridge.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/unitport/env
+ExecStart=/bin/bash -c 'source /opt/unitport/ros2_ws/install/setup.bash && ros2 run unitport_state_pub generic_state_pub_node'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=unitport.target

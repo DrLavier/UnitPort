@@ -1,0 +1,59 @@
+{
+  "TEST1": {
+    "track_lin_vel_xy": 2.0,
+    "lin_vel_z_penalty": -2.0,
+    "ang_vel_xy_penalty": -0.05,
+    "joint_torque_penalty": -0.0001,
+    "joint_accel_penalty": -2.5e-07,
+    "action_rate_penalty": -0.01,
+    "feet_air_time": 0.2,
+    "flat_orientation": -1.0
+  },
+  "SB3": {
+    "action_smoothness": -0.02,
+    "alive": 0.5,
+    "base_height_penalty": -1.0,
+    "collision_penalty": -0.2,
+    "energy": -0.0001,
+    "foot_clearance": 0.2,
+    "velocity_tracking": 1.0,
+    "yaw_tracking": 0.5
+  },
+  "AMP-PPO": {
+    "action_rate_penalty": -0.05,
+    "alive_reward": 0.15,
+    "ang_vel_xy_penalty": -0.05,
+    "base_height": -1.0,
+    "feet_air_time": 0.25,
+    "flat_orientation": -0.5,
+    "joint_accel_penalty": -2.5e-07,
+    "dof_pos_limits": -1.0,
+    "joint_torque_penalty": -0.0002,
+    "lin_vel_z_penalty": -0.5,
+    "track_ang_vel_z": 0.75,
+    "track_lin_vel_xy": 1.5,
+    "undesired_contacts": -0.5
+  },
+  "PPO-WALK": {
+    "track_lin_vel_xy": 1.5,
+    "track_ang_vel_z": 0.75,
+    "lin_vel_z_penalty": -2.0,
+    "ang_vel_xy_penalty": -0.05,
+    "joint_torque_penalty": -0.0002,
+    "joint_accel_penalty": -2.5e-07,
+    "action_rate_penalty": -0.01,
+    "feet_air_time": 0.25,
+    "flat_orientation": -2.5
+  },
+  "PPO_WALK": {
+    "track_lin_vel_xy": 1.5,
+    "track_ang_vel_z": 0.75,
+    "lin_vel_z_penalty": -2.0,
+    "ang_vel_xy_penalty": -0.05,
+    "joint_torque_penalty": -0.0002,
+    "joint_accel_penalty": -2.5e-07,
+    "action_rate_penalty": -0.01,
+    "feet_air_time": 0.25,
+    "flat_orientation": -2.5
+  }
+}

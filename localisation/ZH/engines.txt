@@ -1,0 +1,31 @@
+[default]
+add_server = 添加...
+cloud_none = 没有服务器
+cloud_summary = {n} server(s); default: {d}
+confirm_remove_text = 移除服务器 {name}？
+confirm_remove_title = 移除服务器
+edit_server = 编辑...
+error_title = 错误
+local_builtin = 内置（pip），v{ver}
+local_missing = 未安装
+local_registered_no_module = {root} (module not importable)
+local_unregistered = 未注册
+pick_generic = 选择引擎安装根目录
+pick_isaac = 选择 Isaac Lab 安装根目录
+remove_server = 移除
+set_default = 设为默认
+settings_hint = 用于 {engine} 的 SSH 风格训练服务器。密码保存在操作系统密钥环中；这里不会以明文持久化任何内容。
+settings_title = 云端服务器 — {engine}
+
+[server_editor]
+add = 添加服务器
+edit = 编辑服务器
+host = 主机
+host_required = 主机为必填项。
+invalid_title = 无效
+name = 显示名称
+name_required = 显示名称为必填项。
+name_taken = 名为 {name} 的服务器已存在。
+port = 端口
+user = 用户
+

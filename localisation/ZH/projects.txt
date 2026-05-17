@@ -1,0 +1,5 @@
+[default]
+empty = 未找到项目
+open_folder_tip = 在系统文件浏览器中打开项目文件夹
+refresh_tip = 重新扫描项目文件夹
+

@@ -1,9 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# UnitPort - Factory Reset
+# UnitPort RELEASE - Factory Reset
 #
 # Restores the project to its initial (pre-install) state.
-# The next "./start.sh" will trigger a full install + setup wizard.
+# The next "./start.sh" will trigger a full install.
 #
 # Usage: chmod +x reset.sh && ./reset.sh
 # ==============================================================================
@@ -15,31 +15,29 @@ cd "$SCRIPT_DIR"
 
 echo ""
 echo "  ============================================================"
-echo "        UnitPort - Factory Reset"
+echo "        UnitPort RELEASE - Factory Reset"
 echo "  ============================================================"
 echo ""
 echo "  This will restore the project to its initial (pre-install)"
-echo "  state.  The next './start.sh' will trigger a full install +"
-echo "  setup wizard."
+echo "  state.  The next './start.sh' will trigger a full install."
 echo ""
 echo "  WILL BE DELETED:"
 echo ""
 echo "    .venv311/                         Python virtual environment"
 echo "    runtime/env/                      Install state"
-echo "    src/system/runtime/sdk/*          Downloaded SDKs (git-cloned)"
-echo "    src/system/runtime/simulation/    MuJoCo menagerie (submodule)"
-echo "    custom_mods/                      All custom content"
-echo "    training_workspaces/              Training workspace data"
-echo "    logs/                             Log files"
+echo "    custom_mods/motions/loco-mujoco/  Cloned reference motion library"
+echo "    log/                              Log files"
 echo "    __pycache__ / *.pyc               Python cache (everywhere)"
-echo "    src/config/setup_state.json       Setup wizard state"
-echo "    src/config/isaaclab.json          Isaac Lab registration"
-echo "    src/config/rewards_presets.json   Reward preset overrides"
-echo "    src/system/models/.sdk_install_state.json"
+echo "    .pip-tmp/ / .pip-cache/           pip scratch + cache"
+echo "    .pytest_cache/ / .cache/          Test/build caches"
 echo ""
 echo "  NOT TOUCHED:"
 echo ""
+echo "    src/config/system.ini             SDK factory defaults (read-only)"
+echo "    src/                              Source tree"
+echo "    custom_mods/nodes/                User-authored nodes"
 echo "    projects/                         User project data"
+echo "    \$HOME/UnitPort/                   Per-user state (user.ini, tokens, etc.)"
 echo ""
 
 read -r -p "  Proceed with factory reset? [y/N] " CONFIRM
@@ -69,63 +67,39 @@ del_dir() {
     fi
 }
 
-# [1/7] Virtual environment
-echo "  [1/7] Removing virtual environment ..."
+# [1/5] Virtual environment
+echo "  [1/5] Removing virtual environment ..."
 del_dir ".venv311"
 
-# [2/7] Runtime state
-echo "  [2/7] Removing runtime state ..."
+# [2/5] Runtime install state
+echo "  [2/5] Removing runtime install state ..."
 del_dir "runtime/env"
-del_file "src/system/models/.sdk_install_state.json"
 
-# [3/7] Downloaded SDKs
-echo "  [3/7] Removing downloaded SDKs ..."
-if [ -d "src/system/runtime/sdk" ]; then
-    for d in src/system/runtime/sdk/*/; do
-        [ -d "$d" ] || continue
-        rm -rf "$d"
-        echo "  [DEL]  $d"
-    done
-fi
-# MuJoCo menagerie (submodule)
-if [ -d "src/system/runtime/simulation/mujoco/menagerie/.git" ]; then
-    git submodule deinit -f src/system/runtime/simulation/mujoco/menagerie 2>/dev/null || true
-    echo "  [DEL]  menagerie submodule (deinit)"
-fi
-del_dir "src/system/runtime/simulation/mujoco/menagerie"
+# [3/5] Cloned reference libraries
+echo "  [3/5] Removing cloned reference libraries ..."
+del_dir "custom_mods/motions/loco-mujoco"
 
-# [4/7] Custom content
-echo "  [4/7] Removing custom_mods content ..."
-del_dir "custom_mods"
-del_dir "training_workspaces"
-
-# [5/7] Config registry
-echo "  [5/7] Clearing config registry ..."
-del_file "src/config/setup_state.json"
-del_file "src/config/isaaclab.json"
-del_file "src/config/rewards_presets.json"
-
-# [6/7] Cache and logs
-echo "  [6/7] Clearing cache and logs ..."
-del_dir "logs"
+# [4/5] Cache and logs
+echo "  [4/5] Clearing cache and logs ..."
+del_dir "log"
+del_dir ".pip-tmp"
+del_dir ".pip-cache"
+del_dir ".pytest_cache"
+del_dir ".cache"
 find "$SCRIPT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 echo "  [DEL]  __pycache__ (all)"
 find "$SCRIPT_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
-del_dir ".pytest_cache"
-del_dir ".cache"
 
-# [7/7] Restore git-tracked defaults
-echo "  [7/7] Restoring git-tracked defaults ..."
-git checkout -- src/config/system.ini 2>/dev/null && echo "  [RST]  src/config/system.ini" || echo "  [SKIP] src/config/system.ini (not in git)"
-git checkout -- src/config/user.ini 2>/dev/null && echo "  [RST]  src/config/user.ini" || echo "  [SKIP] src/config/user.ini (not in git)"
-git checkout -- src/config/ui.ini 2>/dev/null && echo "  [RST]  src/config/ui.ini" || echo "  [SKIP] src/config/ui.ini (not in git)"
-git checkout -- src/config/node_registry.json 2>/dev/null && echo "  [RST]  src/config/node_registry.json" || echo "  [SKIP] src/config/node_registry.json (not in git)"
-git checkout -- custom_mods/ 2>/dev/null && echo "  [RST]  custom_mods/ (git skeleton)" || echo "  [SKIP] custom_mods/ (not in git)"
+# [5/5] Per-user state hint
+echo "  [5/5] Hint: per-user state (user.ini, auth tokens, telemetry caches) lives"
+echo "        under \$HOME/UnitPort/ and is NOT touched by reset."
+echo "        Delete it manually if you want a truly clean first-run experience."
 
 echo ""
 echo "  ============================================================"
 echo "  Factory reset complete."
 echo ""
-echo "  Run './install.sh' then './start.sh' to begin fresh setup."
+echo "  Run './install.sh' then './start.sh' to begin fresh setup,"
+echo "  or just run './start.sh' -- it auto-installs on a missing venv."
 echo "  ============================================================"
 echo ""

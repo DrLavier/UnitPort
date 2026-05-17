@@ -1,0 +1,7 @@
+[start_point]
+asset_desc = Warm-start actor from the registered training asset.
+latest_export = Latest Export
+latest_export_desc = Resume from the newest export bundle in the workspace.
+new = New (random init)
+new_desc = Start training from scratch with random initialization.
+

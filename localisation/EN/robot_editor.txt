@@ -1,0 +1,21 @@
+[default]
+adapter_none = (none)
+add_joint = + Joint
+brand_ph = e.g. unitree
+browse = ...
+browse_title = Select {kind} file
+cancel = Cancel
+col_joint = Joint name
+col_role = IR role
+confirm_delete_body = Remove this user-layer robot? Canonical entries are not affected.
+confirm_delete_title = Delete robot
+del_joint = − Joint
+delete = Delete
+error_required = Brand and Model are required.
+error_title = Invalid input
+family_placeholder = Add family (humanoid, quadruped, …)
+model_ph = e.g. go2
+name_ph = Display name
+path_placeholder = Relative or absolute path
+save = Save
+

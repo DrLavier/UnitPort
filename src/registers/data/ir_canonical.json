@@ -1,0 +1,81 @@
+{
+  "version": "1.0.0",
+  "schema": "ir_catalog/canonical",
+  "_doc": "Brand-neutral IR role catalog. Robots map ONTO this; never auto-extended from URDF/USDA. Source: DEMO/src/system/training/ir_role_catalog.py.",
+  "families": {
+    "quadruped": {
+      "_doc": "Each leg has 3 DOF in series: hip (HAA, lateral) → thigh (HFE, fore/aft) → calf (KFE, knee). foot is the contact link (kinematic).",
+      "roles": [
+        {"id": "base",     "category": "base",   "label": "Base",     "position": "",   "required": true},
+        {"id": "hip_FL",   "category": "hips",   "label": "Hip AA FL", "position": "FL", "required": true},
+        {"id": "hip_FR",   "category": "hips",   "label": "Hip AA FR", "position": "FR", "required": true},
+        {"id": "hip_RL",   "category": "hips",   "label": "Hip AA RL", "position": "RL", "required": true},
+        {"id": "hip_RR",   "category": "hips",   "label": "Hip AA RR", "position": "RR", "required": true},
+        {"id": "thigh_FL", "category": "thighs", "label": "Hip FE FL", "position": "FL", "required": true},
+        {"id": "thigh_FR", "category": "thighs", "label": "Hip FE FR", "position": "FR", "required": true},
+        {"id": "thigh_RL", "category": "thighs", "label": "Hip FE RL", "position": "RL", "required": true},
+        {"id": "thigh_RR", "category": "thighs", "label": "Hip FE RR", "position": "RR", "required": true},
+        {"id": "calf_FL",  "category": "calves", "label": "Knee FL",   "position": "FL", "required": true},
+        {"id": "calf_FR",  "category": "calves", "label": "Knee FR",   "position": "FR", "required": true},
+        {"id": "calf_RL",  "category": "calves", "label": "Knee RL",   "position": "RL", "required": true},
+        {"id": "calf_RR",  "category": "calves", "label": "Knee RR",   "position": "RR", "required": true},
+        {"id": "foot_FL",  "category": "feet",   "label": "Foot FL",   "position": "FL", "required": false},
+        {"id": "foot_FR",  "category": "feet",   "label": "Foot FR",   "position": "FR", "required": false},
+        {"id": "foot_RL",  "category": "feet",   "label": "Foot RL",   "position": "RL", "required": false},
+        {"id": "foot_RR",  "category": "feet",   "label": "Foot RR",   "position": "RR", "required": false}
+      ]
+    },
+    "biped": {
+      "_doc": "Bilateral lower-body + optional upper-body chain. humanoid is treated as an alias.",
+      "roles": [
+        {"id": "base",       "category": "base",      "label": "Base",       "position": "",  "required": true},
+        {"id": "waist",      "category": "waist",     "label": "Waist",      "position": "",  "required": false},
+        {"id": "head",       "category": "head",      "label": "Head",       "position": "",  "required": false},
+        {"id": "hip_L",      "category": "hips",      "label": "Hip L",      "position": "L", "required": true},
+        {"id": "hip_R",      "category": "hips",      "label": "Hip R",      "position": "R", "required": true},
+        {"id": "knee_L",     "category": "knees",     "label": "Knee L",     "position": "L", "required": true},
+        {"id": "knee_R",     "category": "knees",     "label": "Knee R",     "position": "R", "required": true},
+        {"id": "foot_L",     "category": "feet",      "label": "Foot L",     "position": "L", "required": false},
+        {"id": "foot_R",     "category": "feet",      "label": "Foot R",     "position": "R", "required": false},
+        {"id": "shoulder_L", "category": "shoulders", "label": "Shoulder L", "position": "L", "required": false},
+        {"id": "shoulder_R", "category": "shoulders", "label": "Shoulder R", "position": "R", "required": false},
+        {"id": "elbow_L",    "category": "elbows",    "label": "Elbow L",    "position": "L", "required": false},
+        {"id": "elbow_R",    "category": "elbows",    "label": "Elbow R",    "position": "R", "required": false},
+        {"id": "wrist_L",    "category": "wrists",    "label": "Wrist L",    "position": "L", "required": false},
+        {"id": "wrist_R",    "category": "wrists",    "label": "Wrist R",    "position": "R", "required": false},
+        {"id": "hand_L",     "category": "hands",     "label": "Hand L",     "position": "L", "required": false},
+        {"id": "hand_R",     "category": "hands",     "label": "Hand R",     "position": "R", "required": false}
+      ]
+    },
+    "humanoid": {
+      "_doc": "Alias of biped; full DOF coverage same as biped.",
+      "alias_of": "biped"
+    },
+    "manipulator": {
+      "_doc": "Single-arm chain: shoulder → elbow → wrist → hand. Multi-arm rigs declare biped/humanoid family.",
+      "roles": [
+        {"id": "base",     "category": "base",      "label": "Base",     "position": "", "required": true},
+        {"id": "shoulder", "category": "shoulders", "label": "Shoulder", "position": "", "required": true},
+        {"id": "elbow",    "category": "elbows",    "label": "Elbow",    "position": "", "required": true},
+        {"id": "wrist",    "category": "wrists",    "label": "Wrist",    "position": "", "required": true},
+        {"id": "hand",     "category": "hands",     "label": "Hand",     "position": "", "required": false}
+      ]
+    },
+    "wheeled": {
+      "_doc": "Wheeled chassis: base + 4 wheel slots (kinematic contact links).",
+      "roles": [
+        {"id": "base",     "category": "base", "label": "Base",     "position": "",   "required": true},
+        {"id": "wheel_FL", "category": "feet", "label": "Wheel FL", "position": "FL", "required": false},
+        {"id": "wheel_FR", "category": "feet", "label": "Wheel FR", "position": "FR", "required": false},
+        {"id": "wheel_RL", "category": "feet", "label": "Wheel RL", "position": "RL", "required": false},
+        {"id": "wheel_RR", "category": "feet", "label": "Wheel RR", "position": "RR", "required": false}
+      ]
+    },
+    "generic": {
+      "_doc": "Conservative fallback when family inference fails.",
+      "roles": [
+        {"id": "base", "category": "base", "label": "Base", "position": "", "required": true}
+      ]
+    }
+  }
+}

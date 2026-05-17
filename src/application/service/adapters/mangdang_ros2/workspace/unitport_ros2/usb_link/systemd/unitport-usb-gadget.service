@@ -1,0 +1,24 @@
+[Unit]
+Description=UnitPort USB Ethernet Gadget (libcomposite)
+Documentation=file:///opt/unitport/ros2_ws/src/unitport_ros2/usb_link/README.md
+After=sys-kernel-config.mount local-fs.target
+Wants=sys-kernel-config.mount
+ConditionPathExists=/sys/class/udc
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Hard cap so a kernel hiccup (UDC not yet ready, modprobe racing) can
+# never stall the rest of boot behind us. 15s is ample — the script
+# itself finishes in <500ms on a healthy CM4.
+TimeoutStartSec=15s
+ExecStart=/usr/local/bin/unitport-usb-gadget.sh
+ExecStop=/bin/sh -c '[ -f /sys/kernel/config/usb_gadget/unitport/UDC ] && echo "" > /sys/kernel/config/usb_gadget/unitport/UDC || true'
+
+[Install]
+# USB tether must stay up across `systemctl isolate` between default.target
+# and unitport.target — otherwise the mode-switch handshake tears down
+# the gadget itself mid-POST, dropping the USB NIC on the host and
+# stranding us (wedged until reboot). Wanted by both targets so the
+# service survives in either mode.
+WantedBy=multi-user.target unitport.target

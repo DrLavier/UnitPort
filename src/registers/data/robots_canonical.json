@@ -1,0 +1,954 @@
+{
+  "version": "1.0.0",
+  "schema": "robots/canonical",
+  "robots": {
+    "b1f3e435aabe": {
+      "sku": "b1f3e435aabe",
+      "name": "Unitree Go2",
+      "brand": "unitree",
+      "model": "go2",
+      "aliases": [
+        "go2",
+        "Unitree Go2"
+      ],
+      "families": [
+        "quadruped"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": "menagerie/unitree_go2/scene.xml",
+        "URDF": null,
+        "USD": null,
+        "USD_URL": "nucleus:Robots/Unitree/Go2/go2.usd",
+        "XACRO": null
+      },
+      "isaac_lab_joint_order": [
+        "hip_FL",
+        "hip_FR",
+        "hip_RL",
+        "hip_RR",
+        "thigh_FL",
+        "thigh_FR",
+        "thigh_RL",
+        "thigh_RR",
+        "calf_FL",
+        "calf_FR",
+        "calf_RL",
+        "calf_RR"
+      ],
+      "joints": {
+        "314917b67bfa": {
+          "name": "FL_hip_joint",
+          "ir_role": "hip_FL"
+        },
+        "72b3fcbfec58": {
+          "name": "FL_thigh_joint",
+          "ir_role": "thigh_FL"
+        },
+        "bc349018cc50": {
+          "name": "FL_calf_joint",
+          "ir_role": "calf_FL"
+        },
+        "1c70361c095b": {
+          "name": "FR_hip_joint",
+          "ir_role": "hip_FR"
+        },
+        "beadd77561eb": {
+          "name": "FR_thigh_joint",
+          "ir_role": "thigh_FR"
+        },
+        "db3324399ebc": {
+          "name": "FR_calf_joint",
+          "ir_role": "calf_FR"
+        },
+        "e37da59663a2": {
+          "name": "RL_hip_joint",
+          "ir_role": "hip_RL"
+        },
+        "4f2c6abdca3d": {
+          "name": "RL_thigh_joint",
+          "ir_role": "thigh_RL"
+        },
+        "47eaebb96bf8": {
+          "name": "RL_calf_joint",
+          "ir_role": "calf_RL"
+        },
+        "ccfb7181c966": {
+          "name": "RR_hip_joint",
+          "ir_role": "hip_RR"
+        },
+        "8bb628e4b434": {
+          "name": "RR_thigh_joint",
+          "ir_role": "thigh_RR"
+        },
+        "673921a824d3": {
+          "name": "RR_calf_joint",
+          "ir_role": "calf_RR"
+        }
+      },
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.5,
+        "gait": "trot",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python",
+        "unitree_mujoco"
+      ],
+      "init_pose_presets": [
+        {
+          "name": "stand",
+          "description": "Menagerie home keyframe (canonical standing pose)",
+          "base_pos": [
+            0.0,
+            0.0,
+            0.27
+          ],
+          "joint_pos_by_ir": {
+            "hip_FL": 0.0,
+            "hip_FR": 0.0,
+            "hip_RL": 0.0,
+            "hip_RR": 0.0,
+            "thigh_FL": 0.9,
+            "thigh_FR": 0.9,
+            "thigh_RL": 0.9,
+            "thigh_RR": 0.9,
+            "calf_FL": -1.8,
+            "calf_FR": -1.8,
+            "calf_RL": -1.8,
+            "calf_RR": -1.8
+          }
+        },
+        {
+          "name": "lying",
+          "description": "Belly-on-ground rest pose (legs tucked under body)",
+          "base_pos": [
+            0.0,
+            0.0,
+            0.05
+          ],
+          "joint_pos_by_ir": {
+            "hip_FL": 0.0,
+            "hip_FR": 0.0,
+            "hip_RL": 0.0,
+            "hip_RR": 0.0,
+            "thigh_FL": 1.6,
+            "thigh_FR": 1.6,
+            "thigh_RL": 1.6,
+            "thigh_RR": 1.6,
+            "calf_FL": -2.7,
+            "calf_FR": -2.7,
+            "calf_RL": -2.7,
+            "calf_RR": -2.7
+          }
+        },
+        {
+          "name": "fall_from_height",
+          "description": "Air-drop from 1.5 m with menagerie standing limbs",
+          "base_pos": [
+            0.0,
+            0.0,
+            1.5
+          ],
+          "joint_pos_by_ir": {
+            "hip_FL": 0.0,
+            "hip_FR": 0.0,
+            "hip_RL": 0.0,
+            "hip_RR": 0.0,
+            "thigh_FL": 0.9,
+            "thigh_FR": 0.9,
+            "thigh_RL": 0.9,
+            "thigh_RR": 0.9,
+            "calf_FL": -1.8,
+            "calf_FR": -1.8,
+            "calf_RL": -1.8,
+            "calf_RR": -1.8
+          }
+        }
+      ]
+    },
+    "4179f56d3c9f": {
+      "sku": "4179f56d3c9f",
+      "name": "Unitree Go2-W",
+      "brand": "unitree",
+      "model": "go2w",
+      "aliases": [
+        "go2w",
+        "Go2-W",
+        "Go2W",
+        "Unitree Go2-W"
+      ],
+      "families": [
+        "quadruped",
+        "wheeled"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": null,
+        "URDF": null,
+        "USD": null,
+        "XACRO": null
+      },
+      "joints": {},
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.5,
+        "gait": "wheel",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python",
+        "unitree_mujoco"
+      ],
+      "_note": "MJCF unavailable; joints not yet declared"
+    },
+    "8922badcb1ad": {
+      "sku": "8922badcb1ad",
+      "name": "Unitree A1",
+      "brand": "unitree",
+      "model": "a1",
+      "aliases": [
+        "a1",
+        "Unitree A1"
+      ],
+      "families": [
+        "quadruped"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": "menagerie/unitree_a1/scene.xml",
+        "URDF": null,
+        "USD": null,
+        "USD_URL": "nucleus:Robots/Unitree/A1/a1.usd",
+        "XACRO": null
+      },
+      "joints": {},
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.0,
+        "gait": "trot",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python"
+      ],
+      "_note": "joints not yet declared"
+    },
+    "218e4ab03db0": {
+      "sku": "218e4ab03db0",
+      "name": "Unitree B2",
+      "brand": "unitree",
+      "model": "b2",
+      "aliases": [
+        "b2",
+        "Unitree B2"
+      ],
+      "families": [
+        "quadruped"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": null,
+        "URDF": null,
+        "USD": null,
+        "XACRO": null
+      },
+      "joints": {},
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.2,
+        "gait": "trot",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python",
+        "unitree_mujoco"
+      ],
+      "_note": "joints not yet declared"
+    },
+    "98d28d2f0e9d": {
+      "sku": "98d28d2f0e9d",
+      "name": "Unitree B2-W",
+      "brand": "unitree",
+      "model": "b2w",
+      "aliases": [
+        "b2w",
+        "B2-W",
+        "B2W",
+        "Unitree B2-W"
+      ],
+      "families": [
+        "quadruped",
+        "wheeled"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": null,
+        "URDF": null,
+        "USD": null,
+        "XACRO": null
+      },
+      "joints": {},
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.2,
+        "gait": "wheel",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python",
+        "unitree_mujoco"
+      ],
+      "_note": "joints not yet declared"
+    },
+    "6f3ea19141c4": {
+      "sku": "6f3ea19141c4",
+      "name": "Unitree G1",
+      "brand": "unitree",
+      "model": "g1",
+      "aliases": [
+        "g1",
+        "Unitree G1"
+      ],
+      "families": [
+        "humanoid"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": "menagerie/unitree_g1/scene.xml",
+        "URDF": null,
+        "USD": null,
+        "USD_URL": "nucleus:Robots/Unitree/G1/g1.usd",
+        "XACRO": null
+      },
+      "joints": {},
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.0,
+        "gait": "walk",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python",
+        "unitree_mujoco"
+      ],
+      "_note": "biped catalog needs multi-DOF roles"
+    },
+    "c2775e595da6": {
+      "sku": "c2775e595da6",
+      "name": "Unitree H1",
+      "brand": "unitree",
+      "model": "h1",
+      "aliases": [
+        "h1",
+        "Unitree H1"
+      ],
+      "families": [
+        "humanoid"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": "menagerie/unitree_h1/scene.xml",
+        "URDF": null,
+        "USD": null,
+        "USD_URL": "nucleus:Robots/Unitree/H1/h1.usd",
+        "XACRO": null
+      },
+      "joints": {},
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.2,
+        "gait": "walk",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python",
+        "unitree_mujoco"
+      ],
+      "_note": "biped catalog needs multi-DOF roles"
+    },
+    "905dc346eee7": {
+      "sku": "905dc346eee7",
+      "name": "Unitree H1-2",
+      "brand": "unitree",
+      "model": "h1_2",
+      "aliases": [
+        "h1_2",
+        "H1-2",
+        "H12",
+        "Unitree H1-2"
+      ],
+      "families": [
+        "humanoid"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": null,
+        "URDF": null,
+        "USD": null,
+        "XACRO": null
+      },
+      "joints": {},
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.2,
+        "gait": "walk",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "unitree_sdk2",
+      "sdk_paths": [
+        "unitree_sdk2_python",
+        "unitree_mujoco"
+      ],
+      "_note": "biped catalog needs multi-DOF roles"
+    },
+    "daade5b5dcf4": {
+      "sku": "daade5b5dcf4",
+      "name": "Boston Dynamics Spot",
+      "brand": "boston_dynamics",
+      "model": "spot",
+      "aliases": [
+        "spot",
+        "Spot",
+        "BD Spot",
+        "Boston Dynamics Spot"
+      ],
+      "families": [
+        "quadruped"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": "menagerie/boston_dynamics_spot/scene.xml",
+        "URDF": null,
+        "USD": null,
+        "USD_URL": "nucleus:Robots/BostonDynamics/spot/spot.usd",
+        "XACRO": null
+      },
+      "joints": {
+        "0488b21a84ea": {
+          "name": "fl_hx",
+          "ir_role": "hip_FL"
+        },
+        "f6cb4da7320a": {
+          "name": "fl_hy",
+          "ir_role": "thigh_FL"
+        },
+        "9da0f79ad2d8": {
+          "name": "fl_kn",
+          "ir_role": "calf_FL"
+        },
+        "39e1d35b95a3": {
+          "name": "fr_hx",
+          "ir_role": "hip_FR"
+        },
+        "077eb109159a": {
+          "name": "fr_hy",
+          "ir_role": "thigh_FR"
+        },
+        "783060e1896f": {
+          "name": "fr_kn",
+          "ir_role": "calf_FR"
+        },
+        "441a3b0f5489": {
+          "name": "hl_hx",
+          "ir_role": "hip_RL"
+        },
+        "de9607ec9723": {
+          "name": "hl_hy",
+          "ir_role": "thigh_RL"
+        },
+        "ef5856c7d46f": {
+          "name": "hl_kn",
+          "ir_role": "calf_RL"
+        },
+        "d24c44c91075": {
+          "name": "hr_hx",
+          "ir_role": "hip_RR"
+        },
+        "67172bdf53f9": {
+          "name": "hr_hy",
+          "ir_role": "thigh_RR"
+        },
+        "b0f573e29791": {
+          "name": "hr_kn",
+          "ir_role": "calf_RR"
+        }
+      },
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.0,
+        "gait": "trot",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "spot_sdk",
+      "sdk_paths": [
+        "spot-sdk"
+      ]
+    },
+    "29facba530f2": {
+      "sku": "29facba530f2",
+      "name": "Canonical Quadruped",
+      "brand": "canonical",
+      "model": "quadruped",
+      "aliases": [
+        "canonical_quadruped",
+        "Canonical Quadruped",
+        "generic_quadruped"
+      ],
+      "families": [
+        "quadruped"
+      ],
+      "canonical_version": "1.0.0",
+      "_doc": "Brand-neutral quadruped skeleton. Stage 2 ships joint topology + IR role bindings; Stage 6 generic_mujoco_env supplies the MJCF asset (placeholder until then).",
+      "assets": {
+        "MJCF": null,
+        "URDF": null,
+        "USD": null,
+        "XACRO": null
+      },
+      "joints": {
+        "c0fbee8049e5": {
+          "name": "FL_hip",
+          "ir_role": "hip_FL"
+        },
+        "5fb54e8b5dfe": {
+          "name": "FL_thigh",
+          "ir_role": "thigh_FL"
+        },
+        "3f43926b6045": {
+          "name": "FL_calf",
+          "ir_role": "calf_FL"
+        },
+        "c560b93ce3f8": {
+          "name": "FR_hip",
+          "ir_role": "hip_FR"
+        },
+        "a35562c9997e": {
+          "name": "FR_thigh",
+          "ir_role": "thigh_FR"
+        },
+        "ace8d647bfd6": {
+          "name": "FR_calf",
+          "ir_role": "calf_FR"
+        },
+        "27befd8cdbae": {
+          "name": "RL_hip",
+          "ir_role": "hip_RL"
+        },
+        "b5dd85d96cde": {
+          "name": "RL_thigh",
+          "ir_role": "thigh_RL"
+        },
+        "83e245ea94e1": {
+          "name": "RL_calf",
+          "ir_role": "calf_RL"
+        },
+        "a70e0259a2f9": {
+          "name": "RR_hip",
+          "ir_role": "hip_RR"
+        },
+        "a4c9e4cf9e52": {
+          "name": "RR_thigh",
+          "ir_role": "thigh_RR"
+        },
+        "e84bb9370b85": {
+          "name": "RR_calf",
+          "ir_role": "calf_RR"
+        }
+      },
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.0,
+        "gait": "trot",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "",
+      "sdk_paths": []
+    },
+    "75ca186d1735": {
+      "sku": "75ca186d1735",
+      "name": "Canonical Humanoid",
+      "brand": "canonical",
+      "model": "humanoid",
+      "aliases": [
+        "canonical_humanoid",
+        "Canonical Humanoid",
+        "generic_humanoid",
+        "generic_biped"
+      ],
+      "families": [
+        "humanoid"
+      ],
+      "canonical_version": "1.0.0",
+      "_doc": "Brand-neutral biped/humanoid skeleton with 10 actuated DOF (lower body + arms). Stage 6 generic_mujoco_env supplies the MJCF asset.",
+      "assets": {
+        "MJCF": null,
+        "URDF": null,
+        "USD": null,
+        "XACRO": null
+      },
+      "joints": {
+        "e80eab01fac3": {
+          "name": "L_hip",
+          "ir_role": "hip_L"
+        },
+        "e0cbd6571124": {
+          "name": "R_hip",
+          "ir_role": "hip_R"
+        },
+        "95986d8073ea": {
+          "name": "L_knee",
+          "ir_role": "knee_L"
+        },
+        "d84a09a0f553": {
+          "name": "R_knee",
+          "ir_role": "knee_R"
+        },
+        "09a5da514214": {
+          "name": "L_ankle",
+          "ir_role": "foot_L"
+        },
+        "f2c68822e8aa": {
+          "name": "R_ankle",
+          "ir_role": "foot_R"
+        },
+        "eabefdfe64f0": {
+          "name": "L_shoulder",
+          "ir_role": "shoulder_L"
+        },
+        "63dd724c4665": {
+          "name": "R_shoulder",
+          "ir_role": "shoulder_R"
+        },
+        "975cfc976caf": {
+          "name": "L_elbow",
+          "ir_role": "elbow_L"
+        },
+        "02359a25801c": {
+          "name": "R_elbow",
+          "ir_role": "elbow_R"
+        }
+      },
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 1.0,
+        "gait": "walk",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ]
+      },
+      "adapter": "",
+      "sdk_paths": []
+    },
+    "d77d945cc8f8": {
+      "sku": "d77d945cc8f8",
+      "name": "Mini Pupper v2",
+      "brand": "mangdang",
+      "model": "mini_pupper_v2",
+      "aliases": [
+        "mini_pupper",
+        "Mini Pupper",
+        "MiniPupper",
+        "mini_pupper_v2",
+        "Mini Pupper v2",
+        "MangDang Mini Pupper"
+      ],
+      "families": [
+        "quadruped"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": "custom_mods/models/mangdang/mini_pupper_v2/scene.xml",
+        "URDF": null,
+        "USD": null,
+        "XACRO": null
+      },
+      "joints": {
+        "0e1300faa80c": {
+          "name": "base_lf1",
+          "ir_role": "hip_FL"
+        },
+        "a11799a228ab": {
+          "name": "lf1_lf2",
+          "ir_role": "thigh_FL"
+        },
+        "60cc59c0f01f": {
+          "name": "lf2_lf3",
+          "ir_role": "calf_FL"
+        },
+        "6270b02a0a4d": {
+          "name": "base_rf1",
+          "ir_role": "hip_FR"
+        },
+        "32959d641052": {
+          "name": "rf1_rf2",
+          "ir_role": "thigh_FR"
+        },
+        "dcd55524a660": {
+          "name": "rf2_rf3",
+          "ir_role": "calf_FR"
+        },
+        "68d79431d8ec": {
+          "name": "base_lb1",
+          "ir_role": "hip_RL"
+        },
+        "f758d1f23d63": {
+          "name": "lb1_lb2",
+          "ir_role": "thigh_RL"
+        },
+        "1738eb47fe19": {
+          "name": "lb2_lb3",
+          "ir_role": "calf_RL"
+        },
+        "5fa4bf956dca": {
+          "name": "base_rb1",
+          "ir_role": "hip_RR"
+        },
+        "a85c97b42ce4": {
+          "name": "rb1_rb2",
+          "ir_role": "thigh_RR"
+        },
+        "9fdf7808a73b": {
+          "name": "rb2_rb3",
+          "ir_role": "calf_RR"
+        }
+      },
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 0.5,
+        "gait": "trot",
+        "control_mode": [
+          "position",
+          "velocity",
+          "torque"
+        ],
+        "adapter_strategies": {
+          "ros2_generic": "application.service.adapters.mangdang_ros2.MangdangROS2Adapter"
+        }
+      },
+      "adapter": "mangdang_ros2",
+      "sdk_paths": [
+        "mini_pupper_ros"
+      ]
+    },
+    "d63e8ce6aa74": {
+      "sku": "d63e8ce6aa74",
+      "name": "Unitree Go2 Air",
+      "brand": "unitree",
+      "model": "go2_air",
+      "aliases": [
+        "go2_air",
+        "Go2 Air",
+        "Unitree Go2 Air"
+      ],
+      "families": [
+        "quadruped"
+      ],
+      "canonical_version": "1.0.0",
+      "assets": {
+        "MJCF": "menagerie/unitree_go2/scene.xml",
+        "URDF": null,
+        "USD": null,
+        "USD_URL": "nucleus:Robots/Unitree/Go2/go2.usd",
+        "XACRO": null
+      },
+      "isaac_lab_joint_order": [
+        "hip_FL",
+        "hip_FR",
+        "hip_RL",
+        "hip_RR",
+        "thigh_FL",
+        "thigh_FR",
+        "thigh_RL",
+        "thigh_RR",
+        "calf_FL",
+        "calf_FR",
+        "calf_RL",
+        "calf_RR"
+      ],
+      "joints": {
+        "62b545b3d95c": {
+          "name": "FL_hip_joint",
+          "ir_role": "hip_FL"
+        },
+        "36a592e9e469": {
+          "name": "FL_thigh_joint",
+          "ir_role": "thigh_FL"
+        },
+        "a5c0dda773d8": {
+          "name": "FL_calf_joint",
+          "ir_role": "calf_FL"
+        },
+        "96872af1204d": {
+          "name": "FR_hip_joint",
+          "ir_role": "hip_FR"
+        },
+        "6036afc495fe": {
+          "name": "FR_thigh_joint",
+          "ir_role": "thigh_FR"
+        },
+        "7a3fc931aa46": {
+          "name": "FR_calf_joint",
+          "ir_role": "calf_FR"
+        },
+        "4cc0acad9d6d": {
+          "name": "RL_hip_joint",
+          "ir_role": "hip_RL"
+        },
+        "444db43befbc": {
+          "name": "RL_thigh_joint",
+          "ir_role": "thigh_RL"
+        },
+        "9846d5645648": {
+          "name": "RL_calf_joint",
+          "ir_role": "calf_RL"
+        },
+        "f40b1dfa927c": {
+          "name": "RR_hip_joint",
+          "ir_role": "hip_RR"
+        },
+        "87c1c67db037": {
+          "name": "RR_thigh_joint",
+          "ir_role": "thigh_RR"
+        },
+        "7d34f2974d01": {
+          "name": "RR_calf_joint",
+          "ir_role": "calf_RR"
+        }
+      },
+      "sensors": {},
+      "capabilities": {
+        "max_vx": 0.6,
+        "gait": "trot",
+        "control_mode": [
+          "velocity"
+        ]
+      },
+      "adapter": "unitree_go2_air_webrtc",
+      "sdk_paths": [
+        "go2_webrtc"
+      ],
+      "init_pose_presets": [
+        {
+          "name": "stand",
+          "description": "Menagerie home keyframe (canonical standing pose)",
+          "base_pos": [
+            0.0,
+            0.0,
+            0.27
+          ],
+          "joint_pos_by_ir": {
+            "hip_FL": 0.0,
+            "hip_FR": 0.0,
+            "hip_RL": 0.0,
+            "hip_RR": 0.0,
+            "thigh_FL": 0.9,
+            "thigh_FR": 0.9,
+            "thigh_RL": 0.9,
+            "thigh_RR": 0.9,
+            "calf_FL": -1.8,
+            "calf_FR": -1.8,
+            "calf_RL": -1.8,
+            "calf_RR": -1.8
+          }
+        },
+        {
+          "name": "lying",
+          "description": "Belly-on-ground rest pose (legs tucked under body)",
+          "base_pos": [
+            0.0,
+            0.0,
+            0.05
+          ],
+          "joint_pos_by_ir": {
+            "hip_FL": 0.0,
+            "hip_FR": 0.0,
+            "hip_RL": 0.0,
+            "hip_RR": 0.0,
+            "thigh_FL": 1.6,
+            "thigh_FR": 1.6,
+            "thigh_RL": 1.6,
+            "thigh_RR": 1.6,
+            "calf_FL": -2.7,
+            "calf_FR": -2.7,
+            "calf_RL": -2.7,
+            "calf_RR": -2.7
+          }
+        },
+        {
+          "name": "fall_from_height",
+          "description": "Air-drop from 1.5 m with menagerie standing limbs",
+          "base_pos": [
+            0.0,
+            0.0,
+            1.5
+          ],
+          "joint_pos_by_ir": {
+            "hip_FL": 0.0,
+            "hip_FR": 0.0,
+            "hip_RL": 0.0,
+            "hip_RR": 0.0,
+            "thigh_FL": 0.9,
+            "thigh_FR": 0.9,
+            "thigh_RL": 0.9,
+            "thigh_RR": 0.9,
+            "calf_FL": -1.8,
+            "calf_FR": -1.8,
+            "calf_RL": -1.8,
+            "calf_RR": -1.8
+          }
+        }
+      ]
+    }
+  }
+}

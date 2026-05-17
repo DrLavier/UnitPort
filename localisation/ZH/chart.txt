@@ -1,0 +1,13 @@
+[empty]
+no_visible_series = 没有可见的数据序列
+
+[runs]
+clear = 清除
+empty = 没有运行记录
+n_selected = 
+none_selected = 选择运行记录
+select_all = 全选
+tag.failed = [failed]
+tag.finished = [finished]
+tag.running = [ON-GOING]
+

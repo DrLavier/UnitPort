@@ -1,9 +1,0 @@
-{
-  "system": {},
-  "custom": {
-    "scan_dirs": [
-      "custom_mods/nodes"
-    ],
-    "registered": {}
-  }
-}

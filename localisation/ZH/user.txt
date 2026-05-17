@@ -1,0 +1,31 @@
+[default]
+engines_cloud_settings = 配置云端服务器
+engines_local_settings = 配置本地安装
+open_workspace = 打开用户工作区
+open_workspace_tip = 在文件管理器中打开 UnitPort 用户数据目录
+linked_accounts_label = 登录方式：
+linked_account_btn_signedout_email = 邮箱：—
+linked_account_btn_signedout_google = Google：—
+linked_account_btn_signedout_github = GitHub：—
+linked_account_btn_unlinked_email = 邮箱：（未设置）
+linked_account_btn_unlinked_google = Google：（未关联）
+linked_account_btn_unlinked_github = GitHub：（未关联）
+linked_account_status_linked = 已关联
+linked_account_unlink_confirm_title = 取消关联 {provider}？
+linked_account_unlink_only_body = 这是你唯一的登录方式，无法取消关联。
+linked_account_unlink_current_body = 你正在用该方式登录，取消关联后会被登出。
+linked_account_unlink_normal_body = 之后将无法再用 {provider} 登录。
+linked_account_unlink_button = 取消关联 {provider}
+workspace_email_label = 工作区：
+workspace_email_confirm_title = 切换工作区存储邮箱？
+workspace_email_confirm_msg = 将本地工作区移到 {email} 对应的目录吗？
+	如果该邮箱已存在工作区，将直接使用现有内容，当前数据会留在原目录。
+workspace_email_switched = 工作区存储已迁移至 {path}。
+workspace_email_failed = 切换工作区失败：{error}
+email_identity_title = 邮箱登录
+email_identity_send_to = 验证链接将发送至：
+email_identity_security_hint = 点击邮件中的链接来设置或修改登录密码。
+	出于安全考虑，密码修改不能在应用内进行——所有变更必须通过邮件验证完成。
+email_identity_send_button = 发送链接
+email_identity_no_email = （没有可用邮箱）
+

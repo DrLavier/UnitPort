@@ -1,0 +1,62 @@
+{
+  "version": "1.2.0",
+  "schema": "reward_coverage_rules/defaults",
+  "_doc": "Factory rules for the canvas Rewards node Coverage Badge + compile-time block dialog. A rule fires per-phase when its `when` clause matches the phase's reward-term breakdown. Critical rules block training when [Canvas] reward_coverage_mode = strict. Counts split into phase-specific (declared via applies_to) and unconditional (applies_to == []), with `all_*` counts being the union (= what actually applies to the phase at runtime). Default policy: a phase is OK as soon as it has at least one positive AND at least one negative term across the union — that matches the runtime mask semantics (unconditional terms apply to every phase). Critical fires only on the Go2 limb-flailing pattern: a 'negative-required' phase (= static) where there is no negative anywhere AND there are unconditional positives that will be exploited. User overlay lives at ~/UnitPort/registers/reward_coverage_rules_custom.json. See registers.rewards_coverage._rule_matches for the supported when fields.",
+  "rules": [
+    {
+      "id": "static_phase_no_negative",
+      "severity": "critical",
+      "when": {
+        "polarity_required_in": ["negative"],
+        "all_negative_count": {"max": 0}
+      },
+      "message": "Phase has no negative reward at all — neither phase-specific nor unconditional. The policy is free to do anything when this phase is active; expect idle limb-flailing or pose drift.",
+      "suggest_add_terms": [
+        "lin_vel_z_l2",
+        "flat_orientation_l2",
+        "joint_deviation_l1",
+        "action_rate_l2"
+      ]
+    },
+    {
+      "id": "static_phase_unconditional_positive_no_specific_negative",
+      "severity": "critical",
+      "when": {
+        "polarity_required_in": ["negative"],
+        "negative_count": {"max": 0},
+        "unconditional_positive_count": {"min": 1}
+      },
+      "message": "Phase has no phase-specific negative reward, yet unconditional positive rewards (e.g. feet_air_time / gait) are active in this phase. Without isolation, the policy will exploit those positives in this phase even though they're inappropriate (the static Go2 limb-flailing bug). Add a phase-specific negative term, or scope the unconditional positives via applies_to.",
+      "suggest_add_terms": [
+        "lin_vel_z_l2",
+        "joint_deviation_l1"
+      ]
+    },
+    {
+      "id": "phase_no_positive",
+      "severity": "warning",
+      "when": {
+        "polarity_required_in": ["positive", "both"],
+        "all_positive_count": {"max": 0}
+      },
+      "message": "Phase has no positive reward — the policy has no shaping signal toward the desired behavior in this phase.",
+      "suggest_add_terms": [
+        "track_lin_vel_xy_exp",
+        "track_ang_vel_z_exp",
+        "alive"
+      ]
+    },
+    {
+      "id": "phase_completely_empty",
+      "severity": "warning",
+      "when": {
+        "polarity_required_in": ["any"],
+        "total_count": {"max": 0},
+        "all_positive_count": {"max": 0},
+        "all_negative_count": {"max": 0}
+      },
+      "message": "Phase has zero reward contributions of any kind — completely unsupervised.",
+      "suggest_add_terms": []
+    }
+  ]
+}

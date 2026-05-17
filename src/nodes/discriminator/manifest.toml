@@ -1,0 +1,169 @@
+schema = "unitport.node/v1"
+id = "discriminator"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "IL"
+display_name_key = "node.discriminator.display"
+description_key = "node.discriminator.desc"
+icon = "discriminator.svg"
+
+# Discriminator — 独立 AMP 判别器配置（汇集所有 adversarial motion prior 参数）
+#
+# Wiring:
+#   [TrainingMotion] ── reference_motion_config ──► [Discriminator]
+#                                                       │
+#                       discriminator_config ───────────┘──► [IL Trainer]
+#
+# DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:DiscriminatorNode``.
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+
+[[inputs]]
+name = "reference_motion_config"
+type = "reference_motion_config"
+description = "Motion clip metadata; forwarded into discriminator_config"
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "discriminator_config"
+type = "discriminator_config"
+
+# ---------------------------------------------------------------------------
+# Parameters (full DEMO alignment — 16 params)
+# ---------------------------------------------------------------------------
+
+# ── Source code (P0.3) ──
+[[parameters]]
+key = "disc_modules"
+type = "json"
+default = "{\"disc_forward\": 1.0, \"disc_compute_grad_pen\": 1.0, \"disc_predict_reward\": 1.0}"
+widget = "code"
+description = "判别器模块字典 (JSON {key:1.0}) [暂未实装：launcher 通过 disc_overrides_file 接受 user-edited function bodies；本字段是更早设计的 module-level switch，保留 schema 兼容但运行时不消费]"
+meta = { language = "json" }
+
+# ── Network architecture ──
+[[parameters]]
+key = "disc_hidden_dims"
+type = "json"
+default = "[1024, 512]"
+widget = "code"
+description = "判别器 MLP 隐藏维度 (JSON list) / Discriminator hidden dims"
+meta = { language = "json" }
+
+# ── Reward shaping ──
+[[parameters]]
+key = "amp_reward_coef"
+type = "float"
+default = 2.0
+widget = "range"
+description = "AMP discriminator 奖励权重 / AMP reward coefficient"
+meta = { min = 0.0, max = 10.0, step = 0.05 }
+
+[[parameters]]
+key = "task_reward_lerp"
+type = "float"
+default = 0.5
+widget = "range"
+description = "task vs disc 奖励 lerp / Task vs discriminator reward lerp"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "lerp_schedule"
+type = "enum"
+default = "none"
+choices = ["none", "slow_anneal", "fast_anneal", "warmup_then_anneal", "custom"]
+description = "lerp 预设调度 / Lerp schedule preset"
+
+[[parameters]]
+key = "lerp_schedule_json"
+type = "string"
+default = ""
+widget = "code"
+description = "custom lerp 调度 (JSON) / Custom lerp schedule"
+meta = { language = "json" }
+
+# ── Training hyperparams ──
+[[parameters]]
+key = "disc_lr"
+type = "float"
+default = 0.0001
+widget = "range"
+description = "判别器学习率 / Discriminator learning rate"
+meta = { min = 1e-5, max = 1e-2, step = 1e-5 }
+
+[[parameters]]
+key = "disc_grad_penalty"
+type = "float"
+default = 10.0
+widget = "range"
+description = "梯度惩罚 / Discriminator gradient penalty"
+meta = { min = 0.0, max = 20.0, step = 0.1 }
+
+[[parameters]]
+key = "disc_label_smoothing"
+type = "float"
+default = 0.9
+widget = "range"
+description = "判别器标签平滑 / Discriminator label smoothing"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+# ── Replay buffer ──
+[[parameters]]
+key = "amp_replay_buffer_size"
+type = "int"
+default = 1000000
+widget = "index"
+description = "AMP replay buffer 容量 / AMP replay buffer size"
+meta = { min = 1000, max = 100000000 }
+
+[[parameters]]
+key = "num_preload_transitions"
+type = "int"
+default = 200000
+widget = "index"
+description = "预加载 transition 数 / Number of preload transitions"
+meta = { min = 0, max = 100000000 }
+
+# ── Observation fields (what the discriminator sees) ──
+[[parameters]]
+key = "amp_obs_fields"
+type = "string"
+default = ""
+description = "AMP 观测字段（逗号分隔） / AMP observation fields (comma-separated)"
+
+[[parameters]]
+key = "auto_inject_ref_obs"
+type = "bool"
+default = true
+description = "自动注入参考观测 / Auto-inject reference observations"
+
+# ── Stability circuit-breakers (P2) ──
+[[parameters]]
+key = "disc_logit_clamp_max"
+type = "float"
+default = 4.0
+widget = "range"
+description = "discriminator logit clamp 上限 / Discriminator logit clamp max"
+meta = { min = 0.0, max = 50.0, step = 0.5 }
+
+[[parameters]]
+key = "reward_clamp_per_step"
+type = "float"
+default = 50.0
+widget = "range"
+description = "单步 reward clamp 上限 / Per-step reward clamp"
+meta = { min = 0.0, max = 200.0, step = 1.0 }
+
+[[parameters]]
+key = "policy_std_clamp_max"
+type = "float"
+default = 1.5
+widget = "range"
+description = "policy std clamp 上限 / Policy std clamp max"
+meta = { min = 0.0, max = 5.0, step = 0.01 }

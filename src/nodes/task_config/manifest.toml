@@ -1,0 +1,115 @@
+schema = "unitport.node/v1"
+id = "task_config"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "A"
+display_name_key = "node.task_config.display"
+description_key = "node.task_config.desc"
+
+# Task Config — RL 任务定义 / RL task definition
+#
+# 定义任务级语义：任务类型 / 命令模式 / curriculum / success & truncation 策略。
+# Reward 与 termination 模块由专用 input pipe 注入。
+# DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:TaskConfigNode``.
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+
+[[inputs]]
+name = "total_reward"
+type = "total_reward"
+
+[[inputs]]
+name = "termination_config"
+type = "termination_config"
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "task_config"
+type = "task_config"
+
+# ---------------------------------------------------------------------------
+# Parameters (full DEMO alignment)
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "task_type"
+type = "enum"
+default = "velocity_tracking"
+choices = ["velocity_tracking"]
+widget = "picker_task_type"
+description = "任务类型 / Task type"
+
+[[parameters]]
+key = "command_mode"
+type = "enum"
+default = "fixed"
+choices = ["fixed", "random"]
+description = "命令模式 / Command mode"
+
+[[parameters]]
+key = "target_lin_vel_x"
+type = "float"
+default = 0.5
+widget = "range"
+description = "目标 X 速度 / Target linear velocity X"
+meta = { min = -3.0, max = 3.0, step = 0.05 }
+
+[[parameters]]
+key = "target_lin_vel_y"
+type = "float"
+default = 0.0
+widget = "range"
+description = "目标 Y 速度 / Target linear velocity Y"
+meta = { min = -3.0, max = 3.0, step = 0.05 }
+
+[[parameters]]
+key = "target_ang_vel_z"
+type = "float"
+default = 0.0
+widget = "range"
+description = "目标偏航角速度 / Target yaw rate"
+meta = { min = -3.14, max = 3.14, step = 0.05 }
+
+[[parameters]]
+key = "curriculum"
+type = "bool"
+default = false
+description = "启用 curriculum / Enable curriculum"
+
+[[parameters]]
+key = "success_threshold"
+type = "float"
+default = 0.8
+widget = "range"
+description = "成功阈值 / Success threshold"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "truncation_max_steps"
+type = "int"
+default = 0
+widget = "index"
+description = "截断最大步数（0=禁用） / Truncation max steps (0 = disabled)"
+meta = { min = 0, max = 1000000 }
+
+[[parameters]]
+key = "curriculum_schedule"
+type = "json"
+default = "{}"
+widget = "code"
+description = "curriculum 调度 (JSON) / Curriculum schedule"
+meta = { language = "json" }
+
+[[parameters]]
+key = "resampling_time_range"
+type = "list"
+default = "[0.0, 0.0]"
+widget = "range_list"
+description = "命令重采样时间窗 / Command resampling time range"
+meta = { min = 0.0, max = 30.0, step = 0.1 }

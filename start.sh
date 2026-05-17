@@ -1,8 +1,18 @@
 #!/bin/bash
 # ==============================================================================
-# UnitPort start.sh - single entry point
-# Checks .venv311; if missing or broken, runs install.sh first.
-# Then launches the application.
+# UnitPort RELEASE start.sh - single entry point
+#
+# 1) Verify .venv311 exists and Python boots
+# 2) Verify the BOOTSTRAP imports (PyQt6 + loguru + unitport_sdk) so
+#    main.py can paint the LoadingScreen. Everything else (httpx,
+#    paramiko, mujoco, ...) is verified inside the loading screen by
+#    DepCheckTask, which streams pip install progress to the log widget.
+# 3) Inject project-local CycloneDDS (best-effort)
+# 4) Launch main.py
+# 5) On non-zero exit, run install.sh once and retry the launch
+#    (defensive net for crashes that occur before DepCheckTask ran)
+#
+# At any failed gate, install.sh is invoked transparently.
 # ==============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +22,7 @@ VENV_PYTHON="$SCRIPT_DIR/.venv311/bin/python"
 CDDS_DIR="$SCRIPT_DIR/runtime/cyclonedds"
 
 # ------------------------------------------------------------------------------
-# Auto-install if .venv311 is missing or broken
+# Gate 1 + 2: .venv311 present and Python boots
 # ------------------------------------------------------------------------------
 
 need_install=0
@@ -37,12 +47,28 @@ if [ "$need_install" -eq 1 ]; then
     fi
 fi
 
-# Quick sanity: can we import PySide6?
-if ! "$VENV_PYTHON" -c "import PySide6" 2>/dev/null; then
-    echo "[start] PySide6 missing, re-running install.sh ..."
+# ------------------------------------------------------------------------------
+# Gate 3: BOOTSTRAP import check (PyQt6 + loguru + unitport_sdk only)
+# ------------------------------------------------------------------------------
+# These three are required to paint the LoadingScreen. If any is missing
+# we cannot show the loading screen at all, so we fall back to the
+# console-mode install.sh. Every other requirements.txt package is verified
+# by DepCheckTask AFTER the loading screen is up, so the user sees pip
+# install progress streamed live.
+
+bootstrap_check() {
+    "$VENV_PYTHON" -c "import sys; sys.path.insert(0, r'$SCRIPT_DIR/src'); import PyQt6, loguru, unitport_sdk" 2>/dev/null
+}
+
+if ! bootstrap_check; then
+    echo "[start] bootstrap imports missing (PyQt6 / loguru / unitport_sdk), running install.sh ..."
     bash "$SCRIPT_DIR/install.sh"
     if [ $? -ne 0 ]; then
         echo "[start] install.sh failed, cannot continue."
+        exit 1
+    fi
+    if ! bootstrap_check; then
+        echo "[start] bootstrap imports still missing after install.sh; aborting."
         exit 1
     fi
 fi
@@ -65,10 +91,10 @@ fi
 # ------------------------------------------------------------------------------
 # Detect display for Qt
 # ------------------------------------------------------------------------------
-if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
     export QT_QPA_PLATFORM="offscreen"
     echo "[runtime:display] No display detected, using offscreen mode"
-elif [ -n "$WAYLAND_DISPLAY" ]; then
+elif [ -n "${WAYLAND_DISPLAY:-}" ]; then
     export QT_QPA_PLATFORM="wayland"
     echo "[runtime:display] Using Wayland"
 else
@@ -77,10 +103,35 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# Launch
+# Launch (with one defensive install+retry on non-zero exit)
 # ------------------------------------------------------------------------------
-echo "[start] UnitPort - mode: $LAUNCH_MODE"
+echo "[start] UnitPort RELEASE - mode: $LAUNCH_MODE"
 echo "[start] Python: $PYTHON_EXE"
 echo "[start] Platform: $(uname -s)"
 
-exec "$PYTHON_EXE" main.py "$@"
+launch_retried=0
+
+while true; do
+    "$PYTHON_EXE" main.py "$@"
+    rc=$?
+
+    if [ "$rc" -eq 0 ]; then
+        exit 0
+    fi
+
+    if [ "$launch_retried" -eq 0 ]; then
+        echo ""
+        echo "[start] main.py exited with code $rc."
+        echo "[start] Re-running install.sh to verify environment, then retrying launch ..."
+        launch_retried=1
+        bash "$SCRIPT_DIR/install.sh"
+        if [ $? -ne 0 ]; then
+            echo "[start] install.sh failed during recovery; surfacing original exit code $rc."
+            exit "$rc"
+        fi
+        continue
+    fi
+
+    echo "[start] main.py exited with code $rc again after install recovery; aborting."
+    exit "$rc"
+done

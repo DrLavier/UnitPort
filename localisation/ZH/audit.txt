@@ -1,0 +1,20 @@
+[review]
+dialog_title = 其他用户的待审阅改动
+dialog_intro = 你登出期间，本机其他用户对你工作区内的文件做了 {n} 处改动。逐条审阅：Accept = 保留对方的改动，Reject = 从你的云端副本恢复。
+op_overwrite = 编辑了
+op_delete = 删除了
+actor_line = {actor}
+file_line = {path}
+time_line = {time}
+btn_accept = 接受
+btn_reject = 拒绝
+btn_accept_all = 全部接受
+btn_reject_all = 全部拒绝
+btn_later = 稍后再决定
+reject_confirm_title = 从云端恢复？
+reject_confirm_body = 将从你的云端拉取 “{name}” 的上一版本并覆盖本地文件。\n\n继续？
+reject_success_cloud = 已从云端恢复
+reject_failed_no_cloud = 云端没有副本 — 无法拒绝。（此文件曾上传过吗？）
+reject_failed_network = 云端拉取失败（网络 / 鉴权错误）：{err}
+accept_confirm_body = 接受 {actor} 对 “{name}” 的{op}？该条目将从审阅列表移除。
+empty_state = 没有待审阅的改动。

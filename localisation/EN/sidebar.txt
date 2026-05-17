@@ -1,0 +1,10 @@
+[language]
+tip = Language
+
+[update]
+tip = Update
+tip_latest = You are on the latest version
+tip_needed = New version available — click to apply
+short_latest = Latest
+short_needed = Update
+

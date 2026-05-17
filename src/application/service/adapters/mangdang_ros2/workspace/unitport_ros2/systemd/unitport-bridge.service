@@ -1,0 +1,18 @@
+[Unit]
+Description=UnitPort generic bridge node
+After=network.target unitport-estop.service
+Requires=unitport-estop.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/unitport/env
+# Optional transport-specific DDS profile. Written by the USB link installer
+# as a symlink at /etc/unitport/dds/active.env (→ usb_only.env or wifi_only.env).
+# The `-` prefix keeps the unit valid on robots that never installed the USB stack.
+EnvironmentFile=-/etc/unitport/dds/active.env
+ExecStart=/bin/bash -c 'source /opt/unitport/ros2_ws/install/setup.bash && ros2 run unitport_bridge generic_bridge_node'
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=unitport.target

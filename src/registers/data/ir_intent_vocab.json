@@ -1,0 +1,14 @@
+{
+  "version": "1.0.0",
+  "schema": "ir_catalog/intent_vocab",
+  "_doc": "Canonical semantic intent vocabulary. Source: DEMO/src/system/behavior/intent_catalog.py.",
+  "_naming": "Pattern: {category}.{action}. Categories: posture | locomotion | gesture. Stable + immutable; renames require deprecation cycle.",
+  "intents": [
+    {"id": "posture.stand",            "category": "posture",    "label": "Stand",          "stable": true, "_doc": "Robot is upright and stationary in a stable standing posture."},
+    {"id": "posture.sit",              "category": "posture",    "label": "Sit",            "stable": true, "_doc": "Robot lowers into seated/resting posture."},
+    {"id": "locomotion.forward",       "category": "locomotion", "label": "Move - Forward", "stable": true, "_doc": "Robot walks forward at a configurable speed."},
+    {"id": "locomotion.halt",          "category": "locomotion", "label": "Halt",           "stable": true, "_doc": "Robot decelerates to full stop and holds position."},
+    {"id": "gesture.lift_right_leg",   "category": "gesture",    "label": "Lift Right Leg", "stable": true, "_doc": "Model-specific gesture; not universal."}
+  ],
+  "_reserved_categories": ["manipulation", "navigation", "interaction"]
+}

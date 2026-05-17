@@ -1,0 +1,100 @@
+schema = "unitport.node/v1"
+id = "multigated_reward"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "A"
+display_name_key = "node.multigated_reward.display"
+description_key = "node.multigated_reward.desc"
+icon = "multigated_reward.svg"
+
+# MultiGated Reward — 多阶段 reward 路由 + curriculum gate.
+# stage_0 / stage_1 必连；接两个 RewardsNode 的输出。
+# total_steps 输出可作 AlgorithmConfigNode.total_timesteps（隐藏端口）.
+
+[[inputs]]
+name = "stage_0"
+type = "total_reward"
+
+[[inputs]]
+name = "stage_1"
+type = "total_reward"
+
+[[outputs]]
+name = "total_reward"
+type = "total_reward"
+
+[[outputs]]
+name = "total_steps"
+type = "int"
+
+[[parameters]]
+key = "max_step_stage0"
+type = "int"
+default = 0
+widget = "index"
+description = "stage 0 硬超时 (0=不限)"
+meta = { min = 0, max = 1000000000 }
+
+[[parameters]]
+key = "reward_threshold_ratio"
+type = "float"
+default = 0.75
+widget = "range"
+description = "stage 切换阈值比例 (rolling mean / best_ever)"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "min_ep_window"
+type = "int"
+default = 10
+widget = "index"
+description = "最小回合窗口"
+meta = { min = 1, max = 1000 }
+
+[[parameters]]
+key = "plateau_window"
+type = "int"
+default = 10
+widget = "index"
+description = "稳定性窗口"
+meta = { min = 1, max = 1000 }
+
+[[parameters]]
+key = "plateau_eps"
+type = "float"
+default = 0.005
+widget = "range"
+description = "稳定性 ε"
+meta = { min = 0.0, max = 1.0, step = 0.0001 }
+
+[[parameters]]
+key = "blend_steps"
+type = "int"
+default = 3000
+widget = "index"
+description = "切换混合步数"
+meta = { min = 0, max = 1000000 }
+
+[[parameters]]
+key = "stage_behavior"
+type = "enum"
+default = "replace"
+choices = ["replace", "accumulate"]
+description = "Stage 行为：替换 / 累加"
+
+[[parameters]]
+key = "ep_reward_window"
+type = "int"
+default = 20
+widget = "index"
+description = "回合 reward 窗口"
+meta = { min = 1, max = 10000 }
+
+[[parameters]]
+key = "stage1_ratio"
+type = "float"
+default = 1.5
+widget = "range"
+description = "stage 1 budget = max_step_stage0 × stage1_ratio"
+meta = { min = 0.0, max = 10.0, step = 0.1 }

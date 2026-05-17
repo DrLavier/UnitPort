@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "schema": "motion_phases/defaults",
+  "_doc": "Factory motion-phase catalog. A 'phase' is a coarse behavioral grouping over the canonical motion_tag set (see registers.commands TrainingItem.default_motion_tag). Reward terms in the canvas Rewards node may declare `applies_to: [phase_id...]` to scope themselves to one or more phases; reward terms with `applies_to == []` (or missing) apply to every phase ('Unconditional'). The compile path translates the phase_id list into a runtime mask keyed off env._active_task_idx -> task_item.motion_tag -> phase_id. User-side overlay lives at ~/UnitPort/registers/motion_phases_custom.json and is merged on load via registers.motion_phases.merge_user_extensions. Polarity_required drives the Coverage Badge: 'negative' phases without any negative reward go red; 'both' phases without one polarity go yellow; 'any' is informational only.",
+  "phases": [
+    {
+      "id": "static",
+      "display_name_key": "motion.phase.static",
+      "display_name_default": "Static",
+      "motion_tags": ["stand"],
+      "theme_slot": "checked_1",
+      "polarity_required": "negative",
+      "description_key": "motion.phase.static.desc",
+      "description_default": "Robot stationary — requires negative reward to prevent idle limb-flailing."
+    },
+    {
+      "id": "locomotion",
+      "display_name_key": "motion.phase.locomotion",
+      "display_name_default": "Locomotion",
+      "motion_tags": ["walk", "turn", "backward", "strafe", "pace"],
+      "theme_slot": "highlight",
+      "polarity_required": "both",
+      "description_key": "motion.phase.locomotion.desc",
+      "description_default": "Steady-speed locomotion — needs velocity tracking (+) and action smoothing (-)."
+    },
+    {
+      "id": "agile",
+      "display_name_key": "motion.phase.agile",
+      "display_name_default": "Agile",
+      "motion_tags": ["run", "canter", "jump"],
+      "theme_slot": "canvas_phase_agile",
+      "polarity_required": "both",
+      "description_key": "motion.phase.agile.desc",
+      "description_default": "High-speed or aerial motion — encourages gait + air time, penalizes excessive contact force."
+    }
+  ],
+  "fallback_phase": "locomotion"
+}

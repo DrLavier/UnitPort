@@ -1,0 +1,72 @@
+schema = "unitport.node/v1"
+id = "stage_switch"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "training"
+layer = "IL"
+display_name_key = "node.stage_switch.display"
+description_key = "node.stage_switch.desc"
+icon = "stage_switch.svg"
+
+# Stage Switch — 时间多路选择器（最多 6 阶段）.
+# stage_0 / stage_1 必连；stage_2..stage_5 可选，按用户连线动态出现。
+# stages_config 的每个 entry 与 stage_N 端口 index-aligned。
+
+# ---------------------------------------------------------------------------
+# Inputs (max 6 stages)
+# ---------------------------------------------------------------------------
+
+[[inputs]]
+name = "stage_0"
+type = "train_pipe"
+
+[[inputs]]
+name = "stage_1"
+type = "train_pipe"
+
+[[inputs]]
+name = "stage_2"
+type = "train_pipe"
+optional = true
+
+[[inputs]]
+name = "stage_3"
+type = "train_pipe"
+optional = true
+
+[[inputs]]
+name = "stage_4"
+type = "train_pipe"
+optional = true
+
+[[inputs]]
+name = "stage_5"
+type = "train_pipe"
+optional = true
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "train_pipe"
+type = "train_pipe"
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "stages_config"
+type = "list"
+default = "[]"
+widget = "stage_editor"
+description = "阶段调度 / Stage schedule (Node_StageSwitchEditorWidget)"
+meta = { max_stages = 6 }
+
+[[parameters]]
+key = "checkpoint_strategy"
+type = "enum"
+default = "both"
+choices = ["both", "best", "last"]
+description = "checkpoint 保存策略"

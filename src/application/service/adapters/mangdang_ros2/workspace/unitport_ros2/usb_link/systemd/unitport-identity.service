@@ -1,0 +1,22 @@
+[Unit]
+Description=UnitPort USB Identity HTTP Endpoint
+After=unitport-usb-gadget.service sys-subsystem-net-devices-usb0.device
+# BindsTo (not just Wants) so when gadget fails the identity unit fails
+# loudly with a journal entry instead of silently sitting inactive on the
+# old ConditionPathExists=/sys/class/net/usb0 gate. Host's recovery probe
+# can then read systemctl status to know what actually happened.
+BindsTo=unitport-usb-gadget.service
+
+[Service]
+Type=simple
+TimeoutStartSec=10s
+ExecStart=/usr/local/bin/unitport-identity.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# Identity endpoint must stay reachable across isolate — it's what the
+# host probes to know the robot is alive. Wanted by both targets.
+WantedBy=multi-user.target unitport.target

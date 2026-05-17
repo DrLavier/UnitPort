@@ -1,0 +1,317 @@
+schema = "unitport.node/v1"
+id = "training_motion"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "B"
+display_name_key = "node.training_motion.display"
+description_key = "node.training_motion.desc"
+icon = "training_motion.svg"
+
+# Training Motion — 统一 training-motion 节点（替代 TrainingCommandsNode +
+# ReferenceMotionNode）.
+#
+# 单节点同时持有「训练项 → motion_tag → 命令 envelope → reference clip」
+# 的全链路绑定，保证 train = reference = execute 三者一致。
+#
+# v2 颗粒度：
+#   - 新增 actor_pipe 输入（来自 actor_setting），由本节点聚合后送 trainer
+#   - 每个 enabled training item 在 canvas 上对应一个动态 reward_in__<id>
+#     输入端口（type=reward_pipe, multi=false），由 NodeItem 按
+#     ``training_items`` dict 动态重建。端口集合不在 manifest 中静态声明 —
+#     训练 spec 编译器从 IR edges 反查 (rewards_node, item_id) 映射。
+#
+# 端口：
+#   inputs  actor_pipe                — Actor stream (from actor_setting)
+#   inputs  reward_in__<item_id>      — Dynamic, per enabled item (canvas-only)
+#   outputs command_pipe              — CommandSchema.to_dict() + task_items list
+#   outputs reference_motion_config   — entries / task_item_to_clip / format_mixed / pack_refs
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+
+[[inputs]]
+name = "actor_pipe"
+type = "actor_pipe"
+optional = true
+description = "Actor stream (from actor_setting)"
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "command_pipe"
+type = "command_pipe"
+
+[[outputs]]
+name = "reference_motion_config"
+type = "reference_motion_config"
+
+# ---------------------------------------------------------------------------
+# Parameters — §1 Training items
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "training_items"
+type = "json"
+default = "{\"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": \"pack:unitport_builtin:mocap_motions/stand.txt\", \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.2, 1.0], \"clip\": null, \"advanced\": {}}, \"turn\": {\"enabled\": true, \"speed\": [0.3, 0.8], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": false, \"speed\": [0.5, 1.2], \"clip\": null, \"advanced\": {}}}"
+widget = "training_items"
+description = "训练项字典（item_id → {enabled, speed, clip, advanced}）"
+meta = { pin_on_collapse = true }
+
+# ---------------------------------------------------------------------------
+# Parameters — §1.5 AMP reward conflict analysis (migrated from amp_helper)
+# ---------------------------------------------------------------------------
+# Single JSON blob carrying ``analysis_result`` (list of RewardEvalItem) +
+# ``applied_overrides`` (dict {key:new_weight}). UI widget renders
+# [☑, 项, 当前→推荐, reason] table + Analyze/Apply Checked buttons.
+
+[[parameters]]
+key = "reward_analysis"
+type = "json"
+default = "{\"analysis_result\": [], \"applied_overrides\": {}}"
+widget = "reward_conflict_table"
+description = "AMP 奖励冲突分析（[项, 当前值, 推荐值] 表 + Analyze/Apply）/ AMP reward-conflict table"
+meta = { language = "json", conditional_on = { key = "consumer_mode", op = "==", value = "amp" } }
+
+# ---------------------------------------------------------------------------
+# Parameters — §2 Global stick-shaping
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "mapping_mode"
+type = "enum"
+default = "linear"
+choices = ["linear", "deadzone", "exponential"]
+description = "命令映射模式 [deploy-only: CommandBus 在 deploy 时处理 stick 输入；IL/SB3 sim 训练时 CommandTerm 直接生成命令，不消费此字段]"
+
+[[parameters]]
+key = "deadzone"
+type = "float"
+default = 0.10
+widget = "range"
+description = "死区 [deploy-only: 仅 deploy 时 stick 映射使用，不影响 sim 训练]"
+meta = { min = 0.0, max = 1.0, step = 0.01, conditional_on = { key = "mapping_mode", op = "==", value = "deadzone" } }
+
+[[parameters]]
+key = "curve_exponent"
+type = "float"
+default = 2.00
+widget = "range"
+description = "曲线指数 [deploy-only: 仅 deploy 时 stick 映射使用，不影响 sim 训练]"
+meta = { min = 0.1, max = 10.0, step = 0.01, conditional_on = { key = "mapping_mode", op = "==", value = "exponential" } }
+
+[[parameters]]
+key = "runtime_clip"
+type = "bool"
+default = true
+description = "运行时裁剪命令 [deploy-only: 仅 deploy 时 CommandBus 应用；sim 训练 CommandTerm 用 ranges 内部约束]"
+
+# ---------------------------------------------------------------------------
+# Parameters — §3 Walk-These-Ways gait parameterisation
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "gait_enabled"
+type = "bool"
+default = false
+description = "启用 gait 参数化"
+
+[[parameters]]
+key = "gait_frequency_range"
+type = "list"
+default = "[1.5, 3.5]"
+widget = "range_list"
+description = "步频范围（Hz）"
+meta = { conditional_on = { key = "gait_enabled", op = "==", value = true }, min = 0.0, max = 10.0, step = 0.1 }
+
+[[parameters]]
+key = "body_height_range"
+type = "list"
+default = "[0.28, 0.40]"
+widget = "range_list"
+description = "身体高度范围（m）"
+meta = { conditional_on = { key = "gait_enabled", op = "==", value = true }, min = 0.0, max = 2.0, step = 0.01 }
+
+[[parameters]]
+key = "step_height_range"
+type = "list"
+default = "[0.03, 0.15]"
+widget = "range_list"
+description = "抬腿高度范围（m）"
+meta = { conditional_on = { key = "gait_enabled", op = "==", value = true }, min = 0.0, max = 0.5, step = 0.01 }
+
+[[parameters]]
+key = "gait_presets"
+type = "string"
+default = ""
+description = "gait 预设名"
+meta = { conditional_on = { key = "gait_enabled", op = "==", value = true } }
+
+# ---------------------------------------------------------------------------
+# Parameters — §3.5 Command velocity gains (sim2real envelope)
+# ---------------------------------------------------------------------------
+# The four gains define the canvas-authoritative absolute velocity caps
+# that lower into UniformVelocityCommandCfg.Ranges. They must match the
+# deploy-side CommandBus gains so that the sim training envelope equals
+# the real-robot input envelope — i.e. the policy never sees a sim
+# command it could not legitimately receive on hardware.
+
+[[parameters]]
+key = "gain_lin_forward"
+type = "float"
+default = 2.0
+widget = "range"
+description = "前进方向最大速度 (m/s) / Forward velocity cap"
+meta = { min = 0.0, max = 5.0, step = 0.05 }
+
+[[parameters]]
+key = "gain_lin_backward"
+type = "float"
+default = 1.0
+widget = "range"
+description = "后退方向最大速度 (m/s) / Backward velocity cap"
+meta = { min = 0.0, max = 5.0, step = 0.05 }
+
+[[parameters]]
+key = "gain_lin_lateral"
+type = "float"
+default = 0.5
+widget = "range"
+description = "侧向最大速度 (m/s) / Lateral velocity cap"
+meta = { min = 0.0, max = 3.0, step = 0.05 }
+
+[[parameters]]
+key = "gain_yaw"
+type = "float"
+default = 1.5
+widget = "range"
+description = "yaw 最大角速度 (rad/s) / Yaw rate cap"
+meta = { min = 0.0, max = 5.0, step = 0.05 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §4 Episode sampler
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "resampling_time_range"
+type = "list"
+default = "[4.0, 12.0]"
+widget = "range_list"
+description = "命令重采样时间范围（s）"
+meta = { min = 0.0, max = 30.0, step = 0.1 }
+
+[[parameters]]
+key = "zero_command_probability"
+type = "float"
+default = 0.1
+widget = "range"
+description = "零命令概率"
+meta = { min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "cmd_step_change_prob"
+type = "float"
+default = 0.01
+widget = "range"
+description = "每步命令切换概率"
+meta = { min = 0.0, max = 1.0, step = 0.001 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §5 Reference-motion consumption
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "consumer_mode"
+type = "enum"
+default = "amp"
+choices = ["tracking", "amp", "both"]
+description = "Reference clip 消费模式"
+
+[[parameters]]
+key = "phase_mode"
+type = "enum"
+default = "loop"
+choices = ["loop", "once", "clamp"]
+description = "Phase 模式"
+
+[[parameters]]
+key = "motion_fps"
+type = "float"
+default = 50.0
+widget = "range"
+description = "Motion clip FPS"
+meta = { min = 10.0, max = 240.0, step = 1.0 }
+
+[[parameters]]
+key = "random_start_phase"
+type = "bool"
+default = true
+description = "随机起始 phase"
+
+# ---------------------------------------------------------------------------
+# Parameters — §6 Command velocity curriculum
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "command_curriculum_enabled"
+type = "bool"
+default = false
+description = "启用命令速度 curriculum"
+
+[[parameters]]
+key = "command_curriculum_start"
+type = "float"
+default = 0.25
+widget = "range"
+description = "Curriculum 起始倍率"
+meta = { conditional_on = { key = "command_curriculum_enabled", op = "==", value = true }, min = 0.0, max = 1.0, step = 0.01 }
+
+[[parameters]]
+key = "command_curriculum_end"
+type = "float"
+default = 1.0
+widget = "range"
+description = "Curriculum 终止倍率"
+meta = { conditional_on = { key = "command_curriculum_enabled", op = "==", value = true }, min = 0.0, max = 5.0, step = 0.01 }
+
+[[parameters]]
+key = "command_curriculum_ramp_iters"
+type = "int"
+default = 800
+widget = "index"
+description = "Curriculum ramp 外层 iter 数"
+meta = { conditional_on = { key = "command_curriculum_enabled", op = "==", value = true }, min = 1, max = 1000000 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §7 AMP Reference State Initialization (RSI)
+# ---------------------------------------------------------------------------
+# Active only when il_ppo_trainer.training_mode == "AMP_PPO". Cross-node
+# conditional hiding is not yet supported by the conditional engine, so
+# these fields stay visible under PPO too — the compiler simply skips
+# the RSI emit branch when training_mode != AMP_PPO (env_cfg_compiler
+# _root_env_cfg path). Enabling them under PPO is a no-op.
+
+[[parameters]]
+key = "reference_state_init_enabled"
+type = "bool"
+default = false
+description = "AMP RSI 开关 / Reference State Initialization (AMP_PPO only)"
+
+[[parameters]]
+key = "rsi_prob"
+type = "float"
+default = 0.8
+widget = "range"
+description = "RSI 触发概率 / RSI activation probability"
+meta = { min = 0.0, max = 1.0, step = 0.05, conditional_on = { key = "reference_state_init_enabled", op = "==", value = true } }
+
+[[parameters]]
+key = "rsi_joint_noise"
+type = "float"
+default = 0.02
+widget = "range"
+description = "RSI 关节噪声幅度 / RSI joint angle noise"
+meta = { min = 0.0, max = 0.2, step = 0.005, conditional_on = { key = "reference_state_init_enabled", op = "==", value = true } }

@@ -1,0 +1,20 @@
+[review]
+dialog_title = Pending changes by other users
+dialog_intro = While you were signed out, {n} change(s) were made to files in your workspace by other users on this machine. Review each one and choose Accept (keep their change) or Reject (restore from your cloud copy).
+op_overwrite = edited
+op_delete = deleted
+actor_line = {actor}
+file_line = {path}
+time_line = {time}
+btn_accept = Accept
+btn_reject = Reject
+btn_accept_all = Accept all
+btn_reject_all = Reject all
+btn_later = Decide later
+reject_confirm_title = Restore from cloud?
+reject_confirm_body = This will pull the previous version of '{name}' from your cloud namespace and overwrite the local file.\n\nContinue?
+reject_success_cloud = Restored from cloud
+reject_failed_no_cloud = No cloud copy available — Reject not possible. (Was this file ever synced?)
+reject_failed_network = Cloud fetch failed (network or auth error): {err}
+accept_confirm_body = Keep {actor}'s {op} on '{name}'? This entry will be removed from the review list.
+empty_state = No pending changes to review.

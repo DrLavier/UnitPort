@@ -1,0 +1,31 @@
+[dialog]
+title_latest = UnitPort is up to date
+title_available = Update available
+title_progress = Updating UnitPort
+title_complete = Update applied
+
+[label]
+current_version = Current version
+latest_version = Latest version
+release_notes = Release notes
+channel = Channel
+no_release_notes = (no release notes for this version)
+latest_body = You are on UnitPort v{current}. No newer release was found on GitHub.
+restart_prompt = Update to v{version} applied. UnitPort will close now — please relaunch via start.bat or start.sh.
+
+[btn]
+apply = Apply update
+skip = Skip this version
+later = Later
+ok = OK
+close = Close UnitPort
+
+[progress]
+checking = Checking for updates
+connecting = Connecting
+downloading = Downloading
+extracting = Extracting archive
+merging = Merging files
+git_fetch = Fetching tags
+git_checkout = Checking out release
+

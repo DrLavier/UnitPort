@@ -1,0 +1,25 @@
+[default]
+invert_vy = Invert vy
+invert_vyaw = Invert vyaw
+reset = Reset
+off_hint = Input disabled. Pick Keyboard or Gamepad above.
+
+[mode]
+off = Off
+keyboard = Keyboard
+gamepad = Gamepad
+
+[mode_btn]
+off = Off
+keyboard = Keyboard
+gamepad = Gamepad
+
+[kb]
+forward = Forward
+backward = Backward
+strafe_left = Strafe left
+strafe_right = Strafe right
+yaw_left = Yaw left
+yaw_right = Yaw right
+estop = Emergency stop
+boost = Boost

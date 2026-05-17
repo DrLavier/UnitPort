@@ -1,0 +1,23 @@
+# Whitelist consulted by unitport_param_srv before accepting SetParam
+# requests. Empty entries are rejected. Keep this aligned with the
+# UnitPort Live PD Tuning UI panel.
+
+schema_version: 1
+
+params:
+  pd.Kp:
+    description: "Proportional gain"
+    scopes: ["global", "joint", "leg"]
+    type: float
+  pd.Kd:
+    description: "Derivative gain"
+    scopes: ["global", "joint", "leg"]
+    type: float
+  gait.swing_height:
+    description: "Swing foot clearance (m)"
+    scopes: ["global"]
+    type: float
+  gait.step_frequency:
+    description: "Gait frequency (Hz)"
+    scopes: ["global"]
+    type: float

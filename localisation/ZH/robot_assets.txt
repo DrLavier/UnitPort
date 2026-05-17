@@ -1,0 +1,23 @@
+[default]
+add_path = 添加自定义路径
+add_robot_tip = 注册新机器人
+coming_soon = 即将推出
+delete = 删除
+edit = 编辑
+edit_canonical_disabled = 规范机器人为只读。请改为添加新的用户条目。
+no_path = (none)
+pick_file = 选择 {kind} 文件
+refresh_tip = 重新扫描资产注册表
+tag_placeholder = 添加标签...
+
+[status]
+cloud = 云端
+local = 本地
+missing = 缺失
+remote = 远程
+
+[tag]
+canonical = 规范
+cloud = 云端
+custom = 自定义
+

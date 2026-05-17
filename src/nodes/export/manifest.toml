@@ -1,0 +1,176 @@
+schema = "unitport.node/v1"
+id = "export"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "D"
+display_name_key = "node.export.display"
+description_key = "node.export.desc"
+icon = "export.svg"
+
+# Export — Unified policy export (replaces SB3 Export + IL Policy Exporter)
+#
+# DEMO 对应：
+#   src/system/nodes/sys_nodes/training_nodes.py:ExportNode
+#   bin/nodes/training_node_ui.json#export
+#
+# 四大职责：
+#   §1 Output Manifest          — bundle_name + overwrite + version + include_*
+#                                  外加 output_files 文件清单（含 Open 按钮）
+#   §2 Start Point Compatibility — start_point_compat 兼容性 diff 面板
+#   §3 Review Environment       — review_backend / review_scene_id / review_launch
+#
+# eval_config 是 OPTIONAL 端口（_OPTIONAL_INPUTS = {"eval_config"}）。
+
+# ---------------------------------------------------------------------------
+# Inputs
+# ---------------------------------------------------------------------------
+
+[[inputs]]
+name = "train_pipe"
+type = "train_pipe"
+
+[[inputs]]
+name = "eval_config"
+type = "eval_config"
+optional = true
+description = "Optional legacy SB3 eval port"
+
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
+
+[[outputs]]
+name = "bundle_path"
+type = "string"
+
+# ---------------------------------------------------------------------------
+# Parameters — 行序与 DEMO training_node_ui.json#export 1:1
+# ---------------------------------------------------------------------------
+
+# §1 Output manifest
+[[parameters]]
+key = "bundle_name"
+type = "string"
+default = "<NEW>"
+description = "bundle 名（<NEW> sentinel 由 SafetyReview 阻塞训练启动）/ Bundle / checkpoint name"
+
+[[parameters]]
+key = "overwrite"
+type = "bool"
+default = true
+description = "覆盖同名 bundle / Overwrite existing bundle"
+
+[[parameters]]
+key = "version"
+type = "string"
+default = "v1"
+description = "版本 tag（仅 overwrite=False 时显示）/ Version tag — appended to bundle dir name when Overwrite is OFF"
+meta = { conditional_on = { key = "overwrite", op = "==", value = false } }
+
+[[parameters]]
+key = "include_onnx"
+type = "bool"
+default = true
+description = "包含 ONNX / Include policy.onnx"
+
+[[parameters]]
+key = "include_torchscript"
+type = "bool"
+default = true
+description = "包含 TorchScript / Include policy.pt"
+
+[[parameters]]
+key = "include_normalization"
+type = "bool"
+default = true
+description = "包含归一化统计 / Include normalization.pkl"
+
+[[parameters]]
+key = "output_files"
+type = "string"
+default = ""
+widget = "output_file_list"
+description = "下次训练将产出的文件清单（含 Open 按钮 + ⚠ 覆盖标签）— 随 bundle_name / version / include_* 自动刷新"
+meta = { full_width_widget = true, row_height = 24 }
+
+# §2 Start Point compatibility
+[[parameters]]
+key = "start_point_compat"
+type = "string"
+default = ""
+widget = "start_point_compat_panel"
+description = "上游 Start Point bundle 与当前画布的结构化兼容性 diff (framework / action_dim / decimation / joint_order)"
+meta = { full_width_widget = true, row_height = 24 }
+
+# §3 Review environment
+[[parameters]]
+key = "review_backend"
+type = "enum"
+default = "mujoco"
+choices = ["mujoco", "isaac_sim", "newton"]
+widget = "review_backend_picker"
+description = "复盘后端 / Review backend (MuJoCo / Isaac Sim / Newton)"
+
+[[parameters]]
+key = "review_scene_id"
+type = "string"
+default = "flat_ground"
+widget = "review_scene_picker"
+description = "复盘场景 ID — 按 review_backend + 检测到的 robot family 过滤 / Review scene id"
+
+[[parameters]]
+key = "review_launch"
+type = "string"
+default = ""
+widget = "review_launch_button"
+description = "▶ Launch Review — 触发 SafetyReview 后启动 review subprocess"
+meta = { full_width_widget = true, row_height = 28, pin_on_collapse = true }
+
+# ---------------------------------------------------------------------------
+# Legacy / lowering-only fields — meta.hidden=true 让 NodeBuilder 跳过 UI 渲染，
+# default 仍生效供 application.training.spec_compiler / training_spec 消费。
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "bundle_targets"
+type = "json"
+default = "[\"runtime_bundle\"]"
+widget = "picker_export_bundle"
+description = "[lowering] 导出目标多选 / Export bundle targets"
+meta = { hidden = true }
+
+[[parameters]]
+key = "export_target"
+type = "string"
+default = "runtime_bundle"
+description = "[legacy] bundle_exporter.py 后向兼容 / Legacy alias"
+meta = { hidden = true }
+
+[[parameters]]
+key = "export_onnx"
+type = "bool"
+default = true
+description = "[legacy] mirror of include_onnx"
+meta = { hidden = true }
+
+[[parameters]]
+key = "export_torchscript"
+type = "bool"
+default = true
+description = "[legacy] mirror of include_torchscript"
+meta = { hidden = true }
+
+[[parameters]]
+key = "include_norm_stats"
+type = "bool"
+default = true
+description = "[legacy] mirror of include_normalization"
+meta = { hidden = true }
+
+[[parameters]]
+key = "auto_import"
+type = "bool"
+default = true
+description = "[legacy] 训练完成后自动导入 — spec_compiler.py:1007 consumes this; UI hidden because DEMO never exposed it"
+meta = { hidden = true }

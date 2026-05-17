@@ -1,0 +1,26 @@
+schema = "unitport.node/v1"
+id = "note"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "annotation"
+layer = "TOOLS"
+display_name_key = "node.note.display"
+description_key = "node.note.desc"
+icon = "note.svg"
+
+# Note — 画布注释节点：不参与执行，仅承载 title + body 文本，供画布上做标注。
+# Note — Canvas annotation node: non-executing, carries title + body text only.
+
+[[parameters]]
+key = "title"
+type = "string"
+default = "Note"
+description = "Note 标题"
+
+[[parameters]]
+key = "body"
+type = "string"
+default = ""
+widget = "code"
+description = "Note 正文（多行）"
+meta = { language = "text" }

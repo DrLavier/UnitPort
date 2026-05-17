@@ -1,0 +1,31 @@
+[dialog]
+title_latest = UnitPort 已是最新
+title_available = 有新版本可用
+title_progress = 正在更新 UnitPort
+title_complete = 更新完成
+
+[label]
+current_version = 当前版本
+latest_version = 最新版本
+release_notes = 版本说明
+channel = 更新通道
+no_release_notes = （该版本未提供版本说明）
+latest_body = 当前 UnitPort v{current},GitHub 上未发现更新版本。
+restart_prompt = 已应用 v{version}。UnitPort 即将关闭,请通过 start.bat 或 start.sh 重新启动。
+
+[btn]
+apply = 应用更新
+skip = 跳过此版本
+later = 稍后
+ok = 好的
+close = 关闭 UnitPort
+
+[progress]
+checking = 正在检查更新
+connecting = 正在连接
+downloading = 正在下载
+extracting = 正在解压
+merging = 正在合并文件
+git_fetch = 拉取标签
+git_checkout = 切换到发布版本
+

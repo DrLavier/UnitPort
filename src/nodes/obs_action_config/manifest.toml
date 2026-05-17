@@ -1,0 +1,69 @@
+schema = "unitport.node/v1"
+id = "obs_action_config"
+kind = "CUSTOM"
+version = "1.0.0"
+category = "config"
+layer = "A"
+display_name_key = "node.obs_action_config.display"
+description_key = "node.obs_action_config.desc"
+icon = "obs_action_config.svg"
+
+# Obs / Action — 观测与动作空间配置（含 contract preset）.
+
+[[outputs]]
+name = "obs_action_config"
+type = "obs_action_config"
+
+[[parameters]]
+key = "contract_preset"
+type = "enum"
+default = "custom"
+choices = ["custom", "unitport_go2_v1", "community_go2_sac_34d"]
+description = "契约预设（非 custom 时锁定下方字段）"
+
+[[parameters]]
+key = "obs_components"
+type = "string"
+default = "joint_pos joint_vel imu command previous_action"
+widget = "picker_obs_components"
+description = "观测组件（多选）"
+meta = { choices = ["joint_pos", "joint_vel", "imu", "command", "previous_action", "height_scan", "contact", "phase"] }
+
+[[parameters]]
+key = "obs_clip_range"
+type = "float"
+default = 100.0
+widget = "range"
+description = "观测裁剪范围"
+meta = { min = 0.0, max = 100.0, step = 0.5 }
+
+[[parameters]]
+key = "frame_stack"
+type = "int"
+default = 1
+widget = "index"
+description = "帧栈深度"
+meta = { min = 1, max = 32 }
+
+[[parameters]]
+key = "action_type"
+type = "enum"
+default = "joint_position"
+choices = ["joint_position", "torque"]
+description = "动作类型"
+
+[[parameters]]
+key = "action_scale"
+type = "float"
+default = 1.0
+widget = "range"
+description = "动作缩放"
+meta = { min = 0.0, max = 5.0, step = 0.01 }
+
+[[parameters]]
+key = "action_clip"
+type = "float"
+default = 1.0
+widget = "range"
+description = "动作裁剪上限"
+meta = { min = 0.0, max = 10.0, step = 0.05 }

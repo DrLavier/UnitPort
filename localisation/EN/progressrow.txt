@@ -1,0 +1,16 @@
+[btn]
+new = New
+
+[menu]
+empty = (empty)
+no_project = (no project)
+
+[target]
+cloud = Cloud
+local = Local
+
+[tooltip]
+new = Open the new-canvas picker
+start = Start Training
+stop = Stop Training
+

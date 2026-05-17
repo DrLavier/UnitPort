@@ -1,0 +1,16 @@
+[btn]
+new = 新建
+
+[menu]
+empty = （空）
+no_project = （无项目）
+
+[target]
+cloud = 云端
+local = 本地
+
+[tooltip]
+new = 打开新建画布选择器
+start = 开始训练
+stop = 停止训练
+

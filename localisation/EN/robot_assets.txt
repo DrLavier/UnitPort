@@ -1,0 +1,23 @@
+[default]
+add_path = Add a custom path
+add_robot_tip = Register a new robot
+coming_soon = Coming soon
+delete = Delete
+edit = Edit
+edit_canonical_disabled = Canonical robots are read-only. Add a new user entry instead.
+no_path = (none)
+pick_file = Pick a {kind} file
+refresh_tip = Re-scan asset registry
+tag_placeholder = Add tag...
+
+[status]
+cloud = cloud
+local = local
+missing = missing
+remote = remote
+
+[tag]
+canonical = canonical
+cloud = cloud
+custom = custom
+

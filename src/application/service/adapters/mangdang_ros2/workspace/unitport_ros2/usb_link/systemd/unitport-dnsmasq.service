@@ -1,0 +1,28 @@
+[Unit]
+Description=UnitPort dnsmasq (usb0 DHCP only)
+Documentation=file:///opt/unitport/ros2_ws/src/unitport_ros2/usb_link/README.md
+# We deliberately DO NOT touch the distro's dnsmasq.service — the install
+# script disables it so only this owned unit runs. That way "remove UnitPort"
+# cleanly returns the robot to a state where nothing UnitPort-authored
+# modifies a factory-adjacent unit.
+After=unitport-usb-gadget.service sys-subsystem-net-devices-usb0.device
+# BindsTo (not just Wants): when gadget fails dnsmasq fails loudly with a
+# journal line, instead of silently inactive on the old
+# ConditionPathExists=/sys/class/net/usb0 gate. Diagnostics over silent skip.
+BindsTo=unitport-usb-gadget.service
+
+[Service]
+Type=simple
+# --no-daemon keeps dnsmasq in the foreground so systemd tracks it directly
+# without forking — cleaner lifecycle, no PID file races.
+ExecStart=/usr/sbin/dnsmasq --no-daemon --conf-file=/etc/dnsmasq.d/unitport-usb.conf
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+# DHCP must keep serving across isolate — a host that plugs in during
+# UnitPort mode still needs to get 192.168.55.2. Wanted by both targets.
+WantedBy=multi-user.target unitport.target

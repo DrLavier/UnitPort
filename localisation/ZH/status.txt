@@ -1,0 +1,12 @@
+[default]
+canvas_saved = 画布已保存：{path}
+feature_pending = 
+history_missing = 运行记录 [{}] {} 在磁盘上已不存在
+history_no_chart = 已选择运行记录：{}（图表尚未就绪）
+history_selected = 已选择运行记录：
+no_project = 未加载项目
+policy_missing = 已选择策略 [{}] {}，但磁盘上缺少对应的包路径
+policy_no_project = 未加载项目
+policy_selected = 已选择策略： [{}] {}
+ready = UnitPort 已就绪
+

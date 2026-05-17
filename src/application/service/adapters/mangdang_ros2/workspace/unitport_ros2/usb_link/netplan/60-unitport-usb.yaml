@@ -1,0 +1,15 @@
+# UnitPort USB link — static address for the robot end of the USB ethernet gadget.
+# Filename sorts AFTER 50-cloud-init.yaml so MangDang's WiFi config is authoritative.
+# Preservation rules (spec §3): usb0 MUST NOT join br0, advertise a default route,
+# or provide DNS. `optional: true` keeps boot fast when no cable is attached.
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    usb0:
+      addresses:
+        - 192.168.55.1/24
+      dhcp4: false
+      dhcp6: false
+      optional: true
+      link-local: []
