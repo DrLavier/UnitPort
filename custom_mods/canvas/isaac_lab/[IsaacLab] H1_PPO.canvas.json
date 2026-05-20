@@ -1187,9 +1187,6 @@
             "hip_pitch_R": -0.2,
             "knee_R": 0.42,
             "ankle_R": 0.0,
-            "__out_of_scope__": 0.0,
-            "sensor": 0.0,
-            "sensor_imu": 0.0,
             "shoulder_pitch_L": 0.35,
             "shoulder_pitch_R": 0.35,
             "shoulder_roll_L": 0.0,
@@ -1243,12 +1240,12 @@
         },
         "stiffness": {
           "name": "stiffness",
-          "value": "150.0",
+          "value": "25.0",
           "param_type": "float"
         },
         "damping": {
           "name": "damping",
-          "value": "5.0",
+          "value": "0.5",
           "param_type": "float"
         },
         "effort_limit": {

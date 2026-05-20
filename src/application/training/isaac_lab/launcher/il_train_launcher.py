@@ -115,7 +115,18 @@ from isaaclab.app import AppLauncher
 
 # ── 1. CLI args — superset of train.py args + our --unitport_config ──
 
-parser = argparse.ArgumentParser(description="UnitPort Isaac Lab Training Launcher")
+parser = argparse.ArgumentParser(
+    description="UnitPort Isaac Lab Training Launcher",
+    # ``fromfile_prefix_chars='@'`` enables argparse's response-file
+    # convention: an argv token ``@path/to/argsfile`` is replaced by the
+    # whitespace-stripped lines of that file. The Windows bat wrapper
+    # (config.py:_write_win_wrapper) uses this to bypass cmd.exe's 8191
+    # char line-length limit — without it, AMP runs (large stage_schedule
+    # base64 + per-item AMP task_items + N motion file paths) silently
+    # truncate mid-line and argparse fails with "expected one argument"
+    # for whichever flag happened to land at the cut.
+    fromfile_prefix_chars="@",
+)
 parser.add_argument("--video", action="store_true", default=False)
 parser.add_argument("--video_length", type=int, default=200)
 parser.add_argument("--video_interval", type=int, default=2000)

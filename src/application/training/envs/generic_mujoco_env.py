@@ -296,6 +296,9 @@ class GenericMujocoEnv(_GymEnvBase):
         actor_config=None,
         domain_rand=None,
         reward_fn: Optional[Callable[["GenericMujocoEnv"], float]] = None,
+        reward_fn_rich: Optional[
+            Callable[["GenericMujocoEnv"], Tuple[float, Dict[str, float]]]
+        ] = None,
         termination_fn: Optional[Callable[["GenericMujocoEnv"], bool]] = None,
         sim_dt: Optional[float] = None,
         control_dt: Optional[float] = None,
@@ -303,6 +306,16 @@ class GenericMujocoEnv(_GymEnvBase):
         commands: Optional[np.ndarray] = None,
         seed: Optional[int] = None,
         render_mode: Optional[str] = None,
+        # Composite per-motion-item reward dispatch (CLAUDE.md §1.8 / plan
+        # `rewards-stand-walk-run-...`). When ``terms_by_item`` is given,
+        # ``reward_fn`` is ignored and each step's reward is a sigmoid-
+        # blended sum over per-item closures keyed by an ``ItemResolver``
+        # built from ``training_items``. ``blend_width`` controls the
+        # transition softness around each item's command range edges.
+        terms_by_item: Optional[Dict[str, Dict[str, Any]]] = None,
+        training_items: Optional[Dict[str, Any]] = None,
+        blend_width: float = 0.10,
+        expose_active_item_obs: bool = False,
     ) -> None:
         if not _GYM_AVAILABLE:
             raise ImportError(
@@ -517,10 +530,27 @@ class GenericMujocoEnv(_GymEnvBase):
             shape=(self._action_dim,),
             dtype=np.float32,
         )
+        # Composite per-item reward dispatch — must be wired before obs
+        # layout because the optional ``cmd_norm + active_item_onehot``
+        # tail depends on knowing the item count.
+        self._build_per_item_rewards(
+            terms_by_item=terms_by_item,
+            training_items=training_items,
+            blend_width=blend_width,
+        )
+        self._expose_active_item_obs = bool(
+            expose_active_item_obs and self._item_resolver is not None
+        )
+        n_item_extras = (
+            (1 + len(self._item_resolver.item_ids))
+            if self._expose_active_item_obs else 0
+        )
+
         # Obs layout: [base_ang_vel(3), projected_gravity(3),
-        #              joint_pos(N), joint_vel(N), last_action(N), commands(3)]
+        #              joint_pos(N), joint_vel(N), last_action(N), commands(3),
+        #              (optional) cmd_norm(1), active_item_onehot(K)]
         n = self._action_dim
-        self._obs_dim = 3 + 3 + n + n + n + 3
+        self._obs_dim = 3 + 3 + n + n + n + 3 + n_item_extras
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf,
             shape=(self._obs_dim,),
@@ -537,7 +567,18 @@ class GenericMujocoEnv(_GymEnvBase):
         self._step_count = 0
 
         # ── Reward / termination ──
+        # When the per-item dispatcher is active, ``reward_fn`` is ignored
+        # and ``step()`` takes the per-item path. A user-supplied reward_fn
+        # together with a non-empty terms_by_item is a wiring contradiction
+        # — fail loud per CLAUDE.md §1.8 rather than letting one win silently.
+        if self._item_resolver is not None and (reward_fn is not None or reward_fn_rich is not None):
+            raise ValueError(
+                "GenericMujocoEnv: both terms_by_item and a single reward_fn "
+                "were supplied. Choose one — composite per-item rewards "
+                "override the single-closure path. See CLAUDE.md §1.8."
+            )
         self._reward_fn = reward_fn or _default_reward
+        self._reward_fn_rich = reward_fn_rich
         self._termination_fn = termination_fn or _default_termination
         self._track_sigma = d.track_sigma
         self._term_base_z = d.term_base_z
@@ -714,8 +755,19 @@ class GenericMujocoEnv(_GymEnvBase):
 
         terminated = bool(self._termination_fn(self))
         truncated = self._step_count >= self._d.max_episode_steps
-        reward = float(self._reward_fn(self))
+        reward, reward_breakdown, item_breakdown, active_item = self._compute_reward()
+        # Cache last per-item weights so _build_obs can append the
+        # cmd_norm + onehot tail without recomputing the resolver.
+        if self._item_resolver is not None:
+            self._last_item_weights = item_breakdown
+            self._last_active_item = active_item
         info: Dict[str, Any] = {"step": self._step_count}
+        for term_name, contribution in reward_breakdown.items():
+            info[f"reward/{term_name}"] = contribution
+        for item_id, item_total in item_breakdown.items():
+            info[f"reward/item/{item_id}"] = item_total
+        if active_item:
+            info["reward/active_item"] = active_item
         # Locomotion convention: episode is a "success" iff it ended by the
         # time-limit (truncated) without the termination predicate firing
         # (fall / non-finite state). Emitting on every step keeps Monitor's
@@ -875,6 +927,90 @@ class GenericMujocoEnv(_GymEnvBase):
             np.asarray(gains.kd, dtype=np.float64),
         )
 
+    def _build_per_item_rewards(
+        self,
+        *,
+        terms_by_item: Optional[Dict[str, Dict[str, Any]]],
+        training_items: Optional[Dict[str, Any]],
+        blend_width: float,
+    ) -> None:
+        """Compile composite per-item reward closures + an ItemResolver.
+
+        Sets ``self._item_resolver`` to None when no per-item terms are
+        configured (env falls back to the single ``reward_fn`` path). When
+        terms_by_item is non-empty, training_items MUST carry the matching
+        command_ranges — otherwise raises (CLAUDE.md §1.8: no silent
+        fallback to the global rewards bag).
+        """
+        from application.training.envs.reward_terms import (
+            build_reward_fn_with_breakdown,
+        )
+
+        self._item_resolver = None
+        self._per_item_reward_fns: Dict[str, Any] = {}
+        self._last_item_weights: Dict[str, float] = {}
+        self._last_active_item: str = ""
+
+        if not terms_by_item:
+            return
+        if not isinstance(terms_by_item, dict):
+            raise TypeError(
+                f"GenericMujocoEnv: terms_by_item must be a dict, got "
+                f"{type(terms_by_item).__name__}."
+            )
+        from application.training.envs.item_resolver import ItemResolver
+
+        # Item order is the dict insertion order — already canvas-deterministic
+        # because spec_compiler iterates rewards_nodes in topo order. Cast to
+        # list so we have a stable index for the obs one-hot.
+        item_id_order = list(terms_by_item.keys())
+        self._item_resolver = ItemResolver(
+            training_items=training_items or {},
+            item_id_order=item_id_order,
+            blend_width=blend_width,
+        )
+        for item_id, term_dict in terms_by_item.items():
+            self._per_item_reward_fns[item_id] = (
+                build_reward_fn_with_breakdown(term_dict)
+            )
+
+    def _compute_reward(
+        self,
+    ) -> Tuple[float, Dict[str, float], Dict[str, float], str]:
+        """Return ``(total, term_breakdown, item_breakdown, active_item)``.
+
+        Single-closure path (``_item_resolver is None``) collapses the
+        last three slots — caller treats them as empty / "" — so the
+        info-dict population in :meth:`step` is uniform.
+        """
+        if self._item_resolver is None:
+            if self._reward_fn_rich is not None:
+                total, breakdown = self._reward_fn_rich(self)
+                return float(total), dict(breakdown), {}, ""
+            return float(self._reward_fn(self)), {}, {}, ""
+        weights = self._item_resolver.weights(self._command)
+        total = 0.0
+        term_breakdown: Dict[str, float] = {}
+        item_breakdown: Dict[str, float] = {}
+        active_item = ""
+        best_alpha = -1.0
+        for item_id, alpha in weights.items():
+            fn = self._per_item_reward_fns.get(item_id)
+            if fn is None:
+                continue
+            item_total, item_terms = fn(self)
+            blended = alpha * float(item_total)
+            total += blended
+            item_breakdown[item_id] = float(blended)
+            for term_name, contribution in item_terms.items():
+                term_breakdown[term_name] = (
+                    term_breakdown.get(term_name, 0.0) + alpha * float(contribution)
+                )
+            if alpha > best_alpha:
+                best_alpha = alpha
+                active_item = item_id
+        return float(total), term_breakdown, item_breakdown, active_item
+
     def _build_obs(self) -> np.ndarray:
         n = self._action_dim
         out = np.zeros(self._obs_dim, dtype=np.float32)
@@ -885,6 +1021,18 @@ class GenericMujocoEnv(_GymEnvBase):
         out[i:i + n] = self._qvel.astype(np.float32); i += n
         out[i:i + n] = self._action.astype(np.float32); i += n
         out[i:i + 3] = self._command.astype(np.float32); i += 3
+        if self._expose_active_item_obs and self._item_resolver is not None:
+            # cmd_norm: L2 norm of the [vx, vy, wyaw] command. Critic uses
+            # this to predict the per-item reward boundary cross-fade.
+            cmd_norm = float(np.linalg.norm(self._command))
+            out[i] = np.float32(cmd_norm); i += 1
+            # active_item_onehot, ordered by ItemResolver.item_ids. We use
+            # the last step's weight distribution so the critic sees the
+            # *blend*, not just the argmax — that's the signal that matches
+            # the reward it actually received this step.
+            for iid in self._item_resolver.item_ids:
+                out[i] = np.float32(self._last_item_weights.get(iid, 0.0))
+                i += 1
         # Per-component obs clip (separate from VecNormalize's whole-vector
         # clip configured on env_assembler). 0 disables clipping.
         if self._d.obs_clip_range > 0.0:
@@ -1158,14 +1306,46 @@ def make_env(
             dtype=np.float32,
         )
 
-    from application.training.envs.reward_terms import build_done_fn, build_reward_fn
+    from application.training.envs.reward_terms import (
+        build_done_fn,
+        build_reward_fn_with_breakdown,
+    )
 
-    reward_fn = None
+    reward_fn_rich = None
+    terms_by_item: Optional[Dict[str, Dict[str, Any]]] = None
+    training_items: Optional[Dict[str, Any]] = None
+    blend_width = 0.10
+    expose_active_item_obs = False
     rewards_cfg = getattr(spec, "rewards", None)
+    motion_cfg = getattr(spec, "motion", None)
     if rewards_cfg is not None:
+        raw_per_item = getattr(rewards_cfg, "terms_by_item", None) or {}
         terms = getattr(rewards_cfg, "terms", None) or {}
-        if terms:
-            reward_fn = build_reward_fn(terms)
+        if raw_per_item:
+            ti = (
+                getattr(motion_cfg, "training_items", None)
+                if motion_cfg is not None else None
+            ) or {}
+            if not ti:
+                raise RuntimeError(
+                    "spec.rewards.terms_by_item is non-empty but "
+                    "spec.motion.training_items is missing — cannot map the "
+                    "command vector to an active item. Either wire a "
+                    "TrainingMotion node with command_ranges, or remove the "
+                    "per-item reward edges from the canvas. "
+                    "(CLAUDE.md §1.8 — no silent fallback to global rewards.)"
+                )
+            terms_by_item = raw_per_item
+            training_items = ti
+            if motion_cfg is not None:
+                # Reuse motion.deadzone as the soft-blend half-width unless a
+                # narrower transition is configured downstream (TrainingMotion
+                # currently exposes deadzone as the cmd dead-zone radius; using
+                # it as blend width matches "soft-mix around that boundary").
+                blend_width = float(getattr(motion_cfg, "deadzone", 0.10) or 0.10)
+            expose_active_item_obs = True
+        elif terms:
+            reward_fn_rich = build_reward_fn_with_breakdown(terms)
 
     termination_fn = None
     term_cfg = getattr(spec, "terminations", None)
@@ -1185,9 +1365,13 @@ def make_env(
         max_episode_steps=max_steps,
         commands=cmd,
         seed=seed,
-        reward_fn=reward_fn,
+        reward_fn_rich=reward_fn_rich,
         termination_fn=termination_fn,
         render_mode=render_mode,
+        terms_by_item=terms_by_item,
+        training_items=training_items,
+        blend_width=blend_width,
+        expose_active_item_obs=expose_active_item_obs,
     )
 
 

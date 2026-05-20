@@ -66,3 +66,4 @@ title = Observations
 tip = Scripts du projet + globaux
 short = Entraîn.
 title = Scripts d'entraînement
+

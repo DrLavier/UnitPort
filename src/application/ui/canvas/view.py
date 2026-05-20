@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 
+from .items import ConnectionItem
 from .lod import TIER_WORKING, tier_for_zoom
 from .node_library_panel import MIME_NODE_ID
 
@@ -149,12 +150,61 @@ class CanvasView(QGraphicsView):
             event.accept()
             return
         if event.button() == Qt.MouseButton.RightButton:
+            # 命中连线 → 直接断开（不进入平移模式）。批量选中时整组一起断，
+            # 单条 undo macro 内合并。命中节点 / 端口 / 空白 → 走平移。
+            if self._try_disconnect_edge_at(event.position().toPoint()):
+                event.accept()
+                return
             self._panning = True
             self._pan_start = event.position().toPoint()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def _try_disconnect_edge_at(self, viewport_pt: QPoint) -> bool:
+        """Right-button press hit-test. Returns True iff a ConnectionItem was
+        hit and the disconnect path was taken — in which case the caller
+        must accept the event and skip panning. Returns False when the
+        cursor is over a node, port, or empty canvas (caller proceeds with
+        the pan path).
+
+        Hit-testing reuses :class:`PortDragController`'s scene-pos hit-test
+        for ports first — a right-click that lands on a port should still
+        feel like "port territory" and start panning, not silently delete
+        an adjacent edge. Then walks the scene item stack to look for a
+        ``ConnectionItem`` ancestor.
+        """
+        scene = self.scene()
+        if scene is None:
+            return False
+        # Avoid the ConnectionItem-vs-PortItem ambiguity at port centres:
+        # PortItem's bounding rect is small but the connection's stroker
+        # shape extends into the port. Prefer "port wins" — same rule the
+        # context menu provider applies (see CanvasPage._build_context_menu).
+        from PyQt6.QtGui import QTransform
+        scene_pos = self.mapToScene(viewport_pt)
+        for it in scene.items(scene_pos, deviceTransform=QTransform()):
+            if it.data(0) == "port":
+                return False
+        edge = None
+        for it in scene.items(scene_pos, deviceTransform=QTransform()):
+            cur = it
+            while cur is not None:
+                if isinstance(cur, ConnectionItem):
+                    edge = cur
+                    break
+                cur = cur.parentItem()
+            if edge is not None:
+                break
+        if edge is None:
+            return False
+        page = getattr(scene, "_page_ref", None)
+        if page is None:
+            edge.disconnect()
+            return True
+        page._disconnect_edge_via_right_click(edge)
+        return True
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._zooming:

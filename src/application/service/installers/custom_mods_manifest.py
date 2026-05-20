@@ -25,9 +25,9 @@ Public surface:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from unitport_sdk import Paths, log_warning
 
@@ -48,12 +48,20 @@ class CustomModEntry:
     identifier echoed into ``selections.backend.custom_mods``. ``target_dir``
     is the absolute on-disk clone destination resolved against the
     user's ``Paths.CUSTOM_MODS_DIR`` (overlay-resolved at module load).
+
+    ``required_for`` is the parsed ``required_for=`` annotation: a tuple
+    of ``"<backend>/<template>"`` strings pointing into
+    ``custom_mods/canvas/<backend>/[<backend>] <template>.canvas.json``.
+    An entry with a non-empty ``required_for`` is pre-checked in the
+    install wizard and labelled so the user understands which shipped
+    template would silently break without it.
     """
 
     key: str
     relative_path: str
     url: str
     ref: str
+    required_for: Tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def target_dir(self) -> Path:
@@ -62,6 +70,10 @@ class CustomModEntry:
     @property
     def display_name(self) -> str:
         return self.key.replace("_", " ").replace("-", " ")
+
+    @property
+    def is_required(self) -> bool:
+        return bool(self.required_for)
 
 
 def manifest_path() -> Path:
@@ -103,7 +115,29 @@ def load_manifest_entries(path: Optional[Path] = None) -> List[CustomModEntry]:
             continue
         rel = parts[0].replace("\\", "/").strip("/")
         url = parts[1]
-        ref = parts[2] if len(parts) >= 3 else ""
+        ref = ""
+        required_for: List[str] = []
+        for token in parts[2:]:
+            if "=" in token:
+                ann_key, _, ann_val = token.partition("=")
+                ann_key = ann_key.strip().lower()
+                ann_val = ann_val.strip()
+                if ann_key == "required_for":
+                    required_for.extend(
+                        s.strip() for s in ann_val.split(",") if s.strip()
+                    )
+                else:
+                    log_warning(
+                        f"[custom_mods] {p.name}:{lineno} unknown "
+                        f"annotation {ann_key!r}; ignoring"
+                    )
+            elif not ref:
+                ref = token
+            else:
+                log_warning(
+                    f"[custom_mods] {p.name}:{lineno} extra positional "
+                    f"token {token!r} after ref; ignoring"
+                )
         key = Path(rel).name
         if not key:
             log_warning(
@@ -118,7 +152,13 @@ def load_manifest_entries(path: Optional[Path] = None) -> List[CustomModEntry]:
             continue
         seen_keys.add(key)
         entries.append(
-            CustomModEntry(key=key, relative_path=rel, url=url, ref=ref)
+            CustomModEntry(
+                key=key,
+                relative_path=rel,
+                url=url,
+                ref=ref,
+                required_for=tuple(required_for),
+            )
         )
     return entries
 

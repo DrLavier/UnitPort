@@ -37,6 +37,7 @@ and the ``.bak`` provides recovery).
 
 Usage::
 
+    cd D:/Unitport/EXE/RELEASE
     .venv311/Scripts/python.exe bootstrap/migrate_canvas_strict_v1.py `
         projects/new_test/canvas/IsaacLab/ppo_walk.canvas.json
     # Recursive sweep:

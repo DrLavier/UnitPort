@@ -620,6 +620,21 @@ def train_sb3(
     # Compose the user-supplied progress callback with a CheckpointCallback
     # rooted at run_dir/checkpoints/, when a run_dir is bound.
     final_callback = callback
+    # Per-term + per-item reward breakdown logger. Always wired (no run_dir
+    # gate) — TensorBoard records land wherever the SB3 logger is pointed,
+    # and a no-op tick is cheaper than missing the diagnostic when a user
+    # debugs locally without a run_dir.
+    try:
+        from stable_baselines3.common.callbacks import CallbackList as _CL_R
+        from application.training.sb3_reward_log import RewardBreakdownCallback
+
+        reward_log_cb = RewardBreakdownCallback(log_every=100)
+        if final_callback is None:
+            final_callback = reward_log_cb
+        else:
+            final_callback = _CL_R([final_callback, reward_log_cb])
+    except Exception as exc:                                  # pragma: no cover
+        log_warning(f"[sb3_trainer] RewardBreakdownCallback wiring skipped: {exc}")
     if run_dir is not None:
         try:
             from stable_baselines3.common.callbacks import (

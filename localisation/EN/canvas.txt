@@ -94,3 +94,15 @@ coverage.red = Critical: one or more phases are missing required constraint rewa
 coverage.title = Reward Coverage
 coverage.yellow = Warning: at least one phase is missing a recommended reward.
 
+[robot]
+health.counts = MJCF: {m} joints  ·  USD: {u} joints  ·  base offset: {off}
+health.crit = Neither format has been dumped — open Robot Assets and click Dump MJCF / Dump USD before training.
+health.double_click_hint = Double-click the badge for the full joint mapping table.
+health.gap = MJCF and USD declare different IR-role sets — affected: {aff}.
+health.offset_uncalibrated = (not calibrated)
+health.ok = MJCF and USD agree on joint set — both deploy targets available.
+health.single = Only {present} is dumped — the {missing} deploy target will be unavailable for bundles trained against this robot.
+health.title = Robot dump health
+mjcf_offset.not_applicable = not applicable
+mjcf_offset.uncalibrated = uncalibrated
+

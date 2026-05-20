@@ -210,6 +210,27 @@ _warned_unknown_reward_keys: set = set()
 _warned_unknown_done_keys: set = set()
 
 
+def _compile_pairs(terms: Any) -> List[Tuple[str, EnvRewardFn, float]]:
+    pairs: List[Tuple[str, EnvRewardFn, float]] = []
+    if not isinstance(terms, dict):
+        return pairs
+    for key, val in terms.items():
+        weight = _weight_of(val)
+        if weight == 0.0:
+            continue
+        fn = _REWARD_FNS.get(str(key))
+        if fn is None:
+            if key not in _warned_unknown_reward_keys:
+                _warned_unknown_reward_keys.add(key)
+                log_warning(
+                    f"[reward_terms] unknown reward kind {key!r}; skipping. "
+                    f"Known: {sorted(_REWARD_FNS)}"
+                )
+            continue
+        pairs.append((str(key), fn, weight))
+    return pairs
+
+
 def build_reward_fn(terms: Any) -> EnvRewardFn:
     """Compile a ``{term_key: weight | {weight,...}}`` dict into a reward closure.
 
@@ -219,31 +240,45 @@ def build_reward_fn(terms: Any) -> EnvRewardFn:
     with :data:`build_reward_fn.is_empty` if they want to fall back to a
     default reward.
     """
-    pairs: List[Tuple[EnvRewardFn, float]] = []
-    if isinstance(terms, dict):
-        for key, val in terms.items():
-            weight = _weight_of(val)
-            if weight == 0.0:
-                continue
-            fn = _REWARD_FNS.get(str(key))
-            if fn is None:
-                if key not in _warned_unknown_reward_keys:
-                    _warned_unknown_reward_keys.add(key)
-                    log_warning(
-                        f"[reward_terms] unknown reward kind {key!r}; skipping. "
-                        f"Known: {sorted(_REWARD_FNS)}"
-                    )
-                continue
-            pairs.append((fn, weight))
-
+    pairs = _compile_pairs(terms)
     if not pairs:
         return _zero_reward
 
     def _compose(env) -> float:
         total = 0.0
-        for fn, w in pairs:
+        for _name, fn, w in pairs:
             total += fn(env) * w
         return float(total)
+
+    return _compose
+
+
+# Companion to :func:`build_reward_fn` that returns a per-term breakdown
+# alongside the scalar total. The breakdown is what feeds the SB3 reward
+# logger (info["reward/<term>"]) and the per-item Tensorboard slices —
+# see ``sb3_reward_log.RewardBreakdownCallback``.
+EnvRewardFnRich = Callable[["GenericMujocoEnv"], Tuple[float, Dict[str, float]]]
+
+
+def build_reward_fn_with_breakdown(terms: Any) -> EnvRewardFnRich:
+    """Like :func:`build_reward_fn` but returns ``(env) -> (total, breakdown)``.
+
+    ``breakdown`` is ``{term_key: weighted_contribution}`` for every term
+    that actually fired this step. Unknown / zero-weight keys are omitted.
+    Empty input collapses to a closure that returns ``(0.0, {})``.
+    """
+    pairs = _compile_pairs(terms)
+    if not pairs:
+        return _zero_reward_rich
+
+    def _compose(env) -> Tuple[float, Dict[str, float]]:
+        total = 0.0
+        breakdown: Dict[str, float] = {}
+        for name, fn, w in pairs:
+            contribution = fn(env) * w
+            total += contribution
+            breakdown[name] = float(contribution)
+        return float(total), breakdown
 
     return _compose
 
@@ -290,6 +325,10 @@ def _zero_reward(env) -> float:
     return 0.0
 
 
+def _zero_reward_rich(env) -> Tuple[float, Dict[str, float]]:
+    return 0.0, {}
+
+
 def known_reward_kinds() -> Tuple[str, ...]:
     return tuple(sorted(_REWARD_FNS))
 
@@ -300,6 +339,7 @@ def known_termination_kinds() -> Tuple[str, ...]:
 
 __all__ = [
     "build_reward_fn",
+    "build_reward_fn_with_breakdown",
     "build_done_fn",
     "known_reward_kinds",
     "known_termination_kinds",

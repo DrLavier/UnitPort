@@ -1,0 +1,23 @@
+[default]
+asset_path = Ressource : {path}
+col_ir = Rôle IR
+col_joint = Articulation physique
+coverage_gap = ⚠ Écart inter-formats — indisponible : {affected}
+coverage_ok = ✓ MJCF et USD concordent — les deux cibles de déploiement sont disponibles
+coverage_single = Un seul format est déclaré ; vérification inter-formats ignorée
+height_na = Décalage de hauteur de base : non applicable (configuration mono-format)
+height_uncalibrated = Décalage de hauteur de base : (non calibré — lancez Calibrate depuis la carte Robot Asset)
+height_value = Décalage de hauteur de base (USD↔MJCF) : {offset}  ·  calibré le {ts}
+legend = Couleur de ligne : <span style='color:#4caf50'>■ appariée</span> · <span style='color:#ff9800'>■ orpheline (uniquement dans ce format)</span> · <span style='color:#f44336'>■ non mappée (rôle IR vide)</span> · <span style='color:#9e9e9e'>■ bucket (misc / sensor / base)</span>
+mjcf = MJCF (MuJoCo deploy)
+no_rows = (aucune articulation dumpée — cliquez sur Dump dans la carte Robot Asset)
+row_summary = Total : {total}  ·  appariées : {m}  ·  orphelines : {o}  ·  non mappées : {u}  ·  bucket : {b}
+title = Mappage des articulations — {name} (sku={sku})
+usd = USD (IsaacSim / cloud deploy)
+
+[tooltip]
+bucket = Rôle bucket (misc / sensor* / base) — peut légitimement se répéter ou différer selon les formats ; ignoré par la vérification de couverture.
+matched = Rôle IR présent dans les tables MJCF et USD — le bundle se déploie proprement.
+orphan = Rôle IR déclaré uniquement dans ce format — l'AUTRE cible de déploiement n'utilisera pas cette articulation.
+unmapped = Articulation physique dumpée mais sans rôle IR assigné. Ouvrez la table Body Mapping du nœud Robot pour en attribuer un avant l'entraînement.
+

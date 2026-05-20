@@ -660,7 +660,24 @@ class IsaacLabConfig:
             )
 
         python_exe = self.isaac_lab_python.replace("/", "\\")
-        args_str = " ".join(f'"{a}"' if " " in a else a for a in args)
+        # Write the args to a sibling response file (one token per line) and
+        # pass ``@<argsfile>`` as a single token to python. The launcher's
+        # ArgumentParser is constructed with ``fromfile_prefix_chars='@'``
+        # (il_train_launcher.py) so argparse expands the file contents in
+        # place. This bypasses cmd.exe's 8191-char-per-line limit, which
+        # truncated AMP runs mid-arg (large stage_schedule base64 +
+        # per-item amp_task_items + N motion file paths easily push the
+        # single-line invocation past 8 KB and corrupt argv silently).
+        fd_args, args_path = tempfile.mkstemp(
+            suffix=".args.txt", prefix="unitport_il_run_"
+        )
+        os.close(fd_args)
+        Path(args_path).write_text(
+            "\n".join(args) + "\n", encoding="utf-8"
+        )
+        # ``@`` token must not be parsed as a cmd metacharacter — wrap the
+        # whole token in quotes (covers spaces in %TEMP% paths too).
+        argsfile_token = f'"@{args_path}"'
         content = (
             "@echo off\r\n"
             "setlocal EnableExtensions EnableDelayedExpansion\r\n"
@@ -670,7 +687,8 @@ class IsaacLabConfig:
             '    exit /b 1\r\n'
             ')\r\n'
             'echo [INFO] Using python from: !python_exe!\r\n'
-            f'"!python_exe!" "{script}" {args_str}\r\n'
+            f'echo [INFO] Args file: {args_path}\r\n'
+            f'"!python_exe!" "{script}" {argsfile_token}\r\n'
         )
         fd, path = tempfile.mkstemp(suffix=".bat", prefix="unitport_il_run_")
         os.close(fd)

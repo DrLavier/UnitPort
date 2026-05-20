@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple
 
 if TYPE_CHECKING:
     from application.compiler.lowering import WorkflowIR
@@ -484,6 +484,7 @@ def check_spec(spec: "TrainingSpec") -> List[ValidationIssue]:
     issues.extend(_check_recommended_reward_terms(spec))
     issues.extend(_check_sb3_reward_term_kinds(spec))
     issues.extend(_check_sb3_termination_kinds(spec))
+    issues.extend(_check_per_item_reward_scale(spec))  # R_REWARD_SCALE
     issues.extend(_check_pd_param(spec))             # R_PD1..R_PD4 — sim2sim PD
     return issues
 
@@ -589,6 +590,69 @@ def _check_pd_param(spec: "TrainingSpec") -> List[ValidationIssue]:
                 ),
             ))
 
+    return out
+
+
+def _check_per_item_reward_scale(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """R_REWARD_SCALE — warn when per-item total |Σ weight| diverges.
+
+    Per-item composite rewards (``spec.rewards.terms_by_item``) define a
+    separate reward bag for each motion item (stand / walk / run / …).
+    When one item's summed weight is much larger than another's, the
+    policy will preferentially chase the high-budget item even if it
+    learns the low-budget one badly — exactly the scale-skew failure
+    mode flagged in the audit report.
+
+    The check is a WARNING (not ERROR): users may intentionally bias an
+    item, but a 3:1 budget gap is almost always an oversight. The
+    threshold lives in the function to keep the rule auditable from the
+    code; bump it if real workloads need a different cut-off.
+    """
+    out: List[ValidationIssue] = []
+    rewards = getattr(spec, "rewards", None)
+    if rewards is None:
+        return out
+    per_item = getattr(rewards, "terms_by_item", None) or {}
+    if not isinstance(per_item, dict) or len(per_item) < 2:
+        return out
+    threshold = 3.0
+    item_totals: Dict[str, float] = {}
+    for item_id, term_dict in per_item.items():
+        if not isinstance(term_dict, dict):
+            continue
+        total = 0.0
+        for val in term_dict.values():
+            if isinstance(val, dict):
+                w = val.get("weight", 0.0)
+            else:
+                w = val
+            try:
+                total += abs(float(w))
+            except (TypeError, ValueError):
+                continue
+        if total > 0.0:
+            item_totals[item_id] = total
+    if len(item_totals) < 2:
+        return out
+    max_id = max(item_totals, key=item_totals.get)
+    min_id = min(item_totals, key=item_totals.get)
+    ratio = item_totals[max_id] / max(item_totals[min_id], 1e-9)
+    if ratio <= threshold:
+        return out
+    out.append(ValidationIssue(
+        code=IssueCode.GENERIC,
+        severity=Severity.WARNING,
+        field="rewards.terms_by_item",
+        message=(
+            f"per-item reward budgets are skewed: item {max_id!r} sums "
+            f"|Σ weight|={item_totals[max_id]:.3g} vs {min_id!r} "
+            f"={item_totals[min_id]:.3g} (ratio {ratio:.2f}× > "
+            f"{threshold:.1f}×). The policy will preferentially chase "
+            f"{max_id!r} even on commands intended to activate "
+            f"{min_id!r}. Re-balance the weights or fold the cheap "
+            f"item into the rich one's term set."
+        ),
+    ))
     return out
 
 
@@ -700,13 +764,18 @@ def _check_recommended_reward_terms(spec: "TrainingSpec") -> List[ValidationIssu
         return out  # empty terms is its own issue (caught elsewhere)
     try:
         from application.training.isaac_lab.task_module_registry import (
-            RECOMMENDED_LOCOMOTION_REWARD_TERMS,
+            recommended_reward_terms_for_backend,
         )
     except Exception:
         return out
-    missing = [
-        k for k in RECOMMENDED_LOCOMOTION_REWARD_TERMS if k not in present
-    ]
+    # IL canvases store IL term names (track_lin_vel_xy, alive_reward, …)
+    # which don't overlap with the SB3 vocabulary (velocity_tracking,
+    # alive, …). The pre-split single SB3-only list false-flagged every
+    # IL canvas as "missing every safety term" — pick the list that
+    # matches the canvas backend instead.
+    backend = (getattr(spec.algorithm, "backend", "") or "").lower()
+    recommended = recommended_reward_terms_for_backend(backend)
+    missing = [k for k in recommended if k not in present]
     if not missing:
         return out
     out.append(ValidationIssue(

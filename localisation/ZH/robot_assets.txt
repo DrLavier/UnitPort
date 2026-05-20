@@ -33,6 +33,12 @@ dump_usd_disabled = 未声明 USD 资产（没有本地路径，也没有 Nucleu
 menagerie = Menagerie…
 menagerie_tip = 浏览并下载 MuJoCo Menagerie 包
 pick_parent = 选择此变体继承的基础模型：
+dump = 导出 bodies / joints
+dump_disabled = MJCF 和 USD 资产都不可用（既没有本地文件，也没有声明 Nucleus URL）
+dump_format_mismatch = 
+	⚠ {larger_fmt} has {larger_n} joints but {smaller_fmt} has {smaller_n}. Training is unaffected, but {affected} won't be available for bundles trained against the {larger_fmt}-side joint set. If you need both deploy targets, repoint the {smaller_fmt} asset to a matching variant (e.g. for G1 use scene_with_hands.xml alongside g1.usd) and re-Dump.
+view_mapping = 查看关节映射
+view_mapping_error_title = 关节映射不可用
 
 [status]
 cloud = 云端

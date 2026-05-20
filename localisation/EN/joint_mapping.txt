@@ -1,0 +1,23 @@
+[default]
+asset_path = Asset: {path}
+col_ir = IR role
+col_joint = Physical joint
+coverage_gap = ⚠ Cross-format gap — Unavailable: {affected}
+coverage_ok = ✓ MJCF and USD agree — both deploy targets available
+coverage_single = Only one format declared; cross-format check skipped
+height_na = Base-height offset: not applicable (single-format setup)
+height_uncalibrated = Base-height offset: (not calibrated — run Calibrate from the Robot Asset card)
+height_value = Base-height offset (USD↔MJCF): {offset}  ·  calibrated {ts}
+legend = Row colour: <span style='color:#4caf50'>■ matched</span> · <span style='color:#ff9800'>■ orphan (only in this format)</span> · <span style='color:#f44336'>■ unmapped (empty IR role)</span> · <span style='color:#9e9e9e'>■ bucket (misc / sensor / base)</span>
+mjcf = MJCF (MuJoCo deploy)
+no_rows = (no joints dumped — click Dump on the Robot Asset card)
+row_summary = Total: {total}  ·  matched: {m}  ·  orphan: {o}  ·  unmapped: {u}  ·  bucket: {b}
+title = Joint mapping — {name} (sku={sku})
+usd = USD (IsaacSim / cloud deploy)
+
+[tooltip]
+bucket = Bucket role (misc / sensor* / base) — legitimately repeats or differs across formats; ignored by coverage check.
+matched = IR role present in both MJCF and USD tables — bundle deploys cleanly.
+orphan = IR role declared in this format only — the OTHER deploy target won't honor this joint.
+unmapped = Physical joint dumped but no IR role assigned. Open the Robot Node Body Mapping table to assign one before training.
+

@@ -45,7 +45,7 @@ def _user_agent() -> str:
 
 
 def _normalize_version(tag: str) -> str:
-    """Strip the leading ``v`` from a tag name (``v1.0.0`` -> ``1.0.0``).
+    """Strip the leading ``v`` from a tag name (``v0.9.0`` -> ``0.9.0``).
 
     The git tag convention is ``v<version>`` per CLAUDE.md §1.6, and the
     GitHub API returns the tag with the prefix. ``packaging.version``

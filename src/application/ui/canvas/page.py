@@ -1549,6 +1549,15 @@ class CanvasPage(QWidget):
                     f"source of truth (save will rewrite to {derived!r})"
                 )
 
+        # 加载完成后广播一次拓扑变化:``clear_scene`` 入口时已经发过一次"空画
+        # 布"事件,中途 spawn/connect 都在 ``_suspend_undo`` (``_batch_load=
+        # True``) 下静默,这里是订阅方(MissionControlPanel 训练配置透视
+        # 等)唯一能看到"完整重建"画布的时机。文件加载路径靠后续 ``set_file_id``
+        # 的 emit 救场,但模板导入 (``replace_content_from_dict``) 不改 file_id
+        # → 不会有第二次 emit,面板永远停在"空画布"快照上。把 emit 放在这里
+        # 让所有调用方一视同仁。
+        self._emit_topology_changed()
+
         return spawned + placeholders
 
     def replace_content_from_dict(self, data: Dict[str, Any]) -> int:
@@ -2731,6 +2740,49 @@ class CanvasPage(QWidget):
     def _build_edge_menu(self, menu: QMenu, edge: ConnectionItem) -> None:
         act_dis = menu.addAction(tr("canvas.menu.disconnect", "Disconnect"))
         act_dis.triggered.connect(lambda: self._user_disconnect_edge(edge))
+
+    def _disconnect_edge_via_right_click(self, edge: ConnectionItem) -> None:
+        """边右键直接断开。若该边属于当前多选集合，则同步断开整组并合并为
+        单次 undo macro；否则只断这一条。
+
+        与 :meth:`_user_disconnect_edge` 的区别仅在于"多选 → 批量"的入口。
+        实际的 DisconnectCmd 仍是逐条 push，由 ``QUndoStack.beginMacro`` 合
+        并为一步 redo / undo，避免新增专门的批量命令类。
+        """
+        selected_edges = [
+            it for it in self._scene.selectedItems()
+            if isinstance(it, ConnectionItem)
+        ]
+        if edge in selected_edges and len(selected_edges) > 1:
+            targets = selected_edges
+        else:
+            targets = [edge]
+
+        if len(targets) == 1:
+            self._user_disconnect_edge(targets[0])
+            return
+
+        if self._in_undo:
+            for e in targets:
+                e.disconnect()
+            return
+
+        from .undo import DisconnectCmd
+        self._undo_stack.beginMacro("Disconnect edges")
+        try:
+            for e in targets:
+                sn = e.src_port.parent_node()
+                dn = e.dst_port.parent_node()
+                if sn is None or dn is None:
+                    e.disconnect()
+                    continue
+                self._undo_stack.push(DisconnectCmd(
+                    self, e.edge_id,
+                    sn.node_id, e.src_port.port_name,
+                    dn.node_id, e.dst_port.port_name,
+                ))
+        finally:
+            self._undo_stack.endMacro()
 
     def _user_disconnect_edge(self, edge: ConnectionItem) -> None:
         sn = edge.src_port.parent_node()

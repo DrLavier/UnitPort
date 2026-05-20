@@ -11,3 +11,14 @@ blocked.hint = 双击 Rewards 节点上的标记，可打开覆盖检查器查�
 blocked.proceed = 仍然继续
 blocked.title = 奖励覆盖问题
 
+[deploy_coverage]
+affected = 受影响的部署目标：
+body = 由于该机器人的 MJCF 与 USD 资产表声明的关节集合不一致，训练得到的 bundle 只能部署到受支持目标中的一部分。
+cancel = 取消
+header = 训练将为机器人 ‘{name}’（sku={sku}）生成一个部署覆盖范围缩减的 bundle。
+hint = 如需恢复两个部署目标：请取消，打开 Robot Assets 侧边栏，将自由度较少的资产重新指向一个匹配的变体（例如 Unitree G1 可将 scene_with_hands.xml 与 g1.usd 配对），重新 Dump，然后再次运行 Play。
+miss_mjcf = 在 USD 中声明但 MJCF 缺失的角色：{roles}
+miss_usd = 在 MJCF 中声明但 USD 缺失的角色：{roles}
+proceed = 仍然继续（避免后面浪费算力）
+title = 部署目标覆盖范围缩减
+

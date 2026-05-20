@@ -2,23 +2,29 @@
 
 Hot-pluggable assets are scanned from **two roots, always merged**:
 
-1. **Project-shipped (read-only):** ``<PROJECT_ROOT>/custom_mods/motions/`` +
-   ``<PROJECT_ROOT>/custom_mods/archives/``. Built-in / community packs
-   that ship with the install (e.g. ``amp_go2``, ``AMP_for_hardware``).
-2. **User-installed (writable):** ``<USER_CONFIG_DIR>/scripts/training_motion/motions/`` +
-   ``<USER_CONFIG_DIR>/scripts/training_motion/archives/``. User's own
-   imports, sits under ``~/UnitPort/`` so it survives redeploy.
+1. **Project-shipped (read-only):** ``<PROJECT_ROOT>/custom_mods/motions/``.
+   Built-in + community packs that ship with the install (e.g.
+   ``AMP_for_hardware``, ``MetalHead``, ``rl_amp``, ``unitport_builtin``).
+2. **User-installed (writable):** ``<USER_CONFIG_DIR>/scripts/training_motion/motions/``.
+   User's own imports, sits under ``~/UnitPort/`` so it survives redeploy.
 
-Directory layout (identical under both roots):
+Directory layout (identical under both roots) — SB3 ``.npy`` clips and
+community AMP packs co-exist under the same ``motions/`` root and are
+disambiguated by their subtree shape:
 
     motions/
+        # SB3 library side (category-rooted)
         quadruped/<model>/*.npy
         biped/<model>/*.npy
         wheeled/<model>/*.npy
         manipulator/<model>/*.npy
         generic/<model>/*.npy
-    archives/
+        # Community AMP packs (package-rooted)
         <package>/datasets/<subdir>/*.{txt,json}
+
+The legacy ``custom_mods/archives/`` directory was consolidated into
+``custom_mods/motions/`` (see ``custom_mods/installs.txt`` — every
+hot-plug repo deploys under ``motions/``).
 
 Files are browsed by category (derived from robot family) so that a Go2
 user sees all quadruped motions, with their own model's files pinned first.
@@ -92,13 +98,22 @@ def _custom_motions_dirs() -> List[Path]:
 
 
 def _project_archive_root() -> Path:
-    """Project-shipped AMP archive root (read-only at runtime)."""
-    return _custom_mods_root() / "archives"
+    """Project-shipped AMP archive root (read-only at runtime).
+
+    Consolidated with the motions root: ``custom_mods/installs.txt`` clones
+    every hot-plug pack under ``custom_mods/motions/<package>/``, and the
+    legacy ``custom_mods/archives/`` tree was removed. SB3 ``.npy`` library
+    and community AMP packs co-exist here — the scanners disambiguate by
+    subtree shape (``<category>/<model>/*.npy`` vs
+    ``<package>/datasets/<subdir>/*.{txt,json}``), so reusing one root is
+    safe.
+    """
+    return _project_motions_dir()
 
 
 def _user_archive_root() -> Path:
-    """User-installed AMP archive root."""
-    return _user_config_root() / "scripts" / "training_motion" / "archives"
+    """User-installed AMP archive root (mirrors the project-side unification)."""
+    return _user_motions_dir()
 
 
 def _archive_roots() -> List[Path]:
@@ -235,10 +250,10 @@ def list_entries(
 
     Scans two roots and merges:
 
-    1. ``<PROJECT_ROOT>/custom_mods/motions/`` + ``custom_mods/archives/`` —
-       project-shipped built-ins.
-    2. ``<USER_CONFIG_DIR>/scripts/training_motion/motions/`` +
-       ``scripts/training_motion/archives/`` — user-installed.
+    1. ``<PROJECT_ROOT>/custom_mods/motions/`` — project-shipped built-ins
+       (both SB3 ``.npy`` clips under ``<category>/<model>/`` and community
+       AMP packs under ``<package>/datasets/<subdir>/``).
+    2. ``<USER_CONFIG_DIR>/scripts/training_motion/motions/`` — user-installed.
 
     Both are walked in that order. Entries with the same absolute path
     are deduplicated; otherwise duplicates with identical
@@ -303,7 +318,8 @@ def _list_archive_motion_entries() -> List[MotionEntry]:
     """Walk both archive roots for AMP mocap clips.
 
     Returns one ``MotionEntry`` per file found across
-    ``custom_mods/archives/`` and ``<USER_CONFIG>/scripts/training_motion/archives/``.
+    ``custom_mods/motions/`` and ``<USER_CONFIG>/scripts/training_motion/motions/``
+    (archive and SB3-library content share one root post-consolidation).
     Packages are grouped via ``robot_model = <package_name>``; the
     category is fixed to ``quadruped`` because every community AMP
     package in scope today targets quadrupeds (A1, Go2, etc.).
@@ -364,7 +380,7 @@ def list_motion_packs() -> List[MotionPack]:
     Motion picker to surface 📦 entries that can be selected as a single
     UI action and expanded into the full file list at training launch.
 
-    Packs from ``<PROJECT_ROOT>/custom_mods/archives/`` are listed first;
+    Packs from ``<PROJECT_ROOT>/custom_mods/motions/`` are listed first;
     same-named ``(package, subdir)`` pairs found later under USER_CONFIG
     are skipped so the project-shipped version wins on conflict (mirrors
     ``expand_motion_pack`` / ``resolve_pack_ref`` resolution order).

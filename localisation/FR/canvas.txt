@@ -94,3 +94,15 @@ coverage.red = Critique : une ou plusieurs phases n'ont pas la récompense de co
 coverage.title = Couverture des récompenses
 coverage.yellow = Avertissement : au moins une phase n'a pas une récompense recommandée.
 
+[robot]
+health.counts = MJCF : {m} articulations  ·  USD : {u} articulations  ·  décalage de base : {off}
+health.crit = Aucun des deux formats n'a été dumpé — ouvrez Robot Assets et cliquez sur Dump MJCF / Dump USD avant l'entraînement.
+health.double_click_hint = Double-cliquez sur le badge pour afficher la table complète de mappage des articulations.
+health.gap = MJCF et USD déclarent des ensembles de rôles IR différents — impacté : {aff}.
+health.offset_uncalibrated = (non calibré)
+health.ok = MJCF et USD s'accordent sur l'ensemble des articulations — les deux cibles de déploiement sont disponibles.
+health.single = Seul {present} est dumpé — la cible de déploiement {missing} sera indisponible pour les bundles entraînés avec ce robot.
+health.title = État du dump robot
+mjcf_offset.not_applicable = non applicable
+mjcf_offset.uncalibrated = non calibré
+

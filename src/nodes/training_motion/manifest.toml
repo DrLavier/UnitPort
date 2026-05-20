@@ -17,9 +17,11 @@ icon = "training_motion.svg"
 # v2 颗粒度：
 #   - 新增 actor_pipe 输入（来自 actor_setting），由本节点聚合后送 trainer
 #   - 每个 enabled training item 在 canvas 上对应一个动态 reward_in__<id>
-#     输入端口（type=reward_pipe, multi=false），由 NodeItem 按
-#     ``training_items`` dict 动态重建。端口集合不在 manifest 中静态声明 —
-#     训练 spec 编译器从 IR edges 反查 (rewards_node, item_id) 映射。
+#     输入端口（type=reward_pipe, multi=true — 同一 item 允许多个 RewardsNode
+#     扇入），由 NodeItem 按 ``training_items`` dict 动态重建。端口集合不在
+#     manifest 中静态声明 — 训练 spec 编译器从 IR edges 反查
+#     (rewards_node, item_id) 映射，PortSpec 的唯一来源是
+#     ``nodes.training_motion.node.iter_reward_port_specs``。
 #
 # 端口：
 #   inputs  actor_pipe                — Actor stream (from actor_setting)

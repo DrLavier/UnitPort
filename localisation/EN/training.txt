@@ -11,3 +11,14 @@ blocked.hint = Double-click the badge on the Rewards node to open the Coverage I
 blocked.proceed = Continue anyway
 blocked.title = Reward Coverage Issue
 
+[deploy_coverage]
+affected = Affected deploy targets:
+body = The trained bundle will be deployable to ONLY a subset of the supported targets, because the robot's MJCF and USD asset tables don't declare the same joint set.
+cancel = Cancel
+header = Training will produce a bundle with reduced deploy coverage for robot ‘{name}’ (sku={sku}).
+hint = To restore both deploy targets: cancel, open the Robot Assets sidebar, repoint the smaller-DOF asset to a matching variant (e.g. for Unitree G1 use scene_with_hands.xml alongside g1.usd), re-Dump, then re-run Play.
+miss_mjcf = Roles declared in USD but missing from MJCF: {roles}
+miss_usd = Roles declared in MJCF but missing from USD: {roles}
+proceed = Proceed anyway (don't waste compute later)
+title = Reduced deploy-target coverage
+

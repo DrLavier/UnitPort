@@ -921,17 +921,45 @@ class BackendPage(QWidget):
             for entry in self._custom_mod_entries:
                 cb = QCheckBox()
                 already = entry_already_installed(entry)
+                templates_csv = ", ".join(entry.required_for)
+                required_suffix = ""
+                if entry.is_required:
+                    suffix_tpl = tr(
+                        "setup.backend.custom_mod_required_suffix",
+                        default="(required for {templates})",
+                    )
+                    required_suffix = "  " + suffix_tpl.replace(
+                        "{templates}", templates_csv
+                    )
                 if already:
-                    label_text = f"{entry.display_name}  (already installed)"
+                    already_tag = tr(
+                        "setup.backend.custom_mod_already_installed",
+                        default="(already installed)",
+                    )
+                    label_text = (
+                        f"{entry.display_name}  {already_tag}{required_suffix}"
+                    )
                     cb.setChecked(False)
                     cb.setEnabled(False)
                 else:
-                    label_text = entry.display_name
-                    cb.setChecked(False)
+                    label_text = f"{entry.display_name}{required_suffix}"
+                    cb.setChecked(entry.is_required)
                 cb.setText(label_text)
-                cb.setToolTip(
-                    f"{entry.url}\n→ custom_mods/{entry.relative_path}"
-                )
+                tooltip = f"{entry.url}\n→ custom_mods/{entry.relative_path}"
+                if entry.is_required:
+                    tip_tpl = tr(
+                        "setup.backend.custom_mod_required_tip",
+                        default=(
+                            "Required by canvas template(s): {templates}. "
+                            "Uncheck only if you do not plan to use the "
+                            "listed template — otherwise the template "
+                            "will fail to load."
+                        ),
+                    )
+                    tooltip += "\n" + tip_tpl.replace(
+                        "{templates}", templates_csv
+                    )
+                cb.setToolTip(tooltip)
                 cb.setProperty("custom_mod_key", entry.key)
                 self._custom_mod_checkboxes[entry.key] = cb
                 mods_layout.addWidget(cb)

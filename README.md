@@ -1,11 +1,12 @@
 # UnitPort
 
-[![Website](https://img.shields.io/badge/Website-uniport.ai-blue)](https://uniport.ai)
 [![Python](https://img.shields.io/badge/Python-3.11.9-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE.txt)
 [![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](src/config/system.ini)
 
-**Website:** [uniport.ai](https://uniport.ai)
+[![English](https://img.shields.io/badge/English-%E2%9C%94-success)](README.md)
+[![Français](https://img.shields.io/badge/Fran%C3%A7ais-%E2%9C%94-success)](README.md)
+[![中文](https://img.shields.io/badge/%E4%B8%AD%E6%96%87-%E2%9C%94-success)](README.md)
 
 > [!NOTE]
 > **First stable release (1.0.0).** The training pipeline (SB3 + MuJoCo) is stable and used internally for everyday work. Isaac Lab AMP / PPO‑WALK and the Mission Control real‑robot deploy paths are wired end‑to‑end but still marked experimental — please pin a version in any research you publish from this build.
@@ -13,6 +14,16 @@
 UnitPort is a **FREE** and open‑source Studio for robot behaviour authoring, motion training and sim/real deployment. One canvas, many robots, two simulation engines, one click to a deployable policy bundle.
 
 The guiding idea hasn't changed: **make robot training simpler — whether you are a student, hobbyist, or engineer.**
+
+---
+
+## Robot completeness
+
+[![Quadruped](https://img.shields.io/badge/Quadruped-%E2%9C%94-success)](#)
+[![Bipedal](https://img.shields.io/badge/Bipedal-%E2%9C%94%20(fine--tuning%20required)-yellow)](#)
+[![Arm](https://img.shields.io/badge/Arm-%E2%9A%A0%20WIP-orange)](#)
+
+The current release is **most complete for quadrupeds** — out of the box, the SB3 + MuJoCo and Isaac Lab paths both train walking policies end‑to‑end with stock parameters. **Bipedal humanoids run correctly** through the same pipeline, but reaching a stable gait expects some prior knowledge: users should be comfortable hand‑tuning the finer details (reward weights, termination thresholds, `ωn / ζ` per joint group, AMP clip weighting). The training framework as a whole is **built around base‑locomotion learning** — waypoint following, complex scene interaction, VLA policies, and base‑type robots like **fixed‑base manipulator arms** and **UAVs** are *not* yet inside the training framework. They will land in later releases.
 
 ---
 
@@ -28,7 +39,7 @@ This is the workspace most users start with. You wire a training graph on the ca
   - **Stable‑Baselines3** (stable): PPO, SAC, TD3 on MuJoCo.
   - **Isaac Lab** (experimental): AMP‑PPO, PPO‑WALK on PhysX. Requires a separately installed Isaac Lab.
 - **Imitation learning** — Behavioral Cloning + IL‑PPO fine‑tuning, plus AMP discriminator nodes that consume `.npy` motion clips.
-- **Mass‑matrix‑adaptive PD** — joints are tuned by `(ωn, ζ)` on the `ActuatorPDNode`; the engine gain solvers derive the engine‑specific `kp / kd` at compile time. No more hand‑tuning per simulator.
+- **Mass‑matrix‑adaptive PD** — joints are tuned by `(ωn, ζ)` on the `ActuatorPDNode`; the engine gain solvers derive the engine‑specific `kp / kd` at compile time. No more hand‑tuning per simulator. See [Sim2sim calibration](#sim2sim-calibration) below.
 - **Bundled artifacts** — every export produces a portable `manifest.yaml` + ONNX policy + deploy contract. Bundles are self‑contained and round‑trip across machines.
 - **Cross‑backend project compiler** — the canvas spec is lowered into a backend‑agnostic IR, then specialized for SB3 or Isaac Lab. The same project graph can train on either backend.
 
@@ -47,6 +58,31 @@ Node‑based canvas for wiring real‑robot tasks: connect to the robot, stream 
 - **Bilingual UI** — Simplified Chinese + English ship in the box. UI strings go through `tr()` / `i18n_bind`, so adding a locale is one folder under `localisation/`.
 - **Cloud sync (Phase 1)** — opt‑in Supabase backend for login, profile, and selected artifact sync. Everything works fully offline if you skip auth.
 - **In‑app updater** — checks GitHub Releases against `system.ini[System].version` (currently `1.0.0`).
+
+---
+
+## Sim2sim calibration
+
+The default flow is **Isaac Lab for training, MuJoCo for verification.** Two engines, two different rigid‑body solvers, two different conventions for what "PD gains" actually mean — yet the same trained policy has to behave the same in both.
+
+UnitPort handles this with a **mass‑matrix‑adaptive** approach: the canvas exposes a single, engine‑agnostic control semantic per joint group — natural frequency `ωn` and damping ratio `ζ` on the `ActuatorPDNode`. At compile time, each backend's gain solver reads the link / actuator inertia from its own dynamics representation (Isaac Lab from the articulated‑body mass matrix, MuJoCo from `qM`) and **derives the engine‑specific `kp / kd`** from the shared `(ωn, ζ)` target.
+
+```
+                  shared control semantics
+                  ┌────────────────────────┐
+canvas ──────►    │   (ωn, ζ) per joint    │   ────► same closed-loop response
+                  └───────────┬────────────┘
+                              │ compile-time gain solve
+                ┌─────────────┴─────────────┐
+                ▼                           ▼
+       Isaac Lab gain solver         MuJoCo gain solver
+       (reads PhysX mass matrix)     (reads qM)
+                │                           │
+                ▼                           ▼
+           kp_isaac, kd_isaac          kp_mj, kd_mj
+```
+
+The result is that an `(ωn, ζ)` value tuned in Isaac Lab transfers to MuJoCo with the same closed‑loop bandwidth and damping — no per‑engine re‑tuning. This is the contract that lets a policy trained in Isaac Lab be **sim2sim verified** in MuJoCo before going to the real robot.
 
 ---
 

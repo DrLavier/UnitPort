@@ -5725,22 +5725,38 @@ class TrainingItemsInlineRow(_InlineTableRow):
         to node-local during layout. The PortSpec name is built from
         ``training_motion.reward_port_name(item_id)`` so the canvas, the
         IR loader, and the training-spec compiler agree on the key.
+
+        Each per-item port is fan-in capable (``multi=True``): a single
+        training item may receive several reward feeds from different
+        RewardsNodes that contribute to the same item_id. The spec is
+        produced by ``training_motion.iter_reward_port_specs`` so that
+        the canvas, the compiler, and migrations all share one source of
+        truth for port shape (type / multi / optional) and can't drift.
         """
-        from application.compiler.nodes import PortSpec
-        from nodes.training_motion.node import reward_port_name
+        from nodes.training_motion.node import (
+            iter_reward_port_specs,
+            reward_port_name,
+        )
+
+        items_dict = {
+            str(p.get("key", "")): {"enabled": True}
+            for p in self._row_payloads
+            if str(p.get("key", "") or "")
+        }
+        specs_by_name = {
+            s.name: s
+            for s in iter_reward_port_specs({"training_items": items_dict})
+        }
 
         for idx, payload in enumerate(self._row_payloads):
             item_id = str(payload.get("key", "") or "")
             if not item_id:
                 continue
+            spec = specs_by_name.get(reward_port_name(item_id))
+            if spec is None:
+                continue
             badge = self._row_badge_rect(idx)
             anchor = QPointF(badge.left(), badge.top() + badge.height() * 0.5)
-            spec = PortSpec(
-                name=reward_port_name(item_id),
-                type="reward_pipe",
-                optional=True,
-                description=f"Per-item reward feed for '{item_id}'",
-            )
             yield spec, anchor
 
     def _row_value(self, idx, payload):

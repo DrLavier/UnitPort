@@ -94,3 +94,15 @@ coverage.red = 严重：一个或多个阶段缺少必需的约束奖励。
 coverage.title = 奖励覆盖
 coverage.yellow = 警告：至少有一个阶段缺少推荐奖励。
 
+[robot]
+health.counts = MJCF：{m} 个关节  ·  USD：{u} 个关节  ·  基座偏移：{off}
+health.crit = 两种格式都还未导出 —— 训练前请打开 Robot Assets 并点击 Dump MJCF / Dump USD。
+health.double_click_hint = 双击该徽标可查看完整的关节映射表。
+health.gap = MJCF 与 USD 声明的 IR 角色集合不同 —— 受影响目标：{aff}。
+health.offset_uncalibrated = （未校准）
+health.ok = MJCF 与 USD 的关节集合一致 —— 两个部署目标都可用。
+health.single = 目前只导出了 {present} —— 针对该机器人训练出的 bundle 将无法用于 {missing} 部署目标。
+health.title = 机器人导出健康状态
+mjcf_offset.not_applicable = 不适用
+mjcf_offset.uncalibrated = 未校准
+

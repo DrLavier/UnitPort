@@ -793,6 +793,41 @@ RECOMMENDED_LOCOMOTION_REWARD_TERMS: Tuple[str, ...] = (
 )
 
 
+#: Isaac Lab counterpart of :data:`RECOMMENDED_LOCOMOTION_REWARD_TERMS`.
+#: The IL term names are intentionally distinct from the SB3 ones (the
+#: registries don't share a key namespace — IL canvases store IL keys,
+#: SB3 canvases store SB3 keys). The set is the IL equivalent of the
+#: SB3 safety floor; the empirical anchor is the rewards-bag intersection
+#: of all four ``[IsaacLab] *.canvas.json`` samples shipped under
+#: ``custom_mods/canvas/isaac_lab/``. ``track_lin_vel_xy`` is omitted on
+#: purpose: a per-item composite reward (stand vs. walk) legitimately
+#: skips velocity tracking on the stand item; a global "must have it"
+#: would false-flag the stand bag.
+IL_RECOMMENDED_LOCOMOTION_REWARD_TERMS: Tuple[str, ...] = (
+    "alive_reward",
+    "flat_orientation",
+    "base_height",
+    "action_rate_penalty",
+    "dof_pos_limits",
+    "joint_torque_penalty",
+    "lin_vel_z_penalty",
+)
+
+
+def recommended_reward_terms_for_backend(backend: str) -> Tuple[str, ...]:
+    """Return the recommended-locomotion list for a given canvas backend.
+
+    ``backend`` is the value of ``spec.algorithm.backend`` (e.g. ``"sb3"``
+    / ``"sb3_mujoco"`` / ``"isaac_lab"``). Unknown / empty backend falls
+    back to the SB3 list — preserves the pre-split behaviour and never
+    surfaces an empty recommendation.
+    """
+    bk = (backend or "").strip().lower()
+    if bk == "isaac_lab":
+        return IL_RECOMMENDED_LOCOMOTION_REWARD_TERMS
+    return RECOMMENDED_LOCOMOTION_REWARD_TERMS
+
+
 def default_reward_terms() -> Dict[str, float]:
     """Default reward set seeded into the SB3 env when no canvas wiring exists.
 

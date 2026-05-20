@@ -11,3 +11,14 @@ blocked.hint = Double-cliquez sur le badge du nœud Rewards pour ouvrir l'inspec
 blocked.proceed = Continuer quand même
 blocked.title = Problème de couverture des récompenses
 
+[deploy_coverage]
+affected = Cibles de déploiement impactées :
+body = Le bundle entraîné ne pourra être déployé que sur une partie des cibles prises en charge, car les tables de ressources MJCF et USD du robot ne déclarent pas le même ensemble d'articulations.
+cancel = Annuler
+header = L'entraînement produira un bundle avec une couverture de déploiement réduite pour le robot ‘{name}’ (sku={sku}).
+hint = Pour rétablir les deux cibles de déploiement : annulez, ouvrez la barre latérale Robot Assets, repointez la ressource avec le moins de DDL vers une variante correspondante (par ex. pour Unitree G1 utilisez scene_with_hands.xml avec g1.usd), relancez le Dump, puis relancez Play.
+miss_mjcf = Rôles déclarés dans USD mais absents de MJCF : {roles}
+miss_usd = Rôles déclarés dans MJCF mais absents de USD : {roles}
+proceed = Continuer quand même (pour ne pas gaspiller du calcul plus tard)
+title = Couverture des cibles de déploiement réduite
+
