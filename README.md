@@ -277,7 +277,6 @@ UnitPort/
 
 Some folders are more complete than others. A few areas still look like active construction **because they are**... 
 
-有些文件夹比其他文件夹更完整。部分区域看起来仍然像在建设中，**因为它们确实如此**...
 ---
 
 ## Community | 社区支持
