@@ -1,6 +1,21 @@
 {
   "version": "1.0.0",
   "schema": "engines/installed",
-  "_doc": "当前硬件机可用引擎清单 + enabled 标志。运行时由 refresh.py 校对（用户主动触发）。这是 registers/ 内唯一可运行时写入的文件 —— 因为引擎可用性是 per-installation 物理事实，非用户偏好。仓库内提交空 engines；首次安装后由 ProvisioningTask / 用户在 UI 中手动 refresh 时回填。",
-  "engines": {}
+  "_doc": "当前硬件机可用引擎清单 + enabled 标志。运行时由 refresh.py 校对（用户主动触发）。这是 registers/ 内唯一可运行时写入的文件 —— 因为引擎可用性是 per-installation 物理事实，非用户偏好。",
+  "engines": {
+    "sb3": {
+      "display_name": "SB3",
+      "available": true,
+      "enabled": false,
+      "version": "2.8.0",
+      "path": "D:\\Unitport\\EXE\\RELEASE\\.venv311\\Lib\\site-packages\\stable_baselines3\\__init__.py"
+    },
+    "isaac_lab": {
+      "display_name": "IsaacLab",
+      "available": true,
+      "enabled": false,
+      "version": "0.54.3",
+      "path": "A:\\Isaac\\IsaacLab"
+    }
+  }
 }

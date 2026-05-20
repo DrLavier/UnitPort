@@ -74,6 +74,7 @@ from unitport_sdk import (
     tr,
 )
 
+from application.service.engines import get_engine_service
 from application.service.projects import ProjectInfo, get_project_store
 from registers import backends as backends_registry
 
@@ -374,6 +375,12 @@ class HomepageCreateCanvas(HomepageCard):
         # Reactions
         I18n.instance().language_changed.connect(self._retranslate)
         self._store.snapshot_changed.connect(self._on_snapshot_changed)
+        # Engine availability can flip mid-session (Isaac Lab self-install,
+        # manual register-local in the user panel, ...). When it does the
+        # EngineService emits ``changed("")`` — relabel the backend pills
+        # so newly-installed engines drop their "(unavailable)" suffix and
+        # any flip-back is visible immediately.
+        get_engine_service().changed.connect(self._on_engine_availability_changed)
 
         # Initial populate (backends are baked into the SliderSwitch at
         # construction time — see _build_canvas_inputs — so no separate
@@ -770,6 +777,37 @@ class HomepageCreateCanvas(HomepageCard):
 
     def _on_snapshot_changed(self, _snapshot: object) -> None:
         self._populate_existing_projects()
+
+    def _on_engine_availability_changed(self, _engine_id: str) -> None:
+        """Rebuild Backend SliderSwitch segment labels from the freshly
+        refreshed ``backends_installed.json`` so a just-installed engine
+        loses its ``(unavailable)`` suffix without us recreating the widget.
+
+        Preserves the user's current selection by key. If the active key
+        was unavailable and is now available, no re-selection is needed —
+        the segment stays put and just sheds the suffix.
+        """
+        installed = backends_registry.list_installed()
+        options: List[tuple] = []
+        for eid in self._backend_ids:
+            row = installed.get(eid) or {}
+            available = bool(row.get("available", False))
+            if not available:
+                available = _light_probe_engine_available(eid)
+            display = backends_registry.get_display_name(eid)
+            if not available:
+                display = (
+                    f"{display} "
+                    f"({tr('homepage.create.engine_unavailable', 'unavailable')})"
+                )
+            options.append((eid, display))
+
+        prev_key = self._current_backend()
+        self._backend_switch.set_options(options)
+        if prev_key:
+            self._backend_switch.setCurrentKey(
+                prev_key, animated=False, emit=False,
+            )
 
     # ------------------------------------------------------------------
     # Submit

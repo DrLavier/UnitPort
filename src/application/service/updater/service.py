@@ -37,6 +37,7 @@ from .release_api import (
     fetch_latest_release,
 )
 from .release_info import ApplyResult, ReleaseInfo
+from .user_state import restore_user_keys, snapshot_user_keys
 
 
 # Skip the API call if we have a fresh-enough cached result. 6 h keeps
@@ -257,11 +258,40 @@ class UpdateService:
                 except Exception:
                     pass
 
+        # CLAUDE.md §1.4: every channel restores the factory copy of
+        # system.ini (git checkout / zip merge / future installer) which
+        # would wipe the runtime-written workspace + session keys. Snapshot
+        # them here and re-apply once the channel returns — works for any
+        # channel without each having to know which keys to preserve.
+        preserved = snapshot_user_keys()
+        if preserved:
+            log_debug(
+                f"[updater] preserving system.ini keys across update: "
+                f"{sorted((s, k) for s, kv in preserved.items() for k in kv)}"
+            )
+
         try:
             result = ch.apply(release, progress_cb=cb)
         except Exception as exc:  # noqa: BLE001
             log_warning(f"[updater] channel raised: {exc}")
             result = ApplyResult(ok=False, message=f"channel error: {exc}")
+
+        # Always restore — the channel may have partially overwritten
+        # system.ini even on failure (zip merge iterates file-by-file).
+        # No-op when the snapshot was empty (pre-wizard install).
+        if preserved:
+            try:
+                wrote = restore_user_keys(preserved)
+                if wrote:
+                    log_info(
+                        "[updater] restored user-customised system.ini keys "
+                        "([Workspace]/[Resources]/[Session])"
+                    )
+            except Exception as exc:  # noqa: BLE001 — defensive
+                log_warning(
+                    f"[updater] failed to restore preserved system.ini keys: "
+                    f"{exc}. Workspace + session values may need to be re-entered."
+                )
 
         if result.ok:
             # Clear the "available" flag so the next launch's check

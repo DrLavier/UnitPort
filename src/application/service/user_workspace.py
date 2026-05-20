@@ -261,6 +261,26 @@ def _read_system_ini_value(section: str, key: str) -> str:
     return (cp.get(section, key, fallback="") or "").strip()
 
 
+def read_system_ini_value(section: str, key: str) -> str:
+    """Public wrapper for :func:`_read_system_ini_value`.
+
+    Exposed so sibling services (notably the updater) can read raw
+    system.ini values without reaching into the underscore-prefixed
+    internal helper.
+    """
+    return _read_system_ini_value(section, key)
+
+
+def patch_system_ini(updates: Dict[str, Dict[str, str]]) -> bool:
+    """Public wrapper for :func:`_patch_system_ini`.
+
+    Exposed so sibling services can rewrite system.ini entries while
+    preserving comments and section ordering. Same return contract as
+    the underscore version: ``True`` iff the file was actually modified.
+    """
+    return _patch_system_ini(updates)
+
+
 # ===========================================================================
 # Shim deletion — the bootstrap shim is illegal under the new ground rules.
 # ===========================================================================

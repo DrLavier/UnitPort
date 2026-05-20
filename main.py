@@ -972,8 +972,14 @@ class UnitPortMain:
             )
 
         try:
-            from registers.backends import refresh_engine_availability
-            refresh_engine_availability()
+            # Go through EngineService.refresh() rather than calling
+            # registers.backends.refresh_engine_availability() directly:
+            # the service wraps the refresh + emits ``changed("")`` so every
+            # UI surface listening for engine-availability flips (user panel
+            # _EngineRow, homepage Create card backend SliderSwitch, ...)
+            # repaints without us having to enumerate them here.
+            from application.service.engines import get_engine_service
+            get_engine_service().refresh()
             log_success(
                 "[isaac-install] backends registry refreshed after install"
             )
