@@ -27,9 +27,12 @@ collapsed into a single :meth:`from_sku` against RELEASE's
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List, Optional
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -74,6 +77,13 @@ class MjActor:
             raise FileNotFoundError(f"MjActor: MJCF not found at {path}")
 
         mj_model = mujoco.MjModel.from_xml_path(str(path))
+        # Strip any built-in MJCF PD actuators (position / general affine)
+        # down to plain motor (ctrl = direct torque). UnitPort's
+        # PDController owns the PD math (mass-weighted Kp/Kd from
+        # mujoco_gain_solver); double-layered PD against MJCF's stock
+        # kp/kv was the root cause of the Spot "robot flies away" sim2sim
+        # regression. See _neutralize_mjcf_actuators below for details.
+        _neutralize_mjcf_actuators(mj_model, mjcf_label=str(path))
         mj_data = mujoco.MjData(mj_model)
         joint_names = _extract_joint_names(mj_model)
 
@@ -132,6 +142,125 @@ class MjActor:
 # ----------------------------------------------------------------------
 # Internal helpers
 # ----------------------------------------------------------------------
+
+
+def _neutralize_mjcf_actuators(mj_model: Any, mjcf_label: str = "") -> None:
+    """Convert all non-motor actuators on ``mj_model`` to plain motor form.
+
+    Why this exists
+    ---------------
+    UnitPort's sim2sim PD framework (CLAUDE.md §1.10) routes ALL PD math
+    through :class:`PDController`: mass-weighted Kp/Kd are derived from
+    the canonical ``(omega_n, zeta)`` via ``mujoco_gain_solver`` and
+    written into the bundle as ``mujoco_pd_gains`` / ``mujoco_pd_damping``.
+    At runtime, ``PDController.compute()`` produces per-joint torques
+    that get written to ``mj_data.ctrl[:]``.
+
+    For ``<motor>`` actuators MuJoCo interprets ``ctrl[i]`` as a direct
+    force/torque and applies it unchanged — this is the contract
+    UnitPort assumes everywhere (Go2's MJCF is purely motor-based).
+
+    For ``<position>`` / ``<general>`` actuators the MJCF carries its
+    own ``kp`` / ``kv`` and MuJoCo interprets ``ctrl[i]`` as a
+    **position target**, computing internally
+    ``tau = kp*(ctrl - q) + kv*(0 - qvel)``. Boston Dynamics Spot's
+    menagerie MJCF ships with ``<position kp="500" kv="40">``, which
+    means:
+      - UnitPort's PDController-computed torques (e.g. -13.86 N·m for
+        a calf joint) get treated as a position target in radians;
+      - MuJoCo's internal PD with stock kp=500 then drives the joint
+        towards that "target", producing huge spurious forces;
+      - the joint range clamp keeps the effective error bounded, but
+        the resulting torques still launch the robot off the floor on
+        step 0 ("robot flies away" sim2sim regression).
+
+    This function neutralizes that path: every actuator with a
+    non-NONE bias or non-identity gain is rewritten in-place to a
+    motor (gain=1, bias=0, ctrllimited off because the original
+    ctrlrange was angular, not torque-bounded). UnitPort's
+    PDController is then the single PD authority — the only place
+    Kp / Kd math happens.
+
+    Idempotency
+    -----------
+    Re-running this is a no-op: motor-shape actuators are detected
+    and skipped. The transform writes only to the model's actuator
+    arrays; ``mj_data`` is unaffected (callers may build a fresh
+    ``mujoco.MjData(mj_model)`` after this returns).
+    """
+    import mujoco
+
+    nu = int(mj_model.nu)
+    if nu == 0:
+        return
+
+    converted: List[str] = []
+    sample_kp = sample_kv = 0.0
+
+    motor_gain = int(mujoco.mjtGain.mjGAIN_FIXED)
+    motor_bias = int(mujoco.mjtBias.mjBIAS_NONE)
+
+    for i in range(nu):
+        gaintype = int(mj_model.actuator_gaintype[i])
+        biastype = int(mj_model.actuator_biastype[i])
+        gainprm0 = float(mj_model.actuator_gainprm[i, 0])
+
+        # Already a pure motor (gain=FIXED with gainprm[0]=1 + bias=NONE):
+        # leave it alone so we don't perturb correctly-configured MJCFs.
+        if (
+            gaintype == motor_gain
+            and biastype == motor_bias
+            and abs(gainprm0 - 1.0) < 1e-9
+        ):
+            continue
+
+        # Record the original kp/kv (only meaningful for position-style
+        # actuators where biasprm == [0, -kp, -kv]) for the diagnostic
+        # log line. Best-effort — non-standard biasprm layouts just
+        # leave the sample values at zero.
+        if biastype == int(mujoco.mjtBias.mjBIAS_AFFINE):
+            orig_kp = -float(mj_model.actuator_biasprm[i, 1])
+            orig_kv = -float(mj_model.actuator_biasprm[i, 2])
+            if abs(orig_kp) > abs(sample_kp):
+                sample_kp = orig_kp
+            if abs(orig_kv) > abs(sample_kv):
+                sample_kv = orig_kv
+
+        # Capture actuator name for the log (best-effort).
+        try:
+            name = mujoco.mj_id2name(
+                mj_model, int(mujoco.mjtObj.mjOBJ_ACTUATOR), i
+            ) or f"actuator_{i}"
+        except Exception:
+            name = f"actuator_{i}"
+        converted.append(str(name))
+
+        # Rewrite to motor: gain=FIXED with unit scale, bias=NONE.
+        mj_model.actuator_gaintype[i] = motor_gain
+        mj_model.actuator_biastype[i] = motor_bias
+        mj_model.actuator_gainprm[i, :] = 0.0
+        mj_model.actuator_gainprm[i, 0] = 1.0
+        mj_model.actuator_biasprm[i, :] = 0.0
+        # The MJCF's ctrlrange was the joint angular range
+        # (``inheritrange="1"``); for a motor it would be interpreted
+        # as a torque range, which is meaningless. Disable the limit
+        # — UnitPort's PDController applies its own ``effort_limit``.
+        mj_model.actuator_ctrllimited[i] = 0
+
+    if converted:
+        preview = ", ".join(converted[:6])
+        if len(converted) > 6:
+            preview += f", … (+{len(converted) - 6} more)"
+        log.info(
+            "MjActor: neutralized %d MJCF actuator(s) → motor form "
+            "(stripped built-in PD; UnitPort PDController owns PD math). "
+            "Source MJCF: %s. Original kp_max≈%.1f kv_max≈%.1f. Affected: %s",
+            len(converted),
+            mjcf_label or "?",
+            sample_kp,
+            sample_kv,
+            preview,
+        )
 
 
 def _extract_joint_names(mj_model: Any) -> List[str]:

@@ -35,7 +35,7 @@ import hashlib
 import re
 from typing import Any, Dict
 
-from unitport_sdk import Paths, log_debug, log_error, log_success, read_data
+from unitport_sdk import Paths, log_debug, log_error, log_success, log_warning, read_data
 
 
 # =============================================================================
@@ -81,7 +81,7 @@ class RegistryHub:
     _loaded: bool = False
     _summary: Dict[str, int] = {}
 
-    DOMAINS = ("ir", "robots", "nodes", "manifests", "backends", "brands", "services", "commands", "motion_phases")
+    DOMAINS = ("ir", "robots", "nodes", "manifests", "backends", "brands", "services", "commands", "motion_phases", "pd_groups")
 
     @classmethod
     def load_all(cls) -> None:
@@ -127,6 +127,9 @@ class RegistryHub:
         from . import motion_phases
         cls._summary["motion_phases"] = motion_phases.load()
 
+        from . import pd_groups
+        cls._summary["pd_groups"] = pd_groups.load()
+
         cls._merge_user_overlays()
 
         cls._loaded = True
@@ -167,50 +170,202 @@ class RegistryHub:
                     cls._summary["motion_phases"] = cls._summary.get("motion_phases", 0) + added
                     log_debug(f"[registers] motion_phases_custom merged: +{added} phases")
 
+        pd_groups_custom_path = user_root / "pd_groups_custom.json"
+        if pd_groups_custom_path.exists():
+            from . import pd_groups
+            payload = read_data(pd_groups_custom_path) or {}
+            if isinstance(payload, dict):
+                added = pd_groups.merge_user_extensions(payload)
+                if added:
+                    log_debug(f"[registers] pd_groups_custom merged: +{added} overrides")
+
     @classmethod
     def validate(cls) -> None:
-        """跨注册表完整性校验 / Cross-registry integrity check.
+        """Cross-registry integrity check.
 
-        当前规则：
-        1. 每个 robot 的 joints[*].ir_role 必须在该 robot families 对应的 IR roles 之内
-        2. canonical_version 字段一致（提示用）
+        Rules:
+        1. Every robot must use the per-format schema (``joints_per_format``
+           + ``bodies_per_format``); the legacy flat ``joints`` field is
+           rejected (already migrated via
+           ``bootstrap/migrate_canonical_to_per_format.py``).
+        2. Each robot must declare at least one non-null format (joints
+           or bodies). All-null = warning only — registered but not
+           trainable; training launcher surfaces the error at use-time.
+        3. Under every declared format, every joints[*].ir_role and
+           bodies[*].ir_role must be non-empty AND a member of the IR
+           canonical role set for that robot's families.
 
-        失败抛 RegistryValidationError；调用方决定阻塞启动或降级。
+        Raises :class:`RegistryValidationError` on rule 1 / 3 failure
+        (rule 2 logs a warning and continues).
         """
         if not cls._loaded:
             raise RuntimeError("RegistryHub.load_all() 必须先调用")
 
         from . import ir, robots
 
+        _FORMATS = ("MJCF", "USD", "URDF")
         problems: list[str] = []
+
         for sku in robots.list_skus():
             entry = robots.get_robot(sku)
             if entry is None:
                 continue
+            name = entry.get("name", "")
             families = list(entry.get("families", []) or [])
-            if not families:
+            # User-overlay entries (set via Dump MJCF/USD, manual edits,
+            # robots_custom.json) are works-in-progress: the user is
+            # filling in IR roles via the canvas BodyMappingTable. We
+            # log empty / unknown ir_role hits as warnings rather than
+            # rejecting the whole boot — otherwise a half-finished Dump
+            # would brick the app on next startup.
+            is_user_layer = False
+            try:
+                is_user_layer = bool(robots.is_user_extension(sku))
+            except Exception:
+                pass
+
+            # Rule 1: legacy ``joints`` field is forbidden post-migration.
+            if "joints" in entry:
+                problems.append(
+                    f"  robot={sku}({name}) still carries the legacy flat "
+                    f"'joints' field; run bootstrap/migrate_canonical_to_per_format.py "
+                    f"to finish the per-format migration"
+                )
                 continue
+
+            joints_pf = entry.get("joints_per_format")
+            bodies_pf = entry.get("bodies_per_format")
+            if not isinstance(joints_pf, dict) or not isinstance(bodies_pf, dict):
+                problems.append(
+                    f"  robot={sku}({name}) missing joints_per_format / "
+                    f"bodies_per_format field"
+                )
+                continue
+
+            # Rule 2: warn (don't error) when every format is null. This is
+            # a legal "registered but not trainable" state — e.g. catalog
+            # entries for robots whose joint table hasn't been filled in yet.
+            # The training launcher surfaces the error at use-time, not here.
+            any_declared = False
+            for fmt in _FORMATS:
+                if isinstance(joints_pf.get(fmt), dict) or isinstance(bodies_pf.get(fmt), dict):
+                    any_declared = True
+                    break
+            if not any_declared:
+                log_warning(
+                    f"[registers] robot={sku}({name}) joints_per_format / "
+                    f"bodies_per_format are all null - no format declared; "
+                    f"open the Robot Asset card and click Dump MJCF/USD "
+                    f"before training"
+                )
+                continue
+
+            if not families:
+                # families-less robot can't be IR-validated; skip rule 3 silently
+                continue
+
             valid_role_ids = {r["id"] for r in ir.list_roles_for_families(*families)}
-            joints = entry.get("joints", {}) or {}
-            for jsku, jspec in joints.items():
-                ir_role = (jspec or {}).get("ir_role", "")
-                # CLAUDE.md §1.2 red line: every joint must have a non-empty
-                # ir_role mapped into the canonical catalog. The earlier
-                # truthy guard (``if ir_role and ...``) silently let
-                # ir_role="" slip through — that path is the same family of
-                # bug the il_manifest_compat.py auto-extension fix targets.
-                role_str = str(ir_role).strip() if ir_role is not None else ""
-                if not role_str:
-                    problems.append(
-                        f"  robot={sku}({entry.get('name','')}) "
-                        f"joint={jsku} 的 ir_role 为空; 每个关节必须显式映射到 families={families} 的 IR canonical role"
-                    )
-                    continue
-                if role_str not in valid_role_ids:
-                    problems.append(
-                        f"  robot={sku}({entry.get('name','')}) "
-                        f"joint={jsku} ir_role={role_str!r} 不在 families={families} 的 IR canonical 内"
-                    )
+
+            # Rule 3: every declared joint / body has a non-empty ir_role that
+            # lives in the IR canonical for this robot's families.
+            for fmt in _FORMATS:
+                for kind, block_holder in (("joint", joints_pf), ("body", bodies_pf)):
+                    block = block_holder.get(fmt)
+                    if not isinstance(block, dict):
+                        continue
+                    for uid, spec in block.items():
+                        ir_role = (spec or {}).get("ir_role", "")
+                        role_str = str(ir_role).strip() if ir_role is not None else ""
+                        if not role_str:
+                            if is_user_layer:
+                                log_warning(
+                                    f"[registers] robot={sku}({name}) "
+                                    f"{fmt}.{kind}={uid} ir_role is empty - "
+                                    f"open the canvas Robot node body_mapping "
+                                    f"table to assign it before training"
+                                )
+                            else:
+                                problems.append(
+                                    f"  robot={sku}({name}) {fmt}.{kind}={uid} "
+                                    f"ir_role is empty; every {kind} must explicitly "
+                                    f"map to an IR canonical role for families={families}"
+                                )
+                            continue
+                        # Sentinel: user explicitly marked this entry as
+                        # "(Out of Scope)" via the IR-role assignment
+                        # dialog. Treat as resolved — don't warn.
+                        if role_str == robots.OUT_OF_SCOPE_IR_ROLE:
+                            continue
+                        if role_str not in valid_role_ids:
+                            if is_user_layer:
+                                log_warning(
+                                    f"[registers] robot={sku}({name}) "
+                                    f"{fmt}.{kind}={uid} ir_role={role_str!r} "
+                                    f"is not in the IR canonical for "
+                                    f"families={families} - re-assign in the "
+                                    f"canvas Robot node body_mapping table"
+                                )
+                            else:
+                                problems.append(
+                                    f"  robot={sku}({name}) {fmt}.{kind}={uid} "
+                                    f"ir_role={role_str!r} is not in the IR canonical "
+                                    f"for families={families}"
+                                )
+
+        # Rule 4: inheritance integrity (model_family / variant_label / inherits_from).
+        # Runs after Rules 1–3 because those operate on the merged view, so by
+        # the time we reach here every variant already saw its parent's joints
+        # for IR-role validation.
+        for sku in robots.list_skus():
+            entry = robots.get_robot(sku)
+            raw = robots.get_raw_robot(sku) or {}
+            if entry is None:
+                continue
+            parent_sku = raw.get("inherits_from")
+            if not parent_sku:
+                continue
+            parent = robots.get_robot(parent_sku)
+            parent_raw = robots.get_raw_robot(parent_sku) or {}
+            # 4a parent must exist
+            if parent is None:
+                problems.append(
+                    f"  robot={sku} inherits_from={parent_sku!r} but parent is "
+                    f"not registered"
+                )
+                continue
+            # 4b chains forbidden
+            if parent_raw.get("inherits_from"):
+                problems.append(
+                    f"  robot={sku} inherits_from={parent_sku} which is itself "
+                    f"a variant (inherits_from={parent_raw.get('inherits_from')!r}); "
+                    f"inheritance chains are not allowed"
+                )
+                continue
+            # 4c model_family must match parent's
+            v_family = raw.get("model_family") or raw.get("model")
+            p_family = parent_raw.get("model_family") or parent_raw.get("model")
+            if v_family and p_family and str(v_family).lower() != str(p_family).lower():
+                problems.append(
+                    f"  robot={sku} model_family={v_family!r} does not match "
+                    f"parent {parent_sku} model_family={p_family!r}"
+                )
+            # 4d warn (not error) when families diverge from parent
+            v_fams = set(raw.get("families", []) or [])
+            p_fams = set(parent_raw.get("families", []) or [])
+            if v_fams and p_fams and v_fams != p_fams:
+                log_warning(
+                    f"[registers] robot={sku} families={sorted(v_fams)} diverges "
+                    f"from parent {parent_sku} families={sorted(p_fams)}; IR-role "
+                    f"validation runs against the variant's own families"
+                )
+
+        # Rule 5: pd_groups integrity — every group regex covers ≥1 IR role
+        # for its family, no two groups overlap, every defined group has a
+        # default (omega_n, zeta) pair. Delegates to pd_groups.validate().
+        from . import pd_groups
+        pd_problems = pd_groups.validate()
+        if pd_problems:
+            problems.extend(pd_problems)
 
         if problems:
             msg = "[registers] validate failed:\n" + "\n".join(problems)

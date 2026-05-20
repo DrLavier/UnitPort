@@ -26,9 +26,23 @@ def build_panel(key: str, parent: Optional[QWidget] = None) -> Optional[QWidget]
     if key == "controller":
         from .controller_panel import ControllerPanel
         return ControllerPanel(parent=parent)
+    if key == "resources":
+        from .resources_panel import ResourcesPanel
+        return ResourcesPanel(parent=parent)
     if key == "node_library":
         from .node_library_panel_wrapper import SidebarNodeLibraryPanel
         return SidebarNodeLibraryPanel(parent=parent)
+    if key == "training":
+        from .scripts_panels import TrainingScriptsPanel
+        return TrainingScriptsPanel(parent=parent)
+    if key in ("rewards", "terminations", "observations"):
+        from .scripts_panels import RegistryPresetPanel
+        kind = {
+            "rewards": "reward",
+            "terminations": "termination",
+            "observations": "observation",
+        }[key]
+        return RegistryPresetPanel(kind=kind, parent=parent)
     return None
 
 

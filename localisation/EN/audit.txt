@@ -18,3 +18,4 @@ reject_failed_no_cloud = No cloud copy available — Reject not possible. (Was t
 reject_failed_network = Cloud fetch failed (network or auth error): {err}
 accept_confirm_body = Keep {actor}'s {op} on '{name}'? This entry will be removed from the review list.
 empty_state = No pending changes to review.
+

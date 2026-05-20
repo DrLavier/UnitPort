@@ -81,20 +81,44 @@ class GaitPreset:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "GaitPreset":
-        phase_raw = d.get("phase") or (0.0, 0.5, 0.5, 0.0)
+        # CLAUDE.md §1.8: gait presets are robot-geometry sensitive.
+        # The previous defaults (body_height=0.35, step_height=0.08,
+        # frequency=2.5, phase=trot) were Go2-class — substituting them
+        # for a humanoid (G1 body_height ≈ 0.7) produces a gait command
+        # impossible to track. Refuse to fabricate; the caller MUST
+        # provide every field.
+        def _required(key: str, caster):
+            if key not in d or d[key] is None:
+                raise ValueError(
+                    f"[GaitPreset.from_dict] required key {key!r} is "
+                    f"missing — refusing to substitute Go2-class default "
+                    f"(CLAUDE.md §1.8). Fix the preset source."
+                )
+            try:
+                return caster(d[key])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"[GaitPreset.from_dict] {key}={d[key]!r} is not "
+                    f"coercible to {caster.__name__}."
+                ) from exc
+
+        phase_raw = _required("phase", lambda v: v)
         if not isinstance(phase_raw, (list, tuple)) or len(phase_raw) != 4:
-            phase_raw = (0.0, 0.5, 0.5, 0.0)
+            raise ValueError(
+                f"[GaitPreset.from_dict] phase must be a 4-element "
+                f"sequence (per-leg clock offsets), got {phase_raw!r}."
+            )
         return cls(
-            name=str(d.get("name", "unnamed")),
-            frequency=float(d.get("frequency", 2.5) or 2.5),
+            name=str(_required("name", str)),
+            frequency=_required("frequency", float),
             phase=(
                 float(phase_raw[0]),
                 float(phase_raw[1]),
                 float(phase_raw[2]),
                 float(phase_raw[3]),
             ),
-            body_height=float(d.get("body_height", 0.35) or 0.35),
-            step_height=float(d.get("step_height", 0.08) or 0.08),
+            body_height=_required("body_height", float),
+            step_height=_required("step_height", float),
         )
 
 

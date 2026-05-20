@@ -1,8 +1,7 @@
 #!/bin/bash
 # ==============================================================================
-# UnitPort RELEASE install.sh
-# Strategy: project-local .venv311 (Python 3.11), physically isolated from
-#           DEMO/.venv311 (each tree has its own venv).
+# UnitPort install.sh
+# Strategy: project-local .venv311 (Python 3.11).
 #
 # Creates a project-local virtual environment at .venv311/
 # and installs all dependencies into it.
@@ -16,6 +15,77 @@ set -e  # Exit on error
 # Get script directory (resolve symlinks)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# ------------------------------------------------------------------------------
+# ASCII logo (always) + LICENSE panel (first install only).
+# First-install gate: $SCRIPT_DIR/runtime/env/install_state.json absence.
+# reset.sh / reset.bat clears that file -> factory reset re-prompts the license.
+#
+# UNITPORT_ASCII_PRINTED=1 means our caller (start.sh) already painted the
+# logo, so we skip it to avoid the double-print. Direct runs of install.sh
+# still see the logo because the var is not set.
+# ------------------------------------------------------------------------------
+
+print_ascii() {
+    cat << 'ASCII_EOF'
+========================================================================================================================
+------------------------------------------------------------------------------------------------------------------------
+         ####
+     ####   ####                                          ####
+ #####   ############      #####     #####                #####  #####   ############                            ####
+##    ##########    ##     #####     #####                       #####   #############                          #####
+##  #########       ##     #####     #####  ###########   ##### ######## #####    #####   #########   ####### #########
+##  ######     #### ##     #####     #####  ############  ##### ######## #####    ##### ############  ####### #########
+##  ######    ##### ##     #####     #####  ####    ####  #####  #####   #############  ####    ##### #####     #####
+##  ######    ##### ##     #####     #####  ####    ####  #####  #####   ###########    ####    ##### #####     #####
+##    ####    ##    ##     ######   ######  ####    ####  #####  #####   #####          #####   ##### #####     #####
+###               ###       #############   ####    ####  #####  ####### #####           ###########  #####     #######
+  #####      ######           ########      ####    ####  #####   ###### #####             #######    #####       #####
+     #####   ###
+         ####
+------------------------------------------------------------------------------------------------------------------------
+========================================================================================================================
+ASCII_EOF
+}
+
+print_license() {
+    cat << 'LICENSE_EOF'
+
+========================================================================================================================
+ | UnitPort Studio  -  License and Pre-install Notice                                                                  |
+ |                                                                                                                     |
+ | [LICENSE - Key Terms]                                                                                               |
+ |   1. Data Security  : User data is processed and stored locally by default.                                         |
+ |                       Cloud storage is hosted on Supabase, optional, and does not block normal usage.               |
+ |   2. No Repackaging : Redistributing or commercially reselling this software (or derivatives) is prohibited.        |
+ |   3. Copyright      : Protected under the EU Copyright Directive 2019/790. Violations will be prosecuted.           |
+ |                                                                                                                     |
+ | [Installation Notice]                                                                                               |
+ |   First-time install may take 15 - 45 minutes, depending on selected components and network conditions.             |
+ |   Components include Isaac Lab, loco-mujoco, and vendor SDKs.                                                       |
+ |   Please keep the network stable and avoid power loss during installation.                                          |
+========================================================================================================================
+LICENSE_EOF
+}
+
+if [ -z "${UNITPORT_ASCII_PRINTED:-}" ]; then
+    print_ascii
+fi
+
+if [ ! -f "$SCRIPT_DIR/runtime/env/install_state.json" ]; then
+    print_license
+    echo ""
+    while true; do
+        # set -e is on; tolerate non-zero `read` (EOF, Ctrl-D) without dying.
+        LICENSE_ANSWER=""
+        read -r -p "Have you read and agreed to the terms above? [Y/N]: " LICENSE_ANSWER || true
+        case "$LICENSE_ANSWER" in
+            [Yy]) echo ""; break ;;
+            [Nn]) echo ""; echo "[install] Cancelled. Run install.sh again to review the terms."; exit 0 ;;
+            *) echo "  Please enter Y or N."; echo "" ;;
+        esac
+    done
+fi
 
 echo "[install] UnitPort RELEASE environment setup"
 echo "[install] Project root: $SCRIPT_DIR"

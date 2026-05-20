@@ -2,7 +2,7 @@
 
 Factory presets ship with the canonical robot registry
 (``robots_canonical.json[sku].init_pose_presets``). User-created presets
-live in ``~/UnitPort/robot_presets/init_poses.json`` (per RELEASE rule
+live in ``<USER_CONFIG_DIR>/robot_presets/init_poses.json`` (per RELEASE rule
 §1.4: user state never inside ``src/``).
 
 ``list_presets(sku)`` merges both sources. When a user preset shares a
@@ -98,7 +98,7 @@ class InitPoseService(QObject):
         return [InitPosePreset.from_dict(p, SOURCE_FACTORY) for p in raw]
 
     def list_user_presets(self, sku: str) -> List[InitPosePreset]:
-        """User-created presets from ``~/UnitPort/robot_presets/init_poses.json``."""
+        """User-created presets from ``<USER_CONFIG_DIR>/robot_presets/init_poses.json``."""
         if not sku:
             return []
         state = self._load_state()

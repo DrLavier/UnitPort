@@ -47,7 +47,7 @@ class Template:
 
 
 def _templates_root() -> Path:
-    return Paths.PROJECT_ROOT / "custom_mods" / "canvas"
+    return Paths.CUSTOM_MODS_DIR / "canvas"
 
 
 def _backend_dir(backend_id: str) -> Path:

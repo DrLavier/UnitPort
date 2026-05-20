@@ -60,3 +60,4 @@ busy_self_check = 正在检查云端状态...
 done_push = 已推送 {ok}/{total} 个文件，跳过 {skipped} 个。
 done_pull = 已拉取 {ok}/{total} 个文件，跳过 {skipped} 个。
 never_synced = 从未
+

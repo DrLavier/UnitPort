@@ -32,8 +32,20 @@ from unitport_sdk import log_debug, log_warning
 from .command_bus import CommandBus
 
 
+# WHY KEPT: pygame is an optional third-party dep (CLAUDE.md §1.8 case (a)) —
+# absent on minimal installs, in which case the gamepad mode tile renders red
+# and keyboard fallback is used. The inner warnings filter silences pygame
+# 2.6.x's internal `from pkg_resources import ...` UserWarning at import time
+# (pygame upstream still uses the deprecated API; we cannot fix it here).
 try:
-    import pygame  # type: ignore
+    import warnings as _warnings
+    with _warnings.catch_warnings():
+        _warnings.filterwarnings(
+            "ignore",
+            message=r"pkg_resources is deprecated as an API.*",
+            category=UserWarning,
+        )
+        import pygame  # type: ignore
     _PYGAME_OK = True
 except ImportError:
     pygame = None  # type: ignore[assignment]

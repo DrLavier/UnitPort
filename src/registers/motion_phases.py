@@ -20,7 +20,7 @@ strafe/pace), and ``agile`` (run/canter/jump). Phases serve two purposes:
 Data layout
 -----------
 * Factory defaults: ``data/motion_phases.json``  (read-only).
-* User overlay   : ``~/UnitPort/registers/motion_phases_custom.json``
+* User overlay   : ``<USER_CONFIG_DIR>/registers/motion_phases_custom.json``
                    (merged on load via :func:`merge_user_extensions`;
                    never written into the project tree).
 

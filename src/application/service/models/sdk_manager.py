@@ -101,7 +101,7 @@ class _InstallTarget:
 # ---------------------------------------------------------------------------
 
 def _sdk_extensions_root() -> Path:
-    return Paths.PROJECT_ROOT / "custom_mods" / "runtime" / "sdk_extensions"
+    return Paths.CUSTOM_MODS_DIR / "runtime" / "sdk_extensions"
 
 
 def _install_state_path() -> Path:

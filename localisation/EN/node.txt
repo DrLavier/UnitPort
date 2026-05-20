@@ -66,14 +66,6 @@ port.checkpoint = Checkpoint
 port.total_steps = Total Steps
 port.algo_config = Algo Config
 
-[amp_helper]
-display = AMP Helper
-desc = AMP analysis + auto-tune helper
-param.analysis_result = Analysis Result
-param.applied_overrides = Overrides
-port.total_reward = Total Reward
-port.discriminator_config = Disc Config
-
 [amp_trainer]
 display = AMP Trainer
 desc = Isaac Lab AMP_PPO trainer (alias of IL PPO Trainer in AMP_PPO mode)
@@ -430,14 +422,23 @@ param.threshold = Threshold
 port.actor_pipe = Actor Pipe
 port.command_pipe = Command Pipe
 port.total_reward = Total Reward
+covered_lane = covered by Unconditional
+empty_lane = no reward — phase under-constrained
 
 [robot]
 display = Robot
-desc = Robot asset + body mapping
+desc = Robot asset + body mapping + PD parameterization
 param.asset_id = Asset Id
 param.active_override = Active Override
 param.body_mapping = Body Mapping
 param.target_height = Target Height
+param.pd_param_mode = PD Mode
+param.pd_groups = PD Groups
+param.pd_effort_limit = Effort Limit
+param.pd_velocity_limit = Velocity Limit
+param.pd_resolve_at_reset = Re-solve on Reset
+param.pd_calibration_blocking = Block on Cal Fail
+param.pd_skip_calibration = Skip Calibration
 port.robot_pipe = Robot Pipe
 
 [stage_switch]
@@ -538,6 +539,6 @@ port.vis_check = Vis Check
 
 [example]
 print_hello.display = Print Hello
-print_hello.desc = example.print_hello
+print_hello.desc = Community node starter template — declares a single string parameter; uses default passthrough execute.
 print_hello.param.message = Message
 

@@ -16,6 +16,8 @@ remove_server = Remove
 set_default = Set as default
 settings_hint = SSH-style training servers for {engine}. Passwords live in the OS keyring; nothing here is persisted in plaintext.
 settings_title = Cloud servers — {engine}
+local_isaac_unregistered = Not registered — pick install root via the gear
+local_registered_with_ver = {root} (v{ver})
 
 [server_editor]
 add = Add server
@@ -28,4 +30,16 @@ name_required = Display name is required.
 name_taken = A server named {name} already exists.
 port = Port
 user = User
+auth = Auth
+auth_key = SSH Key
+auth_password = Password
+browse = Browse...
+conda_env = Conda env
+conda_env_ph = isaaclab (optional)
+key_file = Key file
+key_required = Private key path is required for key authentication.
+password_hint = Passwords are never stored here — supply them at connect time (persisted in the OS keyring).
+pick_key = Select SSH private key
+remote_install_dir = Remote install dir
+remote_work_dir = Remote work dir
 

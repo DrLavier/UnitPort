@@ -55,6 +55,7 @@ from unitport_sdk import (
     I18n,
     LaviButton,
     TitleGroupBox,
+    i18n_bind,
     setButton,
     setTitleGroupBox,
     setWheelSelector,
@@ -225,6 +226,10 @@ class Sidebar(QFrame):
     # Re-emitted from the node_library pop-out panel; routed by MainWindow
     # into the live CanvasPage. Payload = registers.nodes manifest id.
     node_requested = pyqtSignal(str)
+    # Emitted after a sidebar panel is constructed in ``_build_panel_page``.
+    # MainWindow uses this to (re)seed panel state (project / canvas /
+    # backend) without having to know panel construction timing.
+    panel_built = pyqtSignal(str, QWidget)
 
     # (key, icon_id, i18n_key, default_label, tooltip_default)
     # Rail order: User is always first (above divider). After the divider,
@@ -236,6 +241,15 @@ class Sidebar(QFrame):
         ("projects",     "icon_prj",        "sidebar.projects",     "Project Files", "Project Files"),
         ("robot_assets", "icon_robot",      "sidebar.robot_assets", "Robot Asset",   "Robot Asset"),
         ("controller",   "icon_controller", "sidebar.controller",   "Controller",    "Controller"),
+        ("resources",    "icon_resource",   "sidebar.resources",    "Resources",     "Third-party motion datasets & policy bundles"),
+        # Scripts-mode rail entries. Hidden in every mode except "scripts"
+        # (see ``_MODE_VISIBLE_KEYS``). Order: Rewards first (most-used →
+        # default-open in Scripts mode, see ``apply_view_mode``), then
+        # Termins, Observs, and finally Training at the bottom.
+        ("rewards",      "icon_rewards",     "sidebar.rewards",      "Rewards",       "Reward preset modules"),
+        ("terminations", "icon_termination", "sidebar.terminations", "Termins",       "Termination preset modules"),
+        ("observations", "icon_observation", "sidebar.observations", "Observs",       "Observation preset modules"),
+        ("training",     "icon_build",       "sidebar.training",     "Training",      "Project + Global scripts"),
     )
 
     # Per-panel TitleGroupBox metadata: (key, i18n_key, default_title).
@@ -244,43 +258,67 @@ class Sidebar(QFrame):
         "projects":     ("sidebar.projects.title",     "Project Files"),
         "robot_assets": ("sidebar.robot_assets.title", "Robot Asset"),
         "controller":   ("sidebar.controller.title",   "Controller"),
+        "resources":    ("sidebar.resources.title",    "Resources"),
         "node_library": ("sidebar.node_library.title", "Node Library"),
+        "training":     ("sidebar.training.title",     "Training Scripts"),
+        "rewards":      ("sidebar.rewards.title",      "Rewards"),
+        "terminations": ("sidebar.terminations.title", "Terminations"),
+        "observations": ("sidebar.observations.title", "Observations"),
     }
 
     # Short single-word label rendered beneath each rail button's icon
     # (Project Files → Projects, Robot Asset → Robots, etc.). Drawn with
     # ``size_sidebar`` so it fits a 50px square button without crowding
     # the icon above. Tooltip still carries the long-form name.
+    # Stored as ``key → (i18n_key, default_short_label)`` so the bottom
+    # label re-translates on ``language_changed``.
     _NAV_SHORT_LABELS = {
-        "user":         "User",
-        "node_library": "Nodes",
-        "projects":     "Projects",
-        "robot_assets": "Robots",
-        "controller":   "Controller",
+        "user":         ("sidebar.user.short",         "User"),
+        "node_library": ("sidebar.node_library.short", "Nodes"),
+        "projects":     ("sidebar.projects.short",     "Projects"),
+        "robot_assets": ("sidebar.robot_assets.short", "Robots"),
+        "controller":   ("sidebar.controller.short",   "Controller"),
+        "resources":    ("sidebar.resources.short",    "Resources"),
+        "training":     ("sidebar.training.short",     "Training"),
+        "rewards":      ("sidebar.rewards.short",      "Rewards"),
+        "terminations": ("sidebar.terminations.short", "Termins"),
+        "observations": ("sidebar.observations.short", "Observs"),
     }
-    _FULLSCREEN_SHORT_LABEL = "Fullscreen"
-    _LANG_SHORT_LABEL = "Language"
-    _SETTINGS_SHORT_LABEL = "Settings"
+    _FULLSCREEN_SHORT_LABEL = ("sidebar.fullscreen.short", "Fullscreen")
+    _LANG_SHORT_LABEL = ("sidebar.language.short", "Language")
+    _SETTINGS_SHORT_LABEL = ("sidebar.settings.short", "Settings")
     # Update button has two states. The text-below-icon flips between
     # them via ``_apply_update_state`` as the AppSignals
     # ``update_check_complete`` signal arrives. Initial state = Latest.
-    _UPDATE_SHORT_LABEL_LATEST = "Latest"
-    _UPDATE_SHORT_LABEL_NEEDED = "Update"
+    # i18n keys live in [update] of sidebar.txt (short_latest / short_needed).
+    _UPDATE_SHORT_LABEL_LATEST = ("sidebar.update.short_latest", "Latest")
+    _UPDATE_SHORT_LABEL_NEEDED = ("sidebar.update.short_needed", "Update")
 
-    # Nav keys whose rail icon is tinted with the theme highlight slot.
-    _HIGHLIGHT_TINTED_KEYS = frozenset({"node_library"})
+    # Nav keys whose rail icon keeps its raw SVG fill (no theme tint).
+    # The User key carries dynamic avatar / initials pixmaps that own their
+    # own colour — never tint over it. Every other rail button (Node Library
+    # included) is tinted with ``main_t1`` so the rail reads as one family.
+    _UNTINTED_KEYS = frozenset({"user"})
 
     # MissionControlPanel mode → which nav buttons are shown.
     # Keys not listed here (e.g. ``user``) are always visible.
     _MODE_VISIBLE_KEYS = {
-        "training_canva":  frozenset({"node_library"}),
-        "mission_control": frozenset({"projects", "robot_assets", "controller"}),
+        "training_canva":  frozenset({"node_library", "robot_assets"}),
+        "mission_control": frozenset({"projects", "robot_assets", "controller", "resources"}),
+        # Terminations / Observations are intentionally hidden: their
+        # preset entries are declarative (mapped to Isaac Lab ``mdp.*`` via
+        # ``il_func``) and carry no editable inline source — the Script
+        # editor would only show a synthesized ``def key(): return default``
+        # stub, which is misleading. The panel modules still exist so the
+        # buttons can be re-surfaced if/when real editable variants land.
+        "scripts":         frozenset({"training", "rewards"}),
     }
     # All mode-gated keys (union of the per-mode sets) — convenient for
     # toggling visibility in one pass.
-    _MODE_GATED_KEYS = frozenset(
-        {"node_library", "projects", "robot_assets", "controller"}
-    )
+    _MODE_GATED_KEYS = frozenset({
+        "node_library", "projects", "robot_assets", "controller", "resources",
+        "training", "rewards", "terminations", "observations",
+    })
 
     _BTN_SIZE = 60                # square button — icon top, single-word label bottom
     _BTN_W = _BTN_SIZE
@@ -308,6 +346,10 @@ class Sidebar(QFrame):
         self._fs_btn: Optional[LaviButton] = None
         self._settings_btn: Optional[LaviButton] = None
         self._update_btn: Optional[LaviButton] = None
+        # Most recent payload seen by ``_apply_update_state``. Cached so
+        # the locale re-fire on ``language_changed`` can replay the same
+        # state (Latest vs Update-needed) without inventing one.
+        self._last_release_info: object = None
         # Static V{x.y.z} label below the Update button. Filled in by
         # build_ui after the rail is constructed.
         self._version_label: Optional[QLabel] = None
@@ -393,7 +435,9 @@ class Sidebar(QFrame):
         # Lang button has no SVG icon — the language code itself doubles
         # as the icon (rendered into the top slot by ``_refresh_lang_btn``).
         # The bottom slot carries the short word "Language".
-        self._install_icon_label_stack(self._lang_btn, self._LANG_SHORT_LABEL)
+        self._install_icon_label_stack(
+            self._lang_btn, *self._LANG_SHORT_LABEL,
+        )
         self._style_lang_icon_label()
         self._refresh_lang_btn()
         # Re-skin both child labels when the popup opens/closes (which
@@ -413,10 +457,15 @@ class Sidebar(QFrame):
             default="Fullscreen",
             icon_only=True,
         )
-        self._fs_btn.setToolTip("Fullscreen")
+        i18n_bind(
+            self._fs_btn, "setToolTip",
+            "sidebar.fullscreen.tip", "Fullscreen",
+        )
         self._fs_btn.clicked.connect(self.fullscreen_toggle_requested)
         self._fs_btn._nav_icon_name = "icon_zone_out"
-        self._install_icon_label_stack(self._fs_btn, self._FULLSCREEN_SHORT_LABEL)
+        self._install_icon_label_stack(
+            self._fs_btn, *self._FULLSCREEN_SHORT_LABEL,
+        )
         self._refresh_fs_btn_icon()
         self._fs_btn.setVisible(False)
         rail_layout.addWidget(self._fs_btn)
@@ -432,14 +481,18 @@ class Sidebar(QFrame):
             default="Settings",
             icon_only=True,
         )
-        self._settings_btn.setToolTip(tr("sidebar.settings.tip", "Settings"))
+        i18n_bind(
+            self._settings_btn, "setToolTip",
+            "sidebar.settings.tip", "Settings",
+        )
         self._settings_btn.clicked.connect(self.settings_requested)
         self._settings_btn._nav_icon_name = "icon_setting_alt"
         self._install_icon_label_stack(
-            self._settings_btn, self._SETTINGS_SHORT_LABEL,
+            self._settings_btn, *self._SETTINGS_SHORT_LABEL,
         )
         self._install_rail_tooltip(self._settings_btn)
         self._refresh_aux_btn_icon(self._settings_btn)
+        self._settings_btn.setVisible(False)
         rail_layout.addWidget(self._settings_btn)
 
         self._update_btn = setButton(
@@ -452,14 +505,24 @@ class Sidebar(QFrame):
             default="Update",
             icon_only=True,
         )
-        self._update_btn.setToolTip(
-            tr("sidebar.update.tip_latest", "You are on the latest version")
+        # Update button's tooltip + short label both flip between
+        # "Latest" / "Update" states via ``_apply_update_state`` as the
+        # AppSignals ``update_check_complete`` signal arrives. To also
+        # re-translate on plain language_changed (no update-check event),
+        # _apply_update_state is now hooked to I18n.language_changed too.
+        i18n_bind(
+            self._update_btn, "setToolTip",
+            "sidebar.update.tip_latest", "You are on the latest version",
         )
         self._update_btn.clicked.connect(self.update_requested)
         self._update_btn._nav_icon_name = "icon_update"
+        # Pass empty key — _apply_update_state owns the imperative text
+        # rewrites for this label (it tr()s the right key on every call,
+        # including the language_changed re-fire below).
         self._install_icon_label_stack(
             self._update_btn,
-            tr("sidebar.update.short_latest", self._UPDATE_SHORT_LABEL_LATEST),
+            "",
+            tr(*self._UPDATE_SHORT_LABEL_LATEST),
         )
         self._install_rail_tooltip(self._update_btn)
         self._refresh_aux_btn_icon(self._update_btn)
@@ -487,6 +550,14 @@ class Sidebar(QFrame):
         from application.service.signals import get_app_signals
         get_app_signals().update_check_complete.connect(
             self._apply_update_state
+        )
+        # Also re-translate the Update button's text + tooltip on language
+        # switch — without this hook, the imperative ``setText`` /
+        # ``setToolTip`` calls inside _apply_update_state would only re-run
+        # when a new update check fires, so a quiet language switch would
+        # leave the old-language label on screen.
+        I18n.instance().language_changed.connect(
+            self._reapply_update_state_locale
         )
         try:
             from application.service.updater import get_update_service
@@ -695,6 +766,15 @@ class Sidebar(QFrame):
             if not want and self._active_key == key:
                 self._set_active("")
 
+        # Scripts mode default-open: Rewards is the most frequently used
+        # of the four script panels, auto-expand it the first time we
+        # enter Scripts mode (skip if the user already picked a different
+        # one of the four, so we don't yank focus out from under them).
+        if mode == "scripts":
+            if self._active_key not in self._MODE_VISIBLE_KEYS["scripts"]:
+                if "rewards" in visible_keys:
+                    self._set_active("rewards")
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
@@ -900,14 +980,19 @@ class Sidebar(QFrame):
             checked_color=Config.get_color("highlight"),
             checked_fg_color=Config.get_color("bg_1"),
         )
-        btn.setToolTip(tip)
+        # Tooltip bound via i18n so language switches re-translate. Each
+        # nav item carries an ``<i18n_key>.tip`` entry in sidebar.txt
+        # (e.g. ``[user] tip = User``); the ``tip`` argument is the EN
+        # fallback when the key has no translation yet.
+        i18n_bind(btn, "setToolTip", f"{i18n_key}.tip", tip)
         self._install_rail_tooltip(btn)
         btn.clicked.connect(lambda _c=False, k=key: self._on_nav_clicked(k))
         self._buttons[key] = btn
         btn._nav_icon_name = icon
-        self._install_icon_label_stack(
-            btn, self._NAV_SHORT_LABELS.get(key, default),
+        short_key, short_default = self._NAV_SHORT_LABELS.get(
+            key, (f"{i18n_key}.short", default),
         )
+        self._install_icon_label_stack(btn, short_key, short_default)
         # Cache both default + checked pixmaps so toggling between states
         # swaps the SVG fill color (default keeps original / highlight tint,
         # checked is alt_t1 tinted so it reads against the highlight bg).
@@ -940,14 +1025,15 @@ class Sidebar(QFrame):
             self._rail_tip.hide()
 
     def _install_icon_label_stack(
-        self, btn: LaviButton, short_label: str,
+        self, btn: LaviButton, short_label_key: str, short_label_default: str,
     ) -> None:
         """Attach an icon-on-top, label-on-bottom layout inside ``btn``.
 
         Both children are mouse-transparent so clicks still hit the
         underlying LaviButton. The icon QLabel is filled later by
         ``_refresh_nav_btn_icons``; the text label is themed by
-        ``_refresh_nav_btn_text``.
+        ``_refresh_nav_btn_text`` and bound to i18n via ``i18n_bind``
+        so language switches automatically re-translate the short word.
         """
         layout = QVBoxLayout(btn)
         layout.setContentsMargins(2, 4, 2, 4)
@@ -965,11 +1051,21 @@ class Sidebar(QFrame):
         # Resize fires (see eventFilter).
         icon_label.installEventFilter(self)
 
-        text_label = QLabel(short_label, btn)
+        text_label = QLabel(btn)
         text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         text_label.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
         )
+        # ``i18n_bind`` performs the initial setText and re-runs on every
+        # language_changed; empty key skips the binding and uses the raw
+        # default (used by the Update button, whose label is rewritten
+        # imperatively by ``_apply_update_state``).
+        if short_label_key:
+            i18n_bind(
+                text_label, "setText", short_label_key, short_label_default,
+            )
+        else:
+            text_label.setText(short_label_default)
 
         layout.addWidget(icon_label, 1)
         layout.addWidget(text_label, 0)
@@ -1032,14 +1128,17 @@ class Sidebar(QFrame):
         if not icon_name:
             return
         side = self._icon_side(btn)
-        # Default-state: highlight-tinted for the curated set (node_library),
-        # raw SVG for the rest.
-        if key in self._HIGHLIGHT_TINTED_KEYS:
-            default_pm = self._render_icon_pixmap(
-                icon_name, side, tint=Config.get_color("highlight"),
-            )
-        else:
+        # Default-state: main_t1-tinted for every rail icon so the whole rail
+        # reads as one family. The only exception is the User button, whose
+        # icon slot is owned by refresh_user_icon (avatar / initials / SVG
+        # depending on auth state) — leave its SVG fallback un-tinted so the
+        # signed-out generic glyph keeps its native colours.
+        if key in self._UNTINTED_KEYS:
             default_pm = self._render_icon_pixmap(icon_name, side)
+        else:
+            default_pm = self._render_icon_pixmap(
+                icon_name, side, tint=Config.get_color("main_t1"),
+            )
         # Checked-state: always alt_t1 so the icon reads against the
         # highlight background slot.
         checked_pm = self._render_icon_pixmap(
@@ -1112,6 +1211,10 @@ class Sidebar(QFrame):
         if panel is not None:
             body.addWidget(panel, 1)
             self._panel_widgets[key] = panel
+            # Notify MainWindow so it can (re)seed the panel with live
+            # project / backend state (panels are lazy-built — they may
+            # come into existence long after _bind_project_info has run).
+            self.panel_built.emit(key, panel)
         else:
             body.addStretch(1)
 
@@ -1212,39 +1315,52 @@ class Sidebar(QFrame):
             f"}}"
         )
 
-    def _apply_update_state(self, release_info: object) -> None:
+    def _apply_update_state(self, release_info: object = None) -> None:
         """Flip the Update button between its Latest / Update-Needed states.
 
-        Connected to ``AppSignals.update_check_complete``. ``release_info``
-        is a ``ReleaseInfo`` when a newer release exists, or ``None`` for
-        "up to date / offline / throttled-cache-empty".
+        Connected to ``AppSignals.update_check_complete`` — and indirectly
+        to ``I18n.language_changed`` via ``_reapply_update_state_locale``,
+        which re-fires this method with the cached release so the short
+        label / tooltip re-translate when the language switches in the
+        gap between update checks.
+
+        ``release_info`` is a ``ReleaseInfo`` when a newer release exists,
+        or ``None`` for "up to date / offline / throttled-cache-empty".
+        Cached on ``self._last_release_info`` so the locale re-fire can
+        replay the most recent state without inventing one.
         """
         if self._update_btn is None:
             return
+        self._last_release_info = release_info
         needed = release_info is not None
         new_icon = "icon_update_needed" if needed else "icon_update"
-        new_text = (
-            tr("sidebar.update.short_needed", self._UPDATE_SHORT_LABEL_NEEDED)
-            if needed
-            else tr("sidebar.update.short_latest", self._UPDATE_SHORT_LABEL_LATEST)
-        )
-        new_tip = (
-            tr(
+        if needed:
+            new_text = tr(*self._UPDATE_SHORT_LABEL_NEEDED)
+            new_tip = tr(
                 "sidebar.update.tip_needed",
                 "New version available — click to apply",
             )
-            if needed
-            else tr(
+        else:
+            new_text = tr(*self._UPDATE_SHORT_LABEL_LATEST)
+            new_tip = tr(
                 "sidebar.update.tip_latest",
                 "You are on the latest version",
             )
-        )
         self._update_btn._nav_icon_name = new_icon
         self._refresh_aux_btn_icon(self._update_btn)
         text_label = getattr(self._update_btn, "_nav_text_label", None)
         if text_label is not None:
             text_label.setText(new_text)
         self._update_btn.setToolTip(new_tip)
+
+    def _reapply_update_state_locale(self, *_args) -> None:
+        """Re-fire ``_apply_update_state`` with the cached release info.
+
+        Bound to ``I18n.language_changed`` so the imperative
+        ``setText`` / ``setToolTip`` calls inside ``_apply_update_state``
+        re-run with the new language's translations.
+        """
+        self._apply_update_state(self._last_release_info)
 
     def _on_lang_clicked(self) -> None:
         # Toggle: re-clicking while popup is up closes it.

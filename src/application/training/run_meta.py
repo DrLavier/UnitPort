@@ -101,6 +101,11 @@ def detect_algorithm_class(run_dir: Any, default: str = "PPO") -> str:
     if ckpts:
         try:
             import torch  # local: optional dep for the heuristic path
+            # WHY KEPT: ckpts[-1] is glob'd from this run's own directory under
+            # PROJECTS_DIR — written by the trainer itself, trusted artifact.
+            # The whole branch is a best-effort heuristic so the broad except
+            # below is acceptable here (not a silent-fallback violation: failure
+            # falls through to the explicit ``default`` argument). Plan P1-1.
             ckpt = torch.load(
                 str(ckpts[-1]), map_location="cpu", weights_only=False
             )

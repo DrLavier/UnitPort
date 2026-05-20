@@ -70,10 +70,62 @@ class RobotNode(BaseNode):
                 description="body→IR-role 映射 (auto-resolved) / Body→IR-role mapping",
             ),
             ParamSpec(
+                key="_mjcf_base_offset_status", type="string", default="",
+                widget="mjcf_offset_badge",
+                description="MJCF 落地偏移 / MJCF base spawn-Z offset (auto-calibrated; read-only status)",
+            ),
+            ParamSpec(
                 key="target_height", type="float", default=0.0,
                 widget="range",
                 description="目标高度 (0 = 跟随资产 nominal_height) / Standing-height override",
                 meta={"min": 0.0, "max": 5.0, "step": 0.01},
+            ),
+            # ── PD parameterization (sim2sim_mass-matrix-adaptive) ──
+            # Merged from ex-ActuatorPDNode (which lived as a separate
+            # canvas node for one iteration before consolidating onto
+            # RobotNode — the params are robot-bound by nature and the
+            # extra node was redundant graph topology).
+            #
+            # ALL FIELDS ARE OPTIONAL. Empty pd_groups ({}) means "use
+            # family defaults" for every group, loaded from
+            # registers/data/pd_groups_defaults.json (e.g. quadruped:
+            # hip_x ωn=25/ζ=1.0, hip_y ωn=35/ζ=0.8, knee ωn=35/ζ=0.8).
+            # To override a single group, write
+            # {"knee": {"omega_n": 40}} — other groups still use defaults.
+            ParamSpec(
+                key="pd_param_mode", type="enum", default="natural_freq",
+                choices=["natural_freq"],
+                description="PD 参数化模式 / PD parameterization mode",
+            ),
+            ParamSpec(
+                key="pd_groups", type="json", default="{}",
+                widget="pd_param_table",
+                description="按关节组覆盖 (omega_n, zeta)；空 {} = 全用 family 默认 / Per-group overrides; empty = family defaults",
+                meta={"language": "json"},
+            ),
+            ParamSpec(
+                key="pd_effort_limit", type="float", default=30.0,
+                widget="range",
+                description="扭矩上限 / Effort (torque) limit (N·m)",
+                meta={"min": 0.0, "max": 200.0, "step": 1.0},
+            ),
+            ParamSpec(
+                key="pd_velocity_limit", type="float", default=30.0,
+                widget="range",
+                description="速度上限 / Joint velocity limit (rad/s)",
+                meta={"min": 0.0, "max": 100.0, "step": 0.5},
+            ),
+            ParamSpec(
+                key="pd_resolve_at_reset", type="bool", default=True,
+                description="每次 reset 重算 PD / Re-solve gains after each DR reset",
+            ),
+            ParamSpec(
+                key="pd_calibration_blocking", type="bool", default=True,
+                description="校准失败阻断 bundle / Block bundle export on calibration fail",
+            ),
+            ParamSpec(
+                key="pd_skip_calibration", type="bool", default=False,
+                description="跳过 step-response 校准 / Skip calibration",
             ),
         ],
     )
@@ -114,21 +166,6 @@ class RobotNode(BaseNode):
                 f"known SKU in registers.robots"
             )
 
-        mapper = BodyIRMapper.from_robot_asset(asset)
-
-        # Replay user's persisted body↔role overrides on top of auto-detection.
-        # state.json (RobotAssetService) is the single source of truth for these.
-        overrides = svc.get_body_ir_overrides(asset.sku)
-        if overrides:
-            apply_user_overrides(mapper, overrides)
-
-        # Transient mirror: keep the params["body_mapping"] string in sync so any
-        # downstream consumer that reads the parameter as JSON sees the resolved
-        # mapping. NEVER persisted by execute() — persistence is the editing UI's
-        # job, via set_body_ir_overrides(sku, ...).
-        mapping_dict = mapper.to_dict()
-        params["body_mapping"] = json.dumps(mapping_dict, ensure_ascii=False)
-
         # Per-kind asset status — same data the sidebar Robot Asset panel
         # surfaces, so panel and node are guaranteed in sync (single
         # source: registers.robots → RobotAssetService.resolve()).
@@ -140,6 +177,8 @@ class RobotNode(BaseNode):
         # Resolve ``active_override`` ∈ {"auto", "mjcf", "usd", "urdf"} into
         # a concrete chosen format. Cloud-only USD is selectable when
         # ``usd_url`` is present (e.g. IsaacLab Nucleus assets).
+        # Hoisted above mapper construction (Stage 3): the mapper is now
+        # format-bound, so we need active_format before building it.
         override = str(params.get("active_override", "auto") or "auto").strip().lower()
         backend = str(params.get("backend", "sb3") or "sb3").strip()
 
@@ -153,6 +192,58 @@ class RobotNode(BaseNode):
         else:
             order = ("usd", "urdf", "mjcf") if backend == "isaac_lab" else ("mjcf", "usd", "urdf")
             active_format = next((k for k in order if _avail(k)), "")
+
+        # Per-format mapper: read bodies_per_format[active_format] from
+        # the registry (no runtime asset parsing). Empty when the format
+        # isn't declared yet — the canvas widget surfaces that state.
+        mapper = BodyIRMapper.from_robot_asset(
+            asset, active_format=active_format.upper() if active_format else None,
+        )
+
+        # Replay user's per-format body↔role overrides on top of the
+        # per-format auto-detection.
+        if active_format:
+            overrides = svc.get_body_ir_overrides(asset.sku, fmt=active_format.upper())
+        else:
+            overrides = svc.get_body_ir_overrides(asset.sku)
+        if overrides:
+            apply_user_overrides(mapper, overrides)
+
+        # One-shot MJCF base spawn-Z calibration (USD↔MJCF anchor offset).
+        # Fires only when an MJCF asset is active — the offset is irrelevant
+        # for pure USD/Isaac Lab runs. The gate is no-op when a fresh
+        # overlay already exists (sha256 match on MJCF + standing pose);
+        # otherwise it submits a background Task that runs mujoco.mj_forward
+        # at standing pose and writes the result into
+        # state.json :: assets[sku].mjcf_base_height_offset. The next MuJoCo
+        # spawn (Review Pose / generic_mujoco_env / mj_sim_env) reads that
+        # value via application.service.robot_assets.runtime.read_mjcf_base_offset
+        # and lifts qpos[base_z] accordingly. See plan
+        # C:/Users/84373/.claude/plans/curious-nibbling-plum.md.
+        if active_format == "mjcf":
+            try:
+                from application.service.robot_assets.service import (
+                    ensure_mjcf_base_offset_cached,
+                )
+                ensure_mjcf_base_offset_cached(asset.sku)
+            except Exception as exc:  # noqa: BLE001
+                # WHY KEPT (§1.8 (c)): calibration is best-effort — a
+                # transient failure (TasksManager not yet ready during
+                # boot, mjcf path race) must not block Robot Node
+                # execution. The runtime reader will WARN about
+                # uncalibrated state on the next spawn.
+                from unitport_sdk import log_warning
+                log_warning(
+                    f"[robot_node] ensure_mjcf_base_offset_cached failed "
+                    f"for sku={asset.sku!r}: {exc}"
+                )
+
+        # Transient mirror: keep the params["body_mapping"] string in sync so any
+        # downstream consumer that reads the parameter as JSON sees the resolved
+        # mapping. NEVER persisted by execute() — persistence is the editing UI's
+        # job, via set_body_ir_overrides(sku, ..., fmt=fmt).
+        mapping_dict = mapper.to_dict()
+        params["body_mapping"] = json.dumps(mapping_dict, ensure_ascii=False)
 
         # Pick the path/URL that backs ``active_format``. For cloud-only
         # USD, ``active_path`` is "" and ``active_url`` carries the

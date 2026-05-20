@@ -1,0 +1,21 @@
+[review]
+dialog_title = Modifications en attente d'examen par d'autres utilisateurs
+dialog_intro = Pendant votre déconnexion, {n} modification(s) ont été apportées aux fichiers de votre espace de travail par d'autres utilisateurs sur cette machine. Examinez chacune d'elles et choisissez Accepter (conserver leur modification) ou Rejeter (restaurer depuis votre copie cloud).
+op_overwrite = modifié
+op_delete = supprimé
+actor_line = Auteur : {actor}
+file_line = Fichier : {path}
+time_line = Heure : {time}
+btn_accept = Accepter
+btn_reject = Rejeter
+btn_accept_all = Tout accepter
+btn_reject_all = Tout rejeter
+btn_later = Décider plus tard
+reject_confirm_title = Restaurer depuis le cloud ?
+reject_confirm_body = Cela récupérera la version précédente de '{name}' depuis votre espace cloud et écrasera le fichier local.\n\nContinuer ?
+reject_success_cloud = Restauré depuis le cloud
+reject_failed_no_cloud = Aucune copie cloud disponible — rejet impossible. (Ce fichier a-t-il déjà été synchronisé ?)
+reject_failed_network = Échec de récupération cloud (réseau ou auth) : {err}
+accept_confirm_body = Conserver la modification {op} de {actor} sur '{name}' ? Cette entrée sera retirée de la liste d'examen.
+empty_state = Aucun changement en attente d'examen.
+

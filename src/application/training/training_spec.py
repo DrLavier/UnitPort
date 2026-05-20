@@ -158,7 +158,17 @@ class InitPoseConfig:
 
 @dataclass
 class ActuatorConfig:
-    """``actor_setting`` §4 — PD / effort / velocity overrides."""
+    """``actor_setting`` §4 (legacy) / ``actuator_pd`` (canonical) — PD knobs.
+
+    ``stiffness``/``damping`` are the legacy scalar fallback used when
+    no ``actuator_pd`` node is wired. The canonical PD source is
+    :attr:`ActorConfig.pd_param` (a :class:`PDParam` built from
+    family defaults + canvas overrides via the ``actuator_pd`` node).
+    Engine compilers and runtime envs MUST prefer ``pd_param`` over
+    ``stiffness``/``damping`` whenever it is populated; the scalar path
+    is a single-release back-compat bridge that will be removed once
+    every saved canvas has been migrated.
+    """
 
     stiffness: float = 25.0
     damping: float = 0.5
@@ -217,6 +227,32 @@ class ActorConfig:
     action_use_default_offset: bool = True
     action_curriculum: ActionScaleCurriculum = field(default_factory=ActionScaleCurriculum)
     init_pose: InitPoseConfig = field(default_factory=InitPoseConfig)
+    # Canonical PD parameterization (Stage C of sim2sim_mass-matrix-adaptive).
+    # Populated by ``spec_compiler._compile_pd_param`` from the canvas
+    # ``actuator_pd`` node + family defaults. ``None`` means the canvas
+    # has no actuator_pd node — engine compilers fall back to the
+    # ``actuator.stiffness/damping`` scalar path with a WARN. Once every
+    # saved canvas has been migrated, the legacy path will be removed
+    # and this field will become non-Optional.
+    #
+    # The type is intentionally Any here (not PDParam) to keep
+    # ``application.training.training_spec`` free of an ``application.physics``
+    # import dependency; the compiler stamps the typed object in.
+    pd_param: Optional[Any] = None
+    # Per-joint scalar limits flowing from ActuatorPDNode (§2). Overrides
+    # ActuatorConfig.effort_limit / velocity_limit when ``pd_param`` is
+    # present; mirror of the legacy fields so engine compilers have a
+    # single source of truth regardless of which canvas node provided
+    # the value.
+    effort_limit: Optional[float] = None
+    velocity_limit: Optional[float] = None
+    # Runtime behavior toggles from ActuatorPDNode §3-§4. Consumed by
+    # generic_mujoco_env (resolve_at_reset → DR-aware re-solve) and
+    # sim2sim_calibration (calibration_*). None = use the ActuatorPDNode
+    # default; the env / finalizer guard against missing values.
+    resolve_at_reset: Optional[bool] = None
+    calibration_blocking: Optional[bool] = None
+    skip_calibration: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +288,13 @@ class ObsActionContract:
     corruption_curriculum_start: float = 0.25
     corruption_curriculum_end: float = 1.0
     corruption_curriculum_ramp_iters: int = 500
+    # Variant injection for observations (parallel to RewardConfig /
+    # TerminationConfig). Populated by spec_compiler when a term in
+    # ``il_terms`` carries a ``variant`` tag in its payload dict.
+    # Consumed by env_cfg_compiler IL emit path
+    # (``_custom_observation_funcs``).
+    inline_source_overrides: Dict[str, str] = field(default_factory=dict)
+    il_params_overrides: Dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +391,12 @@ class RewardConfig:
     target training_motion item id 后填入。``terms`` 仍保留作为"全局
     rewards"的兼容字段（multigated_reward / 旧 canvas / item 缺连线时
     的 fallback）。
+
+    Variant injection (Stage 4): ``inline_source_overrides`` is the
+    flat ``{key: python_source}`` map populated by spec_compiler from
+    user-selected variants in the canvas reward_terms dict. The
+    Isaac Lab env_cfg compiler reads this to emit the variant body in
+    place of the registry's preset ``il_inline`` block.
     """
 
     backend: str = "sb3"                 # "sb3" | "isaac_lab"
@@ -356,8 +405,17 @@ class RewardConfig:
     stages: List[Dict[str, Any]] = field(default_factory=list)  # [stage0, stage1, ...]
     std: float = 0.25
     threshold: float = 0.5
-    # AMP helper may inject overrides; lowering applies them last
-    amp_helper_overrides: Dict[str, Any] = field(default_factory=dict)
+    # Variant source overrides — key → Python source. Populated by
+    # spec_compiler when a reward term carries a non-preset ``variant``
+    # tag in its payload dict. Consumed by env_cfg_compiler (IL) and
+    # the SB3 env if a variant-aware reward registry is wired later.
+    inline_source_overrides: Dict[str, str] = field(default_factory=dict)
+    # Per-variant overrides of the preset's ``il_params`` template
+    # (e.g. swap ``body_names={ir:feet}`` for ``body_names={ir:ankles}``
+    # on a biped variant of ``feet_air_time``). Populated by
+    # spec_compiler from ``VariantMeta.il_params_override`` when the
+    # variant declares one; absent keys fall back to preset il_params.
+    il_params_overrides: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -370,6 +428,10 @@ class TerminationConfig:
     curriculum_start: float = 0.18
     curriculum_end: float = 0.22
     curriculum_ramp_iters: int = 500
+    # See :class:`RewardConfig.inline_source_overrides`.
+    inline_source_overrides: Dict[str, str] = field(default_factory=dict)
+    # See :class:`RewardConfig.il_params_overrides`.
+    il_params_overrides: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -474,7 +536,7 @@ class DiscriminatorConfig:
 
 @dataclass
 class AMPConfig:
-    """``amp_trainer`` overrides + ``discriminator`` + ``amp_helper``.
+    """``amp_trainer`` overrides + ``discriminator``.
 
     Only populated when ``algorithm.training_mode == "AMP_PPO"``.
     """
@@ -489,8 +551,6 @@ class AMPConfig:
     lerp_schedule: str = "none"
     lerp_schedule_json: str = ""
     disc: DiscriminatorConfig = field(default_factory=DiscriminatorConfig)
-    helper_analysis_result: Dict[str, Any] = field(default_factory=dict)
-    helper_applied_overrides: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -518,11 +578,28 @@ class DomainRandSchedule:
 
 @dataclass
 class DomainRandSb3Config:
+    """SB3-side DR knobs.
+
+    Stage H (sim2sim PD framework) — actuator-related DR no longer
+    perturbs ``motor_strength`` or ``joint_damping`` at the MJCF level
+    (those numbers were a leaky proxy for "PD bandwidth" that diverged
+    from the IsaacLab side). Instead, DR perturbs the canonical
+    ``(omega_n, zeta)`` parameterization log-uniformly and the env
+    re-solves per-joint kp/kd at every reset via
+    :func:`application.physics.mujoco_gain_solver.solve`. PhysX-side DR
+    applies the same multipliers via an event term emitted by
+    :mod:`application.training.isaac_lab.env_cfg_compiler`.
+    """
+
     enabled: bool = True
     mass_range: Tuple[float, float] = (0.8, 1.2)
     friction_range: Tuple[float, float] = (0.5, 1.5)
-    motor_strength_range: Tuple[float, float] = (0.9, 1.1)
-    joint_damping_range: Tuple[float, float] = (0.95, 1.05)
+    # Stage H — replaces motor_strength_range / joint_damping_range.
+    # Bounds in linear scale (sampler picks log-uniformly inside).
+    # Defaults match knowledge_base/sim2sim_mass-matrix-adaptive.yaml
+    # lines 103-105.
+    omega_n_log_uniform: Tuple[float, float] = (0.8, 1.25)
+    zeta_log_uniform: Tuple[float, float] = (0.9, 1.11)
     obs_noise_std: float = 0.01
     push_robot: bool = False
     push_interval_steps: int = 200
@@ -638,6 +715,19 @@ class RobotSpecRef:
     Lowering copies the registry RobotSpec into the TrainingSpec so the
     submitted spec is self-contained (subprocess launchers in Stage 10
     receive it as JSON without re-reading the registry).
+
+    Per-format schema (Stage 2 upgrade):
+        - ``active_format`` is the format the Robot node resolved at
+          compile time (mjcf / usd / urdf). Drives every body / joint
+          lookup downstream — env_cfg_compiler, JointIRResolver,
+          BodyIRMapper, RSI, AMP storage.
+        - ``joints_per_format`` / ``bodies_per_format`` mirror the
+          registry's per-format dicts so downstream subprocess launchers
+          can re-derive the lookup tables without re-reading the
+          registry.
+        - Legacy ``joint_order`` / ``joint_ir_roles`` / ``body_role_map``
+          are kept as derived views of the active format for transitional
+          callers; new code should use the format-aware accessors.
     """
 
     sku: str = ""
@@ -645,9 +735,36 @@ class RobotSpecRef:
     brand: str = ""                      # mirrors RobotSpec.brand (registers/robots.py)
     model: str = ""                      # mirrors RobotSpec.model (registers/robots.py)
     families: List[str] = field(default_factory=list)
+    # Per-format raw tables (Stage 2): mirror registers.robots.RobotSpec.
+    joints_per_format: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
+    bodies_per_format: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
+    # The active asset format ("MJCF" / "USD" / "URDF") chosen at the
+    # Robot node by user override + backend preference. Used by IR
+    # resolvers to pick the matching per-format table.
+    active_format: str = ""
+    # Legacy flat views — populated from the active format at compile
+    # time so legacy consumers keep working through the staged rollout.
     joint_order: List[str] = field(default_factory=list)
     joint_ir_roles: List[str] = field(default_factory=list)
     body_role_map: Dict[str, str] = field(default_factory=dict)
+    # Isaac Lab's USD-articulation joint loading order (IR roles, by-type
+    # grouped — hip × n, thigh × n, calf × n for quadrupeds). Mirrors
+    # ``registers.robots.RobotSpec.isaac_lab_joint_order``. Used by
+    # ``bundle_finalizer`` to compute the permutation that maps the
+    # trained policy's action vector (in USD-articulation order) onto
+    # the bundle's joint_sdk_names (in SDK/canonical order) so sim2sim
+    # deployment doesn't twitch. None when the registry entry doesn't
+    # declare it — finalizer falls back with a WARN.
+    isaac_lab_joint_order: Optional[List[str]] = None
+    # SKU-recommended actuator defaults (PD gains / effort / vel limits).
+    # Mirrors ``registers.robots.RobotSpec.default_actuator_params``.
+    # Canvas ActorSetting reconciles its stiffness/damping/effort_limit/
+    # velocity_limit fields from this dict whenever the upstream Robot
+    # Node changes SKU — eliminates the Go2-style hardcoded canvas
+    # defaults that made Spot (42 kg) train under Go2-class PD (15 kg)
+    # and learn a ragdoll policy. None means "registry declared none —
+    # canvas keeps its own ParamSpec defaults".
+    default_actuator_params: Optional[Dict[str, float]] = None
     mjcf_path: Optional[str] = None
     urdf_path: Optional[str] = None
     usd_path: Optional[str] = None
@@ -661,17 +778,117 @@ class RobotSpecRef:
         check) work uniformly against the spec snapshot."""
         return len(self.joint_order)
 
+    # --- per-format accessors -----------------------------------------------
+
+    def joint_order_for(self, fmt: str) -> List[str]:
+        block = self.joints_per_format.get(str(fmt).upper(), {}) or {}
+        return [str(j.get("name", "")) for j in block.values()
+                if isinstance(j, dict) and j.get("name")]
+
+    def joint_ir_roles_for(self, fmt: str) -> List[str]:
+        block = self.joints_per_format.get(str(fmt).upper(), {}) or {}
+        out: List[str] = []
+        for j in block.values():
+            if not isinstance(j, dict):
+                continue
+            nm = str(j.get("name", ""))
+            if nm:
+                out.append(str(j.get("ir_role", "")))
+        return out
+
+    def joints_role_map_for(self, fmt: str) -> Dict[str, str]:
+        """``{joint_name: ir_role}`` for the format (mirrors RobotSpec)."""
+        block = self.joints_per_format.get(str(fmt).upper(), {}) or {}
+        out: Dict[str, str] = {}
+        for j in block.values():
+            if not isinstance(j, dict):
+                continue
+            nm = str(j.get("name", "")).strip()
+            rl = str(j.get("ir_role", "")).strip()
+            if nm and rl:
+                out[nm] = rl
+        return out
+
+    def bodies_role_map_for(self, fmt: str) -> Dict[str, str]:
+        """``{body_name: ir_role}`` for the format — the actual body mapping."""
+        block = self.bodies_per_format.get(str(fmt).upper(), {}) or {}
+        out: Dict[str, str] = {}
+        for b in block.values():
+            if not isinstance(b, dict):
+                continue
+            nm = str(b.get("name", "")).strip()
+            rl = str(b.get("ir_role", "")).strip()
+            if nm and rl:
+                out[nm] = rl
+        return out
+
     @classmethod
-    def from_registry(cls, rs: Any, target_height: float = 0.0) -> "RobotSpecRef":
+    def from_registry(
+        cls, rs: Any, target_height: float = 0.0, active_format: str = "",
+    ) -> "RobotSpecRef":
+        # active_format defaults to the registry RobotSpec's preferred_format
+        # so legacy callers that don't yet wire it through (Stage 2 -> 3
+        # transition) still get a working spec.
+        fmt = str(active_format or "").strip().upper()
+        if not fmt:
+            fmt = getattr(rs, "preferred_format", "MJCF")
+        # Derive legacy flat views from the chosen active format so existing
+        # consumers of ``joint_order`` / ``joint_ir_roles`` / ``body_role_map``
+        # see the format they intend to train against, not whatever the
+        # registry happens to prefer.
+        joint_order_fmt = list(rs.joint_order_for(fmt))
+        joint_ir_roles_fmt = list(rs.joint_ir_roles_for(fmt))
+        joints_role_map_fmt = dict(rs.joints_role_map_for(fmt))
+        # CLAUDE.md §1.8: previously this fell back to ``rs.joint_order`` /
+        # ``rs.joint_ir_roles`` / ``rs.body_role_map`` (which resolve through
+        # ``preferred_format``) whenever the requested ``fmt`` had no joint
+        # table. For Isaac Lab (active_format="USD") that fallback silently
+        # served MJCF joints whenever joints_per_format["USD"] was null —
+        # training proceeded with MJCF joint names while Isaac Lab actually
+        # spawned the USD asset and reported its own articulation joint
+        # order to the policy. The bundle then shipped MJCF-ordered joint
+        # names, the policy outputs/observations slotted through the wrong
+        # joints at deploy time, and the user saw "electric-shock twitch"
+        # behaviour. Refuse to substitute formats here.
+        if not joint_order_fmt:
+            raise ValueError(
+                f"[RobotSpecRef.from_registry] robot sku={rs.sku!r} declares "
+                f"no joints under joints_per_format[{fmt!r}] — the format "
+                f"the caller asked for. Silent fallback to another format "
+                f"is forbidden (CLAUDE.md §1.8): joint orders differ across "
+                f"MJCF / USD / URDF, and serving the wrong one ships a "
+                f"bundle whose joint_sdk_names don't match the order the "
+                f"trained policy expects (the \"twitching policy\" failure "
+                f"mode at deploy). Populate the table for format {fmt!r} "
+                f"first — for USD, open the Robot Asset card and run "
+                f"\"Dump USD\"; for MJCF, run \"Dump MJCF\". Available "
+                f"formats for this robot: "
+                f"{sorted(getattr(rs, 'available_formats', []) or [])}."
+            )
+        il_order_raw = getattr(rs, "isaac_lab_joint_order", None)
+        il_order: Optional[List[str]] = (
+            [str(x) for x in il_order_raw] if il_order_raw else None
+        )
+        dap_raw = getattr(rs, "default_actuator_params", None)
+        dap: Optional[Dict[str, float]] = (
+            {str(k): float(v) for k, v in dap_raw.items()}
+            if isinstance(dap_raw, dict) and dap_raw
+            else None
+        )
         return cls(
             sku=rs.sku,
             name=rs.name,
             brand=getattr(rs, "brand", "") or "",
             model=getattr(rs, "model", "") or "",
             families=list(rs.families),
-            joint_order=list(rs.joint_order),
-            joint_ir_roles=list(rs.joint_ir_roles),
-            body_role_map=dict(rs.body_role_map),
+            joints_per_format=dict(rs.joints_per_format),
+            bodies_per_format=dict(rs.bodies_per_format),
+            active_format=fmt,
+            joint_order=joint_order_fmt,
+            joint_ir_roles=joint_ir_roles_fmt,
+            body_role_map=joints_role_map_fmt,   # legacy contract = joint→ir_role
+            isaac_lab_joint_order=il_order,
+            default_actuator_params=dap,
             mjcf_path=rs.mjcf_path,
             urdf_path=rs.urdf_path,
             usd_path=rs.usd_path,

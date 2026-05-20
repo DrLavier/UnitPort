@@ -1,0 +1,53 @@
+[default]
+section = Third-party resources
+add = Download Online
+add_tip = Download a motion dataset or policy bundle from GitHub / HuggingFace
+refresh_tip = Re-scan custom_mods/ for newly added assets
+remove = Remove
+remove_tip = Delete this entry (and the on-disk tree)
+open_folder = Open folder
+open_folder_tip = Reveal the asset folder in your file manager
+retry = Retry
+empty_motion = No motion datasets yet — click "Add resource…" to download one
+empty_policy = No policy bundles yet — click "Add resource…" to download one
+unindexed = imported
+
+[kind]
+motion = Motion
+policy = Policy
+
+[transport]
+github_clone = GitHub
+github_release = Release
+huggingface = HuggingFace
+
+[status]
+local = local
+downloading = downloading
+missing = missing
+error = error
+
+[card]
+source = Source
+revision = Revision
+subpath = Subpath
+downloaded_at = Downloaded
+size = Size
+
+[dialog]
+title = Add resource
+kind_label = Asset kind
+transport_label = Source
+url_label = URL or repo id
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+url_placeholder_huggingface = owner/name  (or full HF URL)
+revision_label = Revision (optional)
+revision_placeholder = branch / tag / commit / HF revision
+subpath_label = Subpath (optional)
+subpath_placeholder_github = e.g. datasets/mocap_motions
+subpath_placeholder_huggingface = allow patterns, e.g. *.json,*.txt
+name_label = Display name (optional)
+ok = Download
+cancel = Cancel
+

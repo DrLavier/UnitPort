@@ -47,8 +47,9 @@ _SB3_KEYS = (
     "enabled",
     "mass_range",
     "friction_range",
-    "motor_strength_range",
-    "joint_damping_range",
+    # Stage H — replaces motor_strength_range / joint_damping_range.
+    "omega_n_log_uniform",
+    "zeta_log_uniform",
     "obs_noise_std",
     "push_robot",
     "push_interval_steps",
@@ -79,8 +80,10 @@ _SB3_DEFAULTS: Dict[str, Any] = {
     "enabled": True,
     "mass_range": "[0.8, 1.2]",
     "friction_range": "[0.5, 1.5]",
-    "motor_strength_range": "[0.9, 1.1]",
-    "joint_damping_range": "[0.95, 1.05]",
+    # Stage H defaults mirror knowledge_base/sim2sim_mass-matrix-adaptive.yaml
+    # lines 103-105.
+    "omega_n_log_uniform": "[0.8, 1.25]",
+    "zeta_log_uniform": "[0.9, 1.11]",
     "obs_noise_std": 0.01,
     "push_robot": False,
     "push_interval_steps": 200,
@@ -171,16 +174,21 @@ class DomainRandNode(BaseNode):
                       description="[SB3] 摩擦缩放范围",
                       meta={"conditional_on": {"key": "backend", "op": "==", "value": "sb3"},
                             "min": 0.0, "max": 5.0, "step": 0.01}),
-            ParamSpec(key="motor_strength_range", type="list", default="[0.9, 1.1]",
+            # Stage H — (omega_n, zeta) log-uniform DR replaces the
+            # legacy motor_strength_range / joint_damping_range knobs.
+            # Both engines (SB3 + IL) get the same scaling: SB3 re-solves
+            # via mujoco_gain_solver at episode reset, IL writes the
+            # multipliers into an event term in env_cfg.py.
+            ParamSpec(key="omega_n_log_uniform", type="list", default="[0.8, 1.25]",
                       widget="range_list",
-                      description="[SB3] 电机扭矩缩放范围",
+                      description="[SB3] ωn 对数均匀缩放范围 (×nominal)",
                       meta={"conditional_on": {"key": "backend", "op": "==", "value": "sb3"},
-                            "min": 0.0, "max": 5.0, "step": 0.01}),
-            ParamSpec(key="joint_damping_range", type="list", default="[0.95, 1.05]",
+                            "min": 0.5, "max": 2.0, "step": 0.01}),
+            ParamSpec(key="zeta_log_uniform", type="list", default="[0.9, 1.11]",
                       widget="range_list",
-                      description="[SB3] 关节阻尼缩放范围",
+                      description="[SB3] ζ 对数均匀缩放范围 (×nominal)",
                       meta={"conditional_on": {"key": "backend", "op": "==", "value": "sb3"},
-                            "min": 0.0, "max": 2.0, "step": 0.01}),
+                            "min": 0.7, "max": 1.5, "step": 0.01}),
             ParamSpec(key="obs_noise_std", type="float", default=0.01,
                       description="[SB3] 观测高斯噪声 std",
                       meta={"conditional_on": {"key": "backend", "op": "==", "value": "sb3"}}),

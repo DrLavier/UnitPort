@@ -4,7 +4,7 @@ Scans ``custom_mods/models/`` (incl. ``menagerie/`` sparse-checkout) for
 USD / URDF / XACRO files belonging to robots that exist in
 ``registers.robots``, and returns the discovered relative paths so
 :class:`RobotAssetService` can persist them into
-``~/UnitPort/registers/robots_custom.json`` (the user-overlay layer that
+``<USER_CONFIG_DIR>/registers/robots_custom.json`` (the user-overlay layer that
 ``registers.robots.merge_user_extensions`` already merges into the
 hub at load time).
 
@@ -36,7 +36,7 @@ from registers import robots as _robots_registry
 # the same lookup chain that resolve() uses.
 def _scan_roots() -> List[Path]:
     return [
-        Paths.PROJECT_ROOT / "custom_mods" / "models",
+        Paths.CUSTOM_MODS_DIR / "models",
         Paths.PROJECT_ROOT.parent / "DEMO" / "custom_mods" / "models",
         Paths.ASSETS_DIR,
     ]

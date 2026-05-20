@@ -1,0 +1,13 @@
+[empty]
+no_visible_series = Aucune série visible
+
+[runs]
+clear = Effacer
+empty = Aucune exécution
+n_selected = 
+none_selected = Sélectionner des exécutions
+select_all = Tout sélectionner
+tag.failed = [échoué]
+tag.finished = [terminé]
+tag.running = [EN COURS]
+

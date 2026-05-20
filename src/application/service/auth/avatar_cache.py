@@ -15,7 +15,18 @@ import hashlib
 from pathlib import Path
 from typing import Optional
 
-import httpx
+# NOTE: ``httpx`` is intentionally NOT imported at module top.
+# avatar_cache is pulled into the import graph eagerly by the InstallConfigWizard
+# chain (wizard → menagerie_card → ui.widgets → mission_control_panel →
+# real_robot_connection_card → connection_settings_dialog → ui.dialogs.__init__
+# → email_identity_dialog → ``from application.service.auth import
+# get_auth_manager`` → auth/__init__ ``__getattr__`` → auth_manager →
+# avatar_cache). On a first launch the wizard is constructed BEFORE
+# ProvisioningTask installs requirements.txt, so httpx is not yet on disk.
+# Importing it eagerly at module top crashes the wizard construction with
+# ``ModuleNotFoundError: No module named 'httpx'``. The actual HTTP call is
+# only ever issued by ``_AvatarDownloadWorker.run`` (off the UI thread, well
+# after Stage 3), so the import is deferred to call time.
 from PyQt6.QtCore import QObject, QRectF, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPainterPath, QPixmap
 
@@ -52,6 +63,11 @@ class _AvatarDownloadWorker(QThread):
 
     def run(self) -> None:  # type: ignore[override]
         body = b""
+        # Imported here, not at module top: see the note above the imports
+        # block. ProvisioningTask has long since installed httpx by the time
+        # any avatar fetch is issued (avatars only fire after Stage 3 when
+        # AuthManager emits ``avatar_updated``).
+        import httpx
         try:
             with httpx.stream(
                 "GET", self._avatar_url,
@@ -72,10 +88,11 @@ class _AvatarDownloadWorker(QThread):
                     body = b"".join(chunks)
                 else:
                     log_warning(f"[avatar] HTTP {resp.status_code} for {self._avatar_url}")
-        except httpx.RequestError as exc:
-            log_warning(f"[avatar] network error fetching {self._avatar_url}: {exc}")
         except Exception as exc:
-            log_warning(f"[avatar] unexpected failure: {exc}")
+            # Covers httpx.RequestError as well — kept under a single
+            # except so the local httpx import above doesn't need to be
+            # bound to a name in the surrounding scope.
+            log_warning(f"[avatar] network error fetching {self._avatar_url}: {exc}")
         self.fetched.emit(self._user_id, self._avatar_url, body)
 
 

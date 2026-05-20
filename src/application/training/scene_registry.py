@@ -14,7 +14,7 @@ Consumed by:
 
 Process-local dict, in-code defaults installed at import time. Future
 iteration will add filesystem rescan from ``registers/data/scenes_review.json``
-+ ``~/UnitPort/registers/scenes_custom.json`` user overlay (CLAUDE.md §4
++ ``<USER_CONFIG_DIR>/registers/scenes_custom.json`` user overlay (CLAUDE.md §4
 naming convention) — the dataclass + API remain backwards compatible.
 """
 

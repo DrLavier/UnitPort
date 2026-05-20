@@ -169,13 +169,6 @@ def _warn_unimplemented_features(spec) -> None:
                 f"match runtime obs vectors — use 'custom' or wire the preset "
                 f"into GenericMujocoEnv before relying on this in production."
             )
-        frame_stack = int(getattr(oa, "frame_stack", 1) or 1)
-        if frame_stack > 1:
-            log_warning(
-                f"[sb3_trainer] obs_action_config.frame_stack={frame_stack} "
-                f"is not implemented in the SB3 path; the env produces a "
-                f"single-frame observation."
-            )
         action_type = (getattr(oa, "action_type", "joint_position") or "").lower()
         if action_type and action_type not in ("joint_position", "position"):
             log_warning(
@@ -194,15 +187,10 @@ def _warn_unimplemented_features(spec) -> None:
                 f"PD-driven joint-position control."
             )
 
-    dr = getattr(spec, "domain_rand", None)
-    sb3_dr = getattr(dr, "sb3", None) if dr is not None else None
-    if sb3_dr is not None and bool(getattr(sb3_dr, "enabled", False)):
-        log_warning(
-            "[sb3_trainer] domain_rand is enabled but the SB3 MuJoCo env does "
-            "not implement randomization yet (mass / friction / motor / push / "
-            "obs_noise are no-ops). Sim-to-real transfer will be brittle until "
-            "this lands; see the DR audit ticket."
-        )
+    # domain_rand is honored by GenericMujocoEnv directly (mass / friction /
+    # motor_strength / joint_damping / obs_noise / push). No warning is
+    # emitted on opt-in; the env-side log line on first reset confirms
+    # the configured ranges took effect.
 
     sched = getattr(spec, "stage_schedule", None)
     if sched is not None:
@@ -274,7 +262,57 @@ def _load_existing_model(algo: str, ckpt_path: str, vec_env, *, device: str):
 # ---------------------------------------------------------------------------
 
 
-def _make_env_factory(spec, *, env_index: int, base_seed: int) -> Callable:
+class _ActionClipWrapper:
+    """Outer safety action clip driven by ``env_assembler.action_clip_range``.
+
+    Sits OUTSIDE the obs_action contract clip applied inside
+    :class:`GenericMujocoEnv`. The contract clip is part of the deploy bundle
+    (so the runtime applier reproduces it); this wrapper is a training-only
+    guard that lets users tighten exploration without touching the contract.
+
+    Implemented inline (not as a ``gymnasium.ActionWrapper`` subclass) to
+    avoid importing gymnasium just to subclass it — the underlying env is
+    already a Gymnasium env, and ``Monitor`` only needs the standard
+    ``reset/step/close/render`` interface.
+    """
+
+    def __init__(self, env, clip_range: float):
+        self._env = env
+        self._clip_range = float(clip_range)
+        self.action_space = env.action_space
+        self.observation_space = env.observation_space
+        # Propagate metadata so RecordVideo / Monitor can detect render_mode.
+        self.metadata = getattr(env, "metadata", {})
+        self.render_mode = getattr(env, "render_mode", None)
+        self.spec = getattr(env, "spec", None)
+
+    def reset(self, **kwargs):
+        return self._env.reset(**kwargs)
+
+    def step(self, action):
+        import numpy as _np
+        clipped = _np.clip(action, -self._clip_range, self._clip_range)
+        return self._env.step(clipped)
+
+    def render(self):
+        return self._env.render()
+
+    def close(self):
+        return self._env.close()
+
+    def __getattr__(self, name):
+        # Delegate any missing attribute to the wrapped env (mirrors
+        # ``gymnasium.Wrapper.__getattr__`` semantics).
+        return getattr(self._env, name)
+
+
+def _make_env_factory(
+    spec,
+    *,
+    env_index: int,
+    base_seed: int,
+    render_mode: Optional[str] = None,
+) -> Callable:
     """Return a thunk that builds one :class:`GenericMujocoEnv` instance.
 
     Each VecEnv slot gets a deterministic per-index seed so subprocess
@@ -283,35 +321,80 @@ def _make_env_factory(spec, *, env_index: int, base_seed: int) -> Callable:
     from application.training.envs import make_env
 
     def _thunk():
-        return make_env(spec, seed=base_seed + env_index)
+        return make_env(spec, seed=base_seed + env_index, render_mode=render_mode)
 
     return _thunk
 
 
-def build_vec_env(spec, *, n_envs: int, seed: int):
+def build_vec_env(
+    spec,
+    *,
+    n_envs: int,
+    seed: int,
+    render_mode: Optional[str] = None,
+    video_record_dir: Optional[Path] = None,
+):
     """Construct a (Dummy)VecEnv with optional VecNormalize.
 
     Subprocess parallelism is reserved for Stage 10's launcher (which
     sets up ``if __name__ == "__main__"`` guards and a process-spawn
     context). For Stage 7 we run all envs in-thread.
+
+    Wrapper stack (outermost-first as the policy sees them):
+        VecFrameStack (if ``obs_action.frame_stack > 1``)
+          → VecNormalize (if ``env.obs_normalize`` / ``reward_normalize``)
+          → DummyVecEnv
+          → Monitor
+          → GenericMujocoEnv
     """
     from stable_baselines3.common.monitor import Monitor
     from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
     n_envs = max(1, int(n_envs))
 
-    def _wrap(thunk: Callable) -> Callable:
+    # Outer safety clip from env_assembler.action_clip_range. This sits OUTSIDE
+    # the obs_action contract clip (which is applied inside GenericMujocoEnv.step
+    # and round-trips through the deploy bundle). The env_assembler value is a
+    # training-only guard — users tightening it produces tighter exploration
+    # without affecting the deploy contract. A value of 0 disables the wrapper.
+    env_cfg = getattr(spec, "env", None)
+    action_clip_range = float(getattr(env_cfg, "action_clip_range", 1.0) or 0.0) if env_cfg is not None else 0.0
+
+    def _wrap(thunk: Callable, *, video_dir: Optional[Path] = None) -> Callable:
         # Monitor populates ``info["episode"]`` (and thus ``model.ep_info_buffer``)
         # with per-episode return ``r`` + length ``l``. The progress callback in
         # sb3_entry.py reads ``l`` to emit ``ep_len_mean``.
         def _factory():
-            return Monitor(thunk())
+            env = thunk()
+            if action_clip_range > 0.0:
+                env = _ActionClipWrapper(env, action_clip_range)
+            if video_dir is not None:
+                try:
+                    from gymnasium.wrappers import RecordVideo
+                    video_dir.mkdir(parents=True, exist_ok=True)
+                    env = RecordVideo(
+                        env,
+                        video_folder=str(video_dir),
+                        episode_trigger=lambda ep: True,
+                        name_prefix="eval",
+                        disable_logger=True,
+                    )
+                except Exception as exc:                      # pragma: no cover
+                    log_warning(
+                        f"[sb3_trainer] RecordVideo wiring skipped: {exc}"
+                    )
+            return Monitor(env)
         return _factory
 
-    fns = [_wrap(_make_env_factory(spec, env_index=i, base_seed=seed)) for i in range(n_envs)]
+    fns = [
+        _wrap(
+            _make_env_factory(spec, env_index=i, base_seed=seed, render_mode=render_mode),
+            video_dir=video_record_dir if i == 0 else None,
+        )
+        for i in range(n_envs)
+    ]
     vec = DummyVecEnv(fns)
 
-    env_cfg = getattr(spec, "env", None)
     if env_cfg is not None and getattr(env_cfg, "obs_normalize", False):
         clip_obs = float(getattr(env_cfg, "clip_obs", 10.0))
         clip_reward = float(getattr(env_cfg, "clip_reward", 10.0))
@@ -323,6 +406,18 @@ def build_vec_env(spec, *, n_envs: int, seed: int):
             clip_obs=clip_obs,
             clip_reward=clip_reward,
         )
+
+    # obs_action.frame_stack > 1 ⇒ wrap with VecFrameStack so the policy
+    # network observes ``frame_stack`` consecutive observations concatenated
+    # along the feature axis. SB3's VecFrameStack stacks on the env side so
+    # the bundle exporter still receives the stacked obs_dim (k × base_dim)
+    # — that matches what the trained ONNX expects at deploy.
+    oa = getattr(spec, "obs_action", None)
+    frame_stack = int(getattr(oa, "frame_stack", 1) or 1) if oa is not None else 1
+    if frame_stack > 1:
+        from stable_baselines3.common.vec_env import VecFrameStack
+        vec = VecFrameStack(vec, n_stack=frame_stack)
+
     return vec
 
 
@@ -567,6 +662,16 @@ def train_sb3(
         eval_episodes = int(getattr(eval_cfg, "eval_episodes", 0) or 0)
         save_best = bool(getattr(eval_cfg, "save_best_model", True))
         deterministic = bool(getattr(eval_cfg, "deterministic", True))
+        record_video = bool(getattr(eval_cfg, "record_video", False))
+        # Custom video_dir overrides the in-run-dir default. When the
+        # canvas leaves video_dir blank we land videos beside the
+        # checkpoints so a user inspecting the run_dir sees them next to
+        # the policy artifacts.
+        video_dir_str = (getattr(eval_cfg, "video_dir", "") or "").strip()
+        if record_video:
+            video_dir = Path(video_dir_str) if video_dir_str else (run_dir / "videos")
+        else:
+            video_dir = None
         if eval_interval > 0 and eval_episodes > 0:
             try:
                 from stable_baselines3.common.callbacks import (
@@ -574,7 +679,13 @@ def train_sb3(
                     EvalCallback,
                 )
 
-                eval_env = build_vec_env(spec, n_envs=1, seed=seed + 10_000)
+                eval_env = build_vec_env(
+                    spec,
+                    n_envs=1,
+                    seed=seed + 10_000,
+                    render_mode="rgb_array" if record_video else None,
+                    video_record_dir=video_dir,
+                )
                 best_dir = run_dir / "best_model" if save_best else None
                 if best_dir is not None:
                     best_dir.mkdir(parents=True, exist_ok=True)
@@ -593,11 +704,6 @@ def train_sb3(
                     final_callback = _CL([final_callback, eval_cb])
             except Exception as exc:                         # pragma: no cover
                 log_warning(f"[sb3_trainer] EvalCallback wiring skipped: {exc}")
-        if bool(getattr(eval_cfg, "record_video", False)):
-            log_warning(
-                "[sb3_trainer] eval_config.record_video=True is not "
-                "implemented; eval still runs but no video is saved."
-            )
 
     vis_cfg = getattr(spec, "vis", None)
     if vis_cfg is not None:

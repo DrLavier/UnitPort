@@ -10,10 +10,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from pathlib import Path
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -49,7 +53,7 @@ class _ServerEditor(QDialog):
             else tr("engines.server_editor.add", "Add server")
         )
         self.setModal(True)
-        self.setMinimumWidth(360)
+        self.setMinimumWidth(440)
 
         self._name = QLineEdit()
         self._host = QLineEdit()
@@ -58,17 +62,76 @@ class _ServerEditor(QDialog):
         self._port.setValue(22)
         self._user = QLineEdit()
 
+        # Auth: "key" or "password". Passwords are NEVER persisted here —
+        # they live in the OS keyring (SecureCredentialStore.ssh_password)
+        # and are prompted at use-time. Picking "password" simply records
+        # the chosen scheme; the private key path field is hidden.
+        self._auth = QComboBox()
+        self._auth.addItem(tr("engines.server_editor.auth_key", "SSH Key"), "key")
+        self._auth.addItem(tr("engines.server_editor.auth_password", "Password"), "password")
+        self._auth.currentIndexChanged.connect(self._on_auth_changed)
+
+        self._key_path = QLineEdit()
+        self._key_path.setPlaceholderText("~/.ssh/id_rsa")
+        self._btn_browse_key = QPushButton(tr("engines.server_editor.browse", "Browse..."))
+        self._btn_browse_key.setFixedWidth(80)
+        self._btn_browse_key.clicked.connect(self._on_browse_key)
+        key_row = QHBoxLayout()
+        key_row.addWidget(self._key_path, 1)
+        key_row.addWidget(self._btn_browse_key)
+        self._key_path_label = QLabel(tr("engines.server_editor.key_file", "Key file"))
+
+        # Remote environment fields. Mirror the keys the install wizard
+        # already collects under `cloud_ssh`, plus the optional bits
+        # downstream cloud-deploy will need (work dir / conda env).
+        self._remote_install_dir = QLineEdit()
+        self._remote_install_dir.setPlaceholderText("~/isaac_lab")
+        self._remote_work_dir = QLineEdit()
+        self._remote_work_dir.setPlaceholderText("/tmp/unitport_training")
+        self._conda_env = QLineEdit()
+        self._conda_env.setPlaceholderText(tr(
+            "engines.server_editor.conda_env_ph", "isaaclab (optional)",
+        ))
+
         if existing:
             self._name.setText(str(existing.get("name", "")))
             self._host.setText(str(existing.get("host", "")))
             self._port.setValue(int(existing.get("port", 22) or 22))
             self._user.setText(str(existing.get("user", "")))
+            auth_value = str(existing.get("auth_method", "key") or "key")
+            idx = self._auth.findData(auth_value)
+            self._auth.setCurrentIndex(idx if idx >= 0 else 0)
+            self._key_path.setText(str(existing.get("private_key_path", "")))
+            self._remote_install_dir.setText(str(existing.get("remote_install_dir", "")))
+            self._remote_work_dir.setText(str(existing.get("remote_work_dir", "")))
+            self._conda_env.setText(str(existing.get("conda_env", "")))
 
         form = QFormLayout()
         form.addRow(tr("engines.server_editor.name", "Display name"), self._name)
         form.addRow(tr("engines.server_editor.host", "Host"), self._host)
         form.addRow(tr("engines.server_editor.port", "Port"), self._port)
         form.addRow(tr("engines.server_editor.user", "User"), self._user)
+        form.addRow(tr("engines.server_editor.auth", "Auth"), self._auth)
+        form.addRow(self._key_path_label, key_row)
+        form.addRow(
+            tr("engines.server_editor.remote_install_dir", "Remote install dir"),
+            self._remote_install_dir,
+        )
+        form.addRow(
+            tr("engines.server_editor.remote_work_dir", "Remote work dir"),
+            self._remote_work_dir,
+        )
+        form.addRow(
+            tr("engines.server_editor.conda_env", "Conda env"),
+            self._conda_env,
+        )
+
+        hint = QLabel(tr(
+            "engines.server_editor.password_hint",
+            "Passwords are never stored here — supply them at connect time "
+            "(persisted in the OS keyring).",
+        ))
+        hint.setWordWrap(True)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -78,7 +141,27 @@ class _ServerEditor(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(hint)
         layout.addWidget(buttons)
+
+        self._on_auth_changed(self._auth.currentIndex())
+
+    def _on_auth_changed(self, _idx: int) -> None:
+        is_key = self._auth.currentData() == "key"
+        self._key_path.setVisible(is_key)
+        self._btn_browse_key.setVisible(is_key)
+        self._key_path_label.setVisible(is_key)
+
+    def _on_browse_key(self) -> None:
+        start = self._key_path.text().strip() or str(Path.home() / ".ssh")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("engines.server_editor.pick_key", "Select SSH private key"),
+            start,
+            "All Files (*)",
+        )
+        if path:
+            self._key_path.setText(path)
 
     def _on_accept(self) -> None:
         name = self._name.text().strip()
@@ -105,14 +188,32 @@ class _ServerEditor(QDialog):
                 tr("engines.server_editor.host_required", "Host is required."),
             )
             return
+        if self._auth.currentData() == "key" and not self._key_path.text().strip():
+            QMessageBox.warning(
+                self,
+                tr("engines.server_editor.invalid_title", "Invalid"),
+                tr(
+                    "engines.server_editor.key_required",
+                    "Private key path is required for key authentication.",
+                ),
+            )
+            return
         self.accept()
 
     def value(self) -> Dict[str, Any]:
+        auth = str(self._auth.currentData() or "key")
         return {
             "name": self._name.text().strip(),
             "host": self._host.text().strip(),
             "port": int(self._port.value()),
             "user": self._user.text().strip(),
+            "auth_method": auth,
+            "private_key_path": (
+                self._key_path.text().strip() if auth == "key" else ""
+            ),
+            "remote_install_dir": self._remote_install_dir.text().strip(),
+            "remote_work_dir": self._remote_work_dir.text().strip(),
+            "conda_env": self._conda_env.text().strip(),
         }
 
 
@@ -212,7 +313,7 @@ class EngineSettingsDialog(QDialog):
         self.setStyleSheet(
             "QLabel { background: transparent; border: none; }"
             f"QListWidget {{ background: {bg}; color: {fg}; border: 1px solid {border}; border-radius: 4px; }}"
-            f"QLineEdit, QSpinBox {{ background: {bg}; color: {fg}; border: 1px solid {border}; border-radius: 4px; padding: 4px 6px; }}"
+            f"QLineEdit, QSpinBox, QComboBox {{ background: {bg}; color: {fg}; border: 1px solid {border}; border-radius: 4px; padding: 4px 6px; }}"
             f"QPushButton {{ background: {bg}; color: {fg}; border: 1px solid {border}; border-radius: 4px; padding: 4px 10px; }}"
             f"QPushButton:hover {{ border-color: {accent}; }}"
         )

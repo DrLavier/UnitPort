@@ -1,0 +1,10 @@
+[default]
+clear_all = 清空全部
+
+[row]
+delete.tip = 删除该运行记录
+
+[confirm]
+clear_title = 清空所有训练历史？
+clear_body = 该操作会删除 <project>/training/runs/ 下所有运行目录，以及 _runs_/ 中的所有画布切片，且无法撤销。
+

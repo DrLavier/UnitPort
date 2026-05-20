@@ -1,5 +1,6 @@
 [language]
 tip = 语言
+short = 语言
 
 [update]
 tip = 更新
@@ -7,4 +8,62 @@ tip_latest = 当前已是最新版本
 tip_needed = 有新版本可用 — 点击应用
 short_latest = 最新
 short_needed = 更新
+
+[settings]
+tip = 设置
+short = 设置
+
+[fullscreen]
+tip = 全屏
+short = 全屏
+
+[user]
+tip = 用户
+short = 用户
+title = 用户
+
+[node_library]
+tip = 节点库
+short = 节点
+title = 节点库
+
+[projects]
+tip = 项目文件
+short = 项目
+title = 项目文件
+
+[robot_assets]
+tip = 机器人资源
+short = 机器人
+title = 机器人资源
+
+[controller]
+tip = 控制器
+short = 控制器
+title = 控制器
+
+[resources]
+tip = 第三方动作数据集与策略包
+short = 资源
+title = 资源
+
+[rewards]
+tip = 奖励预设模块
+short = 奖励
+title = 奖励
+
+[terminations]
+tip = 终止条件预设模块
+short = 终止
+title = 终止条件
+
+[observations]
+tip = 观测预设模块
+short = 观测
+title = 观测
+
+[training]
+tip = 项目 + 全局训练脚本
+short = 训练
+title = 训练脚本
 

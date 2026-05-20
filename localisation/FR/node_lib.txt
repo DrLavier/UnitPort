@@ -1,0 +1,12 @@
+[default]
+empty = Aucun nœud enregistré
+
+[layer]
+a = Configuration
+b = Environnement
+c = Entraînement
+d = Export
+il = Apprentissage par imitation
+custom = Personnalisé
+tools = Outils
+

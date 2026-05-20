@@ -1,0 +1,24 @@
+[btn]
+close = Fermer
+open_log = Ouvrir le dossier des journaux
+retry = Réessayer
+switch_locate = Basculer vers le mode Localiser
+
+[dialog]
+title = Installation d'Isaac Lab
+
+[heading]
+error = L'installation d'Isaac Lab a échoué
+running = Installation d'Isaac Lab
+success = Isaac Lab installé
+
+[phase]
+fallback_external = Basculement vers un venv externe (conflits pip détectés)
+preflight = Préparation...
+
+[status]
+error_hint = Consultez le journal pour tous les détails. Vous pouvez réessayer, ou basculer vers la localisation d'une installation Isaac Lab existante.
+idle = En attente du démarrage de l'installateur...
+success = Installation réussie à : {path}
+success_generic = Installation terminée
+

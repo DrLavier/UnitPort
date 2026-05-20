@@ -110,12 +110,29 @@ def get_ir_roles(format_id: str) -> List[str]:
     return list(FORMAT_IR_ROLES.get(format_id, []))
 
 
+def _robot_ir_role_set(robot_spec: "RobotSpec", active_format: Optional[str]) -> set:
+    """Return the set of IR roles the robot declares under ``active_format``.
+
+    Falls back to the legacy flat ``joint_ir_roles`` when no active_format
+    is given (transitional support for callers that haven't been migrated
+    to per-format yet).
+    """
+    if active_format and hasattr(robot_spec, "joint_ir_roles_for"):
+        return set(robot_spec.joint_ir_roles_for(active_format))
+    return set(getattr(robot_spec, "joint_ir_roles", []) or [])
+
+
 def map_clip_index_to_joint(
     format_id: str,
     clip_index: int,
     robot_spec: "RobotSpec",
+    active_format: Optional[str] = None,
 ) -> Optional[str]:
     """Resolve clip joint index → robot joint name via the IR layer.
+
+    Stage 4: ``active_format`` selects which per-format joint table to
+    consult. None / empty falls back to the robot's preferred format
+    (legacy behaviour for transitional callers).
 
     Returns ``None`` if the format has no IR contract, the index is
     out of range, or the role is not present on this robot.
@@ -124,6 +141,14 @@ def map_clip_index_to_joint(
     if not roles or not (0 <= clip_index < len(roles)):
         return None
     role = roles[clip_index]
+
+    if active_format and hasattr(robot_spec, "joints_role_map_for"):
+        joints_role_map = robot_spec.joints_role_map_for(active_format)
+        for jname, jrole in joints_role_map.items():
+            if jrole == role:
+                return jname
+        return None
+
     for jname, jrole in zip(robot_spec.joint_order, robot_spec.joint_ir_roles):
         if jrole == role:
             return jname
@@ -135,9 +160,11 @@ def validate_clip_ir_match(
     robot_spec: "RobotSpec",
     format_id: str = "amp_legged_gym",
     _cached_joint_count: Optional[int] = None,
+    *,
+    active_format: Optional[str] = None,
 ) -> ClipIRStatus:
     """Check whether a single clip's joints resolve cleanly against the
-    robot's IR mapping.
+    robot's IR mapping (Stage 4: per-format aware).
 
     The heavy path (loading the clip file) is only hit when
     ``_cached_joint_count`` is not provided. Callers iterating over many
@@ -194,7 +221,7 @@ def validate_clip_ir_match(
             ),
         )
 
-    have = set(robot_spec.joint_ir_roles)
+    have = _robot_ir_role_set(robot_spec, active_format)
     unmapped = [r for r in expected if r not in have]
     if unmapped:
         return ClipIRStatus(
@@ -206,8 +233,9 @@ def validate_clip_ir_match(
             unmapped_bodies=unmapped,
             message=(
                 f"{len(unmapped)} IR role(s) unmapped for robot "
-                f"{robot_spec.sku!r}: {unmapped!r}. Edit the robot's body "
-                f"mapping or pick a robot whose joints cover the required roles."
+                f"{robot_spec.sku!r} (format={active_format or 'preferred'!s}): "
+                f"{unmapped!r}. Edit the robot's body mapping or pick a "
+                f"robot whose joints cover the required roles."
             ),
         )
 
@@ -225,10 +253,14 @@ def validate_clips_ir_match(
     clip_paths: List[Union[str, Path]],
     robot_spec: "RobotSpec",
     format_id: str = "amp_legged_gym",
+    *,
+    active_format: Optional[str] = None,
 ) -> Dict[str, ClipIRStatus]:
     """Batch-validate a list of clips. Returns ``{clip_path: status}``."""
     return {
-        str(path): validate_clip_ir_match(path, robot_spec, format_id)
+        str(path): validate_clip_ir_match(
+            path, robot_spec, format_id, active_format=active_format,
+        )
         for path in clip_paths
     }
 

@@ -277,7 +277,12 @@ class AMPDiscriminator:
         """
         import torch
 
-        state = torch.load(str(path), map_location=device or "cpu")
+        # WHY KEPT: discriminator.pt is produced by _extract_discriminator_pt
+        # earlier in the same training/export pipeline — trusted artifact.
+        # PyTorch default (weights_only=False on older builds; True on 2.6+)
+        # is acceptable here because the call sites pass a path written by
+        # this same process. Plan P1-1.
+        state = torch.load(str(path), map_location=device or "cpu", weights_only=False)
         inst = cls(
             input_dim=int(state["input_dim"]),
             amp_reward_coef=float(state["amp_reward_coef"]),

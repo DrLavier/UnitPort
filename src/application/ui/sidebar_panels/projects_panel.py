@@ -1,4 +1,4 @@
-"""ProjectsPanel — project picker + Canvas/Script files_list host.
+"""ProjectsPanel — project picker + flat Canvas files list.
 
 The panel is two-pieced:
 
@@ -6,27 +6,27 @@ The panel is two-pieced:
     | [ project dropdown ▾ ] [↻] [folder] |
     +---------------------------------------+
     |                                       |
-    |       files_list (Canvas / Script)    |
-    |       — adopted from MissionControlPanel —
+    |       files_list (Canvas only)        |
+    |       — owned single-tab LaviTabTable, |
+    |         tab strip hidden, transparent |
     |                                       |
     +---------------------------------------+
 
 * The dropdown enumerates every project under ``Paths.PROJECTS_DIR``
   via ``ProjectStore.snapshot()``. Selecting an entry emits
   ``project_selected(Path)``; ``MainWindow`` bridges it to ``open_project``,
-  which re-runs ``_bind_project`` and feeds the new ``set_canvas_groups`` /
-  ``set_script_groups`` payload into the mounted files_list.
-* The lower half is a vacant container until ``mount_files_list(widget)``
-  is called by ``MainWindow`` (after both Sidebar and MissionControlPanel
-  are built). The widget is the same ``files_list`` MissionControlPanel
-  used to host on its left column — its UI and its signal connections are
-  unchanged; only its parent chain moves.
+  which re-runs ``_bind_project`` and feeds the new ``set_canvas_groups``
+  payload back into this panel.
+* The lower half is a panel-owned :class:`LaviTabTable` with a single tab
+  (Canvas). The tab strip is hidden so it reads as a flat grouped list.
+  Selecting a row emits ``canvas_selected(file_id)`` for MainWindow to
+  forward into ``MissionControlPanel.open_canvas``.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -35,24 +35,47 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from unitport_sdk import Config, i18n_bind, log_debug, log_warning, setButton, setComboBox, tr
+from unitport_sdk import (
+    Config,
+    LaviTabTable,
+    i18n_bind,
+    log_debug,
+    log_warning,
+    setButton,
+    setComboBox,
+    setLaviTabTable,
+    tr,
+)
 
 from application.service.projects import ProjectInfo, get_project_store
+from application.ui.sidebar_panels.scripts_panels import (
+    restyle_tab_table_for_sidebar,
+)
+
+
+_FILES_TAB_ID = "projects.tab.canvas"
 
 
 class ProjectsPanel(QWidget):
-    """Project dropdown + refresh + open-folder + mounted files_list."""
+    """Project dropdown + refresh + open-folder + flat canvas list."""
 
-    # Same name and (Path,) signature as before — MainWindow's bridge
-    # (``open_project``) does not need to change.
     file_activated = pyqtSignal(Path)
     project_selected = pyqtSignal(Path)
+    # Emitted when the user picks a canvas row. Payload is the canvas file_id
+    # (e.g. ``"canvas/sb3_mujoco/main.canvas.json"``) — the same identifier
+    # ``MissionControlPanel.open_canvas`` consumes.
+    canvas_selected = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._store = get_project_store()
         self._projects_cache: List[ProjectInfo] = []
         self._suspend_dropdown_signal: bool = False
+
+        self._canvas_groups: List[Dict] = []
+        self._current_canvas: str = ""
+        self._files_table: Optional[LaviTabTable] = None
+        self._files_table_layout: Optional[QVBoxLayout] = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -71,13 +94,7 @@ class ProjectsPanel(QWidget):
         self._store.refresh_snapshot()
 
     def set_current_project(self, path: Optional[Path]) -> None:
-        """Sync the dropdown to ``path`` without emitting selection signals.
-
-        ``MainWindow`` calls this on every ``_bind_project`` so the dropdown
-        always reflects the currently bound project. The selection is
-        round-tripped through ``project_id`` (the LaviComboBox key) so it
-        survives snapshot rescans where the underlying list is rebuilt.
-        """
+        """Sync the dropdown to ``path`` without emitting selection signals."""
         if not path:
             return
         try:
@@ -97,26 +114,27 @@ class ProjectsPanel(QWidget):
                     self._suspend_dropdown_signal = False
                 return
 
-    def mount_files_list(self, widget: QWidget) -> None:
-        """Adopt the orphan ``files_list`` widget into the panel.
+    def set_canvas_groups(self, groups: List[Dict]) -> None:
+        """Replace the panel's canvas list with ``groups``.
 
-        Called once by ``MainWindow._build_main_page`` after MissionControlPanel
-        has been constructed. The widget's parent chain changes; its inner
-        signal wiring (LaviTabTable → MissionControlPanel slots) is preserved.
+        Called by ``MainWindow._bind_project_info`` whenever the active
+        project changes (or on initial bind). Groups follow the spec built
+        by :func:`application.service.projects.list_canvas_groups`.
         """
-        if self._files_host_layout is None or widget is None:
+        self._canvas_groups = list(groups or [])
+        self._rebuild_files_table()
+
+    def set_current_canvas(self, file_id: str) -> None:
+        """Programmatically highlight ``file_id`` in the list.
+
+        Driven by ``MainWindow._on_canvas_loaded`` so the highlight
+        follows the actively-loaded canvas (including programmatic opens
+        from the picker / last-canvas auto-open).
+        """
+        self._current_canvas = file_id or ""
+        if self._files_table is None or not self._current_canvas:
             return
-        # Idempotent: removing first lets callers re-mount without leaks.
-        for i in reversed(range(self._files_host_layout.count())):
-            item = self._files_host_layout.itemAt(i)
-            if item is None:
-                continue
-            existing = item.widget()
-            if existing is not None:
-                self._files_host_layout.removeWidget(existing)
-                existing.setParent(None)
-        self._files_host_layout.addWidget(widget, 1)
-        widget.setVisible(True)
+        self._files_table.setSelection(_FILES_TAB_ID, [self._current_canvas])
 
     # ------------------------------------------------------------------
     # Construction
@@ -126,8 +144,6 @@ class ProjectsPanel(QWidget):
         header.setContentsMargins(0, 0, 0, 0)
         header.setSpacing(4)
 
-        # Initial empty list — repopulated from the snapshot below. We use
-        # i18n=False because project names / ids aren't translation keys.
         self._dropdown = setComboBox([], height=26, i18n=False, parent=self)
         self._dropdown.currentIndexChanged.connect(self._on_dropdown_changed)
         header.addWidget(self._dropdown, 1)
@@ -159,21 +175,76 @@ class ProjectsPanel(QWidget):
         return header
 
     def _build_files_host(self) -> QWidget:
-        """Empty container the relocated files_list will be parented into."""
+        """Container that hosts the panel-owned single-tab LaviTabTable."""
         host = QWidget(self)
         host.setObjectName("projectsFilesHost")
-        self._files_host = host
-        self._files_host_layout = QVBoxLayout(host)
-        self._files_host_layout.setContentsMargins(0, 0, 0, 0)
-        self._files_host_layout.setSpacing(0)
-        # Transparent host — the inner files_list owns its own theming via
-        # MissionControlPanel, so the sidebar panel doesn't double up a
-        # background/border around it.
         host.setStyleSheet(
             "QWidget#projectsFilesHost { background: transparent;"
             " border: none; }"
         )
+        self._files_table_layout = QVBoxLayout(host)
+        self._files_table_layout.setContentsMargins(0, 0, 0, 0)
+        self._files_table_layout.setSpacing(0)
+        self._rebuild_files_table()
         return host
+
+    def _rebuild_files_table(self) -> None:
+        """Destroy + rebuild the LaviTabTable with the cached groups."""
+        if self._files_table_layout is None:
+            return
+        if self._files_table is not None:
+            try:
+                self._files_table.selectionChanged.disconnect(
+                    self._on_files_selection_changed
+                )
+            except (TypeError, RuntimeError):
+                pass
+            self._files_table_layout.removeWidget(self._files_table)
+            self._files_table.setParent(None)
+            self._files_table.deleteLater()
+            self._files_table = None
+
+        spec = [{
+            "id": _FILES_TAB_ID,
+            "default": "Canvas",
+            "groups": list(self._canvas_groups),
+        }]
+        self._files_table = setLaviTabTable(
+            spec, kind="single", parent=self,
+        )
+        self._files_table.setObjectName("projectsFilesTable")
+        self._files_table.setTabEmptyHint(
+            _FILES_TAB_ID, "projects.list.empty.canvas", "(no canvas files)",
+        )
+        # Hide the tab strip — degenerate 1-tab case; LaviTabTable always
+        # paints ``_tab_bar``. Private-attr access acknowledged; follow-up
+        # SDK request: add a public ``tab_bar_visible`` constructor flag.
+        try:
+            self._files_table._tab_bar.setVisible(False)
+        except AttributeError:
+            pass
+        self._files_table.setStyleSheet(
+            (self._files_table.styleSheet() or "")
+            + "\nQWidget#projectsFilesTable { background: transparent; }"
+        )
+        # Strip the inner list-bg autofill and re-paint group headers with
+        # the ``highlight`` slot — same treatment as the Scripts-mode
+        # sidebar panels so the sidebar reads consistently across modes.
+        restyle_tab_table_for_sidebar(self._files_table)
+        self._files_table.selectionChanged.connect(self._on_files_selection_changed)
+        self._files_table_layout.addWidget(self._files_table, 1)
+
+        # Restore selection if the previously-loaded canvas survived the
+        # rebuild (e.g. opened canvas + then project rescan refreshed groups).
+        if self._current_canvas:
+            self._files_table.setSelection(
+                _FILES_TAB_ID, [self._current_canvas]
+            )
+            survivors = self._files_table.selectionMap().get(
+                _FILES_TAB_ID, []
+            )
+            if not survivors:
+                self._current_canvas = ""
 
     # ------------------------------------------------------------------
     # Snapshot rendering
@@ -192,14 +263,8 @@ class ProjectsPanel(QWidget):
             )
             items = [("__empty__", placeholder)]
         else:
-            # i18n=False: ``default`` is what's displayed. project_id is the
-            # stable key we use to round-trip selection across rescans.
             items = [(p.project_id, p.name) for p in snapshot]
 
-        # Preserve current selection (by project_id) across the rebuild.
-        # We never auto-emit here: snapshot refreshes happen as a side
-        # effect of ``open_project -> refresh -> Sidebar.refresh`` and
-        # re-emitting would loop back into open_project.
         prev_key = self._dropdown.currentKey()
         self._suspend_dropdown_signal = True
         try:
@@ -226,10 +291,25 @@ class ProjectsPanel(QWidget):
         log_debug(f"[projects] selected {info.name} ({info.project_id})")
         self._store.add_recent(info.path)
         self.project_selected.emit(info.path)
-        # Backwards-compatible alias for the previous activation signal,
-        # so MainWindow's existing ``file_activated -> open_project``
-        # bridge keeps firing.
         self.file_activated.emit(info.path)
+
+    # ------------------------------------------------------------------
+    # Theme
+    # ------------------------------------------------------------------
+    def refresh_style(self) -> None:
+        if self._files_table is not None:
+            try:
+                self._files_table.refresh_style()
+            except Exception:
+                pass
+            self._files_table.setStyleSheet(
+                (self._files_table.styleSheet() or "")
+                + "\nQWidget#projectsFilesTable { background: transparent; }"
+            )
+            # SDK refresh_style re-runs ``_apply_list_bg`` (which calls
+            # setAutoFillBackground(True)) and won't touch group-header
+            # paintEvents. Re-strip + re-tint so theme switches stay clean.
+            restyle_tab_table_for_sidebar(self._files_table)
 
     # ------------------------------------------------------------------
     # Actions
@@ -242,6 +322,14 @@ class ProjectsPanel(QWidget):
         if self._suspend_dropdown_signal:
             return
         self._emit_current_selection()
+
+    def _on_files_selection_changed(
+        self, _tab_id: str, items: list,
+    ) -> None:
+        item_id = items[0] if items else ""
+        self._current_canvas = item_id
+        if item_id:
+            self.canvas_selected.emit(item_id)
 
 
 __all__ = ["ProjectsPanel"]

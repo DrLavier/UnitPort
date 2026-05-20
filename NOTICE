@@ -1,0 +1,102 @@
+UnitPort
+Copyright 2024-2026 UnitPort Studio, UnitPort Team
+
+This product includes software developed by UnitPort Studio
+(https://uniport.ai) under the Apache License, Version 2.0.
+
+================================================================================
+THIRD-PARTY COMPONENTS
+================================================================================
+
+This distribution incorporates, depends on, or bundles material from the
+following third-party projects. Each is governed by its own license; the
+texts are obtainable from the upstream projects linked below.
+
+--------------------------------------------------------------------------------
+Robot assets — bundled under custom_mods/models/ (when downloaded)
+--------------------------------------------------------------------------------
+
+  google-deepmind/mujoco_menagerie
+    https://github.com/google-deepmind/mujoco_menagerie
+    License: Apache License 2.0 (per-model sub-licenses apply; see the
+             LICENSE file inside each model directory).
+    Use: source of the bulk of the built-in MJCF assets for Unitree, Boston
+         Dynamics, MangDang, and the canonical Generic templates.
+
+--------------------------------------------------------------------------------
+Runtime dependencies — installed by install.bat / install.sh into .venv311
+--------------------------------------------------------------------------------
+
+  PyQt6 (Riverbank Computing) — GPL v3 / Commercial dual license
+    https://www.riverbankcomputing.com/software/pyqt/
+    See the IMPORTANT NOTE in README.md "License" section for the
+    distribution implications.
+
+  Stable-Baselines3 — MIT License
+    https://github.com/DLR-RM/stable-baselines3
+
+  NVIDIA Isaac Lab — BSD 3-Clause License (optional, installed separately)
+    https://github.com/isaac-sim/IsaacLab
+
+  MuJoCo — Apache License 2.0
+    https://github.com/google-deepmind/mujoco
+
+  PyTorch — BSD 3-Clause License
+    https://github.com/pytorch/pytorch
+
+  ONNX / ONNX Runtime — Apache License 2.0 / MIT
+    https://github.com/onnx/onnx
+    https://github.com/microsoft/onnxruntime
+
+  Gymnasium — MIT License
+    https://github.com/Farama-Foundation/Gymnasium
+
+  loguru — MIT License
+    https://github.com/Delgan/loguru
+
+  CycloneDDS (Eclipse Cyclone DDS) — Eclipse Public License 2.0
+    https://github.com/eclipse-cyclonedds/cyclonedds
+
+  paramiko — LGPL v2.1
+    https://github.com/paramiko/paramiko
+
+  pyqtgraph — MIT License
+    https://github.com/pyqtgraph/pyqtgraph
+
+  TensorBoard — Apache License 2.0
+    https://github.com/tensorflow/tensorboard
+
+  Unitree SDK2 (unitree_sdk2py) — BSD 3-Clause License
+    https://github.com/unitreerobotics/unitree_sdk2_python
+    Installed from Unitree's official distribution, not PyPI.
+
+  Boston Dynamics Spot SDK — see Boston Dynamics SDK license
+    https://github.com/boston-dynamics/spot-sdk
+
+  ROS 2 (used by the MangDang adapter) — Apache License 2.0
+    https://github.com/ros2
+
+  Supabase Python — MIT License
+    https://github.com/supabase-community/supabase-py
+
+  httpx — BSD 3-Clause License
+    https://github.com/encode/httpx
+
+  rlottie-python — LGPL v2.1
+    https://github.com/sudipto3331/rlottie-python
+
+The full transitive dependency tree with exact versions is captured in
+``requirements.lock``.
+
+================================================================================
+TRADEMARKS
+================================================================================
+
+"UnitPort" and the UnitPort logo are trademarks of UnitPort Studio. The
+Apache License 2.0 does not grant permission to use the trade name, trademark,
+service mark, or product name of the Licensor, except as required for
+reasonable and customary use in describing the origin of the Work.
+
+All other trademarks (Unitree, Boston Dynamics, Spot, MangDang, Mini Pupper,
+NVIDIA, Isaac Lab, MuJoCo, ROS, ROS 2, PyQt, Qt, etc.) are property of their
+respective owners and are used here for descriptive purposes only.

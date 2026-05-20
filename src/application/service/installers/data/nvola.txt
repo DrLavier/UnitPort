@@ -1,0 +1,56 @@
+NVIDIA OMNIVERSE LICENSE AGREEMENT (NVOLA)
+============================================
+
+UnitPort is about to install NVIDIA Isaac Sim 5.1.0.0 on your behalf.
+Isaac Sim ships under the NVIDIA Omniverse License Agreement
+("NVOLA"). The full agreement is long enough that we do not vendor it
+in this file verbatim — please review the canonical version at:
+
+    https://www.nvidia.com/en-us/agreements/cloud-services/omniverse-license/
+
+The bullets below are a non-binding summary of the key obligations.
+They do NOT replace the linked agreement; they exist so you can decide
+whether to open the link before clicking Accept.
+
+KEY OBLIGATIONS (summary, non-binding)
+--------------------------------------
+
+ 1. Permitted use. You may use Omniverse-licensed software (including
+    Isaac Sim and the components installed by `pip install isaacsim`)
+    for your own internal development, research, and evaluation.
+
+ 2. Distribution. You may NOT redistribute the Isaac Sim binary
+    package, its underlying USD/PhysX/Kit components, or NVIDIA's
+    branded materials to third parties unless you obtain a separate
+    NVIDIA distribution agreement.
+
+ 3. No reverse engineering. You agree not to reverse-engineer,
+    decompile, or disassemble the Omniverse runtime except as
+    permitted by applicable law.
+
+ 4. Telemetry. Isaac Sim collects anonymised telemetry by default;
+    UnitPort exports `PRIVACY_CONSENT=Y` so the install proceeds
+    unattended. The post-install Isaac Sim privacy panel lets you
+    opt out at any time.
+
+ 5. Third-party components. The Isaac Sim package bundles open-source
+    third-party libraries (PyTorch, USD, OpenSSL, etc.) under their
+    respective licences. Their notices ship inside the installed
+    `_extensions/` and `licenses/` directories.
+
+ 6. Warranty + liability. Isaac Sim is provided "AS IS"; NVIDIA
+    disclaims all warranties and limits liability to the maximum
+    extent permitted by law (see clause 8 of the live agreement).
+
+ 7. Export. You confirm you are not located in, and will not export
+    Isaac Sim to, any country or party subject to U.S. export
+    restrictions (see clause 11 of the live agreement).
+
+If any of the bullets above conflict with your organisation's policy,
+do NOT click Accept; cancel the wizard and either skip Isaac Lab
+integration or use the "Locate existing installation" option after
+running the Isaac Sim installer manually under appropriate licence
+review.
+
+By clicking Accept on this tab you confirm you have reviewed the live
+agreement at the URL above and agree to be bound by its full terms.

@@ -4,4 +4,13 @@ latest_export = 最新导出
 latest_export_desc = 从工作区中最新的导出包继续。
 new = 新建（随机初始化）
 new_desc = 以随机初始化从头开始训练。
+latest = 最新检查点
+latest_desc = 从当前画布最近一次检查点继续累计训练。
+load = 加载
+load_desc = 从当前项目中选择任意检查点或已导出的策略。
+
+[checkpoint]
+empty = — 选择检查点
+export_desc = 已导出的策略 (.onnx)。load_mode 会自动切换为 'warm_start_actor'。
+run_desc = 运行目录检查点 (.pt)。load_mode 会自动切换为 'resume'。
 

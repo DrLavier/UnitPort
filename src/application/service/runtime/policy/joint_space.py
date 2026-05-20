@@ -205,13 +205,15 @@ def joint_spaces_from_mj_model(model) -> Tuple[JointSpace, JointSpace]:
 def joint_spaces_from_deploy_contract(
     model,
     contract: "DeployContract",
+    robot_sku: str,
 ) -> Tuple[JointSpace, JointSpace, JointSpace]:
     """Build (bundle_space, qpos_space, ctrl_space) from a deploy_contract.
 
     Phase 5 IR-only contract: ``contract.joint_sdk_names`` carries **IR role
     names** (e.g. ``"hip_FL"``).  We resolve each IR role to the bound
-    robot's physical joint name via ``contract.robot_sku`` first, then run
-    the existing strict MJCF lookup against the *physical* names.
+    robot's physical joint name via the caller-supplied ``robot_sku``
+    first, then run the existing strict MJCF lookup against the *physical*
+    names.
 
     The returned ``bundle_space`` keeps the IR labels (so action vectors
     coming out of the policy stay tagged in the bundle's vocabulary), while
@@ -219,10 +221,15 @@ def joint_spaces_from_deploy_contract(
     works).  ActionApplier uses ``JointSpaceMapper`` between the two to
     translate at the substrate boundary.
 
-    Backwards compat: when ``contract.robot_sku`` is empty AND every name
-    in ``joint_sdk_names`` already resolves in the MJCF, fall back to the
-    legacy direct-physical-name treatment so old bundles trained before
-    Phase 5 still load (with a one-time warning).
+    ``robot_sku`` is plumbed in by the caller (PolicyRunner /
+    CompatibilityChecker) — typically ``bundle.robot_sku``. The contract
+    no longer carries its own SKU copy (legacy ``contract.robot_sku``
+    was a redundant second source of truth that could silently diverge
+    from manifest.robot.sku; it has been removed).
+
+    Backwards compat: when ``robot_sku`` is empty AND every name in
+    ``joint_sdk_names`` already resolves in the MJCF, fall back to the
+    legacy direct-physical-name treatment so very old bundles still load.
     """
     try:
         import mujoco
@@ -231,13 +238,31 @@ def joint_spaces_from_deploy_contract(
             "joint_spaces_from_deploy_contract: mujoco package not importable"
         ) from exc
 
+    # MuJoCo-deploy opt-out gate (CLAUDE.md §1.10). Bundle finalize sets
+    # this field when the registered MJCF couldn't cover the trained joint
+    # set; the bundle still ships for IsaacSim deploy, but binding it to
+    # a MuJoCo model is contractually unsupported. PolicyRunner.load
+    # already checks this earlier with a richer error, but defending here
+    # too means any future caller (custom test rig, third-party MuJoCo
+    # binder) gets the loud refusal instead of the downstream
+    # ir_roles_to_physical_names KeyError.
+    unsupported = getattr(contract, "mujoco_deploy_unsupported", None)
+    if unsupported:
+        raise ValueError(
+            f"joint_spaces_from_deploy_contract: bundle is marked "
+            f"MuJoCo-deploy-unsupported by the finalizer "
+            f"(reason: {unsupported}). The trained joint set cannot be "
+            f"bound to a MuJoCo articulation; use IsaacSim / cloud deploy "
+            f"target or re-export with a matching MJCF asset."
+        )
+
     contract_names = list(contract.joint_sdk_names)
     if not contract_names:
         raise ValueError(
             "joint_spaces_from_deploy_contract: contract.joint_sdk_names is empty"
         )
 
-    robot_sku = (getattr(contract, "robot_sku", "") or "").strip()
+    robot_sku = (robot_sku or "").strip()
     bundle_labels = list(contract_names)  # preserved for bundle_space label
 
     # ── Phase 5: IR → physical translation ────────────────────────────────
@@ -291,12 +316,15 @@ def joint_spaces_from_deploy_contract(
         if aid < 0:
             target_jid = name_to_jid[name]
             for try_aid in range(int(model.nu)):
-                try:
-                    if int(model.actuator_trnid[try_aid, 0]) == target_jid:
-                        aid = try_aid
-                        break
-                except Exception:
-                    continue
+                # ``actuator_trnid`` is a numpy int array shaped
+                # (model.nu, 2). Indexing is a deterministic read; if
+                # it ever raises, that's a mujoco binding incompatibility
+                # we want to surface, not swallow into "actuator not
+                # found" (which is a different failure mode with very
+                # different remediation).
+                if int(model.actuator_trnid[try_aid, 0]) == target_jid:
+                    aid = try_aid
+                    break
         if aid < 0:
             unresolved_actuators.append(name)
         else:

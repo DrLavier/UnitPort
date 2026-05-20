@@ -34,6 +34,41 @@
           "name": "target_height",
           "value": "0.40",
           "param_type": "float"
+        },
+        "pd_param_mode": {
+          "name": "pd_param_mode",
+          "value": "natural_freq",
+          "param_type": "enum"
+        },
+        "pd_groups": {
+          "name": "pd_groups",
+          "value": "{}",
+          "param_type": "json"
+        },
+        "pd_effort_limit": {
+          "name": "pd_effort_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_velocity_limit": {
+          "name": "pd_velocity_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_resolve_at_reset": {
+          "name": "pd_resolve_at_reset",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_calibration_blocking": {
+          "name": "pd_calibration_blocking",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_skip_calibration": {
+          "name": "pd_skip_calibration",
+          "value": false,
+          "param_type": "bool"
         }
       },
       "ui": {
@@ -286,11 +321,6 @@
         "training_items": {
           "name": "training_items",
           "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_backward.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [-1.2, 0.0], \"lin_vel_y\": [0.0, 0.0]}}}, \"forward_fast\": {\"enabled\": true, \"speed\": [1.0, 1.5], \"clip\": \"pack:amp_go2:go2_motion/go2_forward_fast.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [1.0, 1.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_forward.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 1.0], \"lin_vel_y\": [0.0, 0.0]}}}, \"pace\": {\"enabled\": false, \"speed\": [0.0, 1.2000000000000002], \"clip\": \"pack:amp_go2:go2_motion/go2_forward_fast.txt\", \"advanced\": {\"command_overrides\": {\"lin_vel_x\": [-0.5, 1.2000000000000002]}}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": \"pack:amp_go2:go2_motion/go2_stance.txt\", \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 0.8], \"clip\": \"pack:amp_go2:go2_motion/go2_left.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 0.0], \"lin_vel_y\": [-0.8, 0.8]}}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 0.8], \"clip\": \"pack:amp_go2:go2_motion/go2_right.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 0.0], \"lin_vel_y\": [-0.8, 0.8]}}}, \"turn\": {\"enabled\": false, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_left_fast.txt\", \"advanced\": {}}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_left.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.3, 1.0], \"lin_vel_x\": [0.0, 0.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_right.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.0, -0.3], \"lin_vel_x\": [0.0, 0.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"walk\": {\"enabled\": false, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_forward.txt\", \"advanced\": {\"command_overrides\": {\"lin_vel_x\": [-0.35000000000000003, 1.0]}}}}",
-          "param_type": "json"
-        },
-        "reward_analysis": {
-          "name": "reward_analysis",
-          "value": "{}",
           "param_type": "json"
         },
         "mapping_mode": {
@@ -772,14 +802,14 @@
           "value": "[0.0, 2.0]",
           "param_type": "list"
         },
-        "motor_strength_range": {
-          "name": "motor_strength_range",
-          "value": "[0.9, 1.1]",
+        "omega_n_log_uniform": {
+          "name": "omega_n_log_uniform",
+          "value": "[0.8, 1.25]",
           "param_type": "list"
         },
-        "joint_damping_range": {
-          "name": "joint_damping_range",
-          "value": "[0.9, 1.1]",
+        "zeta_log_uniform": {
+          "name": "zeta_log_uniform",
+          "value": "[0.9, 1.11]",
           "param_type": "list"
         },
         "obs_noise_std": {

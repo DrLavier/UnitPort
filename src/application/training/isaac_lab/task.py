@@ -12,12 +12,13 @@ synchronously on the SDK Task thread so:
 * The eventual return value (run_dir + checkpoint info) is delivered
   through ``TaskSignal.task_finished(task_id, success, result)``.
 
-Phase 3 wiring: when training succeeds and IsaacLabBackend's
-``_run_export()`` produces an exported_dir, ``run()`` finalizes the bundle
-via :func:`application.training.isaac_lab.bundle_finalizer.finalize_isaac_lab_bundle`
-into ``<project>/training/exported/isaac_lab/<bundle_name>/``. The IL task
-mirrors SB3TrainingTask.run() finally block (sb3_task.py:300-349) — same
-shape, different finalizer.
+When training succeeds, ``run()`` finalizes the bundle via
+:func:`application.training.isaac_lab.bundle_finalizer.finalize_isaac_lab_bundle`
+into ``<project>/training/exported/isaac_lab/<bundle_name>/``. The
+finalizer reads ``params/env.yaml`` + the latest ``model_*.pt`` from
+the training run_dir and converts ``.pt`` → ONNX in-process via
+``export_rsl_rl_actor_to_onnx`` (pure torch, no Isaac Sim subprocess).
+The IL task mirrors SB3TrainingTask.run() finally block.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from unitport_sdk import log_error, log_info
+from unitport_sdk import log_error, log_info, log_warning
 from unitport_sdk import log_info as _raw_log_info
 
 from application.service.metrics_cache import get_metrics_cache
@@ -269,6 +270,9 @@ class IsaacLabTrainingTask(TrainingTask):
             # — Task.log_info would prefix every line with the long display
             # name (e.g. ``[isaac_lab:Isaac-Velocity-Flat-Unitree-Go2-v0]``),
             # which is pure noise on top of rsl_rl's already-formatted output.
+            # WHY KEPT (Rule 1.b) try/except around the raw-log call: this
+            # is in the backend message bus and a logging-system fault
+            # must not kill the training subprocess tail loop.
             try:
                 _raw_log_info(str(data))
             except Exception:
@@ -402,7 +406,39 @@ class IsaacLabTrainingTask(TrainingTask):
         except Exception:
             pass
 
-        success = False
+        # ExportNode.overwrite contract: when the canvas Export Node has
+        # overwrite=True, the user has explicitly opted in to replacing
+        # the prior bundle with the same name. Wipe it NOW (at training
+        # start) rather than at the final atomic swap — that way a failed
+        # training (export crash, cancel, finalize error) can never leave
+        # the previous bundle on disk pretending to be the new result,
+        # which would silently re-introduce the SKU-mismatch chain
+        # PolicyRunner.load is hardened against. No-op when bundle_name
+        # is the run_id fallback (always unique → nothing to remove).
+        if self._bundle_overwrite and self._proj is not None:
+            try:
+                from application.training.bundle_exporter import BundleExporter
+                wiped = BundleExporter.wipe_bundle_dir(
+                    project=self._proj,
+                    backend_id="isaac_lab",
+                    bundle_name=self._bundle_name,
+                )
+                if wiped:
+                    self.info(
+                        f"[isaac_lab_task] overwrite=True → wiped existing "
+                        f"bundle '{self._bundle_name}' before training"
+                    )
+            except Exception as exc:
+                # Wipe failure is non-fatal — finalize's atomic swap will
+                # still try to replace at the end. Surface the warning so
+                # the user knows mid-training cancel could leave stale state.
+                log_warning(
+                    f"[isaac_lab_task] pre-training bundle wipe failed "
+                    f"({exc}); a failed training may leave the previous "
+                    f"bundle on disk."
+                )
+
+        train_ok = False
         bundle_path: Optional[str] = None
         try:
             self._backend.run_blocking()
@@ -412,7 +448,7 @@ class IsaacLabTrainingTask(TrainingTask):
             if self._cancelled_externally:
                 self.check_cancelled()  # raises if SDK side also flagged cancel
 
-            success = True
+            train_ok = True
             return {
                 "run_id": self.run_id,
                 "run_dir": str(self.run_dir),
@@ -425,26 +461,33 @@ class IsaacLabTrainingTask(TrainingTask):
                 "bundle_path": bundle_path or "",
             }
         finally:
-            try:
-                get_metrics_cache().mark_finished(self.run_id, success)
-                get_app_signals().training_run_finished.emit(self.run_id, success)
-            except Exception:
-                pass
-
-            # Phase 3 bundle finalize: only when training succeeded AND we
-            # have a bound project AND backend produced an exported_dir.
-            # Mirror of SB3TrainingTask.run() finally (sb3_task.py:300-349)
-            # — same shape, IL-specific finalizer.
-            if (
-                success
-                and self._proj is not None
-                and self._exported_dir
-            ):
-                try:
-                    from application.training.isaac_lab.bundle_finalizer import (
-                        finalize_isaac_lab_bundle,
+            # Bundle finalize: training succeeded AND we have a bound
+            # project. ``_exported_dir`` is set by IsaacLabBackend on
+            # MSG_FINISHED to ``config.log_dir`` (= run_dir), which now
+            # always exists when training completes — the legacy
+            # ``_run_export`` Isaac-Sim-subprocess path is gone (CLAUDE.md
+            # §1.8), so the only way ``_exported_dir`` can be empty is
+            # training crash before MSG_FINISHED, in which case
+            # ``train_ok`` is False and we skip below.
+            finalize_ok = False
+            finalize_exc: Optional[BaseException] = None
+            if train_ok and self._proj is not None:
+                if not self._exported_dir:
+                    raise RuntimeError(
+                        "[isaac_lab_task] train_ok but no exported_dir from "
+                        "backend MSG_FINISHED — backend contract violation"
                     )
-                    is_amp = self._algo.upper() == "AMP_PPO"
+                from application.training.isaac_lab.bundle_finalizer import (
+                    finalize_isaac_lab_bundle,
+                )
+                is_amp = self._algo.upper() == "AMP_PPO"
+                # CLAUDE.md §1.8: finalize MUST NOT be silently swallowed.
+                # Catch only to interleave the training_run_finished signal
+                # (so the UI's chart panel stops streaming and the user sees
+                # the failure state) BEFORE re-raising so the SDK's
+                # task_finished fires with success=False. No "warn and
+                # continue" — the exception always propagates.
+                try:
                     out = finalize_isaac_lab_bundle(
                         exported_dir=Path(self._exported_dir),
                         bundle_name=self._bundle_name,
@@ -456,13 +499,25 @@ class IsaacLabTrainingTask(TrainingTask):
                         is_amp=is_amp,
                     )
                     bundle_path = str(out.bundle_path)
+                    finalize_ok = True
                     log_info(
                         f"[isaac_lab_task] bundle finalized → {bundle_path}"
                     )
-                except Exception as exc:
+                except BaseException as exc:
+                    finalize_exc = exc
                     log_error(
                         f"[isaac_lab_task] bundle finalize failed: {exc}"
                     )
+
+            pipeline_ok = train_ok and (finalize_ok or self._proj is None)
+            try:
+                get_metrics_cache().mark_finished(self.run_id, pipeline_ok)
+                get_app_signals().training_run_finished.emit(self.run_id, pipeline_ok)
+            except Exception:
+                pass
+
+            if finalize_exc is not None:
+                raise finalize_exc
 
 
 __all__ = ["IsaacLabTrainingTask"]

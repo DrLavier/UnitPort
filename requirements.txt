@@ -1,13 +1,12 @@
-# UnitPort RELEASE - Python dependency list
+# UnitPort - Python dependency list
 #
-# Mirrors DEMO/requirements.txt to keep DEMO and RELEASE environments in sync.
-# The single intentional divergence: RELEASE uses PyQt6 (DEMO uses PySide6).
-# All other packages are identical so a sim/training/RL stack tested in DEMO
-# behaves the same in RELEASE.
+# Top-level (unpinned) requirement set. For reproducible installs the
+# launcher prefers requirements.lock; this file documents the loose upper /
+# lower bounds maintainers test against.
 #
 # Install:
-#   cd D:\Unitport\EXE\RELEASE
-#   install.bat                              # creates .venv311 and installs everything
+#   install.bat            # Windows: creates .venv311 and installs everything
+#   ./install.sh           # Linux:   same on POSIX
 
 # --- Qt binding (the one forced divergence vs DEMO) ---
 PyQt6>=6.5.0

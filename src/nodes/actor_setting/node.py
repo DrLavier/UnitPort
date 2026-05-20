@@ -65,7 +65,7 @@ class ActorSettingNode(BaseNode):
         inputs=[
             PortSpec(
                 name="robot_pipe", type="robot_pipe",
-                description="Structural body list / joint names from the paired Robot node",
+                description="Structural body list / joint names / PD parameterization from the paired Robot node",
             ),
         ],
         outputs=[
@@ -84,7 +84,7 @@ class ActorSettingNode(BaseNode):
                       meta={"min": -100.0, "max": 100.0, "step": 0.01}),
             ParamSpec(key="init_pos_z", type="float", default=0.4, widget="range",
                       description="初始 Z 位置 / Init world-frame Z (m)",
-                      meta={"min": 0.0, "max": 5.0, "step": 0.01}),
+                      meta={"min": 0.0, "max": 2.4, "step": 0.01}),
             # §2 Init joint angles — slider editor (widget="joint_pose_table")
             ParamSpec(key="init_joint_angles", type="json", default="{}",
                       widget="joint_pose_table",
@@ -110,9 +110,9 @@ class ActorSettingNode(BaseNode):
                       meta={"conditional_on": {"key": "init_pose_mode", "op": "==", "value": "reference_frame_0"}}),
             # §3 Contact sensors
             ParamSpec(key="contact_body_names", type="json", default="[]",
-                      widget="code",
-                      description="接触 body 名 (JSON list) / Contact-sensor body names",
-                      meta={"language": "json"}),
+                      widget="ir_body_picker",
+                      description="接触 body 名 / Contact-sensor body IR roles (multi-select; from upstream Robot Node)",
+                      meta={"source": "body", "default_select_all": False, "language": "json"}),
             ParamSpec(key="contact_history_length", type="int", default=3, widget="index",
                       description="接触历史长度 / Contact history length",
                       meta={"min": 1, "max": 64}),
@@ -128,10 +128,15 @@ class ActorSettingNode(BaseNode):
             ParamSpec(key="velocity_limit", type="float", default=30.0,
                       description="速度上限 / Joint velocity limit"),
             # §5 Action space
+            # Empty list ``[]`` = "all joints" (matches spec_validator
+            # _check_action_joints, which skips the check when expr is
+            # empty). The IR joint picker pre-selects every upstream IR
+            # role at open time; user deselects to suspend specific
+            # joints from the action space.
             ParamSpec(key="action_joint_names_expr", type="json", default="[]",
-                      widget="code",
-                      description="动作关节名表达 (JSON list / regex) / Action joint names expr",
-                      meta={"language": "json"}),
+                      widget="ir_joint_picker",
+                      description="动作关节 IR 角色 / Action joint IR roles (multi-select; empty = all)",
+                      meta={"source": "joint", "default_select_all": True, "language": "json"}),
             ParamSpec(key="action_scale", type="float", default=0.25, widget="range",
                       description="动作缩放 / Action scale",
                       meta={"min": 0.0, "max": 5.0, "step": 0.01}),
@@ -152,11 +157,16 @@ class ActorSettingNode(BaseNode):
                       widget="index",
                       description="课程 ramp 迭代数 / Curriculum ramp iterations",
                       meta={"min": 1, "max": 1_000_000}),
-            # §7 Review Pose 按钮 (full-width teal button) — submits a
-            # RobotReviewTask against the upstream RobotNode's resolved SKU.
+            # §7 Review Pose — engine picker + full-width teal button.
+            # The button submits a ReviewTask in the selected engine
+            # (MuJoCo passive viewer in-process vs Isaac Sim Kit
+            # subprocess) against the upstream RobotNode's resolved SKU.
+            ParamSpec(key="review_pose_engine", type="enum", default="mujoco",
+                      choices=["mujoco", "isaac_sim"],
+                      description="Review 引擎 / Review engine (mujoco = MJCF, isaac_sim = USD)"),
             ParamSpec(key="_review_pose", type="string", default="",
                       widget="actor_review_pose_button",
-                      description="▶ Review init pose in MuJoCo viewer",
+                      description="▶ Review init pose in selected engine",
                       meta={"full_width_widget": True}),
         ],
     )

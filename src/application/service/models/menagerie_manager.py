@@ -83,7 +83,7 @@ MENAGERIE_PACKAGES_SNAPSHOT: Tuple[str, ...] = (
 
 def menagerie_root() -> Path:
     """Absolute path to ``custom_mods/models/menagerie`` (sparse-checkout root)."""
-    return Paths.PROJECT_ROOT / "custom_mods" / "models" / "menagerie"
+    return Paths.CUSTOM_MODS_DIR / "models" / "menagerie"
 
 
 def icon_cache_root() -> Path:
@@ -120,14 +120,35 @@ def registered_package_dirs() -> Set[str]:
     """Menagerie dirs that match a UnitPort-registered robot.
 
     Used by the wizard / browser dialog to highlight "this is one of
-    yours". Currently returns an empty set in RELEASE -- the bridge
-    from ``registers.robots`` to menagerie dir names is a Stage C/D
-    deliverable. Returning empty here means everything renders as
-    "unmatched"; the wizard still works.
+    yours". Resolves each registered SKU's ``assets.MJCF`` against the
+    ``menagerie/<dir>/`` prefix convention so a card whose package is
+    already wired into the canonical register surfaces with the blue
+    "registered" title.
+
+    Walks the merged registry (canonical + user overlay); variants whose
+    parent declares the asset propagate automatically because the
+    inheritance resolver fills in their merged ``assets.MJCF``.
     """
-    # TODO(stage-cd): wire to registers.robots once the menagerie_dirs
-    # column lands in robots_canonical.json (or a dedicated mapper).
-    return set()
+    # Imported lazily because this module is loaded during the wizard's
+    # pre-Qt phase where the registry hasn't been initialised yet.
+    try:
+        from registers import robots as _robots
+    except Exception:
+        return set()
+    out: Set[str] = set()
+    for sku in _robots.list_skus():
+        entry = _robots.get_robot(sku) or {}
+        mjcf = (entry.get("assets") or {}).get("MJCF") or ""
+        if not isinstance(mjcf, str) or not mjcf:
+            continue
+        # Canonical paths look like "menagerie/<dir>/<rest>.xml".
+        if not mjcf.startswith("menagerie/"):
+            continue
+        tail = mjcf[len("menagerie/"):]
+        dir_part = tail.split("/", 1)[0]
+        if dir_part:
+            out.add(dir_part)
+    return out
 
 
 def package_preview_image(dir_name: str) -> Optional[Path]:

@@ -26,7 +26,7 @@ No Qt imports. Catalog is loaded at module import time. ``available`` 标志
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +91,60 @@ def has_backend(backend_id: str) -> bool:
     return backend_id in _REGISTRY
 
 
+# ---------------------------------------------------------------------------
+# Availability mapping: review-backend → installed-engine row in
+# backends_installed.json. The review backend display flag in the picker
+# is the AND of (a) we know how to launch this backend AND (b) the
+# underlying engine is currently installed on this machine.
+#
+# When a review backend has no engine dependency (e.g. mujoco today —
+# the viewer ships with the SDK's required ``mujoco`` Python package),
+# the entry maps to ``None`` and we treat it as always-available.
+# ---------------------------------------------------------------------------
+
+_BACKEND_ENGINE_DEPENDENCY: Dict[str, Optional[str]] = {
+    BACKEND_MUJOCO: None,           # mujoco is a hard SDK dep — always available
+    BACKEND_ISAAC_SIM: "isaac_lab", # USD viewer requires the registered Isaac Lab install
+    BACKEND_NEWTON: None,           # placeholder; flips available=False below regardless
+}
+
+
+def _engine_available_now(engine_id: Optional[str]) -> bool:
+    """Resolve a review backend's runtime availability via registers.backends.
+
+    Returns True when there is no engine dependency (e.g. mujoco), or the
+    dependent engine is marked available in
+    ``backends_installed.json::engines.<id>.available``. Returns False
+    otherwise — including when the registers.backends module fails to
+    import (defensive: review_backends must not crash the canvas just
+    because the engine catalog is mid-migration).
+    """
+    if engine_id is None:
+        return True
+    try:
+        from registers import backends as _b
+        return bool(_b.is_available(engine_id))
+    except Exception:
+        return False
+
+
+def _refresh_availability_from_installed_table() -> None:
+    """Sync every registered review backend's ``available`` flag with the
+    underlying engine's installed-state. Called from
+    :func:`list_review_backends` before returning, so every picker query
+    sees the current truth.
+
+    Newton stays available=False (placeholder) regardless — the gate is
+    "wired into UnitPort", not "engine installed".
+    """
+    for backend in _REGISTRY.values():
+        dep = _BACKEND_ENGINE_DEPENDENCY.get(backend.backend_id)
+        if backend.backend_id == BACKEND_NEWTON:
+            backend.available = False
+            continue
+        backend.available = _engine_available_now(dep)
+
+
 def list_review_backends(available_only: bool = False) -> List[ReviewBackend]:
     """Return all registered review backends in a stable order.
 
@@ -98,7 +152,13 @@ def list_review_backends(available_only: bool = False) -> List[ReviewBackend]:
     Always returns the full set unless ``available_only=True`` — the picker
     keeps unavailable backends visible (greyed) so users discover what's
     coming in future releases.
+
+    Each call refreshes the ``available`` flag from
+    ``backends_installed.json`` so the picker reflects the latest engine
+    install state (e.g. user just registered an Isaac Lab path via the
+    Engine Settings dialog and triggered ``refresh_engine_availability``).
     """
+    _refresh_availability_from_installed_table()
     items = list(_REGISTRY.values())
     if available_only:
         items = [b for b in items if b.available]

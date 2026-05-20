@@ -1,11 +1,10 @@
 """ExampleNode — 三方节点起步样例 / Community node starter.
 
-打印 ``message`` 参数到日志，演示最小三件套。
+最小三件套样例：声明一个 ``message`` 字符串参数。``BaseNode.execute`` 默认
+passthrough 已足够，无需重写。
 """
 
 from __future__ import annotations
-
-from typing import Any, Dict
 
 from application.compiler.nodes import (
     NODE_MANIFEST_SCHEMA,
@@ -34,8 +33,3 @@ class ExampleNode(BaseNode):
             ),
         ],
     )
-
-    def execute(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        raise NotImplementedError(
-            f"{self.MANIFEST.id}.execute pending backend wiring"
-        )

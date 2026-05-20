@@ -6,6 +6,7 @@ expand = Expand
 skip = Disable
 enable = Enable
 delete = Delete
+color = Pick color (right-click to reset)
 
 [group]
 default_title = Group
@@ -33,6 +34,7 @@ true = True
 false = False
 no_items = (no items)
 bool_check = ✔
+ir_picker_all = All (default)
 
 [body_mapping]
 col_current = Current
@@ -60,4 +62,35 @@ init_pose.unlimited_hint = (unlimited)
 init_pose.empty = No joints available for this SKU.
 init_pose.review_button = Review
 review_pose.button = Review Pose
+
+[button]
+close = Close
+
+[error]
+copy.done = Canvas error report copied to clipboard.
+empty = (no structured issues reported)
+headline.errors = Canvas has {e} issue(s) that must be fixed before training can start.
+headline.mixed = Canvas has {e} error(s) and {w} warning(s). Fix the errors below and re-run.
+headline.unknown = Canvas check reported an issue.
+headline.warnings = Canvas has {w} warning(s).
+hint = Each entry below points at the canvas node and the parameter that triggered the check. Open the node, adjust the value, save the canvas, and try ▶ again.
+title = Canvas Check Failed
+
+[rewards]
+coverage.add_set = Add recommended set
+coverage.banner.critical = Critical: one or more phases are missing required negative reward. Training may produce undesired behaviors such as idle limb-flailing.
+coverage.banner.ok = All phases have positive + negative reward coverage.
+coverage.banner.warning = Warning: at least one phase is missing recommended reward coverage.
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = Phase
+coverage.col.pos = +
+coverage.col.status = Status
+coverage.double_click_hint = Double-click the badge to open the Coverage Inspector.
+coverage.empty = No reward terms configured — add at least one term to get a coverage assessment.
+coverage.green = All phases have positive + negative reward coverage.
+coverage.inspector.title = Reward Coverage Inspector
+coverage.red = Critical: one or more phases are missing required constraint reward.
+coverage.title = Reward Coverage
+coverage.yellow = Warning: at least one phase is missing a recommended reward.
 

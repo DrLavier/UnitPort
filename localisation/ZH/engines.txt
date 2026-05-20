@@ -1,14 +1,14 @@
 [default]
 add_server = 添加...
 cloud_none = 没有服务器
-cloud_summary = {n} server(s); default: {d}
+cloud_summary = {n} 个服务器；默认：{d}
 confirm_remove_text = 移除服务器 {name}？
 confirm_remove_title = 移除服务器
 edit_server = 编辑...
 error_title = 错误
 local_builtin = 内置（pip），v{ver}
 local_missing = 未安装
-local_registered_no_module = {root} (module not importable)
+local_registered_no_module = {root}（模块无法导入）
 local_unregistered = 未注册
 pick_generic = 选择引擎安装根目录
 pick_isaac = 选择 Isaac Lab 安装根目录
@@ -16,6 +16,8 @@ remove_server = 移除
 set_default = 设为默认
 settings_hint = 用于 {engine} 的 SSH 风格训练服务器。密码保存在操作系统密钥环中；这里不会以明文持久化任何内容。
 settings_title = 云端服务器 — {engine}
+local_isaac_unregistered = 未注册 — 请通过齿轮按钮选择安装根目录
+local_registered_with_ver = {root}（v{ver}）
 
 [server_editor]
 add = 添加服务器
@@ -28,4 +30,16 @@ name_required = 显示名称为必填项。
 name_taken = 名为 {name} 的服务器已存在。
 port = 端口
 user = 用户
+auth = 认证方式
+auth_key = SSH 密钥
+auth_password = 密码
+browse = 浏览...
+conda_env = Conda 环境
+conda_env_ph = isaaclab（可选）
+key_file = 密钥文件
+key_required = 使用密钥认证时必须提供私钥路径。
+password_hint = 此处绝不会存储密码——请在连接时提供（会保存在操作系统密钥环中）。
+pick_key = 选择 SSH 私钥
+remote_install_dir = 远程安装目录
+remote_work_dir = 远程工作目录
 

@@ -48,11 +48,11 @@ info_unlink_current_provider = You unlinked your current sign-in method. You may
 error_email_rate_limited = Too many requests. Wait a minute and try again.
 identity_conflict_title = Identity already in use
 identity_conflict_body = Couldn't link {provider}.
-
+	
 	That account already belongs to a separate UnitPort user, and Supabase can't merge two existing accounts.
-
+	
 	You can sign in with {provider} directly instead, or try a different {provider} account.
-
+	
 	Provider message: {message}
 identity_conflict_switch = Sign in with {provider} instead
 

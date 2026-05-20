@@ -1,7 +1,7 @@
 """registers.rewards_coverage — Reward × MotionPhase coverage evaluation.
 
 Backed by ``data/reward_coverage_rules.json`` (factory defaults) plus an
-optional user overlay at ``~/UnitPort/registers/reward_coverage_rules_custom.json``.
+optional user overlay at ``<USER_CONFIG_DIR>/registers/reward_coverage_rules_custom.json``.
 Consumed by the canvas Rewards node's Coverage Badge and the compile-time
 ``CanvasPage.compile_spec`` block dialog.
 

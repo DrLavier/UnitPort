@@ -204,6 +204,41 @@ class ExportedBundleRegistry:
         bundle_path: Path,
         manifest_path: Path,
     ) -> ExportedBundleEntry:
+        # Integrity check against manifest.sha256 sidecar (Plan finding P2-1).
+        # Mismatch ⇒ refuse to load; missing sidecar ⇒ one-shot WARN
+        # (back-compat for bundles exported before the sidecar was added).
+        sidecar = manifest_path.parent / "manifest.sha256"
+        if sidecar.is_file():
+            try:
+                expected = sidecar.read_text(encoding="utf-8").strip().split()
+                expected_hex = expected[0].lower() if expected else ""
+                import hashlib
+                got_hex = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+                if expected_hex and got_hex != expected_hex:
+                    return ExportedBundleEntry(
+                        policy_id=policy_id,
+                        bundle_path=bundle_path,
+                        is_valid=False,
+                        error=(
+                            f"manifest.sha256 mismatch — bundle integrity "
+                            f"check failed (expected {expected_hex}, got {got_hex})"
+                        ),
+                    )
+            except OSError as exc:
+                log_warning(
+                    f"ExportedBundleRegistry: {bundle_path!s} sidecar read failed "
+                    f"({exc}); proceeding without integrity check."
+                )
+        else:
+            # WHY KEPT: bundles exported before manifest.sha256 was added do
+            # not have a sidecar; surface a directive to re-export rather
+            # than block loads. CLAUDE.md §1.8 (c) on-disk legacy compat.
+            log_warning(
+                f"ExportedBundleRegistry: {bundle_path!s} has no manifest.sha256 "
+                f"sidecar (legacy bundle?). Re-export to enable integrity "
+                f"verification on next load."
+            )
+
         try:
             import yaml
             with open(manifest_path, "r", encoding="utf-8") as fh:

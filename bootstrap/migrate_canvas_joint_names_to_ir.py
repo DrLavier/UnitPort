@@ -10,7 +10,6 @@ the one-shot translation.
 
 Usage::
 
-    cd D:/Unitport/EXE/RELEASE
     .venv311/Scripts/python.exe bootstrap/migrate_canvas_joint_names_to_ir.py \
         projects/new_test/canvas/IsaacLab/ppo_walk.canvas.json
     # Or sweep an entire project:

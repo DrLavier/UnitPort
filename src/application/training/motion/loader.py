@@ -146,6 +146,16 @@ class AMPLegGymLoader(MotionLoader):
     JOINT_VEL_SIZE = 12
     TOE_VEL_SIZE = 12
 
+    # Stage 4: clip joint channel → IR role mapping (post leg-reorder).
+    # Pinned with motion_ir_mapping.QUADRUPED_AMP_IR_ROLES; kept inline
+    # here to keep loader.py importable without the IR mapping module.
+    _AMP_LEGGED_GYM_IR_ROLES = [
+        "hip_FL",   "thigh_FL", "calf_FL",
+        "hip_FR",   "thigh_FR", "calf_FR",
+        "hip_RL",   "thigh_RL", "calf_RL",
+        "hip_RR",   "thigh_RR", "calf_RR",
+    ]
+
     FRAME_DIM = (
         POS_SIZE + ROT_SIZE + JOINT_POS_SIZE + TOE_POS_SIZE
         + LINEAR_VEL_SIZE + ANGULAR_VEL_SIZE + JOINT_VEL_SIZE + TOE_VEL_SIZE
@@ -237,6 +247,11 @@ class AMPLegGymLoader(MotionLoader):
                 "frame_duration": frame_duration,
                 "raw_loop_mode": str(j.get("LoopMode", "Wrap")),
                 "legs_reordered": self._reorder_legs,
+                # Stage 4: self-describe joint channel IR roles so
+                # cross-robot retargeting can route by IR rather than
+                # by positional index. amp_legged_gym format pins to
+                # QUADRUPED_AMP_IR_ROLES after the leg reorder.
+                "ir_roles": list(self._AMP_LEGGED_GYM_IR_ROLES) if self._reorder_legs else [],
             },
         )
 

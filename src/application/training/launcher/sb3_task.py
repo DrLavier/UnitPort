@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from unitport_sdk import log_info as _raw_log_info
+from unitport_sdk import log_warning
 
 from application.service.metrics_cache import get_metrics_cache
 from application.service.projects import current_project_info
@@ -100,6 +101,24 @@ class SB3TrainingTask(TrainingTask):
 
         self._backend = SB3SubprocessBackend(payload, run_id=run_id, python=python)
         self._backend.on_message = self._on_backend_message
+
+        # Cache project + Export-Node intent so the run() head can wipe
+        # the prior bundle when overwrite=True (see comment in run()).
+        # Default overwrite=True matches the canvas Export Node default
+        # (spec_compiler line ~1369: ``overwrite=_as_bool(..., True)``).
+        self._proj = proj
+        export_cfg = (
+            (spec or {}).get("spec", {}).get("export") or {}
+            if isinstance(spec, dict) else {}
+        )
+        self._bundle_name: str = str(
+            (export_cfg.get("bundle_name") if isinstance(export_cfg, dict) else "")
+            or ""
+        ).strip()
+        self._bundle_overwrite: bool = bool(
+            export_cfg.get("overwrite", True)
+            if isinstance(export_cfg, dict) else True
+        )
 
         self._last_step: int = 0
         self._last_total: int = 0
@@ -250,6 +269,31 @@ class SB3TrainingTask(TrainingTask):
             get_app_signals().training_run_started.emit(self.run_id, self._run_label)
         except Exception:
             pass
+
+        # ExportNode.overwrite contract: when the canvas Export Node has
+        # overwrite=True, the prior bundle with the same name must be
+        # gone the moment this training starts — so a failed run (cancel,
+        # subprocess crash) cannot leave a stale bundle masquerading as
+        # the new result. Mirror of IsaacLabTrainingTask.run() head.
+        if self._bundle_overwrite and self._proj is not None and self._bundle_name:
+            try:
+                from application.training.bundle_exporter import BundleExporter
+                wiped = BundleExporter.wipe_bundle_dir(
+                    project=self._proj,
+                    backend_id=self.backend_id,
+                    bundle_name=self._bundle_name,
+                )
+                if wiped:
+                    self.info(
+                        f"[sb3_task] overwrite=True → wiped existing "
+                        f"bundle '{self._bundle_name}' before training"
+                    )
+            except Exception as exc:
+                log_warning(
+                    f"[sb3_task] pre-training bundle wipe failed ({exc}); "
+                    f"a failed training may leave the previous bundle "
+                    f"on disk."
+                )
 
         success = False
         try:

@@ -308,6 +308,10 @@ def export_rsl_rl_actor_to_onnx(
     # ── 2. Load checkpoint and extract the actor MLP state dict ───────
     import torch
 
+    # WHY KEPT: checkpoint_path comes from the Export node consuming a freshly-
+    # finished training run inside PROJECTS_DIR — trusted trainer artifact.
+    # weights_only=True would reject the runner's legitimate Normalizer /
+    # optimizer pickles. Plan P1-1.
     ckpt = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
     try:
         sd_clean, fmt = _extract_actor_mlp_state_dict(ckpt)
@@ -402,6 +406,8 @@ def export_rsl_rl_actor_to_torchscript(
 
     import torch
 
+    # WHY KEPT: same provenance as the ONNX-export branch above — checkpoint_path
+    # is a fresh trainer artifact under PROJECTS_DIR. Plan P1-1.
     ckpt = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
     sd_clean, fmt = _extract_actor_mlp_state_dict(ckpt)
     obs_dim, hidden_dims, action_dim = _infer_dims_from_stripped_sd(sd_clean)

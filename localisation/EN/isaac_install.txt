@@ -1,0 +1,24 @@
+[btn]
+close = Close
+open_log = Open log folder
+retry = Retry
+switch_locate = Switch to Locate mode
+
+[dialog]
+title = Installing Isaac Lab
+
+[heading]
+error = Isaac Lab installation failed
+running = Installing Isaac Lab
+success = Isaac Lab installed
+
+[phase]
+fallback_external = Switching to external venv (pip conflicts detected)
+preflight = Preparing...
+
+[status]
+error_hint = See log for full details. You can retry, or switch to locating an existing Isaac Lab installation.
+idle = Waiting for installer to start...
+success = Successfully installed at: {path}
+success_generic = Installation complete
+

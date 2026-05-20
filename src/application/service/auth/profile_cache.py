@@ -1,4 +1,4 @@
-"""Non-sensitive user profile cache — JSON file at ``~/UnitPort/session.json``.
+"""Non-sensitive user profile cache — JSON file at ``<USER_CONFIG_DIR>/session.json``.
 
 Split from the sensitive ``refresh_token`` (which lives in the OS keyring via
 :class:`~application.service.auth.secure.SecureCredentialStore`). This module

@@ -4,6 +4,7 @@ new = 新建
 [menu]
 empty = （空）
 no_project = （无项目）
+no_canvas = （无画布）
 
 [target]
 cloud = 云端

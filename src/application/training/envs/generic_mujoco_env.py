@@ -176,6 +176,82 @@ def _default_termination(env: "GenericMujocoEnv") -> bool:
 
 
 @dataclass
+class _DRState:
+    """Resolved SB3-side domain randomization knobs.
+
+    Mirrors :class:`application.training.training_spec.DomainRandSb3Config`
+    fields but collapses ``None`` and obviously-default ranges so the
+    per-reset / per-step path is a couple of cheap if-checks rather than
+    a chain of attribute reads. ``schedule_*`` plumbs in the optional
+    linear ramp documented in :class:`DomainRandSchedule`.
+    """
+
+    enabled: bool = False
+    mass_range: Optional[Tuple[float, float]] = None
+    friction_range: Optional[Tuple[float, float]] = None
+    # Stage H — replaces motor_strength_range / joint_damping_range.
+    # DR perturbs the canonical (omega_n, zeta) and the env re-solves
+    # per-joint kp/kd via mujoco_gain_solver at episode reset. Both
+    # ranges are log-uniform (linear bounds; sampler is log-scale).
+    omega_n_log_uniform: Optional[Tuple[float, float]] = None
+    zeta_log_uniform: Optional[Tuple[float, float]] = None
+    obs_noise_std: float = 0.0
+    push_robot: bool = False
+    push_interval_steps: int = 0
+    push_force_range: Optional[Tuple[float, float]] = None
+    # Schedule — mode "linear" ramps alpha from 0 → 1 between start_step
+    # and end_step (global timesteps). "none" pins alpha at 1.0.
+    schedule_mode: str = "none"
+    schedule_start_step: int = 0
+    schedule_end_step: int = 0
+
+
+def _as_dr_range(value: Any) -> Optional[Tuple[float, float]]:
+    """Coerce a (lo, hi) range into a Tuple[float, float]. Skip when the
+    range is missing, malformed, or a no-op (lo == hi == 1.0 for scale
+    multipliers / lo == hi == 0.0 for force / noise std)."""
+    if value is None:
+        return None
+    try:
+        lo = float(value[0])
+        hi = float(value[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if lo > hi:
+        lo, hi = hi, lo
+    return (lo, hi)
+
+
+def _build_dr_state(domain_rand: Any) -> Optional[_DRState]:
+    """Translate :class:`DomainRandConfig` → :class:`_DRState`.
+
+    Returns ``None`` when the caller did not supply DR config or the SB3
+    sub-block is missing — the env's randomization hooks become a no-op,
+    preserving the legacy "DR config absent ⇒ deterministic env" contract.
+    """
+    if domain_rand is None:
+        return None
+    sb3 = getattr(domain_rand, "sb3", None)
+    if sb3 is None:
+        return None
+    schedule = getattr(domain_rand, "schedule", None)
+    return _DRState(
+        enabled=bool(getattr(sb3, "enabled", False)),
+        mass_range=_as_dr_range(getattr(sb3, "mass_range", None)),
+        friction_range=_as_dr_range(getattr(sb3, "friction_range", None)),
+        omega_n_log_uniform=_as_dr_range(getattr(sb3, "omega_n_log_uniform", None)),
+        zeta_log_uniform=_as_dr_range(getattr(sb3, "zeta_log_uniform", None)),
+        obs_noise_std=float(getattr(sb3, "obs_noise_std", 0.0) or 0.0),
+        push_robot=bool(getattr(sb3, "push_robot", False)),
+        push_interval_steps=int(getattr(sb3, "push_interval_steps", 0) or 0),
+        push_force_range=_as_dr_range(getattr(sb3, "push_force_range", None)),
+        schedule_mode=str(getattr(schedule, "mode", "none") or "none").strip().lower(),
+        schedule_start_step=int(getattr(schedule, "start_step", 0) or 0),
+        schedule_end_step=int(getattr(schedule, "end_step", 0) or 0),
+    )
+
+
+@dataclass
 class _Defaults:
     """Internal env knob bag (Stage 6 v1)."""
 
@@ -186,6 +262,10 @@ class _Defaults:
     action_clip: float = 1.0
     obs_clip_range: float = 0.0  # 0 disables per-component obs clipping
     use_default_offset: bool = True
+    # Legacy scalar PD (fallback path when no pd_param + JointIRResolver
+    # are available). The canonical path uses ``pd_kp_array``/``pd_kd_array``
+    # populated from mujoco_gain_solver at construction (and re-solved on
+    # every reset when ``resolve_at_reset`` is True).
     pd_kp: float = 25.0
     pd_kd: float = 0.5
     init_pos_x: float = 0.0
@@ -205,7 +285,7 @@ class GenericMujocoEnv(_GymEnvBase):
     :data:`DEFAULT_QUADRUPED_MJCF`.
     """
 
-    metadata = {"render_modes": []}
+    metadata = {"render_modes": ["rgb_array"], "render_fps": 50}
 
     def __init__(
         self,
@@ -214,6 +294,7 @@ class GenericMujocoEnv(_GymEnvBase):
         obs_action=None,
         *,
         actor_config=None,
+        domain_rand=None,
         reward_fn: Optional[Callable[["GenericMujocoEnv"], float]] = None,
         termination_fn: Optional[Callable[["GenericMujocoEnv"], bool]] = None,
         sim_dt: Optional[float] = None,
@@ -221,6 +302,7 @@ class GenericMujocoEnv(_GymEnvBase):
         max_episode_steps: int = 1000,
         commands: Optional[np.ndarray] = None,
         seed: Optional[int] = None,
+        render_mode: Optional[str] = None,
     ) -> None:
         if not _GYM_AVAILABLE:
             raise ImportError(
@@ -304,6 +386,13 @@ class GenericMujocoEnv(_GymEnvBase):
             or f"act_{i}"
             for i in range(self._model.nu)
         ]
+        # Read MJCF <motor gear="K"> scalars once. PD math produces
+        # joint-space torque; the gear multiplier sits between ctrl and
+        # joint torque (joint_torque = gear * ctrl). Guard against zero
+        # gear in malformed MJCFs to avoid divide-by-zero in step().
+        _ag = np.asarray(self._model.actuator_gear[:, 0], dtype=np.float64)
+        _ag = np.where(np.abs(_ag) < 1e-12, 1.0, _ag)
+        self._actuator_gear: np.ndarray = _ag
         # Phase 5: IR-only joint init wiring.
         # ``actor.joint_init`` arrives from spec.actor as an IR-keyed dict
         # (validated by spec_validator R8). We translate IR → physical via
@@ -376,6 +465,51 @@ class GenericMujocoEnv(_GymEnvBase):
                 soft_limits.append((0.0, 0.0))
         self._soft_joint_limits: List[Tuple[float, float]] = soft_limits
 
+        # ── Stage E: per-joint mass-matrix-adaptive PD gains ──
+        # Build the parallel (physical, IR-role) joint order in actuator
+        # index order — this is what the PD math + step() consume. The
+        # PhysX side (env_cfg_compiler) emits per-joint dicts; here we
+        # produce the matching MuJoCo-side arrays via mj_fullM.
+        self._joint_order_physical: List[str] = []
+        for i in range(self._action_dim):
+            jid = int(self._model.actuator_trnid[i, 0])
+            jname = (
+                mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_JOINT, jid) or ""
+            ) if 0 <= jid < self._model.njnt else ""
+            self._joint_order_physical.append(jname)
+
+        self._joint_ir_roles: List[str] = []
+        if robot_spec is not None and getattr(robot_spec, "joint_ir_roles", None):
+            try:
+                from application.training.joint_ir import JointIRResolver
+                _resolver = JointIRResolver(robot_spec)
+                self._joint_ir_roles = [
+                    _resolver.to_ir(p) if p else ""
+                    for p in self._joint_order_physical
+                ]
+            except Exception as exc:
+                log_warning(
+                    f"[envs] JointIRResolver init failed ({exc!r}); per-joint "
+                    f"PD gains will fall back to scalar broadcast."
+                )
+                self._joint_ir_roles = []
+
+        # Stash for resolve_at_reset (DR-aware re-solve).
+        self._pd_param = getattr(actor_config, "pd_param", None) if actor_config is not None else None
+        self._pd_resolve_at_reset = bool(
+            getattr(actor_config, "resolve_at_reset", False)
+            if actor_config is not None else False
+        )
+        self._mjcf_loaded_path = loaded_path  # None for DEFAULT_QUADRUPED_MJCF
+
+        # Initial gain computation. Falls back to scalar broadcast when:
+        # (a) no pd_param is provided (legacy canvas),
+        # (b) IR-role mapping is incomplete,
+        # (c) MJCF was loaded from a string (no path for the solver).
+        self._pd_kp_array, self._pd_kd_array = self._resolve_pd_gains(
+            d_pd_kp=d.pd_kp, d_pd_kd=d.pd_kd,
+        )
+
         # ── Spaces ──
         from gymnasium import spaces
         self.action_space = spaces.Box(
@@ -415,6 +549,43 @@ class GenericMujocoEnv(_GymEnvBase):
         self._ang_vel = np.zeros(3, dtype=np.float64)
         self._proj_gravity = np.array([0.0, 0.0, -1.0])
 
+        # ── Domain randomization setup ──
+        # Snapshot original MJCF physical params so per-episode randomization
+        # can re-apply from a clean baseline rather than compounding noise.
+        self._dr_orig_body_mass = np.array(self._model.body_mass, dtype=np.float64).copy()
+        self._dr_orig_geom_friction = np.array(self._model.geom_friction, dtype=np.float64).copy()
+        # Stage H — actuator_gear / dof_damping are no longer DR-rescaled.
+        # The (motor_strength_range, joint_damping_range) DR knobs were
+        # removed in the hard-replace; PD bandwidth DR now happens via
+        # (omega_n_log_uniform, zeta_log_uniform) and re-solving via
+        # mujoco_gain_solver. We keep no snapshot because there's no
+        # restore-and-rescale to perform.
+        self._dr_cfg = _build_dr_state(domain_rand)
+        # Find the "base" body driven by the freejoint (qpos[0:7]). When the
+        # MJCF doesn't expose a body named "base" we fall back to body id 1
+        # (the first non-world body) — push_robot then applies xfrc_applied
+        # there, which is what every locomotion DR implementation does.
+        self._dr_base_body_id: int = 1 if self._model.nbody > 1 else 0
+        if self._dr_cfg is not None and self._dr_cfg.enabled:
+            try:
+                bid = mujoco.mj_name2id(
+                    self._model, mujoco.mjtObj.mjOBJ_BODY, "base"
+                )
+                if bid > 0:
+                    self._dr_base_body_id = int(bid)
+            except Exception:                                 # pragma: no cover
+                pass
+        self._dr_global_step = 0
+        self._dr_push_counter = 0
+
+        # Render — lazy because mujoco.Renderer needs a GL context that
+        # only some hosts have. Lazily creating on first ``render()`` lets
+        # the env construct cheaply on training workers (which never
+        # render) and still serves RecordVideo callers on the eval env.
+        self.render_mode = render_mode
+        self._renderer: Any = None
+        self._render_failed: bool = False
+
         # Reset to a good initial state
         self.reset(seed=seed)
 
@@ -438,12 +609,31 @@ class GenericMujocoEnv(_GymEnvBase):
         if seed is not None:
             self.np_random = np.random.default_rng(seed)
         self._mujoco.mj_resetData(self._model, self._data)
+
+        # Per-episode domain randomization — restore the model to its MJCF
+        # baseline first so noise can never compound across episodes, then
+        # sample fresh scaling factors gated by the schedule's alpha.
+        self._apply_domain_randomization()
+
         # Place base at the canvas-set spawn pose. ``init_pos_z`` falling back
         # to ``target_height`` keeps the legacy behaviour for canvases that
         # leave the actor_setting Z at the dataclass default 0.4 while
         # honoring an explicit user override (e.g. 0.7 for tall humanoids).
+        # USD↔MJCF anchor offset: the user's init_pos_z is authored
+        # against USD/IsaacLab semantics; in MJCF the same value drops
+        # the trunk too low (穿地). The per-SKU calibration overlay
+        # lifts the spawn at standing pose. See plan
+        # curious-nibbling-plum.md and
+        # application.training.validation.mjcf_base_calibration.
         if self._model.nq >= 7:
             spawn_z = self._d.init_pos_z if self._d.init_pos_z > 0 else self._d.target_height
+            sku = str(getattr(self._robot, "sku", "") or "")
+            if sku:
+                from application.service.robot_assets.runtime import (
+                    read_mjcf_base_offset,
+                )
+                off_z, _ = read_mjcf_base_offset(sku)
+                spawn_z = float(spawn_z) + off_z
             self._data.qpos[:3] = (
                 self._d.init_pos_x, self._d.init_pos_y, spawn_z,
             )
@@ -454,6 +644,7 @@ class GenericMujocoEnv(_GymEnvBase):
             self._data.qpos[7:7 + self._action_dim] = self._default_qpos_actuated
         self._mujoco.mj_forward(self._model, self._data)
         self._step_count = 0
+        self._push_step_counter = 0
         self._action.fill(0.0)
         self._last_action.fill(0.0)
         self._refresh_state_cache()
@@ -482,19 +673,43 @@ class GenericMujocoEnv(_GymEnvBase):
         else:
             target = self._d.action_scale * action
 
+        # Apply external-force push (DR). xfrc_applied is a transient force
+        # the integrator consumes during the next mj_step; we clear it on
+        # the substep after to avoid sustained drift.
+        push_applied = self._maybe_apply_push()
+
         # Run sim_dt sub-steps until we reach control_dt
+        # PD math is per-joint in JOINT-torque units: pd_kp_array /
+        # pd_kd_array are (n_joints,) arrays populated by _resolve_pd_gains.
+        # For the canonical path (with PDParam + mj_fullM) the diagonal
+        # of M(q0) appears inside kp_j = M_jj * omega_n^2; for the legacy
+        # scalar fallback the arrays are uniform broadcasts.
+        #
+        # MJCF <motor gear="K"> means joint_torque = gear * ctrl, so the
+        # joint-space PD output must be divided by the actuator gear
+        # before being written to ctrl. The legacy scalar path produced
+        # mild values (pd_kp ~ 25) that the gear=33.5 amplified to ~840 —
+        # marginally stable because the policy's action_scale=0.25 kept
+        # targets small. The canonical mass-matrix-adaptive path produces
+        # gain values consistent with the joint's effective mass, so the
+        # gear divide is mandatory or simulation diverges (NaN qacc).
         n_substeps = max(1, int(round(self._d.control_dt / self._d.sim_dt)))
-        for _ in range(n_substeps):
+        for sub_i in range(n_substeps):
             q = self._data.qpos[7:7 + self._action_dim]
             qdot = self._data.qvel[6:6 + self._action_dim]
-            torque = (
-                self._d.pd_kp * (target - q)
-                - self._d.pd_kd * qdot
+            joint_torque = (
+                self._pd_kp_array * (target - q)
+                - self._pd_kd_array * qdot
             )
-            self._data.ctrl[:self._action_dim] = torque
+            self._data.ctrl[:self._action_dim] = joint_torque / self._actuator_gear
             self._mujoco.mj_step(self._model, self._data)
+            # Push is a single-tick impulse — clear after the first substep
+            # so it does not turn into a constant body force.
+            if push_applied and sub_i == 0:
+                self._data.xfrc_applied[self._dr_base_body_id, :3] = 0.0
 
         self._step_count += 1
+        self._dr_global_step += 1
         self._refresh_state_cache()
 
         terminated = bool(self._termination_fn(self))
@@ -511,8 +726,46 @@ class GenericMujocoEnv(_GymEnvBase):
         return self._build_obs(), reward, terminated, truncated, info
 
     def close(self) -> None:
-        # MuJoCo MjModel/MjData are GC'd via Python refs; nothing to release.
+        # Release the offscreen GL context if one was lazily allocated by
+        # ``render()``. MjModel/MjData are GC'd via Python refs.
+        if self._renderer is not None:
+            try:
+                self._renderer.close()
+            except Exception:                                # pragma: no cover
+                pass
+            self._renderer = None
         return None
+
+    def render(self) -> Optional[np.ndarray]:
+        """Return an ``(H, W, 3)`` uint8 RGB frame, or ``None`` when the
+        env was not built with ``render_mode="rgb_array"`` / the offscreen
+        renderer cannot initialise on this host.
+
+        gymnasium.wrappers.RecordVideo (the only intended caller) treats a
+        ``None`` return as "nothing to record this step" so a missing
+        EGL/GLFW context degrades to "no video", never to a crash.
+        """
+        if self.render_mode != "rgb_array":
+            return None
+        if self._render_failed:
+            return None
+        if self._renderer is None:
+            try:
+                self._renderer = self._mujoco.Renderer(self._model, height=240, width=320)
+            except Exception as exc:                          # pragma: no cover
+                log_warning(
+                    f"[envs] offscreen renderer init failed ({exc!r}); "
+                    f"GenericMujocoEnv.render() will return None for the "
+                    f"rest of this env's lifetime."
+                )
+                self._render_failed = True
+                return None
+        try:
+            self._renderer.update_scene(self._data, camera=-1)
+            return np.asarray(self._renderer.render(), dtype=np.uint8)
+        except Exception as exc:                              # pragma: no cover
+            log_warning(f"[envs] render() failed ({exc!r}); returning None")
+            return None
 
     # ------------------------------------------------------------------
     # Internals
@@ -547,6 +800,81 @@ class GenericMujocoEnv(_GymEnvBase):
         except Exception:
             self._qacc = np.zeros(self._action_dim, dtype=np.float64)
 
+    def _resolve_pd_gains(
+        self,
+        *,
+        d_pd_kp: float,
+        d_pd_kd: float,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Compute per-joint kp/kd arrays for the current model state.
+
+        Canonical path (when ``self._pd_param`` is set AND we have a valid
+        MJCF path AND every actuator has an IR-role mapping): calls
+        :func:`application.physics.mujoco_gain_solver.solve` at the current
+        ``self._data.qpos`` (the env's nominal stance) so the diagonal of
+        ``M(q0)`` reflects domain-randomized masses if DR is active.
+
+        Fallback path (any of the above missing): broadcasts the legacy
+        scalar ``d_pd_kp`` / ``d_pd_kd`` to (n_joints,) arrays. Logs WARN
+        at construction time so the user knows they're off the canonical
+        path; subsequent re-solves at reset() stay silent.
+
+        Returns ``(pd_kp_array, pd_kd_array)`` — both shape (action_dim,),
+        dtype float64.
+        """
+        n = int(self._action_dim)
+        can_solve = (
+            self._pd_param is not None
+            and self._mjcf_loaded_path is not None
+            and len(self._joint_ir_roles) == n
+            and all(self._joint_ir_roles)
+            and all(self._joint_order_physical)
+        )
+        if not can_solve:
+            return (
+                np.full(n, float(d_pd_kp), dtype=np.float64),
+                np.full(n, float(d_pd_kd), dtype=np.float64),
+            )
+
+        try:
+            from application.physics.mujoco_gain_solver import solve as _solve
+        except Exception as exc:
+            log_warning(
+                f"[envs] mujoco_gain_solver import failed ({exc!r}); "
+                f"falling back to scalar PD."
+            )
+            return (
+                np.full(n, float(d_pd_kp), dtype=np.float64),
+                np.full(n, float(d_pd_kd), dtype=np.float64),
+            )
+
+        # mj_fullM at the current qpos (already at nominal at __init__
+        # time; at reset time the DR block writes the new masses BEFORE
+        # we get here, so M reflects the current episode's parameters).
+        nominal_qpos = np.array(self._data.qpos, dtype=np.float64)
+        try:
+            gains = _solve(
+                mjcf_path=Path(self._mjcf_loaded_path),
+                joint_order_physical=list(self._joint_order_physical),
+                joint_ir_roles=list(self._joint_ir_roles),
+                nominal_qpos=nominal_qpos,
+                pd_param=self._pd_param,
+            )
+        except Exception as exc:
+            log_warning(
+                f"[envs] mujoco_gain_solver.solve failed ({exc!r}); "
+                f"falling back to scalar PD for this episode."
+            )
+            return (
+                np.full(n, float(d_pd_kp), dtype=np.float64),
+                np.full(n, float(d_pd_kd), dtype=np.float64),
+            )
+
+        return (
+            np.asarray(gains.kp, dtype=np.float64),
+            np.asarray(gains.kd, dtype=np.float64),
+        )
+
     def _build_obs(self) -> np.ndarray:
         n = self._action_dim
         out = np.zeros(self._obs_dim, dtype=np.float32)
@@ -561,7 +889,211 @@ class GenericMujocoEnv(_GymEnvBase):
         # clip configured on env_assembler). 0 disables clipping.
         if self._d.obs_clip_range > 0.0:
             np.clip(out, -self._d.obs_clip_range, self._d.obs_clip_range, out=out)
+        # Domain-randomization additive Gaussian obs noise (after clip so
+        # the noise is what the policy actually sees, not what gets clipped
+        # off the tails).
+        std = self._dr_noise_std_effective()
+        if std > 0.0:
+            noise = self.np_random.normal(0.0, std, size=out.shape).astype(np.float32)
+            out = out + noise
         return out
+
+    # ------------------------------------------------------------------
+    # Domain randomization
+    # ------------------------------------------------------------------
+
+    def _dr_alpha(self) -> float:
+        """Schedule strength in [0, 1].
+
+        ``"none"`` (or absent schedule) → 1.0; ``"linear"`` ramps from 0
+        at ``start_step`` to 1 at ``end_step`` so the policy sees a clean
+        baseline for the first chunk of training and full DR after the
+        ramp completes. Out-of-range steps are clamped at the endpoints.
+        """
+        cfg = self._dr_cfg
+        if cfg is None or not cfg.enabled:
+            return 0.0
+        mode = cfg.schedule_mode
+        if mode != "linear":
+            return 1.0
+        start = cfg.schedule_start_step
+        end = cfg.schedule_end_step
+        step = int(self._dr_global_step)
+        if end <= start:
+            return 1.0
+        if step <= start:
+            return 0.0
+        if step >= end:
+            return 1.0
+        return float(step - start) / float(end - start)
+
+    def _dr_sample_factor(self, lo: float, hi: float, alpha: float) -> float:
+        """Sample a multiplicative scaling factor anchored at 1.0.
+
+        Returns ``1 + alpha * (U(lo, hi) - 1)`` so alpha=0 keeps the
+        MJCF baseline and alpha=1 spans the full configured range.
+        """
+        if hi <= lo:
+            sample = lo
+        else:
+            sample = float(self.np_random.uniform(lo, hi))
+        return 1.0 + float(alpha) * (sample - 1.0)
+
+    def _apply_domain_randomization(self) -> None:
+        """Restore MJCF baseline, then re-apply per-episode randomized
+        scaling per :class:`_DRState`. Invariant: callers (reset()) run
+        this BEFORE writing qpos and BEFORE the first :func:`mj_forward`
+        so the new physical params drive the initial state correctly.
+        """
+        # Always restore — even when DR is disabled — so toggling DR off
+        # mid-process cannot leak randomized state into the env. Stage H
+        # removed the actuator_gear / dof_damping restore lines along
+        # with the (motor_strength, joint_damping) DR knobs — neither is
+        # rescaled anymore, so there's nothing to restore.
+        self._model.body_mass[:] = self._dr_orig_body_mass
+        self._model.geom_friction[:] = self._dr_orig_geom_friction
+        try:
+            self._data.xfrc_applied[:] = 0.0
+        except Exception:                                    # pragma: no cover
+            pass
+
+        cfg = self._dr_cfg
+        if cfg is None or not cfg.enabled:
+            return
+        alpha = self._dr_alpha()
+        if alpha <= 0.0:
+            return
+
+        if cfg.mass_range is not None:
+            f = self._dr_sample_factor(*cfg.mass_range, alpha=alpha)
+            self._model.body_mass[:] = self._dr_orig_body_mass * f
+        if cfg.friction_range is not None:
+            f = self._dr_sample_factor(*cfg.friction_range, alpha=alpha)
+            # Only scale sliding friction (column 0); torsional / rolling
+            # columns 1/2 stay at MJCF defaults — they are rarely
+            # randomized in locomotion DR and mutating them breaks the
+            # MJCF author's tuning.
+            geom_f = self._dr_orig_geom_friction.copy()
+            geom_f[:, 0] *= f
+            self._model.geom_friction[:] = geom_f
+        # Stage H — DR on the canonical (omega_n, zeta) parameterization.
+        # Sample one multiplier each for omega_n and zeta (log-uniform on
+        # the provided linear bounds), build a scaled PDParam, and re-solve
+        # per-joint gains via mujoco_gain_solver. The PhysX side gets the
+        # same scaling via an event term emitted by env_cfg_compiler.
+        #
+        # NOTE: the legacy motor_strength_range / joint_damping_range
+        # branches (scaling actuator_gear / dof_damping) were deleted in
+        # the Stage H hard-replace. Both knobs were a leaky proxy for "PD
+        # bandwidth" that diverged from the PhysX side. The PD-bandwidth
+        # signal lives in (omega_n, zeta); driving DR there is what we
+        # want.
+        if self._pd_param is not None and (
+            cfg.omega_n_log_uniform is not None
+            or cfg.zeta_log_uniform is not None
+        ):
+            # Log-uniform on (lo, hi): sample u ~ U(log lo, log hi), use
+            # exp(u). Equivalent to multiplying by exp(U(log lo, log hi)).
+            import math as _math
+
+            def _sample_log_uniform(rng: Tuple[float, float]) -> float:
+                lo, hi = rng
+                if hi <= lo:
+                    return float(lo)
+                log_lo, log_hi = _math.log(max(lo, 1e-6)), _math.log(max(hi, 1e-6))
+                u = float(self.np_random.uniform(log_lo, log_hi))
+                # Apply DR alpha by interpolating between 1.0 (no DR) and
+                # the sampled factor.
+                factor = _math.exp(u)
+                return 1.0 + float(alpha) * (factor - 1.0)
+
+            omega_factor = (
+                _sample_log_uniform(cfg.omega_n_log_uniform)
+                if cfg.omega_n_log_uniform is not None else 1.0
+            )
+            zeta_factor = (
+                _sample_log_uniform(cfg.zeta_log_uniform)
+                if cfg.zeta_log_uniform is not None else 1.0
+            )
+            try:
+                scaled_param = self._pd_param.scaled(
+                    omega_n_factor=omega_factor,
+                    zeta_factor=zeta_factor,
+                )
+                # Temporarily swap pd_param so _resolve_pd_gains uses the
+                # scaled values, then restore.
+                original = self._pd_param
+                self._pd_param = scaled_param
+                kp_arr, kd_arr = self._resolve_pd_gains(
+                    d_pd_kp=self._d.pd_kp, d_pd_kd=self._d.pd_kd,
+                )
+                self._pd_param = original
+                self._pd_kp_array = kp_arr
+                self._pd_kd_array = kd_arr
+                return  # DR for actuator side fully handled
+            except Exception as exc:
+                log_warning(
+                    f"[envs] DR (omega_n, zeta) re-solve failed ({exc!r}); "
+                    f"falling back to nominal gains for this episode."
+                )
+
+        # Stage E: re-solve PD gains so kp/kd track the DR-perturbed
+        # mass matrix even when DR doesn't touch (omega_n, zeta) directly.
+        # The mass DR above changed body_mass; re-solving picks up the
+        # new M(q0) diagonal automatically.
+        if self._pd_resolve_at_reset:
+            kp_arr, kd_arr = self._resolve_pd_gains(
+                d_pd_kp=self._d.pd_kp, d_pd_kd=self._d.pd_kd,
+            )
+            self._pd_kp_array = kp_arr
+            self._pd_kd_array = kd_arr
+
+    def _maybe_apply_push(self) -> bool:
+        """Apply a transient push force on the base body at the configured
+        interval. Returns True when a push was written so step() can
+        clear ``xfrc_applied`` after the first substep — otherwise the
+        force would persist for every substep in the control_dt window
+        and become a sustained body load instead of an impulse.
+        """
+        cfg = self._dr_cfg
+        if cfg is None or not cfg.enabled or not cfg.push_robot:
+            return False
+        if cfg.push_force_range is None or cfg.push_interval_steps <= 0:
+            return False
+        alpha = self._dr_alpha()
+        if alpha <= 0.0:
+            return False
+
+        self._push_step_counter += 1
+        if self._push_step_counter < cfg.push_interval_steps:
+            return False
+        self._push_step_counter = 0
+
+        lo, hi = cfg.push_force_range
+        if hi <= lo:
+            magnitude = lo
+        else:
+            magnitude = float(self.np_random.uniform(lo, hi))
+        magnitude *= alpha
+        # Sample a planar direction so vertical pushes don't dominate the
+        # disturbance budget (the policy mostly fights horizontal forces
+        # in the real world).
+        theta = float(self.np_random.uniform(-np.pi, np.pi))
+        fx = magnitude * np.cos(theta)
+        fy = magnitude * np.sin(theta)
+        try:
+            self._data.xfrc_applied[self._dr_base_body_id, 0] = fx
+            self._data.xfrc_applied[self._dr_base_body_id, 1] = fy
+            self._data.xfrc_applied[self._dr_base_body_id, 2] = 0.0
+        except Exception:                                    # pragma: no cover
+            return False
+        return True
+
+    def _dr_noise_std_effective(self) -> float:
+        cfg = self._dr_cfg
+        if cfg is None or not cfg.enabled or cfg.obs_noise_std <= 0.0:
+            return 0.0
+        return float(cfg.obs_noise_std) * self._dr_alpha()
 
     # ------------------------------------------------------------------
     # Convenience accessors
@@ -585,7 +1117,13 @@ class GenericMujocoEnv(_GymEnvBase):
 # ---------------------------------------------------------------------------
 
 
-def make_env(spec, *, commands=None, seed: Optional[int] = None) -> GenericMujocoEnv:
+def make_env(
+    spec,
+    *,
+    commands=None,
+    seed: Optional[int] = None,
+    render_mode: Optional[str] = None,
+) -> GenericMujocoEnv:
     """Build a :class:`GenericMujocoEnv` from a :class:`TrainingSpec`.
 
     Reads ``spec.robot``, ``spec.scene``, ``spec.obs_action``,
@@ -641,6 +1179,7 @@ def make_env(spec, *, commands=None, seed: Optional[int] = None) -> GenericMujoc
         scene_config=getattr(spec, "scene", None),
         obs_action=getattr(spec, "obs_action", None),
         actor_config=getattr(spec, "actor", None),
+        domain_rand=getattr(spec, "domain_rand", None),
         sim_dt=sim_dt,
         control_dt=control_dt,
         max_episode_steps=max_steps,
@@ -648,6 +1187,7 @@ def make_env(spec, *, commands=None, seed: Optional[int] = None) -> GenericMujoc
         seed=seed,
         reward_fn=reward_fn,
         termination_fn=termination_fn,
+        render_mode=render_mode,
     )
 
 

@@ -1,0 +1,360 @@
+# =============================================================================
+# UnitPort Validation Node Spec
+# Mass-Matrix-Adaptive PD Alignment for IsaacLab ↔ MuJoCo sim2sim
+# =============================================================================
+# Position in pipeline:
+#   ... → Policy Network → PPO Trainer → Policy Exporter
+#                                              │
+#                                              ▼
+#                              [THIS NODE: sim2sim_validation]
+#                                              │
+#                                              ▼
+#                                         SDK Deploy
+#
+# Design invariants:
+#   - PD gains are NEVER written as raw kp/kd numbers in any engine.
+#   - Both engines are parameterized by (omega_n, zeta) per joint group.
+#   - Engine-specific kp/kd are DERIVED at runtime from the mass matrix.
+#   - Validation is gated on per-joint tracking RMS, not aggregate reward.
+#
+# Provenance: every field carries `source` so the Validation Node knows
+# which upstream artifact it came from. Back-navigation past a decision
+# point clears all downstream `source: derived` fields.
+# =============================================================================
+
+node:
+  id: sim2sim_validation
+  version: 0.1.0
+  type: validation
+  description: >
+    Cross-engine PD alignment + policy rollout comparison between
+    IsaacLab (PhysX, ImplicitActuator) and MuJoCo, using
+    mass-matrix-adaptive gain computation to eliminate the equivalent
+    stiffness mismatch caused by PhysX inertia normalization vs.
+    MuJoCo full mass matrix M.
+
+# =============================================================================
+# UPSTREAM CONTRACT — what this node consumes
+# =============================================================================
+inputs:
+  policy_artifact:
+    source: policy_exporter
+    required: true
+    fields:
+      onnx_path: { type: path, ext: .onnx }
+      obs_spec:  { type: yaml_ref, description: "observation assembly spec" }
+      act_spec:  { type: yaml_ref, description: "action dispatch spec" }
+      ctrl_dt:   { type: float, unit: s, note: "policy inference period" }
+
+  robot_assets:
+    source: robot_asset_node
+    required: true
+    fields:
+      usd_path:    { type: path, ext: .usd,  engine: physx  }
+      mjcf_path:   { type: path, ext: .xml,  engine: mujoco }
+      joint_order: { type: list[str], note: "MUST be identical in both files; node fails fast if not" }
+
+  actuator_config:
+    source: actuator_config_node
+    required: true
+    fields:
+      effort_limit_nm: { type: dict[str, float], note: "per-joint, applied to BOTH engines" }
+      velocity_limit:  { type: dict[str, float], unit: rad/s }
+      action_delay_steps:
+        type: int
+        default: 1
+        note: >
+          Applied in MuJoCo to mimic PhysX implicit integration latency.
+          Set to 0 only if PhysX side also runs explicit.
+
+# =============================================================================
+# PD PARAMETERIZATION — the core of this node
+# =============================================================================
+# Rule: kp/kd are NEVER user-specified directly. Specify (omega_n, zeta)
+# per joint group, and let each engine derive its own gains.
+# =============================================================================
+pd_spec:
+  parameterization: natural_frequency  # NOT kp_kd_direct
+  joint_groups:
+    # Group definitions are robot-specific. Default below targets Spot/Go2-class
+    # quadrupeds. For Mini Pupper v2, override `omega_n` to ~20-25 due to
+    # lower link inertia.
+    hip_x:
+      match_pattern: ".*hip_x.*|.*abduction.*|.*hip_aa.*"
+      omega_n: 25.0   # rad/s — abduction axis, low excursion, prioritize no overshoot
+      zeta:    1.0    # critically damped
+      rationale: "Low duty-cycle DoF; overshoot is visually offensive on hardware."
+    hip_y:
+      match_pattern: ".*hip_y.*|.*hip_fe.*|.*thigh.*"
+      omega_n: 35.0   # rad/s — must track trot/pace frequencies (~2-3 Hz gait → ~20+ rad/s harmonics)
+      zeta:    0.8
+      rationale: "Primary swing driver; under-damping mildly OK for energy efficiency."
+    knee:
+      match_pattern: ".*knee.*|.*calf.*"
+      omega_n: 35.0   # rad/s — phase-locked to hip_y to avoid intra-leg de-sync
+      zeta:    0.8
+      rationale: >
+        Knee carries the largest M off-diagonal coupling with hip_y in MuJoCo.
+        Mismatch here is the canary indicator for engine drift.
+
+  # Domain randomization applied during TRAINING (not validation).
+  # Validation runs at nominal gains; randomization is logged here so the
+  # Validation Node can warn if upstream PPO Trainer skipped it.
+  expected_training_randomization:
+    omega_n_log_uniform: [0.8, 1.25]   # ±20% log-scale
+    zeta_log_uniform:    [0.9, 1.11]   # ±10% log-scale
+    enforcement: warn_if_missing  # not hard-fail; some users disable DR intentionally
+
+# =============================================================================
+# ENGINE-SPECIFIC GAIN DERIVATION
+# =============================================================================
+gain_derivation:
+  mujoco:
+    method: full_mass_matrix
+    algorithm: |
+      For each joint j in joint_order:
+        1. Call mj_fullM(model, M, data.qM) at the robot's nominal stance.
+        2. m_eff = M[dof_j, dof_j]   # diagonal entry of FULL matrix (carries coupling mass)
+        3. kp_j  = m_eff * omega_n_j ** 2
+        4. kd_j  = 2.0 * zeta_j * sqrt(kp_j * m_eff)
+    actuator_type: general
+    xml_template: |
+      <general joint="{joint_name}"
+               gainprm="{kp}"
+               biasprm="0 -{kp} -{kd}"
+               forcerange="-{tau_max} {tau_max}"/>
+    notes:
+      - "DO NOT use `position` actuator — its kp semantics differ subtly from PD."
+      - "biasprm sign convention: τ = kp·(q*-q) - kd·q̇ requires '0 -kp -kd'."
+      - "Recompute gains if the robot's nominal mass/inertia changes (payload, etc.)."
+
+  isaaclab_physx:
+    method: normalized_inertia
+    algorithm: |
+      PhysX ImplicitActuator internally normalizes by articulation inertia,
+      so the user-facing kp/kd correspond to a unit-mass second-order system:
+        kp_j = omega_n_j ** 2
+        kd_j = 2.0 * zeta_j * omega_n_j
+    actuator_class: omni.isaac.lab.actuators.ImplicitActuatorCfg
+    config_template: |
+      ImplicitActuatorCfg(
+          joint_names_expr=["{regex}"],
+          stiffness={kp},
+          damping={kd},
+          effort_limit={tau_max},
+          velocity_limit={qd_max},
+      )
+
+  consistency_check:
+    description: >
+      The two derivations are equivalent IFF PhysX inertia normalization
+      matches MuJoCo's M diagonal. They won't match perfectly, but the
+      step-response calibration below quantifies the residual.
+
+# =============================================================================
+# CALIBRATION SUB-PROCEDURE — run BEFORE policy rollout
+# =============================================================================
+calibration:
+  enabled: true
+  blocking: true   # node fails if calibration RMS exceeds thresholds
+  procedure: per_joint_step_response
+  steps:
+    - id: 1_lock_other_joints
+      description: >
+        For each target joint, freeze all other joints at their home pose
+        (MuJoCo: set qpos and zero qvel; PhysX: set joint targets to home
+        with very high temporary kp). This isolates the single-DoF response.
+    - id: 2_step_input
+      input: position_step
+      amplitude_rad: 0.1
+      duration_s: 1.0
+    - id: 3_record
+      signals: [q_t, qd_t, tau_t]
+      sample_rate_hz: 500
+    - id: 4_extract_metrics
+      metrics:
+        - rise_time_s          # time from 10% to 90% of step
+        - settling_time_s      # time to enter ±2% band
+        - overshoot_pct
+        - steady_state_error_rad
+    - id: 5_compare
+      tolerance:
+        rise_time_relative_diff:    0.15   # ≤15% between engines
+        overshoot_absolute_diff:    0.05   # ≤5 percentage points
+        steady_state_error_rad_abs: 0.005  # ≤0.005 rad (~0.3°)
+      action_if_fail:
+        - log_per_joint_diff_table
+        - emit_warning_to_dashboard
+        - if blocking == true: abort_validation
+
+# =============================================================================
+# POLICY ROLLOUT — actual sim2sim comparison
+# =============================================================================
+rollout:
+  scenarios:
+    - id: trot_forward
+      command: [vx: 0.5, vy: 0.0, wz: 0.0]
+      duration_s: 10.0
+    - id: trot_lateral
+      command: [vx: 0.0, vy: 0.3, wz: 0.0]
+      duration_s: 10.0
+    - id: turn_in_place
+      command: [vx: 0.0, vy: 0.0, wz: 0.8]
+      duration_s: 10.0
+    - id: command_step_change
+      # Reuses your existing step-change injection from training
+      schedule:
+        - { t_s: 0.0, command: [0.5, 0.0, 0.0] }
+        - { t_s: 3.0, command: [0.0, 0.0, 0.8] }
+        - { t_s: 6.0, command: [-0.3, 0.0, 0.0] }
+      duration_s: 10.0
+
+  seed_policy: fixed_42   # deterministic policy seed for reproducibility
+  initial_state: home_keyframe
+  rsi: disabled           # validation runs from canonical IC, not RSI
+
+  per_engine_runs:
+    isaaclab:
+      backend: physx
+      headless: true
+      sim_dt: 0.005
+      decimation: { from: sim_dt, to: policy_ctrl_dt }
+    mujoco:
+      headless: true
+      sim_dt: 0.002        # finer than PhysX because explicit integrator
+      decimation: { from: sim_dt, to: policy_ctrl_dt }
+      action_delay_steps: ${inputs.actuator_config.action_delay_steps}
+
+# =============================================================================
+# VALIDATION METRICS — the pass/fail criteria
+# =============================================================================
+metrics:
+  per_joint_tracking_rms:
+    compute: rms(q_target - q_measured) over rollout duration
+    report_axes: [joint, scenario, engine]
+    canary_joints: [knee, hip_y]   # flag these specifically per the design memo
+    thresholds:
+      pass_engine_diff_pct: 25.0   # MuJoCo RMS ≤ 1.25 × IsaacLab RMS for canary joints
+      hard_fail_engine_diff_pct: 50.0
+
+  base_pose_drift:
+    compute: ||base_pos_mujoco(t) - base_pos_isaac(t)||_2
+    threshold_m: 0.15   # over a 10-s rollout
+
+  foot_slip_distance:
+    compute: cumulative tangential foot motion during contact
+    threshold_diff_pct: 30.0
+
+  energy_consistency:
+    compute: integral(|tau · qd|) dt
+    threshold_diff_pct: 40.0   # looser; energy is a derived signal
+
+  report_format:
+    - markdown_summary
+    - per_joint_csv
+    - matplotlib_overlay_plots:
+        - q_t for all 12 joints, both engines overlaid
+        - tau_t for canary joints
+        - base trajectory (top-down xy)
+
+# =============================================================================
+# OUTPUTS — what downstream nodes (SDK Deploy) consume
+# =============================================================================
+outputs:
+  validation_verdict:
+    type: enum
+    values: [pass, warn, fail]
+    contract: SDK Deploy refuses to bundle a policy with verdict=fail
+
+  alignment_report:
+    type: path
+    ext: .md
+    contents:
+      - calibration step-response table
+      - rollout metric table
+      - canary joint diagnosis
+      - recommended remediation if warn/fail
+
+  derived_pd_artifacts:
+    type: bundle
+    items:
+      - mujoco_pd_gains.json    # final per-joint kp, kd for MuJoCo
+      - isaaclab_pd_gains.json  # final per-joint kp, kd for PhysX
+      - omega_n_zeta.yaml       # the canonical parameterization (provenance source)
+
+# =============================================================================
+# REMEDIATION HINTS — emitted into the report on warn/fail
+# =============================================================================
+remediation:
+  knee_rms_high:
+    diagnosis: "Knee tracking RMS in MuJoCo > 1.25× IsaacLab — classic mass-matrix mismatch."
+    actions:
+      - "Re-run mj_fullM at the AVERAGE stance over the gait cycle, not just home."
+      - "Increase knee zeta from 0.8 → 1.0 to absorb residual coupling."
+      - "Verify MJCF inertia matches USD via centroidal mass + COM check."
+
+  hip_y_overshoot:
+    diagnosis: "hip_y overshoot in MuJoCo step response."
+    actions:
+      - "Reduce hip_y omega_n by 10-15%, OR raise zeta to 1.0."
+      - "Check effort_limit_nm is applied to MuJoCo (forcerange in actuator)."
+
+  base_drift_high:
+    diagnosis: "Trajectory diverges over rollout — likely contact model mismatch, not PD."
+    actions:
+      - "Compare friction coefficients (PhysX material vs. MuJoCo geom condim/friction)."
+      - "Verify foot collision geometry matches (sphere vs. capsule)."
+      - "This node does NOT fix contact mismatch — escalate to Robot Asset node."
+
+  calibration_step_response_diverges:
+    diagnosis: "Even single-joint step responses differ — PD parameterization is wrong."
+    actions:
+      - "Check MJCF actuator gainprm/biasprm sign convention (must be '0 -kp -kd')."
+      - "Confirm joint_order is byte-identical between USD and MJCF."
+      - "Run mj_step with all-zero action for 1s; if robot drifts, gravity comp or initial pose is off."
+
+# =============================================================================
+# IMPLEMENTATION NOTES FOR CLAUDE CODE
+# =============================================================================
+implementation:
+  primary_module: unitport/nodes/validation/sim2sim_mma.py
+  helper_modules:
+    - unitport/physics/mujoco_gain_solver.py    # mj_fullM-based kp/kd derivation
+    - unitport/physics/physx_gain_solver.py     # normalized-inertia derivation
+    - unitport/physics/step_response.py         # calibration sub-procedure
+    - unitport/metrics/tracking_rms.py          # per-joint RMS + canary detection
+
+  external_deps:
+    mujoco: ">=3.2"
+    isaaclab: ">=2.3.2"
+    numpy: ">=1.24"
+    scipy: ">=1.11"   # for step-response curve fitting
+
+  test_fixtures:
+    - tests/fixtures/spot_mjcf_usd_pair/     # canonical Boston Dynamics Spot
+    - tests/fixtures/go2_mjcf_usd_pair/      # Unitree Go2 Air
+    - tests/fixtures/mini_pupper_v2_pair/    # your own MJCF + URDF→USD
+
+  cli_entry_point:
+    command: "unitport validate sim2sim --policy <onnx> --robot <robot_id>"
+    flags:
+      --skip-calibration:    "dangerous; only for debugging"
+      --report-only:         "run rollout but don't gate on verdict"
+      --override-omega-n:    "per-group override, e.g. knee=30"
+
+# =============================================================================
+# FRONTEND HOOK — for the Robot Control Panel
+# =============================================================================
+frontend:
+  panel_region: validation_status
+  display:
+    - verdict_badge: { pass: green, warn: yellow, fail: red }
+    - canary_joint_meter:
+        joints: [hip_y, knee]
+        metric: tracking_rms_ratio
+        gauge_range: [0.0, 2.0]
+        marker_threshold: 1.25
+    - report_link: { opens: alignment_report.md }
+  user_actions:
+    - retry_with_override:  "re-runs with user-edited omega_n/zeta from a modal"
+    - accept_warn_and_deploy: "explicit override; logs user decision into provenance"

@@ -4,6 +4,11 @@ redo.tip = Redo (Ctrl+Shift+Z)
 save.tip = Save canvas
 undo.tip = Undo (Ctrl+Z)
 
+[mode]
+mission_control = Mission Control
+training_canva = Training Canva
+scripts = Scripts
+
 [tooltip]
 chart_opacity = Chart overlay opacity
 
@@ -13,4 +18,13 @@ picker.title = Pick a color
 hex_input.placeholder = #RRGGBB
 btn.confirm.tip = Confirm
 btn.cancel.tip = Cancel
+
+[script]
+btn.redo.tip = Redo (Ctrl+Shift+Z)
+btn.save.tip = Save script
+btn.undo.tip = Undo (Ctrl+Z)
+
+[ros2_dev_notice]
+title = ROS2 Connection (Preview)
+body = ROS2 connection is still under development. Basic connection and control are available; the full feature set will land in a later release.
 

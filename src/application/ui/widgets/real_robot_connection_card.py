@@ -335,20 +335,35 @@ class _Ros2ConnectionSection(_SectionFrame):
         ap_layout.addWidget(addr_row, 2)
         ap_layout.addWidget(port_row, 1)
 
-        transport_row = _FormRow(
-            "mission.conn.field.transport", "Transport",
-            self._cb_transport, self._body,
-        )
-
         # Transport group — visually binds Transport+Address+Port.
+        # The combo lives directly under the group title; the redundant
+        # "Transport" form-label above it was removed for vertical space.
         self._transport_group = setTitleGroupBox(
             "mission.conn.group.transport", default="Transport",
             parent=self._body,
         )
+        # Compact the SDK default (size_large title) down to size_small for
+        # this dense connection card. Mirrors TitleGroupBox._build_qss but
+        # with the smaller font tier; pulls colours from Config so theme
+        # overrides still apply.
+        _tg_color = Config.get_color("main_t2")
+        _tg_border = Config.get_color("border_2")
+        _tg_size = int(Config.get_font_size("size_small"))
+        _tg_half = max(6, _tg_size // 2)
+        self._transport_group.setStyleSheet(
+            f"QGroupBox {{ background-color: transparent; "
+            f"border: 1px solid {_tg_border}; border-radius: 10px; "
+            f"margin-top: {_tg_half}px; "
+            f"padding: {_tg_half + 6}px 10px 10px 10px; "
+            f"font-size: {_tg_size}px; color: {_tg_color}; }} "
+            f"QGroupBox::title {{ subcontrol-origin: margin; "
+            f"subcontrol-position: top left; left: 12px; padding: 0 6px; "
+            f"color: {_tg_color}; }}"
+        )
         tg_layout = QVBoxLayout(self._transport_group)
-        tg_layout.setContentsMargins(8, 14, 8, 8)
+        tg_layout.setContentsMargins(8, 10, 8, 8)
         tg_layout.setSpacing(8)
-        tg_layout.addWidget(transport_row, 0)
+        tg_layout.addWidget(self._cb_transport, 0)
         tg_layout.addWidget(self._addr_port_row, 0)
 
         # Body row order — Robot at top (drives everything else).
@@ -390,7 +405,7 @@ class _Ros2ConnectionSection(_SectionFrame):
         # iterate (theme refresh updates the label colours).
         self._rows = [
             robot_row, self._adapter_row, middleware_row,
-            transport_row, addr_row, port_row,
+            addr_row, port_row,
         ]
 
         # Persist on change. Robot → cascades to adapter strategy combo
@@ -414,13 +429,8 @@ class _Ros2ConnectionSection(_SectionFrame):
         # touches the combo.
         self._apply_transport_visibility(info.transport)
 
-        # Status row — dot + label.
-        self._status_label_key = I18nLabel(
-            "mission.conn.field.state", default="连接状态", parent=self._body
-        )
-        self._status_label_key.setObjectName("missionConnFormLabel")
-        self.body_layout().addWidget(self._status_label_key, 0)
-
+        # Status row — dot + label. The standalone "连接状态" caption was
+        # removed; the dot+text row alone communicates the connection state.
         self._status_row = QWidget(self._body)
         sr_layout = QHBoxLayout(self._status_row)
         sr_layout.setContentsMargins(0, 0, 0, 0)
@@ -624,10 +634,6 @@ class _Ros2ConnectionSection(_SectionFrame):
         sub = Config.get_color("sub_t2")
         font_small = Config.get_font_size("size_small")
         font_normal = Config.get_font_size("size_normal")
-        self._status_label_key.setStyleSheet(
-            f"QLabel#missionConnFormLabel {{ color: {sub}; "
-            f"font-size: {font_small}px; background: transparent; }}"
-        )
         self._status_text.setStyleSheet(
             f"QLabel#missionConnStatusText {{ color: {Config.get_color('main_t1')}; "
             f"font-size: {font_normal}px; background: transparent; }}"
@@ -1309,10 +1315,13 @@ class RealRobotConnectionCard(QFrame):
         body_layout.setSpacing(8)
 
         self._sec_ros2 = _Ros2ConnectionSection(body)
+        # Robot Hardware section is kept constructed (apply_theme / future
+        # toggles still expect ``self._sec_hw`` to exist) but neither placed
+        # into ``body_layout`` nor shown.
         self._sec_hw = _RobotHardwareInfoSection(body)
+        self._sec_hw.hide()
 
-        body_layout.addWidget(self._sec_ros2, 4)
-        body_layout.addWidget(self._sec_hw, 6)
+        body_layout.addWidget(self._sec_ros2, 1)
         outer.addWidget(body, 1)
 
         # sec3 — capability-driven Controller sub-card (Phase 3). Constructed

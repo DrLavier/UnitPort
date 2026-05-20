@@ -1,0 +1,188 @@
+[train]
+title = Vue configuration d'entraînement
+section.status = État de l'entraînement
+section.task = Configuration de la tâche
+section.hyper = Hyperparamètres
+section.robot = Configuration du robot
+state.idle = Inactif
+state.running = En cours
+state.paused = En pause
+state.finished = Terminé
+state.failed = Échoué
+field.elapsed = Temps écoulé
+field.iterations = Itérations
+field.current_reward = Récompense actuelle
+field.mean_reward = Récompense moyenne
+field.best_reward = Meilleure récompense
+field.episode_length = Longueur moyenne d'épisode
+field.fps = FPS
+field.task_env = Backend de tâche
+field.task_name = Nom de la tâche
+field.link = Lien
+field.device = Périphérique d'entraînement
+btn.task_configure = Configurer la tâche
+field.lr = Taux d'apprentissage
+field.batch_size = Taille du lot
+field.gamma = Gamma
+field.total_timesteps = Nombre total de pas
+field.ent_coef = Coef. d'entropie
+field.seed = Graine aléatoire
+field.num_envs = Envs parallèles
+field.max_iterations = Itérations max
+btn.hyper_edit = Modifier les hyperparamètres
+field.training_asset = Ressource d'entraînement
+field.active_files = Fichiers de la ressource
+field.body_mapping = body_mapping
+field.target_height = Hauteur cible (m)
+field.target_height_hint = 0 = utiliser la valeur nominale de la ressource
+btn.start = Démarrer
+btn.pause = Pause
+btn.stop = Arrêter
+placeholder.empty = —
+placeholder.no_canvas = Aucun canevas chargé
+placeholder.no_robot = Aucun nœud robot
+body.col_robot = Robot
+body.col_role = Rôle
+body.unassigned = (Non assigné)
+body.out_of_scope = (Hors périmètre)
+body.menu_unassign = Désassigner
+body.menu_oos = Marquer hors périmètre
+body.menu_restore = Restaurer (non assigné)
+
+[robot]
+status.loaded = Chargé
+status.missing = Manquant
+
+[link]
+local = Local
+cloud = Cloud
+
+[conn]
+title = Connexion robot réel
+section.ros2 = Connexion ROS2
+section.hardware = Matériel robot
+section.sensor = État des capteurs
+field.domain_id = ID de domaine ROS2
+field.middleware = Middleware
+field.address = Adresse
+field.port = Port
+state.disconnected = Déconnecté
+state.testing = Test en cours…
+state.connecting = Connexion…
+state.connected = Connecté
+state.error = Erreur
+btn.test = Tester
+btn.connect = Connecter
+btn.disconnect = Déconnecter
+field.brand = Marque
+field.model = Modèle
+field.serial = Série
+field.firmware = Firmware
+field.battery = Batterie
+field.temperature = Température
+field.uptime = Temps de fonctionnement
+sensor.imu = IMU
+sensor.joints = Articulations
+sensor.lidar = Lidar
+sensor.camera = Caméra
+sensor.torque = Couple
+sensor.battery = Batterie
+level.ok = OK
+level.warn = Avert.
+level.error = Erreur
+level.idle = Inactif
+field.state = État de la connexion
+hw.battery = Batterie
+hw.no_selection = Aucun robot sélectionné
+hw.temperature = Température
+hw.uptime = Temps de fonctionnement
+btn.connecting = Connexion…
+controller.arm_pending = La téléopération du bras arrivera en phase 6.
+controller.no_teleop = Cet adaptateur ne déclare pas de capacité de téléopération.
+controller.pid_pending = L'interface de réglage PID arrivera en phase 6.
+controller.release_control = Relâcher le contrôle
+controller.take_control = Prendre le contrôle
+dialog.section.domain = ID de domaine ROS2
+dialog.section.ssh = Identifiants SSH
+dialog.ssh.server = Serveur : {server}
+dialog.title = Paramètres de connexion
+middleware.auto_detected = ↳ Auto : {rmw}
+result.fix_tag.invasive = invasif
+result.fix_tag.safe = sûre
+result.head.fail = La connexion n'a pas pu être établie.
+result.head.ok_clean = Connexion prête. Aucun problème détecté.
+result.head.ok_fixed = Connexion prête. {n} problème(s) corrigé(s) automatiquement.
+result.head.partial = La connexion est établie, mais {n} problème(s) nécessitent une attention.
+result.invasive.confirm = Vous allez exécuter {n} réparation(s) invasive(s) sur le robot. Elles peuvent installer des paquets ou modifier des fichiers de configuration persistants.
+	
+	Actions :
+	{summary}
+	
+	Continuer ?
+result.invasive.confirm.title = Confirmer la réparation invasive
+result.meta = Tentatives d'auto-réparation : {a}   Appliquées : {ap}   Échecs : {fl}   Durée : {d:.1f}s
+result.section.applied = Appliquées (auto-corrigées)
+result.section.failed = Échec pendant l'auto-réparation
+result.section.unresolved_invasive = Non résolu (correction invasive disponible — nécessite votre consentement)
+result.section.unresolved_manual = Non résolu (aucune correction auto — action manuelle requise)
+result.section.unresolved_safe = Non résolu (corrigeable en sécurité ; essayez Réessayer)
+result.title.fail = Échec de la connexion
+result.title.ok = Connexion prête
+result.title.partial = Connexion partielle — action suggérée
+robot.none = —
+section.controller = Contrôleur
+ssh.has_password = mdp✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (aucun identifiant)
+ssh.password = Mot de passe
+ssh.password.placeholder = (saisissez le mot de passe puis cliquez sur Enregistrer)
+ssh.sudo = Mot de passe sudo
+ssh.sudo.placeholder = (nécessaire pour les réparations invasives)
+ssh.user = Utilisateur SSH
+
+[sim]
+title = Simulation de politique
+section.simconfig = Configuration de simulation
+field.policy = Politique
+field.play_ground = Terrain
+field.backend = Backend
+field.preview_physic = Aperçu physique
+field.preview_physic.tip = Faire avancer la physique en direct pendant Review Robot (gravité uniquement, sans actionneurs)
+btn.run = Exécuter
+btn.review_robot = Examiner le robot
+policy.empty = Aucune politique exportée
+backend.empty = Aucun backend de simulation
+section.init_pose = Surcharge de pose initiale
+field.init_pose_enable = Remplacer la pose initiale
+field.init_pose_enable.tip = Faire apparaître le robot à partir des valeurs ci-dessous au lieu des valeurs par défaut du bundle
+field.init_pose_preset = Préréglage
+field.init_pose_base = Position de base [m]
+field.init_pose_joints = Angles d'articulations [rad]
+btn.edit_pose = Modifier…
+btn.save_pose = Enregistrer sous…
+btn.delete_pose = Supprimer
+dialog.save_pose.title = Enregistrer le préréglage de pose initiale
+dialog.save_pose.prompt = Nom du préréglage :
+init_pose.editor.title = Éditeur de pose initiale
+init_pose.empty = Sélectionnez une politique avec un SKU robot connu pour modifier la pose initiale.
+init_pose.custom = Personnalisée (non enregistrée)
+
+[diag]
+repair_invasive = Réparation invasive
+repair_safe = Réparation sûre
+ssh.context = Serveur : {server}
+	Raison : {reason}
+ssh.err_empty_pw = Le mot de passe SSH est requis.
+ssh.err_save = Impossible d'enregistrer les identifiants : {err}
+ssh.headline = L'auto-réparation nécessite un accès SSH au robot.
+ssh.pw = Mot de passe SSH
+ssh.pw_placeholder = requis
+ssh.sudo = Mot de passe sudo
+ssh.sudo_placeholder = facultatif — utilisera le mot de passe SSH si laissé vide
+ssh.title = Identifiants SSH requis
+ssh.user = Utilisateur SSH
+summary.error = Erreurs détectées.
+summary.pass = Toutes les vérifications sont passées.
+summary.warn = Avertissements détectés.
+title = Diagnostic de connexion
+

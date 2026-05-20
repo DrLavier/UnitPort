@@ -72,10 +72,11 @@ _LAYER_DISPLAY_NAMES: Dict[str, str] = {
 # =============================================================================
 
 class _NodeTreeDelegate(QStyledItemDelegate):
-    """自绘组行底色（DEMO ``module_cards.NodeTreeDelegate`` 的 RELEASE 化）.
+    """组行字号 + 文本色定制（DEMO ``module_cards.NodeTreeDelegate`` 的 RELEASE 化）.
 
-    叶行走默认渲染；组行用 ``Config.get_color('bg_2')`` 作背景，加粗显示。
-    主题切换时 ``_NodeTree.refresh_style()`` 会触发 viewport().update() 重绘。
+    叶行走默认渲染；组行不再上底色——让 sidebar 弹出面板自己的背景色（bg_3）
+    直接透出，与 §1.5 "颜色一律 system.ini[Theme]" 不冲突（这里只是不画自己
+    的底色，让上层 panel 的底色生效）。文字仍走 highlight 色 + 加粗。
     """
 
     def initStyleOption(
@@ -86,9 +87,7 @@ class _NodeTreeDelegate(QStyledItemDelegate):
         super().initStyleOption(option, index)
         is_group = bool(index.data(ROLE_IS_GROUP))
         if is_group:
-            from PyQt6.QtGui import QBrush, QColor, QPalette
-            bg_hex = Config.get_color("bg_2", "#2A2A2A")
-            option.backgroundBrush = QBrush(QColor(bg_hex))
+            from PyQt6.QtGui import QColor, QPalette
             # 折叠栏文本走 highlight 色（system.ini[Theme] slot 名 highlight）
             hl_hex = Config.get_color("highlight", "#F6D393")
             hl_color = QColor(hl_hex)
@@ -146,8 +145,12 @@ class _NodeTree(QTreeWidget):
     # ---- 主题刷新 ----
 
     def refresh_style(self) -> None:
-        """重读主题色 + 字号；主题切换或挂载完成时调用."""
-        bg = Config.get_color("bg_1", "#1E1E1E")
+        """重读主题色 + 字号；主题切换或挂载完成时调用.
+
+        Tree 与 viewport 都走 transparent —— 让 Sidebar 弹出面板（``bg_3``）的
+        底色直接透出，整列条目不再画自己的底色。hover / selected 仍用
+        ``hover_1``，是交互态色，不属于"item 列表底色"。
+        """
         fg = Config.get_color("main_t1", "#D6D3C7")
         # 叶节点 + 折叠栏字号统一 size_small（迁入 Sidebar 弹出面板后由用户敲定）
         size = int(Config.get_font_size("size_small"))
@@ -155,15 +158,19 @@ class _NodeTree(QTreeWidget):
         self.setStyleSheet(
             f"""
             QTreeWidget {{
-                background-color: {bg};
+                background-color: transparent;
                 color: {fg};
                 border: 0;
                 font-family: "{family}";
                 font-size: {size}px;
                 outline: 0;
             }}
+            QTreeWidget::viewport {{
+                background-color: transparent;
+            }}
             QTreeWidget::item {{
                 padding: 3px 6px;
+                background-color: transparent;
             }}
             QTreeWidget::item:selected {{
                 background-color: {Config.get_color("hover_1", "#525252")};

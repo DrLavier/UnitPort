@@ -1,0 +1,31 @@
+[default]
+engines_cloud_settings = Configurer les serveurs cloud
+engines_local_settings = Configurer l'installation locale
+open_workspace = Ouvrir l'espace de travail utilisateur
+open_workspace_tip = Ouvrir le répertoire de données utilisateur UnitPort dans l'explorateur de fichiers
+linked_accounts_label = Méthodes de connexion :
+linked_account_btn_signedout_email = E-mail : —
+linked_account_btn_signedout_google = Google : —
+linked_account_btn_signedout_github = GitHub : —
+linked_account_btn_unlinked_email = E-mail : (aucun)
+linked_account_btn_unlinked_google = Google : (non lié)
+linked_account_btn_unlinked_github = GitHub : (non lié)
+linked_account_status_linked = lié
+linked_account_unlink_confirm_title = Dissocier {provider} ?
+linked_account_unlink_only_body = C'est votre seule méthode de connexion. Vous ne pouvez pas la dissocier.
+linked_account_unlink_current_body = Vous serez déconnecté après la dissociation, car il s'agit de votre méthode de connexion actuelle.
+linked_account_unlink_normal_body = Vous ne pourrez plus vous connecter avec {provider}.
+linked_account_unlink_button = Dissocier {provider}
+workspace_email_label = Espace de travail :
+workspace_email_confirm_title = Changer l'e-mail de stockage de l'espace de travail ?
+workspace_email_confirm_msg = Déplacer votre espace de travail local vers le slug {email} ?
+	Si un espace de travail existe déjà pour cet e-mail, il sera utilisé tel quel et vos données actuelles resteront sur l'ancien slug.
+workspace_email_switched = Le stockage de l'espace de travail a été déplacé vers {path}.
+workspace_email_failed = Impossible de changer d'espace de travail : {error}
+email_identity_title = Connexion par e-mail
+email_identity_send_to = Nous enverrons un lien de vérification à :
+email_identity_security_hint = Cliquez sur le lien dans votre boîte de réception pour définir ou mettre à jour votre mot de passe de connexion.
+	Pour des raisons de sécurité, les changements de mot de passe ne peuvent pas être effectués dans l'application ; tout passe par une vérification par e-mail.
+email_identity_send_button = Envoyer le lien
+email_identity_no_email = (aucun e-mail disponible)
+

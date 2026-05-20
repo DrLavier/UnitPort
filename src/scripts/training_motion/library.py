@@ -58,6 +58,12 @@ def _project_root() -> Path:
     return Path(Paths.PROJECT_ROOT)
 
 
+def _custom_mods_root() -> Path:
+    """Return ``Paths.CUSTOM_MODS_DIR`` (overlay-resolved third-party assets root)."""
+    from unitport_sdk import Paths
+    return Path(Paths.CUSTOM_MODS_DIR)
+
+
 def _user_config_root() -> Path:
     """Return the user-state root, lazy to avoid SDK import at module load."""
     from unitport_sdk import Paths
@@ -66,7 +72,7 @@ def _user_config_root() -> Path:
 
 def _project_motions_dir() -> Path:
     """Project-shipped motion library root (read-only at runtime)."""
-    return _project_root() / "custom_mods" / "motions"
+    return _custom_mods_root() / "motions"
 
 
 def _user_motions_dir() -> Path:
@@ -87,7 +93,7 @@ def _custom_motions_dirs() -> List[Path]:
 
 def _project_archive_root() -> Path:
     """Project-shipped AMP archive root (read-only at runtime)."""
-    return _project_root() / "custom_mods" / "archives"
+    return _custom_mods_root() / "archives"
 
 
 def _user_archive_root() -> Path:

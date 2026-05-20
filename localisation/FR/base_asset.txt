@@ -1,0 +1,16 @@
+[start_point]
+asset_desc = Démarrer à chaud l'acteur depuis la ressource d'entraînement enregistrée.
+latest_export = Dernier export
+latest_export_desc = Reprendre depuis le bundle exporté le plus récent dans l'espace de travail.
+new = Nouveau (init aléatoire)
+new_desc = Démarrer l'entraînement depuis zéro avec une initialisation aléatoire.
+latest = Dernier
+latest_desc = Continuer l'entraînement cumulatif à partir du checkpoint le plus récent de ce canevas.
+load = Charger
+load_desc = Choisir n'importe quel checkpoint ou politique exportée dans le projet courant.
+
+[checkpoint]
+empty = — choisir un checkpoint
+export_desc = Politique exportée (.onnx). load_mode bascule automatiquement vers 'warm_start_actor'.
+run_desc = Checkpoint de dossier d'exécution (.pt). load_mode bascule automatiquement vers 'resume'.
+

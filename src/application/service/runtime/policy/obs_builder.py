@@ -142,16 +142,15 @@ class ObsBuilder:
         # arbitrary brand/type strings from the manifest.
         self._robot_sku = str(robot_sku or "").strip()
 
-        contract: Optional["DeployContract"]
-        try:
-            contract = bundle.deploy_contract
-        except ValueError as exc:
-            log.error(
-                "ObsBuilder: bundle deploy_contract failed validation (%s); "
-                "falling back to legacy preset path.",
-                exc,
-            )
-            contract = None
+        # Strict-mode contract (CLAUDE.md §1.8): if the bundle ships a
+        # deploy_contract section, it MUST parse cleanly. Catching
+        # ValueError and falling back to a legacy preset silently
+        # produces a malformed obs vector when the contract was present
+        # but invalid — the policy then receives the wrong layout and
+        # behaves "almost right but actually wrong", which is the
+        # worst possible failure mode. If parse fails, the bundle is
+        # broken — re-export.
+        contract: Optional["DeployContract"] = bundle.deploy_contract
         self._contract: Optional["DeployContract"] = contract
         self._use_contract: bool = contract is not None
 
@@ -247,35 +246,38 @@ class ObsBuilder:
             and self._convention == "isaac_lab"
             and self._robot_sku
             and bundle_space is not None
-            and not getattr(ObsBuilder, "_warned_legacy_il_joint_order", False)
         ):
-            try:
-                from registers.robots import get_robot_spec
+            from registers.robots import get_robot_spec
 
-                rs = get_robot_spec(self._robot_sku)
-                expected = (
-                    list(getattr(rs, "isaac_lab_joint_order", None) or [])
-                    if rs is not None
-                    else []
+            rs = get_robot_spec(self._robot_sku)
+            expected = (
+                list(getattr(rs, "isaac_lab_joint_order", None) or [])
+                if rs is not None
+                else []
+            )
+            actual = list(
+                getattr(bundle_space, "__dict__", {}).get("ir_labels") or ()
+            )
+            if expected and actual and expected != actual:
+                # CLAUDE.md §1.8: previously logged an ERROR and continued —
+                # the policy then fed obs/action through the wrong joint
+                # slots, producing the "electric shock" twitching the user
+                # reported. A wrong-ordered bundle is unusable; refuse
+                # to load it so the user re-exports instead of trusting
+                # a silently-broken viewer/deploy.
+                raise RuntimeError(
+                    f"[ObsBuilder] bundle joint order does NOT match "
+                    f"Isaac Lab USD articulation order for SKU "
+                    f"{self._robot_sku!r} — sim2sim with this bundle "
+                    f"would produce twitching policy outputs.\n"
+                    f"  expected (USD order): {expected}\n"
+                    f"  bundle has         : {actual}\n"
+                    f"Re-export the bundle with the current RELEASE "
+                    f"BundleFinalizer (the registry must have "
+                    f"isaac_lab_joint_order declared for the SKU). "
+                    f"Old bundle path: re-train this canvas with the "
+                    f"updated registry overlay, then re-launch review."
                 )
-                actual = list(
-                    getattr(bundle_space, "__dict__", {}).get("ir_labels") or ()
-                )
-                if expected and actual and expected != actual:
-                    log.error(
-                        "ObsBuilder: bundle joint order does NOT match Isaac "
-                        "Lab USD articulation order for SKU %r — sim2sim "
-                        "will produce twitching policy outputs. Expected %s; "
-                        "got %s. Re-export the bundle with the current "
-                        "RELEASE BundleFinalizer.",
-                        self._robot_sku,
-                        expected,
-                        actual,
-                    )
-                    ObsBuilder._warned_legacy_il_joint_order = True
-            except Exception:
-                # Sanity check is best-effort; never break load.
-                pass
 
         if self._use_contract and contract is not None:
             for _term_name in ("height_scan", "heightfield_scan"):
@@ -447,12 +449,12 @@ class ObsBuilder:
                 log.exception("ObsBuilder first-call term dump failed")
 
         if obs.shape[0] != self._bundle.obs_dim:
-            warnings.warn(
-                f"ObsBuilder (contract mode): built obs has dim {obs.shape[0]} "
-                f"but bundle.obs_dim={self._bundle.obs_dim}. The contract "
-                f"sum-of-dims should equal bundle.obs_dim — fix the contract "
-                f"or the bundle metadata. NOT pad/truncating in contract mode.",
-                stacklevel=2,
+            raise ValueError(
+                f"ObsBuilder (contract mode): built obs has dim "
+                f"{obs.shape[0]} but bundle.obs_dim={self._bundle.obs_dim}. "
+                f"The contract sum-of-dims must equal bundle.obs_dim — "
+                f"the bundle's manifest is internally inconsistent. "
+                f"Re-export the bundle."
             )
         return obs
 
@@ -474,17 +476,13 @@ class ObsBuilder:
         obs = np.concatenate(list(self._history)).astype(np.float32) if self._history else frame
 
         if obs.shape[0] != self._bundle.obs_dim:
-            warnings.warn(
-                f"Built observation has dimension {obs.shape[0]} but "
-                f"bundle.obs_dim={self._bundle.obs_dim}; "
-                f"{'truncating' if obs.shape[0] > self._bundle.obs_dim else 'padding'} "
-                f"to match. Component order: {self._component_order}",
-                stacklevel=2,
+            raise ValueError(
+                f"ObsBuilder (legacy preset mode): built obs has dim "
+                f"{obs.shape[0]} but bundle.obs_dim={self._bundle.obs_dim}. "
+                f"Component order: {self._component_order}. "
+                f"Re-export the bundle or fix the preset definition — "
+                f"silent pad/truncate corrupts the policy input."
             )
-            if obs.shape[0] > self._bundle.obs_dim:
-                obs = obs[: self._bundle.obs_dim]
-            else:
-                obs = np.pad(obs, (0, self._bundle.obs_dim - obs.shape[0]))
         return obs
 
     def reset(self) -> None:
@@ -615,14 +613,14 @@ class ObsBuilder:
         except ValueError:
             idx = 0
         size = per_unknown_base + (remainder if idx == 0 else 0)
-        warnings.warn(
-            f"ObsBuilder: degrading unknown component '{name}' to a "
-            f"zero vector of size {size} (P4 obs_remap path). Bundle "
-            f"obs_dim={self._bundle.obs_dim}, known_sum={known_sum}, "
-            f"unknown_components={unknown_names}.",
-            stacklevel=3,
+        raise KeyError(
+            f"ObsBuilder: unknown obs component '{name}' (would have "
+            f"silently zero-padded {size} dims into the policy input). "
+            f"Bundle obs_dim={self._bundle.obs_dim}, known_sum={known_sum}, "
+            f"unknown_components={unknown_names}. Either re-export the "
+            f"bundle with this component, or add it to the supported "
+            f"component list in ObsBuilder._build_component."
         )
-        return np.zeros(size, dtype=np.float32)
 
     def _world_to_body(self, env: SimEnvContext, world_vec: np.ndarray) -> np.ndarray:
         """Project a 3-vector from world frame into the robot base frame."""
@@ -657,12 +655,13 @@ class ObsBuilder:
         try:
             qvel = np.asarray(env.mj_data.qvel, dtype=np.float32).flatten()
             return qvel[3:6].astype(np.float32)
-        except Exception:
-            warnings.warn(
-                "ObsBuilder: could not read base_angular_velocity from mj_data.qvel; using zeros.",
-                stacklevel=3,
-            )
-            return np.zeros(3, dtype=np.float32)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ObsBuilder: could not read base_angular_velocity from "
+                f"mj_data.qvel ({type(exc).__name__}: {exc}). Zeroing this "
+                f"obs term would silently corrupt the policy input; the "
+                f"env adapter is required to provide a usable qvel array."
+            ) from exc
 
     def _get_base_linear_velocity(self, env: SimEnvContext) -> np.ndarray:
         try:
@@ -671,12 +670,12 @@ class ObsBuilder:
             if self._convention == "isaac_lab":
                 return self._world_to_body(env, world)
             return world
-        except Exception:
-            warnings.warn(
-                "ObsBuilder: could not read base_linear_velocity from mj_data.qvel; using zeros.",
-                stacklevel=3,
-            )
-            return np.zeros(3, dtype=np.float32)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ObsBuilder: could not read base_linear_velocity from "
+                f"mj_data.qvel ({type(exc).__name__}: {exc}). Zeroing this "
+                f"obs term would silently corrupt the policy input."
+            ) from exc
 
     # ------------------------------------------------------------------
     # Height scan — Isaac Lab RayCaster equivalent (verbatim from DEMO)
@@ -764,15 +763,14 @@ class ObsBuilder:
                         out[i * ny + j] = float(base_z - target_offset - hit_z)
             return out
         except Exception as exc:
-            warnings.warn(
-                f"ObsBuilder._get_height_scan: ray-cast failed ({exc}); "
-                f"returning zero vector.",
-                stacklevel=3,
-            )
-            return np.zeros(
-                int(self._HEIGHT_SCAN_NX) * int(self._HEIGHT_SCAN_NY),
-                dtype=np.float32,
-            )
+            raise RuntimeError(
+                f"ObsBuilder._get_height_scan: ray-cast failed "
+                f"({type(exc).__name__}: {exc}). Zeroing the height-scan "
+                f"obs would silently feed flat-terrain data to a policy "
+                f"that learned on rough terrain — the robot would step "
+                f"into holes it can't see. Fix the ray-cast setup or "
+                f"use a bundle without height_scan obs term."
+            ) from exc
 
     def _get_plane_geom_cache(self, mj_model: Any) -> List[int]:
         """Return + cache the list of plane-geom indices in *mj_model*."""
@@ -826,11 +824,14 @@ class ObsBuilder:
             quat = quat / norm
             return _project_gravity(quat)
         except Exception as exc:
-            warnings.warn(
-                f"ObsBuilder: projected_gravity fallback (reason: {exc}); using [0, 0, -1].",
-                stacklevel=3,
-            )
-            return np.array([0.0, 0.0, -1.0], dtype=np.float32)
+            raise RuntimeError(
+                f"ObsBuilder: projected_gravity computation failed "
+                f"({type(exc).__name__}: {exc}). Falling back to "
+                f"[0, 0, -1] would silently feed wrong orientation to "
+                f"an orientation-sensitive policy — that has caused the "
+                f"robot to launch sideways at startup. Fix the base quat "
+                f"source on the env adapter."
+            ) from exc
 
     def _read_joint_vector_in_bundle_order(
         self,
@@ -869,16 +870,26 @@ class ObsBuilder:
             ):
                 in_bundle_order = in_bundle_order - self._default_joint_pos
             return in_bundle_order.astype(np.float32)
-        except Exception:
-            return np.zeros(self._bundle.num_joints, dtype=np.float32)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ObsBuilder._get_joint_positions: failed reading "
+                f"mj_data.qpos joints ({type(exc).__name__}: {exc}). "
+                f"Zeroing this obs would silently feed the policy a "
+                f"static stand pose regardless of actual joint state."
+            ) from exc
 
     def _get_joint_velocities(self, env: SimEnvContext) -> np.ndarray:
         try:
             qvel = np.asarray(env.mj_data.qvel, dtype=np.float32).flatten()
             joint_block = qvel[6:]
             return self._read_joint_vector_in_bundle_order(joint_block)
-        except Exception:
-            return np.zeros(self._bundle.num_joints, dtype=np.float32)
+        except Exception as exc:
+            raise RuntimeError(
+                f"ObsBuilder._get_joint_velocities: failed reading "
+                f"mj_data.qvel joints ({type(exc).__name__}: {exc}). "
+                f"Zeroing this obs would silently tell the policy the "
+                f"robot is perfectly still while it may be falling."
+            ) from exc
 
     def _get_action_history(self, last_action: Optional[np.ndarray]) -> np.ndarray:
         if last_action is not None:
@@ -886,22 +897,26 @@ class ObsBuilder:
             if arr.shape[0] < self._bundle.action_dim:
                 arr = np.pad(arr, (0, self._bundle.action_dim - arr.shape[0]))
             return arr[: self._bundle.action_dim]
+        # WHY KEPT (Rule 1.c — genuine "first frame" sentinel):
+        # ``last_action`` is None on the very first step before any
+        # action has been emitted by the policy. Zeros are the
+        # documented in-distribution initial value the policy was
+        # trained against (all trainers initialise last_action=0 at
+        # episode start). This is NOT a silent error-swallow — it's
+        # the only legal value on step 0.
         return np.zeros(self._bundle.action_dim, dtype=np.float32)
-
-    _warned_none_command: bool = False
 
     @staticmethod
     def _get_command(command: Optional[Sequence[float]], dim: int) -> np.ndarray:
         if command is None:
-            if not ObsBuilder._warned_none_command:
-                warnings.warn(
-                    "ObsBuilder._get_command: command is None — feeding policy "
-                    "zeros. The robot will stand still. Check that BehaviorNode "
-                    "resolved non-zero command_defaults or that live input is active.",
-                    stacklevel=3,
-                )
-                ObsBuilder._warned_none_command = True
-            return np.zeros(dim, dtype=np.float32)
+            raise ValueError(
+                f"ObsBuilder._get_command: command is None — callers must "
+                f"pass an explicit command vector of length {dim} "
+                f"(e.g. ``np.zeros({dim})`` for stand-still, or a [vx, vy, "
+                f"vyaw] triple for locomotion). Implicit-zero fallback "
+                f"is forbidden — it has masked bugs where the user "
+                f"expected motion but the robot stood still."
+            )
         arr = np.asarray(command, dtype=np.float32).flatten()
         if arr.shape[0] < dim:
             arr = np.pad(arr, (0, dim - arr.shape[0]))
@@ -911,28 +926,35 @@ class ObsBuilder:
         """Read a reference motion observation from the env adapter."""
         n = self._bundle.num_joints
         adapter = getattr(env, "adapter", None)
-        if adapter is not None and hasattr(adapter, method_name):
-            try:
-                val = getattr(adapter, method_name)()
-                arr = np.asarray(val, dtype=np.float32).flatten()
-                if arr.shape[0] >= n:
-                    return arr[:n]
-                return np.pad(arr, (0, n - arr.shape[0])).astype(np.float32)
-            except Exception:
-                pass
-        return np.zeros(n, dtype=np.float32)
+        if adapter is None or not hasattr(adapter, method_name):
+            raise RuntimeError(
+                f"ObsBuilder._get_ref_obs: env adapter "
+                f"{type(adapter).__name__ if adapter is not None else 'None'} "
+                f"does not expose {method_name!r}. AMP / reference-motion "
+                f"obs terms require an env adapter that streams the "
+                f"reference data — zero-filling silently shifts the "
+                f"policy off-distribution. Use a non-AMP bundle or "
+                f"connect a reference-motion-aware env adapter."
+            )
+        val = getattr(adapter, method_name)()
+        arr = np.asarray(val, dtype=np.float32).flatten()
+        if arr.shape[0] >= n:
+            return arr[:n]
+        return np.pad(arr, (0, n - arr.shape[0])).astype(np.float32)
 
     def _get_phase_obs(self, env: SimEnvContext) -> np.ndarray:
         """Read phase_sin_cos from the env adapter."""
         adapter = getattr(env, "adapter", None)
-        if adapter is not None:
-            try:
-                T = float(getattr(adapter, "_ref_num_frames", 0) or 0)
-                if T <= 0:
-                    T = 1.0
-                phase_f = float(getattr(adapter, "_ref_phase_f", 0.0) or 0.0)
-                angle = 2.0 * np.pi * (phase_f / T)
-                return np.array([np.sin(angle), np.cos(angle)], dtype=np.float32)
-            except Exception:
-                pass
-        return np.zeros(2, dtype=np.float32)
+        if adapter is None:
+            raise RuntimeError(
+                "ObsBuilder._get_phase_obs: env has no adapter — "
+                "phase obs requires a reference-motion-aware adapter. "
+                "Zero-filling phase would freeze the policy in the "
+                "first reference frame."
+            )
+        T = float(getattr(adapter, "_ref_num_frames", 0) or 0)
+        if T <= 0:
+            T = 1.0
+        phase_f = float(getattr(adapter, "_ref_phase_f", 0.0) or 0.0)
+        angle = 2.0 * np.pi * (phase_f / T)
+        return np.array([np.sin(angle), np.cos(angle)], dtype=np.float32)

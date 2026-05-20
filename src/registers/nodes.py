@@ -54,7 +54,7 @@ _DATA_DIR = Paths.REGISTERS_DIR / "data"
 _SYSTEM_PATH = _DATA_DIR / "nodes_system.json"
 
 _BUILTIN_ROOT = Paths.SRC_ROOT / "nodes"
-_CUSTOM_ROOT = Paths.PROJECT_ROOT / "custom_mods" / "nodes"
+_CUSTOM_ROOT = Paths.CUSTOM_MODS_DIR / "nodes"
 
 
 # Registry entry shape:
@@ -132,11 +132,28 @@ def _scan_dir(root: Path, source: str) -> int:
         return 0
 
     count = 0
+    root_resolved = root.resolve()
     for sub in sorted(root.iterdir()):
         if not sub.is_dir():
             continue
         if sub.name.startswith("_") or sub.name.startswith("."):
             continue  # 隐藏 / 私有目录跳过
+        # Symlink-traversal boundary (Plan finding P2-3): refuse to load a
+        # node package whose resolved path escapes ``root``. ``iterdir``
+        # by itself doesn't follow symlinks during enumeration, but a
+        # symlinked child still resolves outside — defence in depth so a
+        # planted symlink under ``custom_mods/nodes/`` cannot pull code
+        # from arbitrary disk locations.
+        try:
+            sub_resolved = sub.resolve()
+        except OSError as exc:
+            log_warning(f"[registers.nodes] {sub.name}: resolve 失败 — {exc}")
+            continue
+        if not sub_resolved.is_relative_to(root_resolved):
+            log_warning(
+                f"[registers.nodes] {sub.name}: 解析后位于 {root} 之外，已拒绝"
+            )
+            continue
         manifest_path = sub / "manifest.toml"
         init_path = sub / "__init__.py"
         if not manifest_path.exists() or not init_path.exists():

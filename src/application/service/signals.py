@@ -128,6 +128,16 @@ class AppSignals(QObject):
     # 订阅方典型：MainWindow 顶部 row 的 History/Policies 下拉、未来的 deploy 面板。
     project_changed = pyqtSignal(object)              # ProjectInfo or None
 
+    # User-script variant mutation — emitted by
+    # ``application.service.scripts.resolver.save_variant`` /
+    # ``delete_variant`` after a successful disk write. Payload:
+    # (kind, key) where ``kind`` is one of
+    # {"reward","termination","observation","discriminator"} and
+    # ``key`` is the preset / function key the variant belongs to.
+    # Sidebar Script panels subscribe to refresh their per-key
+    # fold-out without polling.
+    user_scripts_changed = pyqtSignal(str, str)        # (kind, key)
+
     # In-app update checker (application.service.updater).
     # ``update_check_started`` — fires when ``CheckUpdateTask`` is submitted at
     #     Stage 2. UI uses it to show a "checking..." hint if relevant.
@@ -142,6 +152,52 @@ class AppSignals(QObject):
     update_check_complete = pyqtSignal(object)        # ReleaseInfo or None
     update_apply_progress = pyqtSignal(float, str)    # (fraction 0..1, label)
     update_apply_complete = pyqtSignal(bool, str)     # (ok, message)
+
+    # Resources panel (application.service.resources).
+    # Lifecycle signals for third-party assets downloaded into
+    # ``custom_mods/`` from GitHub clone / GitHub Release / HuggingFace.
+    # The ResourcesPanel subscribes to all four so cards reflect download
+    # progress without polling the registry.
+    #
+    # ``resource_added`` — emitted by ResourceManager.queue_download right
+    #     after the new entry is persisted to ``.resources.json`` with
+    #     state="downloading". UI inserts a card immediately.
+    # ``resource_progress`` — emitted by DownloadResourceTask once per
+    #     progress tick from the underlying transport (git/httpx/HF stream).
+    #     payload: (entry_id, fraction in [0,1], one-line status). Per the
+    #     project's progress contract, the task does NOT interleave
+    #     log_info/log_warning between these emissions.
+    # ``resource_finished`` — terminal signal. payload: (entry_id, ok, msg).
+    #     On ok=True the entry's state is "local"; on ok=False it is "error"
+    #     and ``msg`` is the user-facing error.
+    # ``resource_removed`` — fires when the entry is deleted (user clicked
+    #     Remove, or the partial-download cleanup ran after a cancel).
+    resource_added = pyqtSignal(str)                   # entry_id
+    resource_progress = pyqtSignal(str, float, str)    # (entry_id, fraction 0..1, line)
+    resource_finished = pyqtSignal(str, bool, str)     # (entry_id, ok, message)
+    resource_removed = pyqtSignal(str)                 # entry_id
+
+    # Isaac Lab in-app installer (application.service.installers).
+    # Emitted by ``IsaacLabInstallTask`` running in the global thread pool
+    # after the wizard's EULA modal is accepted; consumed by
+    # ``IsaacInstallProgressDialog`` and by ``main.py`` (the latter calls
+    # ``registers.backends.refresh_engine_availability`` on success).
+    #
+    # ``isaac_install_phase`` — fires once per stage transition. ``phase``
+    #     ∈ {"preflight","download","extract","clone","install","register",
+    #     "fallback_external","done","error"}. ``label`` is human-readable
+    #     status for the dialog header (already localised by the emitter).
+    # ``isaac_install_progress`` — 0..1 progress fraction across the whole
+    #     install (not per-stage). ``label`` is a single-line status used
+    #     for the progress-bar caption; per the project's progress contract,
+    #     emit progress in tight loops WITHOUT interleaved log_info/warning.
+    # ``isaac_install_complete`` — terminal signal. ``ok=True`` means
+    #     EngineService has been updated and Isaac Lab is registered;
+    #     ``ok=False`` means a hard failure (message is the user-facing
+    #     summary; full stderr lives in Paths.LOGS_DIR).
+    isaac_install_phase = pyqtSignal(str, str)        # (phase, label)
+    isaac_install_progress = pyqtSignal(float, str)   # (fraction 0..1, label)
+    isaac_install_complete = pyqtSignal(bool, str)    # (ok, message)
 
 
 _singleton: Optional[AppSignals] = None

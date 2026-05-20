@@ -1,0 +1,9 @@
+[default]
+ir_role_picker_unavailable = 无法打开 IR 角色选择器
+joint_pose_editor_unavailable = 无法打开关节角度编辑器
+replace_canvas_text = 加载模板 '{tpl}' 将替换 '{name}' 中的所有节点和连线。是否继续？
+replace_canvas_title = 替换画布内容
+review_pose_unavailable = 无法启动姿态复盘
+unsaved_text = {name} 有未保存的更改。继续前是否先保存？
+unsaved_title = 未保存的更改
+

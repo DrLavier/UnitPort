@@ -3,9 +3,9 @@ dialog_title = 其他用户的待审阅改动
 dialog_intro = 你登出期间，本机其他用户对你工作区内的文件做了 {n} 处改动。逐条审阅：Accept = 保留对方的改动，Reject = 从你的云端副本恢复。
 op_overwrite = 编辑了
 op_delete = 删除了
-actor_line = {actor}
-file_line = {path}
-time_line = {time}
+actor_line = 操作者：{actor}
+file_line = 文件：{path}
+time_line = 时间：{time}
 btn_accept = 接受
 btn_reject = 拒绝
 btn_accept_all = 全部接受
@@ -18,3 +18,4 @@ reject_failed_no_cloud = 云端没有副本 — 无法拒绝。（此文件曾�
 reject_failed_network = 云端拉取失败（网络 / 鉴权错误）：{err}
 accept_confirm_body = 接受 {actor} 对 “{name}” 的{op}？该条目将从审阅列表移除。
 empty_state = 没有待审阅的改动。
+

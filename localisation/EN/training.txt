@@ -3,3 +3,11 @@ already_running = A training run is already active
 no_canvas = No canvas loaded
 started = Training started: run={run} backend={backend} algo={algo}
 
+[coverage]
+blocked.body = Reward coverage is critical — the policy is likely to learn undesired behaviors when the affected phases are active.
+blocked.cancel = Cancel
+blocked.header = Cannot start training: reward coverage check failed.
+blocked.hint = Double-click the badge on the Rewards node to open the Coverage Inspector for suggested fixes.
+blocked.proceed = Continue anyway
+blocked.title = Reward Coverage Issue
+

@@ -1,0 +1,53 @@
+[default]
+section = 第三方资源
+add = 在线下载
+add_tip = 从 GitHub / HuggingFace 下载动作数据集或策略包
+refresh_tip = 重新扫描 custom_mods/ 目录
+remove = 移除
+remove_tip = 删除该条目(并清除磁盘文件夹)
+open_folder = 打开文件夹
+open_folder_tip = 在文件管理器中显示该资源目录
+retry = 重试
+empty_motion = 还没有动作数据集 — 点击"添加资源…"下载一个
+empty_policy = 还没有策略包 — 点击"添加资源…"下载一个
+unindexed = 已导入
+
+[kind]
+motion = 动作
+policy = 策略
+
+[transport]
+github_clone = GitHub
+github_release = Release
+huggingface = HuggingFace
+
+[status]
+local = 本地
+downloading = 下载中
+missing = 缺失
+error = 错误
+
+[card]
+source = 来源
+revision = 版本
+subpath = 子路径
+downloaded_at = 下载时间
+size = 大小
+
+[dialog]
+title = 添加资源
+kind_label = 资产类型
+transport_label = 来源
+url_label = URL 或 repo id
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+url_placeholder_huggingface = owner/name (或完整 HF URL)
+revision_label = 版本(可选)
+revision_placeholder = 分支 / 标签 / 提交 / HF revision
+subpath_label = 子路径(可选)
+subpath_placeholder_github = 例如 datasets/mocap_motions
+subpath_placeholder_huggingface = 通配符,如 *.json,*.txt
+name_label = 显示名(可选)
+ok = 下载
+cancel = 取消
+

@@ -5,9 +5,10 @@ when ``setup_state.json`` is missing / ``completed=false``). Four
 pages collect the user's choice for:
 
 1. :class:`DataDirectoryPage` -- where USER_CONFIG_DIR points (default
-   ``~/UnitPort``; custom paths persist via ``~/.unitport_paths.ini``).
-   Applied BEFORE the rest of the wizard's writes so ``setup_state.json``
-   and everything downstream lands at the chosen location.
+   ``PROJECT_ROOT/runtime/user_config``; custom paths persist via
+   ``~/.unitport_paths.ini`` bootstrap shim). Applied BEFORE the rest of
+   the wizard's writes so ``setup_state.json`` and everything downstream
+   lands at the chosen location.
 2. :class:`MenagerieSelectPage` -- which mujoco_menagerie packages to
    sparse-checkout.
 3. :class:`SdkSelectPage` -- which brand SDK repos to clone.

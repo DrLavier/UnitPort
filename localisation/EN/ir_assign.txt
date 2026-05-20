@@ -1,0 +1,16 @@
+[default]
+banner = Some robot joints/bodies could not be auto-classified. Assign their IR roles below to finish setup.
+cancel = Cancel
+col_joint = Joint / Body
+col_kind = Type
+col_role = IR Role
+confirm = Confirm All
+dialog_title = Assign IR Roles for New Robots
+kind_body = Body
+kind_joint = Joint
+pending_robots = Pending Robots
+right_title = Joint Mapping — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} assigned
+status_ready = All {n} entries assigned — ready to confirm.
+

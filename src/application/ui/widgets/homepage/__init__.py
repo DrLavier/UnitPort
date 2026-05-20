@@ -3,8 +3,8 @@
 Replaces the legacy ``NewCanvasForm`` as the picker child of ``_MainPanel``
 when no canvas is loaded. The four cards are:
 
-* :class:`UserCard`           — auth state (signed-in / signed-out CTAs)
-* :class:`NewsCard`            — community news (static placeholder)
+* :class:`HomeAccountCard`     — auth state (signed-in / signed-out CTAs)
+* :class:`HomepageCommunityCard` — tutorial + GitHub releases timeline
 * :class:`HomepageLocalFiles`  — multi-user canvas-file table
 * :class:`HomepageCreateCanvas`— project name + template grid + Create CTA
 

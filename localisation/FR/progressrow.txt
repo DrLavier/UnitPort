@@ -1,0 +1,17 @@
+[btn]
+new = Nouveau
+
+[menu]
+empty = (vide)
+no_project = (aucun projet)
+no_canvas = (aucun canevas)
+
+[target]
+cloud = Cloud
+local = Local
+
+[tooltip]
+new = Ouvrir le sélecteur de nouveau canevas
+start = Démarrer l'entraînement
+stop = Arrêter l'entraînement
+

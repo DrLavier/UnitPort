@@ -247,15 +247,68 @@ def parse_isaac_lab_env_yaml(
     obs_keys = [t["name"] for t in obs_terms]
 
     # --- action ---
-    num_joints = robot_cfg.get("num_joints", 12)
+    # robot_cfg.num_joints is always populated by _extract_robot_config from
+    # the bound RobotSpecRef's joint_ir_roles — fall back to 0 (not 12!)
+    # so a degenerate path produces a clear downstream error, not a
+    # Go2-shaped manifest for a humanoid.
+    num_joints = robot_cfg.get("num_joints", 0)
     action_dim = act_cfg.get("dim", num_joints)
-    action_scale = act_cfg.get("scale", 0.25)
+    # CLAUDE.md §1.8: action_scale was previously `act_cfg.get("scale", 0.25)`
+    # — a fabricated Go2-class default for any robot whose env.yaml lacked
+    # a static `scale`. Wrong scale corrupts command fidelity (action
+    # output gets multiplied by 0.25 silently, while training may have
+    # used a different scale). _extract_action_config now passes through
+    # only what env.yaml declared; missing → raise here.
+    if "scale" not in act_cfg:
+        raise ValueError(
+            "[manifest_parser] env.yaml actions.joint_pos.scale is missing. "
+            "This is required by the manifest's action term — the training "
+            "env_cfg_compiler must emit a concrete scale value (default "
+            "0.5 for IL ImplicitActuator paths). Refusing to substitute a "
+            "Go2-class 0.25 default that would silently corrupt action "
+            "output magnitude (CLAUDE.md §1.8)."
+        )
+    action_scale = act_cfg["scale"]
 
     # --- control frequency ---
-    sim_dt = _deep_get(raw, "sim.dt", 0.005)
-    decimation = _deep_get(raw, "decimation", _deep_get(raw, "sim.decimation", 4))
+    # CLAUDE.md §1.8: sim_dt / decimation were previously `_deep_get` with
+    # 0.005 / 4 fallbacks — both are mandatory env.yaml fields written by
+    # env_cfg_compiler from the canvas play_ground_setting node + the
+    # hardcoded IL control_dt=0.02. A missing sim.dt at parse time means
+    # the env.yaml was hand-edited or produced by a non-current compiler;
+    # silently using 5 ms + decimation 4 ships a bundle whose declared
+    # control frequency doesn't match what the policy was trained at.
+    sim_dt = _deep_get(raw, "sim.dt", None)
+    if sim_dt is None:
+        raise ValueError(
+            "[manifest_parser] env.yaml is missing sim.dt — the simulation "
+            "timestep is required to compute the bundle's control frequency. "
+            "env_cfg_compiler must write this from spec.scene.sim_dt. "
+            "Refusing to substitute the 5 ms default (CLAUDE.md §1.8)."
+        )
+    decimation_raw = _deep_get(raw, "decimation", _deep_get(raw, "sim.decimation", None))
+    if decimation_raw is None:
+        raise ValueError(
+            "[manifest_parser] env.yaml is missing decimation (and "
+            "sim.decimation). The bundle's control frequency cannot be "
+            "computed without the sim-to-control ratio. env_cfg_compiler "
+            "must write this. Refusing to substitute the default 4 "
+            "(CLAUDE.md §1.8)."
+        )
+    decimation = int(decimation_raw)
+    sim_dt = float(sim_dt)
     control_dt = sim_dt * decimation
-    control_freq = 1.0 / control_dt if control_dt > 0 else 50.0
+    if control_dt <= 0:
+        # Degenerate sim_dt/decimation already raised above when missing;
+        # zero / negative product here means the env.yaml carries values
+        # that can't produce a physical control timestep. Raise rather
+        # than fall back to 50 Hz (which masks the upstream data error).
+        raise ValueError(
+            f"[manifest_parser] computed control_dt={control_dt} from "
+            f"sim_dt={sim_dt} × decimation={decimation} is non-positive. "
+            f"env.yaml carries inconsistent physics timing."
+        )
+    control_freq = 1.0 / control_dt
 
     # --- command interface ---
     command_fields = _build_command_fields(cmd_cfg, command_start_idx)
@@ -379,15 +432,31 @@ def _extract_obs_config(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _extract_action_config(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract action configuration."""
+    """Extract action configuration.
+
+    CLAUDE.md §1.8: Isaac Lab's env.yaml for ``JointPositionAction`` carries
+    ``joint_names_expr: [".*"]`` and **no static ``dim`` field** — Isaac Lab
+    expands the regex against the actual USD articulation at runtime. The
+    previous ``act.get("dim", 12)`` fallback substituted Go2's 12-joint
+    quadruped count for every action_dim that env.yaml didn't statically
+    declare, silently corrupting the manifest for any robot with a
+    different joint count (G1 with hands: 43 → got stamped as 12). Don't
+    fabricate the field — return without it so callers fall through to
+    the robot's actual num_joints.
+    """
     actions = raw.get("actions", {})
     if isinstance(actions, dict) and "joint_pos" in actions:
         act = actions["joint_pos"]
-        return {
-            "dim": act.get("dim", 12),
+        result: Dict[str, Any] = {
             "scale": act.get("scale", 0.25),
             "use_default_offset": act.get("use_default_offset", True),
         }
+        # Pass ``dim`` through ONLY when env.yaml actually declared it
+        # (custom action managers may do so). Missing → caller uses
+        # robot_cfg.num_joints, which is the authoritative count.
+        if "dim" in act:
+            result["dim"] = act["dim"]
+        return result
     return actions if isinstance(actions, dict) else {}
 
 
@@ -606,12 +675,22 @@ def _extract_actuator_pd(
 ) -> Dict[str, Any]:
     """Expand ``scene.robot.actuators.<group>`` into per-joint PD lists.
 
-    env.yaml carries PD parameters as **scalars** keyed by an actuator group
-    (e.g. ``actuators.legs.{stiffness, damping, effort_limit, velocity_limit}``)
-    with a regex ``joint_names_expr`` listing which joints the scalars apply
-    to. DeployContract requires **per-joint lists** of length ``n_joints``
-    aligned with the physical joint order — this helper does the expansion
-    and enforces full coverage.
+    env.yaml carries PD parameters per actuator group, with a regex
+    ``joint_names_expr`` listing which joints the group covers. Each of
+    ``stiffness`` / ``damping`` / ``effort_limit`` / ``velocity_limit``
+    (and optional ``saturation_effort``) may be either:
+
+      * a **scalar** — broadcast to every joint matched by the regex
+        (legacy ActorSetting path, family-default PD); or
+      * a **dict** ``{physical_joint_name: value, ...}`` — per-joint
+        gains produced by ``physx_gain_solver`` when an ActuatorPDNode
+        is wired (canonical (omega_n, zeta) parameterization). The dict
+        keys must cover every joint the regex matches; partial coverage
+        raises.
+
+    DeployContract requires **per-joint lists** of length ``n_joints``
+    aligned with the physical joint order — this helper does the
+    expansion and enforces full coverage.
 
     Returns ``{"stiffness", "damping", "effort_limit", "velocity_limit"}``
     as ``List[float]`` of length ``len(joint_order_physical)``. The optional
@@ -672,20 +751,46 @@ def _extract_actuator_pd(
         missing = [k for k in required if group_cfg.get(k) is None]
         if missing:
             raise RuntimeError(
-                f"actuators.{group_name} is missing required scalar(s) "
+                f"actuators.{group_name} is missing required field(s) "
                 f"{missing} for joints {matched}. DeployContract requires "
                 f"per-joint stiffness/damping/effort_limit/velocity_limit. "
                 f"Fix in env_cfg_compiler or the actor_setting node."
             )
-        sat = group_cfg.get("saturation_effort", None)
-        params = {
-            "stiffness": float(group_cfg["stiffness"]),
-            "damping": float(group_cfg["damping"]),
-            "effort_limit": float(group_cfg["effort_limit"]),
-            "velocity_limit": float(group_cfg["velocity_limit"]),
-            "saturation_effort": (float(sat) if sat is not None else None),
-        }
+
+        def _resolve_field(field_name: str, jn: str) -> float:
+            # Per-joint dict from ActuatorPDNode → index by physical name.
+            # Scalar from ActorSetting legacy path → broadcast.
+            raw_val = group_cfg[field_name]
+            if isinstance(raw_val, dict):
+                if jn not in raw_val:
+                    raise RuntimeError(
+                        f"actuators.{group_name}.{field_name} is a per-joint "
+                        f"dict but has no entry for {jn!r} (the regex matched "
+                        f"this joint). dict keys: {sorted(raw_val.keys())}. "
+                        f"physx_gain_solver must produce a value for every "
+                        f"joint the regex covers."
+                    )
+                return float(raw_val[jn])
+            return float(raw_val)
+
+        def _resolve_optional(field_name: str, jn: str):
+            raw_val = group_cfg.get(field_name)
+            if raw_val is None:
+                return None
+            if isinstance(raw_val, dict):
+                if jn not in raw_val:
+                    return None
+                return float(raw_val[jn])
+            return float(raw_val)
+
         for jn in matched:
+            params = {
+                "stiffness": _resolve_field("stiffness", jn),
+                "damping": _resolve_field("damping", jn),
+                "effort_limit": _resolve_field("effort_limit", jn),
+                "velocity_limit": _resolve_field("velocity_limit", jn),
+                "saturation_effort": _resolve_optional("saturation_effort", jn),
+            }
             if jn in per_joint:
                 prev = per_joint[jn]
                 for k, v in params.items():
@@ -1006,25 +1111,27 @@ def _extract_action_spec(act_cfg: Dict[str, Any]) -> Dict[str, Any]:
 def _extract_base_body_name(raw: Dict[str, Any]) -> str:
     """Resolve the articulation's base body name from env.yaml.
 
-    Priority:
-      1. ``commands.base_velocity.body_name`` (explicit override).
-      2. ``"base"`` fallback with ``log.warning`` — the only allowed
-         fallback in this module, justified by Isaac Lab's near-universal
-         quadruped convention and by the fact that env.yaml does NOT record
-         the articulation root link name today. Promote to ``raise`` once
-         ``RobotSpec.base_body_name`` is added and threaded through.
+    Required source: ``commands.base_velocity.body_name``. CLAUDE.md §1.8:
+    the previous ``"base"`` fallback was removed because it silently
+    produced wrong values for any robot whose root link isn't named "base"
+    (e.g. Spot uses ``"body"``), corrupting bundles that the runtime then
+    trusted. Add ``commands.base_velocity.body_name`` to the env_cfg
+    being compiled, or the bundle is rejected.
     """
     cmds = raw.get("commands", {}) or {}
     base_vel = cmds.get("base_velocity", {}) if isinstance(cmds, dict) else {}
     body = base_vel.get("body_name") if isinstance(base_vel, dict) else None
     if isinstance(body, str) and body.strip():
         return body.strip()
-    log.warning(
-        "base_body_name not declared in env.yaml; defaulting to 'base' "
-        "(Isaac Lab quadruped convention). Add RobotSpec.base_body_name "
-        "to remove this fallback."
+    raise RuntimeError(
+        "env.yaml has no commands.base_velocity.body_name — cannot resolve "
+        "the articulation root link. This used to silently default to "
+        "'base' (Isaac Lab quadruped convention), but the fallback was "
+        "removed (CLAUDE.md §1.8) because it produced wrong bundles for "
+        "any robot whose root body isn't literally named 'base' (Spot uses "
+        "'body'). Declare the base body name in the env_cfg compiler's "
+        "CommandsCfg.base_velocity.body_name."
     )
-    return "base"
 
 
 def _extract_commands_spec(cmd_cfg: Dict[str, Any]) -> Dict[str, Any]:

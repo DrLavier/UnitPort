@@ -1,9 +1,3 @@
-; Homepage — 四卡片空闲态首页文案
-;
-; 段名是每个 tr() key 的第二段：
-;   tr("homepage.user.headline_signed_out", ...)
-;   → 文件 homepage.txt,段 [user],选项 headline_signed_out
-
 [user]
 title = 账户
 welcome_back_title = 欢迎回来，
@@ -25,10 +19,24 @@ sign_out = 退出登录
 learn_more = 了解更多
 workspace_synced = 工作区已同步 · 项目镜像到云端
 
-[news]
-title = 社区动态
-view_all = 查看全部
-coming_soon = 社区动态即将上线。
+[community]
+title = 社区
+support_us = 支持我们
+tutorial_title = 官方教程
+tutorial_desc = 关于 UnitPort Studio 项目搭建、训练与部署的分步指南。
+tutorial_open = 打开链接
+tutorial_coming_soon = 敬请期待...
+releases_loading = 正在加载发布版本…
+releases_unavailable = 无法加载发布版本,请检查网络。
+releases_empty = 还没有发布版本。
+latest = 最新
+open_page = 打开页面
+download = 下载
+current = 当前版本
+days_ago = {n} 天前
+day_one = 1 天前
+today = 今天
+yesterday = 昨天
 
 [projects]
 title = 本地文件
@@ -36,6 +44,7 @@ view_all = 查看全部工作区
 refresh = 刷新
 refresh_tooltip = 刷新本地文件
 search_placeholder = 搜索画布…
+snapshot_label = 快照：
 btn_migrate = 迁移
 btn_open_workspace = 打开本地工作区 →
 migrate_title = 选择新的工作区根目录
@@ -98,7 +107,7 @@ label_pick_project = 选择项目
 label_canvas_name = 画布名
 label_backend = 后端
 label_template = 选择模板
-placeholder_name = 例如 quadruped_demo（仅限字母数字下划线连字符）
+placeholder_name = 新项目名称
 placeholder_canvas = 例如 main
 engine_unavailable = 未安装
 error_no_name = 请先填写项目名。
@@ -111,3 +120,4 @@ error_no_backend = 请先选择一个后端。
 error_no_template = 请先选一个模板（或 “&lt;Blank&gt;” 空白）。
 error_create_failed = 创建项目 “{name}” 失败（可能与已有项目重名 — 查看日志）。
 no_templates = 该后端没有可用模板。
+

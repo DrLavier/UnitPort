@@ -47,7 +47,7 @@ import html
 import json
 import re
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import (
     Qt,
@@ -102,7 +102,6 @@ from application.service.projects import (
     current_project_info,
     get_project_store,
     list_canvas_groups,
-    list_script_groups,
     resolve_file,
     set_current_project_info,
 )
@@ -229,8 +228,10 @@ class MainWindow(QMainWindow):
 
     # Progress-row dropdown signals — UI-only stubs; backend wiring lands in
     # Stage C/D when projects/training services are populated.
+    # ``history_requested`` was retired when History became a canvas-snapshot
+    # archive (per-row delete + Clear All) — clicks now feed
+    # ``_on_history_run_clicked`` directly via the HistoryMenu widget.
     template_requested = pyqtSignal(str)        # template path/id
-    history_requested = pyqtSignal(str, str)    # (backend_id, run_id)
     policy_requested = pyqtSignal(str, str)     # (backend_id, policy_id)
 
     # Inline training controls (formerly on the floating ControlBar).
@@ -240,7 +241,7 @@ class MainWindow(QMainWindow):
 
     _DEFAULT_W = 1920
     _DEFAULT_H = 1080
-    _MAIN_ROW_H = 48
+    _MAIN_ROW_H = 40
     _FADE_MS = 250
 
     # work_zone splitter: canvas (flex) | cmd (resizable).
@@ -288,6 +289,11 @@ class MainWindow(QMainWindow):
         self._btn_new: Optional[QToolButton] = None
         self._btn_templates: Optional[QToolButton] = None
         self._btn_history: Optional[QToolButton] = None
+        # HistoryMenu widget hosted by _btn_history — built in _setup_main_row.
+        # Lazy-typed via Any to avoid a top-level import of the widget (kept
+        # local to the build_ui callsite for the same reason MissionControlPanel
+        # imports are deferred — see file docstring).
+        self._history_menu: Optional[Any] = None
         self._btn_policies: Optional[QToolButton] = None
         self._start_btn: Optional[QPushButton] = None
         self._stop_btn: Optional[QPushButton] = None
@@ -363,13 +369,28 @@ class MainWindow(QMainWindow):
             activated=self.toggle_fullscreen,
         )
 
-        # Ctrl+S saves the active canvas back to <project>/canvas/<id>
-        # via page.save_to_project, which enforces the project-internal
-        # path policy (raises if the resolved path escapes the project).
+        # Ctrl+S dispatches based on the MissionControlPanel mode:
+        # Scripts mode with a script loaded → save the script via the
+        # editor's resolver path; otherwise → save the active canvas
+        # via page.save_to_project (project-internal path policy).
         QShortcut(
             QKeySequence.StandardKey.Save,
             self,
-            activated=self._save_current_canvas,
+            activated=self._handle_save_shortcut,
+        )
+
+        # PageUp / PageDown cycle the MissionControlPanel SliderSwitch
+        # (Mission Control | Training Canva | Scripts). No-op when the
+        # switch is hidden (no canvas loaded).
+        QShortcut(
+            QKeySequence(Qt.Key.Key_PageUp),
+            self,
+            activated=lambda: self._cycle_mc_mode(-1),
+        )
+        QShortcut(
+            QKeySequence(Qt.Key.Key_PageDown),
+            self,
+            activated=lambda: self._cycle_mc_mode(+1),
         )
 
     def refresh(self) -> None:
@@ -396,12 +417,15 @@ class MainWindow(QMainWindow):
         stop_color = Config.get_color("danger_zone", "#FF6B6B")
         muted = Config.get_color("sub_t2", "#777777")
         font_small = Config.get_font_size("size_small", 12)
+        font_normal = Config.get_font_size("size_normal", 14)
         self.setStyleSheet(
             f"QMainWindow {{ background-color: {bg}; }}"
             f"QFrame#mainRow {{ "
             f"background-color: {bg}; "
             f"border-bottom: 1px solid {border}; "
             f"}}"
+            f"QLabel#mainRowCanvasLabel {{ "
+            f"background: transparent; font-size: {font_normal}px; }}"
             f"QWidget#workZone {{ background-color: {bg}; }}"
             f"QWidget#canvasPanel {{ background-color: {bg}; }}"
             f"QWidget#mainPanel {{ background-color: {bg}; }}"
@@ -430,13 +454,13 @@ class MainWindow(QMainWindow):
             f"QPushButton#progressRowStop:disabled {{ color: {muted}; }}"
             f"QComboBox#progressRowTarget {{ "
             f"padding: 1px 16px 1px 8px; background: transparent; "
-            f"color: {btn_text}; border: 1px solid {btn_border}; "
+            f"color: {btn_text}; border: 1px solid {start_color}; "
             f"border-radius: 4px; font-size: {font_small}px; }}"
             f"QComboBox#progressRowTarget:hover {{ background: {btn_hover}; }}"
             f"QComboBox#progressRowTarget::drop-down {{ border: none; width: 14px; }}"
             f"QComboBox#progressRowTarget QAbstractItemView {{ "
             f"background: {bg}; color: {btn_text}; "
-            f"border: 1px solid {btn_border}; "
+            f"border: 1px solid {start_color}; "
             f"selection-background-color: {btn_hover}; }}"
         )
         if self._progress_bar is not None:
@@ -601,25 +625,20 @@ class MainWindow(QMainWindow):
             return  # main page not built yet; defensive guard
         if info is None:
             self._mission_control_panel.set_project(None)
-            self._mission_control_panel.set_canvas_groups([])
-            self._mission_control_panel.set_script_groups([])
+            self._push_canvas_groups_to_projects_panel([])
+            self._push_project_to_scripts_training_panel(None)
             return
         canvas_groups = list_canvas_groups(info)
-        script_groups = list_script_groups(info)
         # Bind the project context first so any selection signal that
         # fires during rebuild has an anchor for resolve_file.
         self._mission_control_panel.set_project(info)
-        self._mission_control_panel.set_canvas_groups(canvas_groups)
-        self._mission_control_panel.set_script_groups(script_groups)
+        self._push_canvas_groups_to_projects_panel(canvas_groups)
+        self._push_project_to_scripts_training_panel(info)
         n_canvas = sum(
             len(sg.get("items") or []) for tg in canvas_groups for sg in (tg.get("groups") or [])
         )
-        n_scripts = sum(
-            len(sg.get("items") or []) for tg in script_groups for sg in (tg.get("groups") or [])
-        )
         log_info(
-            f"[ui] bound MissionControlPanel -> {info.name} "
-            f"({n_canvas} canvas, {n_scripts} scripts)"
+            f"[ui] bound MissionControlPanel -> {info.name} ({n_canvas} canvas)"
         )
         # Sync the sidebar's project dropdown so the active project stays
         # visible after open_project flows that didn't originate there
@@ -768,8 +787,8 @@ class MainWindow(QMainWindow):
             pass
         if self._mission_control_panel is not None:
             self._mission_control_panel.set_project(None)
-            self._mission_control_panel.set_canvas_groups([])
-            self._mission_control_panel.set_script_groups([])
+            self._push_canvas_groups_to_projects_panel([])
+            self._push_project_to_scripts_training_panel(None)
         self.refresh()
         self.show_project_picker()
         if self._sidebar is not None:
@@ -918,6 +937,29 @@ class MainWindow(QMainWindow):
             set_current_backend(backend_id)
         except Exception as exc:                           # pragma: no cover
             log_warning(f"[ui] _on_canvas_loaded: backend broadcast failed: {exc}")
+        # Sync the sidebar Project Files highlight to the just-loaded canvas
+        # so the row stays selected even when the load came from the picker /
+        # last-canvas auto-open (rather than a row click).
+        if self._sidebar is not None:
+            panel = self._sidebar.panel_widget("projects")
+            setter = getattr(panel, "set_current_canvas", None) if panel else None
+            if callable(setter):
+                try:
+                    setter(file_id)
+                except Exception:
+                    pass
+        # Sidebar may have just been re-painted; if the backend swap changed
+        # the SB3-vs-IL Observs visibility, re-run apply_view_mode.
+        if self._sidebar is not None and self._mission_control_panel is not None:
+            try:
+                self._sidebar.apply_view_mode(
+                    self._mission_control_panel._effective_mode()
+                )
+            except Exception:
+                pass
+        # Update start button + canvas label after load completes.
+        self._update_start_btn_enabled()
+        self._update_canvas_label()
 
     def _persist_last_canvas(self, file_id: str) -> None:
         """Persist the (project_path, canvas_file_id) pair to user.ini.
@@ -1318,26 +1360,58 @@ class MainWindow(QMainWindow):
                 f"[main_window] sidebar spawn '{node_id}' failed: {exc!r}"
             )
 
-    def _on_mc_selection_changed(self, tab: str, _file_id: str) -> None:
-        """Sidebar Project Files selection → re-evaluate ▶ + canvas label.
+    def _on_projects_canvas_selected(self, _file_id: str) -> None:
+        """ProjectsPanel selection → load canvas + re-evaluate ▶ / label.
 
-        Only the Canvas tab affects the start button; Script-tab selections
-        don't gate training. We intentionally re-evaluate even on empty
-        file_id so deselecting a canvas turns ▶ back off.
+        Forwards to ``open_canvas`` (which drives MC's auto-load path) and
+        also re-evaluates the start button + canvas label so the UI tracks
+        even when the user clicks a row but the load is still in flight.
         """
-        if tab != "Canvas":
-            return
+        if _file_id:
+            self.open_canvas(_file_id)
         self._update_start_btn_enabled()
         self._update_canvas_label()
 
+    def _cycle_mc_mode(self, direction: int) -> None:
+        """PageUp/PageDown handler — advance MissionControlPanel mode tab.
+
+        Direction is -1 (PageUp / previous) or +1 (PageDown / next), with
+        wrap-around. Silently no-ops when the panel is absent or the
+        SliderSwitch is hidden (canvas not yet loaded).
+        """
+        mc = self._mission_control_panel
+        if mc is None:
+            return
+        mc.cycle_mode(int(direction))
+
+    def _handle_save_shortcut(self) -> None:
+        """Ctrl+S dispatcher: route to script save or canvas save.
+
+        When the MissionControlPanel is in Scripts mode with a script
+        loaded in the compiler editor, the keypress targets the script
+        (saved via the resolver / file path established when the script
+        was loaded). Otherwise it falls through to the canvas save.
+
+        The unsaved-changes prompt still calls ``_save_current_canvas``
+        directly — it only ever needs the canvas-side save.
+        """
+        mc = self._mission_control_panel
+        if mc is not None and mc.try_save_active_script():
+            return
+        self._save_current_canvas()
+
     def _save_current_canvas(self) -> bool:
-        """Ctrl+S handler: save the active canvas via page.save_to_project.
+        """Save the active canvas via page.save_to_project.
+
+        Reached via :meth:`_handle_save_shortcut` (when MC is not in
+        Scripts mode) and directly from the unsaved-changes prompt in
+        :meth:`_confirm_discard_or_save_current_canvas`.
 
         Returns True on a successful save, False on any soft failure (no
         project / no canvas / malformed file_id / save_to_project rejected).
-        The Ctrl+S shortcut ignores the return value; the unsaved-changes
-        prompt in :meth:`_confirm_discard_or_save_current_canvas` consumes
-        it to keep the user on the current canvas when a save fails.
+        The Ctrl+S shortcut path ignores the return value; the
+        unsaved-changes prompt consumes it to keep the user on the
+        current canvas when a save fails.
 
         Cross-user audit: when the target path lives under another user's
         workspace (caller chose "Open in place" on the cross-user prompt
@@ -1511,14 +1585,12 @@ class MainWindow(QMainWindow):
                     "canvas — drag a Robot node and pick an asset before review."
                 )
                 return
-            bundle_dir = self._resolve_bundle_dir(bundle, version, overwrite)
+            bundle_dir = self._resolve_bundle_dir(
+                bundle, version, overwrite, review_backend=backend,
+            )
             if bundle_dir is None:
                 return
             if not bundle_dir.exists():
-                log_error(
-                    f"[ui] review_launch/mujoco: bundle dir missing: {bundle_dir} "
-                    f"— train first or check <project>/training/exported/{bundle_dir.name}/"
-                )
                 return
             try:
                 from application.service.runtime.simulation.mujoco.review_session import (
@@ -1543,9 +1615,51 @@ class MainWindow(QMainWindow):
                 f"(bundle={bundle_dir.name}, sku={sku}, scene={scene_id})"
             )
         elif backend == "isaac_sim":
+            # Bundle-only IsaacSim review (CLAUDE.md §1.9). The subprocess
+            # loads policy + deploy_contract from the bundle directory and
+            # builds a minimal Isaac Lab scene from the SKU registry — no
+            # reach-back into run_dir or canvas state. Same shape as the
+            # mujoco branch above; the only difference is the Task class.
+            sku = self._resolve_canvas_robot_sku()
+            if not sku:
+                log_error(
+                    "[ui] review_launch/isaac_sim: no Robot node / asset_id "
+                    "on canvas — drag a Robot node and pick an asset "
+                    "before review."
+                )
+                return
+            bundle_dir = self._resolve_bundle_dir(
+                bundle, version, overwrite, review_backend=backend,
+            )
+            if bundle_dir is None:
+                return
+            if not bundle_dir.exists():
+                return
+            try:
+                from application.service.runtime.simulation.isaac_sim import (
+                    IsaacSimReviewTask,
+                )
+                from unitport_sdk import get_tasks_manager
+            except Exception as exc:
+                log_error(
+                    f"[ui] review_launch/isaac_sim: import failed: {exc}"
+                )
+                return
+            task = IsaacSimReviewTask(
+                bundle_path=bundle_dir,
+                sku=sku,
+                scene_id=scene_id,
+            )
+            try:
+                tid = get_tasks_manager().submit(task)
+            except Exception as exc:
+                log_error(
+                    f"[ui] review_launch/isaac_sim: task submit failed: {exc}"
+                )
+                return
             log_info(
-                "[ui] review_launch/isaac_sim: Kit subprocess launch pending "
-                "Stage E wiring"
+                f"[ui] review_launch/isaac_sim: submitted task {tid} "
+                f"(bundle={bundle_dir.name}, sku={sku}, scene={scene_id})"
             )
         elif backend == "newton":
             log_warning(
@@ -1586,35 +1700,128 @@ class MainWindow(QMainWindow):
                 return raw
         return ""
 
+    # Maps the review-side backend id (Export node's ``review_backend``
+    # picker — mujoco / isaac_sim / newton) to the training-side backend
+    # id that owns the ``<project>/training/exported/<backend_id>/`` folder
+    # where bundles are written. Bundles trained under one training backend
+    # can sometimes be reviewed under another (e.g. an IL-trained policy can
+    # also run in MuJoCo via deploy_contract), so the mapping is one-to-many:
+    # the FIRST entry is the preferred location, the rest are fallbacks
+    # scanned when the preferred path is missing.
+    _REVIEW_BACKEND_TO_TRAIN_BACKENDS: Dict[str, tuple] = {
+        "mujoco": ("sb3_mujoco", "isaac_lab"),
+        "isaac_sim": ("isaac_lab",),
+        "newton": (),
+    }
+
     def _resolve_bundle_dir(
-        self, bundle_name: str, version: str, overwrite: bool,
+        self,
+        bundle_name: str,
+        version: str,
+        overwrite: bool,
+        review_backend: str = "",
     ) -> Optional[Path]:
-        """Compute the bundle output directory for a given (name, version, overwrite).
+        """Compute the bundle output directory for ``(name, version, overwrite)``.
 
         Strict project-scoped: resolves under
-        ``<project>/training/exported/<backend_id>/<name>/``. The backend
-        layer comes from the canvas-bound backend
-        (``AppSignals.current_backend()``) so the path lines up with
-        whatever the next training run will write.
+        ``<project>/training/exported/<train_backend_id>/<name>/``.
+
+        When ``review_backend`` is supplied, the train-backend layer is
+        derived from :data:`_REVIEW_BACKEND_TO_TRAIN_BACKENDS` (preferred
+        training backend for each review backend). If that location is
+        empty but the bundle exists under another training backend, the
+        cross-backend hit is returned with a WARNING — the launcher's
+        own compat checks then decide whether the policy actually runs.
+        When ``review_backend`` is empty (legacy callers), falls back to
+        the canvas-bound backend (``current_backend()``).
         Overwrite=True → ``<name>``; Overwrite=False → ``<name>_<version>``.
-        Mirrors ``application.ui.canvas.param_rows._bundle_root_for`` for
-        the leaf-name rule. Returns ``None`` (and logs an error) when no
-        project is open — Launch Review requires a bound project.
+        Mirrors ``application.ui.canvas.param_rows._bundle_root_for``.
+        Returns ``None`` (and logs an error) when no project is open.
         """
         proj = current_project_info()
         if proj is None:
             log_error(
-                "[ui] review_launch/mujoco: no project is open — open a "
-                "project first so the trained bundle can be located under "
+                "[ui] review_launch: no project is open — open a project "
+                "first so the trained bundle can be located under "
                 "<project>/training/exported/."
             )
             return None
-        from application.service.signals import current_backend
-        bid = (current_backend() or "").strip() or "unknown"
         name = (bundle_name or "").strip()
         if not overwrite and version:
             name = f"{name}_{version}"
-        return proj.path / "training" / "exported" / bid / name
+        if not name:
+            log_error(
+                "[ui] review_launch: empty bundle name — set a bundle "
+                "name on the Export node."
+            )
+            return None
+
+        exported_root = proj.path / "training" / "exported"
+        review_backend = (review_backend or "").strip()
+
+        if review_backend:
+            preferred = self._REVIEW_BACKEND_TO_TRAIN_BACKENDS.get(
+                review_backend, ()
+            )
+            if not preferred:
+                log_error(
+                    f"[ui] review_launch: review_backend={review_backend!r} "
+                    f"has no known training-backend mapping — known: "
+                    f"{sorted(self._REVIEW_BACKEND_TO_TRAIN_BACKENDS)}"
+                )
+                return None
+            for tbid in preferred:
+                cand = exported_root / tbid / name
+                if cand.exists():
+                    if tbid != preferred[0]:
+                        log_warning(
+                            f"[ui] review_launch/{review_backend}: bundle "
+                            f"{name!r} not found under preferred train "
+                            f"backend {preferred[0]!r}; using fallback "
+                            f"{tbid!r} ({cand}). Compatibility will be "
+                            f"checked by the launcher."
+                        )
+                    return cand
+            available = self._scan_exported_backends(exported_root, name)
+            if available:
+                log_error(
+                    f"[ui] review_launch/{review_backend}: bundle {name!r} "
+                    f"was trained under {sorted(available)!r}, but "
+                    f"review_backend={review_backend!r} needs a bundle "
+                    f"trained under one of {list(preferred)!r}. "
+                    f"Either switch the Export node's review_backend, or "
+                    f"re-train on the matching canvas."
+                )
+            else:
+                log_error(
+                    f"[ui] review_launch/{review_backend}: bundle {name!r} "
+                    f"not found anywhere under {exported_root}. "
+                    f"Train and export first."
+                )
+            return exported_root / preferred[0] / name
+
+        from application.service.signals import current_backend
+        bid = (current_backend() or "").strip() or "unknown"
+        return exported_root / bid / name
+
+    @staticmethod
+    def _scan_exported_backends(exported_root: Path, bundle_name: str) -> list:
+        """Return the list of training-backend subdir names where
+        ``<exported_root>/<subdir>/<bundle_name>/`` exists. Empty list when
+        nothing matches (caller decides how to report).
+        """
+        hits: list = []
+        if not exported_root.exists():
+            return hits
+        try:
+            for child in exported_root.iterdir():
+                if not child.is_dir():
+                    continue
+                if (child / bundle_name).exists():
+                    hits.append(child.name)
+        except OSError:
+            return hits
+        return hits
 
     # ------------------------------------------------------------------
     # Loading -> main page transition
@@ -1645,8 +1852,8 @@ class MainWindow(QMainWindow):
         ts = get_task_signal()
         ts.task_finished.connect(self._on_training_finished)
         # Initial ▶ state: no canvas selected yet, no canvas mounted → disabled.
-        # selection_changed in MissionControlPanel will flip it on as soon as
-        # the user picks a Canvas row in Project Files.
+        # ProjectsPanel.canvas_selected (routed via _on_projects_canvas_selected)
+        # plus _on_canvas_loaded will flip it on once a canvas is picked / loaded.
         self._update_start_btn_enabled()
         # We can't reuse LaviProgressBar.bind_slot here: it routes
         # progress_updated(slot_idx, ratio, text) into set_progress(ratio=ratio)
@@ -1655,13 +1862,24 @@ class MainWindow(QMainWindow):
         # drives set_total + set_progress(current=N).
         ts.progress_updated.connect(self._on_training_progress_updated)
 
-        # History/Policies dropdowns: connect click signals to handlers.
+        # Policies dropdowns: connect click signals to handlers.
         # The dropdowns themselves rebuild on aboutToShow (see
         # _populate_history_menu / _populate_policies_menu) so a project
         # switch is picked up the next time the user opens the menu.
-        self.history_requested.connect(self._on_history_pick)
+        # History click/delete/clear are wired directly on the HistoryMenu
+        # widget in _setup_main_row (no MainWindow-level Qt signal hop).
         self.policy_requested.connect(self._on_policy_pick)
         self.template_requested.connect(self._on_template_picked)
+
+        # Canvas-snapshot hook: every training run gets a content-addressed
+        # snapshot of the live canvas, stored under <project>/canvas/_runs_/
+        # and pointed to from <run_dir>/canvas_snapshot.txt so History can
+        # later restore that exact canvas state. Signal fires on the main
+        # thread (queued connection from sb3_task / isaac_lab task threads).
+        from application.service.signals import get_app_signals
+        get_app_signals().training_run_started.connect(
+            self._on_training_run_started
+        )
 
     def finish_loading(self) -> None:
         """Stop the loading logo, fade the loading page out, then swap
@@ -1793,6 +2011,17 @@ class MainWindow(QMainWindow):
         self._loading_page = LoadingScreen(self._central_stack)
         return self._loading_page
 
+    def set_install_message_visible(self, visible: bool) -> None:
+        """Toggle the "Installation in progress" tag on the loading page.
+
+        Thin passthrough used by ``UnitPortMain`` on first-time install
+        (shown when the wizard opens, hidden once PostSetupTask finishes).
+        Safe to call before / after ``build_main_page_now`` — the loading
+        page exists for the entire boot lifecycle.
+        """
+        if self._loading_page is not None:
+            self._loading_page.set_install_message_visible(visible)
+
     def _build_main_page(self) -> QWidget:
         self._main_page = QWidget(self._central_stack)
         page_layout = QHBoxLayout(self._main_page)
@@ -1872,11 +2101,22 @@ class MainWindow(QMainWindow):
 
         page_layout.addWidget(right, 1)
 
-        # Now that both Sidebar and MissionControlPanel exist, hand the
-        # MissionControlPanel's files_list (built orphan) to the sidebar's
-        # Project Files panel. The signal wiring on the inner LaviTabTable
-        # is internal to MissionControlPanel and survives the reparent.
-        self._mount_files_list_into_sidebar()
+        # Sidebar panels are lazy-built — subscribe to ``panel_built`` so
+        # we (re)seed each one with the live project + selection state the
+        # first time it gets constructed. Also wire whatever's already
+        # present (ProjectsPanel is built eagerly at sidebar construction).
+        if self._sidebar is not None:
+            self._sidebar.panel_built.connect(self._on_sidebar_panel_built)
+            for key in (
+                "projects",
+                "training",
+                "rewards",
+                "terminations",
+                "observations",
+            ):
+                panel = self._sidebar.panel_widget(key)
+                if panel is not None:
+                    self._on_sidebar_panel_built(key, panel)
         # Wire the mission_panel left card to the top main_row controls so
         # the card's [开始/停止] buttons mirror state + behaviour of the
         # progress-row pair, and the card's link combo stays in sync with
@@ -1891,16 +2131,81 @@ class MainWindow(QMainWindow):
                 log_warning(f"[main_window] mission_panel bind failed: {exc!r}")
         return self._main_page
 
-    def _mount_files_list_into_sidebar(self) -> None:
-        if self._sidebar is None or self._mission_control_panel is None:
+    def _on_sidebar_panel_built(self, key: str, widget: QWidget) -> None:
+        """Reseed a freshly-built sidebar panel with live state.
+
+        Sidebar panels are lazy: the first time the user opens
+        ``Training``, the panel widget is constructed AFTER project bind
+        already ran. This hook plugs the panel into the data-flow it
+        missed (project info, canvas selection, script-load → MC).
+        """
+        if self._mission_control_panel is None:
             return
-        projects_panel = self._sidebar.panel_widget("projects")
-        if projects_panel is None:
+        if key == "projects":
+            # Push current canvas groups + canvas-selected wire.
+            self._push_canvas_groups_to_projects_panel(
+                list_canvas_groups(self._current_project)
+                if self._current_project else []
+            )
+            sig = getattr(widget, "canvas_selected", None)
+            if sig is not None:
+                try:
+                    sig.connect(self._on_projects_canvas_selected)
+                except Exception:
+                    pass
+            # Re-highlight the currently loaded canvas if any.
+            cur_id = (
+                self._mission_control_panel.current_canvas_file_id or ""
+            ).strip()
+            if cur_id and hasattr(widget, "set_current_canvas"):
+                try:
+                    widget.set_current_canvas(cur_id)
+                except Exception:
+                    pass
             return
-        mount = getattr(projects_panel, "mount_files_list", None)
-        if not callable(mount):
+        if key == "training":
+            self._push_project_to_scripts_training_panel(self._current_project)
+            sig = getattr(widget, "script_selected", None)
+            if sig is not None:
+                try:
+                    sig.connect(self._mission_control_panel.load_script)
+                except Exception:
+                    pass
             return
-        mount(self._mission_control_panel.take_files_list_widget())
+        if key in ("rewards", "terminations", "observations"):
+            sig = getattr(widget, "script_selected", None)
+            if sig is not None:
+                try:
+                    sig.connect(self._mission_control_panel.load_script)
+                except Exception:
+                    pass
+            return
+
+    def _push_canvas_groups_to_projects_panel(
+        self, groups: list,
+    ) -> None:
+        if self._sidebar is None:
+            return
+        panel = self._sidebar.panel_widget("projects")
+        setter = getattr(panel, "set_canvas_groups", None) if panel else None
+        if callable(setter):
+            try:
+                setter(groups)
+            except Exception as exc:                          # noqa: BLE001
+                log_warning(f"[ui] projects_panel.set_canvas_groups failed: {exc!r}")
+
+    def _push_project_to_scripts_training_panel(
+        self, info: Optional[ProjectInfo],
+    ) -> None:
+        if self._sidebar is None:
+            return
+        panel = self._sidebar.panel_widget("training")
+        setter = getattr(panel, "set_project", None) if panel else None
+        if callable(setter):
+            try:
+                setter(info)
+            except Exception as exc:                          # noqa: BLE001
+                log_warning(f"[ui] training_panel.set_project failed: {exc!r}")
 
     _CTRL_BTN_SIZE = 24
     _CTRL_ICON_SIZE = QSize(16, 16)
@@ -1952,9 +2257,19 @@ class MainWindow(QMainWindow):
         )
         self._btn_history = self._make_dropdown_btn(
             "progressrow.btn.history", "History", parent,
-            self.history_requested,
-            populator=self._populate_history_menu,
+            None,
+            populator=None,
         )
+        # Swap the default QMenu for HistoryMenu — rows with delete buttons +
+        # Clear All footer. aboutToShow rebuilds the rows from the
+        # TrainingAssetsCache; click signals route directly to handlers.
+        from application.ui.widgets.history_menu import HistoryMenu
+        self._history_menu = HistoryMenu(self._btn_history)
+        self._history_menu.aboutToShow.connect(self._populate_history_menu)
+        self._history_menu.run_clicked.connect(self._on_history_run_clicked)
+        self._history_menu.delete_clicked.connect(self._on_history_run_delete)
+        self._history_menu.clear_all_clicked.connect(self._on_history_clear_all)
+        self._btn_history.setMenu(self._history_menu)
         self._btn_policies = self._make_dropdown_btn(
             "progressrow.btn.policies", "Policies", parent,
             self.policy_requested,
@@ -2095,33 +2410,22 @@ class MainWindow(QMainWindow):
 
         Reads the in-memory list — no per-open disk scan. The cache itself
         refreshes on project switch (subscribed to ``project_changed``)
-        and on consumer-reported path miss (see ``_on_history_pick``).
+        and after every training run finishes. Forwarded to the
+        ``HistoryMenu`` widget, which builds row widgets with per-row delete
+        buttons plus a Clear All footer button.
         """
-        if self._btn_history is None:
+        if self._history_menu is None:
             return
-        menu = self._btn_history.menu()
-        if menu is None:
-            return
-        menu.clear()
-
         if self._current_project is None:
-            act = menu.addAction(tr("progressrow.menu.no_project", "(no project)"))
-            act.setEnabled(False)
-            return
-
-        runs = get_training_assets().runs()
-        if not runs:
-            act = menu.addAction(tr("progressrow.menu.empty", "(empty)"))
-            act.setEnabled(False)
-            return
-
-        for r in runs:
-            label = f"[{r.backend_id}] {r.run_id}"
-            act = menu.addAction(label)
-            act.triggered.connect(
-                lambda _checked=False, bid=r.backend_id, rid=r.run_id:
-                    self.history_requested.emit(bid, rid)
+            self._history_menu.populate(
+                [],
+                placeholder_text=tr(
+                    "progressrow.menu.no_project", "(no project)"
+                ),
             )
+            return
+        runs = get_training_assets().runs()
+        self._history_menu.populate(runs)
 
     def _populate_policies_menu(self) -> None:
         """Rebuild the Policies menu from the TrainingAssetsCache.
@@ -2172,7 +2476,7 @@ class MainWindow(QMainWindow):
         each JSON file's ``backend`` field. The caller passes an empty
         string to get the parent dir (used by housekeeping / migrations).
         """
-        root = Paths.PROJECT_ROOT / "custom_mods" / "canvas"
+        root = Paths.CUSTOM_MODS_DIR / "canvas"
         bid = (backend_id or "").strip()
         return root / bid if bid else root
 
@@ -2504,17 +2808,55 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # History / Policies click handlers
     # ------------------------------------------------------------------
-    def _on_history_pick(self, backend_id: str, run_id: str) -> None:
-        """Drive the chart's RunSourceSelector to show only ``run_id``.
+    def _on_training_run_started(self, run_id: str, _label: str) -> None:
+        """Snapshot the current canvas + write a pointer in the new run dir.
 
-        Resolves through the TrainingAssetsCache, scoped by ``backend_id``
-        because run_ids are unique only within their backend partition.
-        If the run is missing from the cache or its directory has
-        vanished from disk (e.g. the user deleted it externally), we
-        refresh the cache once and retry — per the "refresh on path
-        error" lifecycle rule.
+        Fired by ``AppSignals.training_run_started`` (queued connection from
+        the trainer task thread, delivered on the main thread). Failing to
+        snapshot is logged but never aborts the training run — the training
+        path is owned by the trainer task, not this hook.
         """
+        page = self._canvas_page
+        project = self._current_project
+        if page is None or project is None or not run_id:
+            return
+        backend_id = self._current_canvas_backend()
+        if not backend_id:
+            log_warning(
+                f"[ui] training_run_started: cannot snapshot canvas for "
+                f"run {run_id!r} — no canvas backend bound"
+            )
+            return
+        run_dir = (
+            project.path / "training" / "runs" / backend_id / str(run_id)
+        )
+        try:
+            from application.service.canvas_snapshots import CanvasSnapshotStore
+            data = page.to_workflow_dict()
+            digest = CanvasSnapshotStore(project).write(data, run_dir)
+            log_info(
+                f"[ui] canvas snapshot saved for run {run_id} → "
+                f"{digest[:12]}..."
+            )
+        except Exception as exc:                                # noqa: BLE001
+            log_warning(
+                f"[ui] canvas snapshot failed for run {run_id}: {exc!r}"
+            )
+
+    def _on_history_run_clicked(self, backend_id: str, run_id: str) -> None:
+        """Restore the canvas snapshot captured at the start of ``run_id``.
+
+        Two-step guard mirrors the template-load path:
+            1. dirty canvas    → Save / Discard / Cancel prompt;
+            2. clean non-empty → "this will overwrite current canvas" prompt.
+        """
+        if self._history_menu is not None:
+            self._history_menu.close()
         if not run_id:
+            return
+        page = self._canvas_page
+        project = self._current_project
+        if page is None or project is None:
             return
 
         cache = get_training_assets()
@@ -2532,24 +2874,146 @@ class MainWindow(QMainWindow):
             )
             return
 
-        mc = self._mission_control_panel
-        selector = getattr(mc, "_run_source_selector", None) if mc is not None else None
-        if selector is None:
+        from application.service.canvas_snapshots import CanvasSnapshotStore
+        snap = CanvasSnapshotStore(project)
+        try:
+            digest = snap.digest_for_run(asset.path)
+            data = snap.load_snapshot(digest)
+        except (FileNotFoundError, ValueError) as exc:
+            log_warning(
+                f"[ui] history click: snapshot unavailable for run "
+                f"{run_id}: {exc}"
+            )
             self.statusBar().showMessage(
                 tr(
-                    "status.history_no_chart",
-                    "Selected run: {} (chart not ready)",
-                ).format(run_id),
+                    "status.history_snapshot_missing",
+                    "Canvas snapshot for run [{}] {} is missing on disk",
+                ).format(backend_id, run_id),
+                5000,
+            )
+            return
+
+        # Two-step guard — identical to the template-load path so users get
+        # the same "save unsaved edits?" + "overwrite current scene?" UX.
+        if page.is_dirty():
+            if not self._confirm_discard_or_save_current_canvas():
+                return
+        elif page.instances:
+            if not self._confirm_replace_canvas_content(f"run/{run_id}"):
+                return
+
+        try:
+            page.replace_content_from_dict(data)
+        except Exception as exc:                                # noqa: BLE001
+            log_error(f"[ui] history snapshot load failed: {exc!r}")
+            self.statusBar().showMessage(
+                tr(
+                    "status.template_apply_failed",
+                    "Failed to apply template content",
+                ),
                 3000,
             )
             return
-        try:
-            selector.set_selected([run_id])
-        except Exception as exc:                           # pragma: no cover
-            log_warning(f"[ui] history pick: set_selected failed: {exc}")
-            return
         self.statusBar().showMessage(
-            tr("status.history_selected", "Run selected: ") + run_id,
+            tr(
+                "status.history_loaded",
+                "Canvas restored from run {} — Ctrl+S to persist",
+            ).format(run_id),
+            4000,
+        )
+
+    def _on_history_run_delete(self, backend_id: str, run_id: str) -> None:
+        """Delete a single run dir + GC its snapshot if no other run uses it."""
+        import shutil
+        if not run_id or self._current_project is None:
+            return
+        cache = get_training_assets()
+        asset = cache.find_run(run_id, backend_id=backend_id)
+        if asset is None:
+            cache.refresh()
+            asset = cache.find_run(run_id, backend_id=backend_id)
+        if asset is None:
+            return
+        try:
+            shutil.rmtree(asset.path)
+        except OSError as exc:
+            log_error(
+                f"[ui] history delete: rmtree {asset.path} failed: {exc!r}"
+            )
+            self.statusBar().showMessage(
+                tr(
+                    "status.history_delete_failed",
+                    "Failed to delete run {}",
+                ).format(run_id),
+                4000,
+            )
+            return
+        cache.refresh()
+        try:
+            from application.service.canvas_snapshots import (
+                CanvasSnapshotStore,
+                collect_referenced_digests,
+            )
+            surviving = collect_referenced_digests(self._current_project)
+            CanvasSnapshotStore(self._current_project).gc(surviving)
+        except Exception as exc:                                # noqa: BLE001
+            log_warning(f"[ui] snapshot gc after delete failed: {exc!r}")
+        # Rebuild the menu immediately so the row disappears without the
+        # user having to re-open the popup.
+        self._populate_history_menu()
+        self.statusBar().showMessage(
+            tr("status.history_deleted", "Run {} deleted").format(run_id),
+            3000,
+        )
+
+    def _on_history_clear_all(self) -> None:
+        """Wipe every leaf run directory + every canvas snapshot.
+
+        Only leaf run dirs are removed; backend partition dirs (e.g.
+        ``<runs>/sb3_mujoco/``) are left in place so a future run can still
+        land in them without an extra mkdir.
+        """
+        import shutil
+        if self._current_project is None:
+            return
+        runs = get_training_assets().runs()
+        if not runs:
+            return
+        box = QMessageBox(self)
+        box.setWindowTitle(
+            tr("history.confirm.clear_title", "Clear all training history?")
+        )
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(
+            tr(
+                "history.confirm.clear_body",
+                "This deletes every run directory under "
+                "<project>/training/runs/ and every canvas snapshot in "
+                "_runs_/. This cannot be undone.",
+            )
+        )
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        if box.exec() != QMessageBox.StandardButton.Ok:
+            return
+        for asset in runs:
+            try:
+                shutil.rmtree(asset.path)
+            except OSError as exc:
+                log_warning(
+                    f"[ui] history clear: rmtree {asset.path} failed: {exc!r}"
+                )
+        get_training_assets().refresh()
+        try:
+            from application.service.canvas_snapshots import CanvasSnapshotStore
+            CanvasSnapshotStore(self._current_project).gc_all()
+        except Exception as exc:                                # noqa: BLE001
+            log_warning(f"[ui] snapshot gc_all failed: {exc!r}")
+        self._populate_history_menu()
+        self.statusBar().showMessage(
+            tr("status.history_cleared", "Training history cleared"),
             3000,
         )
 
@@ -2565,7 +3029,7 @@ class MainWindow(QMainWindow):
 
         Path resolution goes through the TrainingAssetsCache, scoped by
         ``backend_id`` for exact partition match, with the same
-        refresh-on-miss policy as ``_on_history_pick``.
+        refresh-on-miss policy as ``_on_history_run_clicked``.
         """
         if not policy_id:
             return
@@ -2720,8 +3184,8 @@ class MainWindow(QMainWindow):
             (mirrors :meth:`_resolve_training_canvas_dict`'s file_id source,
             without doing the disk read).
 
-        Called: after the main page is built, on selection_changed from
-        MissionControlPanel, and at every set_training_running edge.
+        Called: after the main page is built, on ProjectsPanel.canvas_selected
+        and MissionControlPanel.canvas_loaded, and at every set_training_running edge.
         """
         if self._start_btn is None:
             return
@@ -2783,11 +3247,6 @@ class MainWindow(QMainWindow):
         from .widgets import MissionControlPanel
         self._mission_control_panel = MissionControlPanel(self._main_panel)
         self._mission_control_panel.set_canvas(self._canvas_page)
-        # Drive ▶ enabled-state from the sidebar's Project Files selection so
-        # the button only lights up when there's a real training target.
-        self._mission_control_panel.selection_changed.connect(
-            self._on_mc_selection_changed
-        )
         # Persist the (project, canvas) pair to user.ini on every successful
         # canvas load + flip the host panel into canvas mode (the New
         # button might have left it in picker mode).
@@ -2829,6 +3288,13 @@ class MainWindow(QMainWindow):
         self._picker_panel.submitted.connect(self._create_and_open_canvas)
         self._picker_panel.canvas_open_requested.connect(
             self._on_homepage_canvas_open
+        )
+        # Community card's Download button → reuse the sidebar's
+        # apply-update flow with the card-selected ReleaseInfo. Skips
+        # UpdateAvailableDialog because the user has already seen the
+        # release version + description inline on the card.
+        self._picker_panel.community_apply_requested.connect(
+            self._launch_update_apply
         )
         self._main_panel.set_children(
             self._canvas_page,
@@ -2884,6 +3350,23 @@ class MainWindow(QMainWindow):
         # signal to counter unconditional positives like feet_air_time.
         if not self._coverage_preflight_ok(canvas_dict):
             return
+        # Deploy-target coverage pre-flight: BEFORE consuming compute,
+        # show the user which deploy targets the resulting bundle will
+        # support given the current registry state (MJCF / USD per-format
+        # tables). If there's a cross-format gap, surface a blocking
+        # modal so the user knows they're about to train a run that
+        # won't deploy to one of the targets — this is the safety net
+        # the Robot Node UX is missing today. User explicitly OK'd
+        # proceeding ⇒ continue; cancelled ⇒ abort silently.
+        if not self._deploy_coverage_preflight_ok(canvas_dict):
+            return
+        # Clear any leftover danger_zone marks from a previous failed
+        # submit so the user only sees marks relevant to THIS attempt.
+        try:
+            from application.ui.dialogs import clear_canvas_diagnostic_marks
+            clear_canvas_diagnostic_marks(self)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             from application.training.trainer_runtime import submit_canvas_training
             result = submit_canvas_training(canvas_dict)
@@ -3126,6 +3609,130 @@ class MainWindow(QMainWindow):
         msg.setDefaultButton(cancel_btn)
         msg.exec()
         return msg.clickedButton() is proceed_btn
+
+    def _deploy_coverage_preflight_ok(self, canvas_dict: dict) -> bool:
+        """Surface deploy-target coverage to the user BEFORE submit consumes compute.
+
+        Pulls ``ir.robot_id`` from the canvas dict, runs
+        :func:`application.training.trainer_runtime.compute_deploy_coverage`,
+        and if the cross-format IR-role sets disagree, presents a modal
+        confirmation listing which deploy targets the trained bundle will
+        and won't support. Returns:
+
+          * ``True`` — no gap, OR user explicitly confirmed proceeding;
+            training submit may continue.
+          * ``False`` — user cancelled. Caller must abort.
+
+        This is the safety net that closes the "training silently
+        produces a non-deployable bundle" footgun the Robot Node UX
+        doesn't surface (CLAUDE.md §1.8 — deploy-target unavailability
+        is a real user-visible consequence, not just a warning to log).
+        """
+        # Resolve the SKU once. canvas_dict is the IR-shape JSON; SKU is
+        # carried at top-level as ``robot_id`` (set by
+        # CanvasPage.to_workflow_dict from the Robot node's asset_id).
+        sku = str(canvas_dict.get("robot_id") or "").strip()
+        if not sku:
+            # No robot bound on the canvas — spec_compiler will raise the
+            # appropriate UNRESOLVED_ROBOT_ASSET issue downstream. Not our
+            # gate to fire.
+            return True
+        try:
+            from application.training.trainer_runtime import (
+                compute_deploy_coverage,
+            )
+            report = compute_deploy_coverage(sku)
+        except Exception as exc:  # noqa: BLE001
+            # Compute failure shouldn't wedge ▶ — log and let downstream
+            # raise if there's a real problem. (Mirrors the
+            # _coverage_preflight_ok degradation policy.)
+            log_warning(f"[play] deploy-coverage compute failed: {exc!r}")
+            return True
+        if not report.has_gap:
+            return True
+        return self._show_deploy_coverage_dialog(report)
+
+    def _show_deploy_coverage_dialog(self, report) -> bool:
+        """Modal confirmation listing deploy-target consequences. Returns True to proceed."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        # Build a compact summary the user can act on without scrolling.
+        affected = "\n".join(f"  ✗  {t}" for t in report.affected_targets)
+        # Truncate IR-role lists to keep the dialog readable — full lists
+        # are still in the log via _pre_flight_warn_cross_format_coverage.
+        def _truncate(items, n=6):
+            if len(items) <= n:
+                return ", ".join(items)
+            shown = ", ".join(items[:n])
+            return f"{shown}, … (+{len(items) - n} more)"
+
+        body_lines: list[str] = [
+            tr(
+                "training.deploy_coverage.body",
+                "The trained bundle will be deployable to ONLY a subset of "
+                "the supported targets, because the robot's MJCF and USD "
+                "asset tables don't declare the same joint set.",
+            ),
+            "",
+            tr("training.deploy_coverage.affected", "Affected deploy targets:"),
+            affected,
+            "",
+        ]
+        if report.missing_in_mjcf:
+            body_lines.append(tr(
+                "training.deploy_coverage.miss_mjcf",
+                "Roles declared in USD but missing from MJCF: {roles}",
+            ).format(roles=_truncate(report.missing_in_mjcf)))
+        if report.missing_in_usd:
+            body_lines.append(tr(
+                "training.deploy_coverage.miss_usd",
+                "Roles declared in MJCF but missing from USD: {roles}",
+            ).format(roles=_truncate(report.missing_in_usd)))
+        body_lines.append("")
+        body_lines.append(tr(
+            "training.deploy_coverage.hint",
+            "To restore both deploy targets: cancel, open the Robot Assets "
+            "sidebar, repoint the smaller-DOF asset to a matching variant "
+            "(e.g. for Unitree G1 use scene_with_hands.xml alongside g1.usd), "
+            "re-Dump, then re-run Play.",
+        ))
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle(tr(
+            "training.deploy_coverage.title",
+            "Reduced deploy-target coverage",
+        ))
+        msg.setText(tr(
+            "training.deploy_coverage.header",
+            "Training will produce a bundle with reduced deploy coverage "
+            "for robot ‘{name}’ (sku={sku}).",
+        ).format(name=report.robot_name, sku=report.sku))
+        msg.setInformativeText("\n".join(body_lines))
+        proceed_btn = msg.addButton(
+            tr("training.deploy_coverage.proceed",
+               "Proceed anyway (don't waste compute later)"),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        cancel_btn = msg.addButton(
+            tr("training.deploy_coverage.cancel", "Cancel"),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        msg.setDefaultButton(cancel_btn)
+        msg.exec()
+        chosen = msg.clickedButton() is proceed_btn
+        if chosen:
+            log_warning(
+                f"[play] user proceeded despite deploy-coverage gap on "
+                f"sku={report.sku!r}: missing_in_mjcf={report.missing_in_mjcf} "
+                f"missing_in_usd={report.missing_in_usd}"
+            )
+        else:
+            log_info(
+                f"[play] cancelled by user at deploy-coverage modal "
+                f"(sku={report.sku!r})"
+            )
+        return chosen
 
     def _resolve_training_canvas_dict(self) -> Optional[dict]:
         """Return the IR-shape dict to feed submit_canvas_training, or None.

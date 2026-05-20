@@ -1,0 +1,1777 @@
+{
+  "version": "1.0.0",
+  "backend": "isaac_lab",
+  "robot_id": "c2775e595da6",
+  "metadata": {
+    "view": {
+      "zoom": 0.760245522621808,
+      "center_x": -1749.4348344378507,
+      "center_y": 319.6335825326299
+    }
+  },
+  "nodes": [
+    {
+      "id": "1002",
+      "schema_id": "base_asset",
+      "kind": "custom",
+      "params": {
+        "start_point": {
+          "name": "start_point",
+          "value": "__new__",
+          "param_type": "enum"
+        },
+        "checkpoint_id": {
+          "name": "checkpoint_id",
+          "value": "",
+          "param_type": "string"
+        },
+        "load_mode": {
+          "name": "load_mode",
+          "value": "scratch",
+          "param_type": "enum"
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "value": "",
+          "param_type": "string"
+        }
+      },
+      "ui": {
+        "x": -3072.8797226451957,
+        "y": -189.93661157939746,
+        "width": 324.0,
+        "height": 88.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#1A4F6B"
+    },
+    {
+      "id": "1001",
+      "schema_id": "export",
+      "kind": "custom",
+      "params": {
+        "bundle_name": {
+          "name": "bundle_name",
+          "value": "G1_PPO_TEST",
+          "param_type": "string"
+        },
+        "overwrite": {
+          "name": "overwrite",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "version": {
+          "name": "version",
+          "value": "v1",
+          "param_type": "string"
+        },
+        "include_onnx": {
+          "name": "include_onnx",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "include_torchscript": {
+          "name": "include_torchscript",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "include_normalization": {
+          "name": "include_normalization",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "output_files": {
+          "name": "output_files",
+          "value": "",
+          "param_type": "string"
+        },
+        "start_point_compat": {
+          "name": "start_point_compat",
+          "value": "",
+          "param_type": "string"
+        },
+        "review_backend": {
+          "name": "review_backend",
+          "value": "mujoco",
+          "param_type": "enum"
+        },
+        "review_scene_id": {
+          "name": "review_scene_id",
+          "value": "flat_ground",
+          "param_type": "string"
+        },
+        "review_launch": {
+          "name": "review_launch",
+          "value": "",
+          "param_type": "string"
+        },
+        "bundle_targets": {
+          "name": "bundle_targets",
+          "value": "[\"runtime_bundle\"]",
+          "param_type": "json"
+        },
+        "export_target": {
+          "name": "export_target",
+          "value": "runtime_bundle",
+          "param_type": "string"
+        },
+        "export_onnx": {
+          "name": "export_onnx",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "export_torchscript": {
+          "name": "export_torchscript",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "include_norm_stats": {
+          "name": "include_norm_stats",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "auto_import": {
+          "name": "auto_import",
+          "value": "true",
+          "param_type": "bool"
+        }
+      },
+      "ui": {
+        "x": 673.2800595281188,
+        "y": 77.78017418798638,
+        "width": 324.0,
+        "height": 537.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#1B356B"
+    },
+    {
+      "id": "1004",
+      "schema_id": "il_policy_network",
+      "kind": "custom",
+      "params": {
+        "actor_hidden_dims": {
+          "name": "actor_hidden_dims",
+          "value": "[256, 128, 128]",
+          "param_type": "list"
+        },
+        "critic_hidden_dims": {
+          "name": "critic_hidden_dims",
+          "value": "[256, 128, 128]",
+          "param_type": "list"
+        },
+        "activation": {
+          "name": "activation",
+          "value": "elu",
+          "param_type": "enum"
+        },
+        "init_noise_std": {
+          "name": "init_noise_std",
+          "value": "1.0",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": 92.92806423959894,
+        "y": -137.0156031613185,
+        "width": 324.0,
+        "height": 194.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#5B0A0A"
+    },
+    {
+      "id": "1006",
+      "schema_id": "terminations",
+      "kind": "custom",
+      "params": {
+        "termination_conditions": {
+          "name": "termination_conditions",
+          "value": {
+            "illegal_contact": 1.0,
+            "base_height": 0.55,
+            "bad_orientation": 0.7,
+            "time_out": 20.0
+          },
+          "param_type": "json"
+        },
+        "termination_curriculum_enabled": {
+          "name": "termination_curriculum_enabled",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "termination_curriculum_start": {
+          "name": "termination_curriculum_start",
+          "value": "0.50",
+          "param_type": "float"
+        },
+        "termination_curriculum_end": {
+          "name": "termination_curriculum_end",
+          "value": "0.60",
+          "param_type": "float"
+        },
+        "termination_curriculum_ramp_iters": {
+          "name": "termination_curriculum_ramp_iters",
+          "value": "600",
+          "param_type": "int"
+        }
+      },
+      "ui": {
+        "x": -476.1960455490127,
+        "y": 480.958644315961,
+        "width": 324.0,
+        "height": 328.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#561450"
+    },
+    {
+      "id": "1005",
+      "schema_id": "domain_rand",
+      "kind": "custom",
+      "params": {
+        "rand_schedule": {
+          "name": "rand_schedule",
+          "value": "linear",
+          "param_type": "enum"
+        },
+        "rand_schedule_start_step": {
+          "name": "rand_schedule_start_step",
+          "value": "0",
+          "param_type": "int"
+        },
+        "rand_schedule_end_step": {
+          "name": "rand_schedule_end_step",
+          "value": "2000000",
+          "param_type": "int"
+        },
+        "enabled": {
+          "name": "enabled",
+          "value": true,
+          "param_type": "bool"
+        },
+        "mass_range": {
+          "name": "mass_range",
+          "value": "[0.8, 1.2]",
+          "param_type": "list"
+        },
+        "friction_range": {
+          "name": "friction_range",
+          "value": "[0.6, 1.4]",
+          "param_type": "list"
+        },
+        "omega_n_log_uniform": {
+          "name": "omega_n_log_uniform",
+          "value": "[0.8, 1.25]",
+          "param_type": "list"
+        },
+        "zeta_log_uniform": {
+          "name": "zeta_log_uniform",
+          "value": "[0.9, 1.11]",
+          "param_type": "list"
+        },
+        "obs_noise_std": {
+          "name": "obs_noise_std",
+          "value": 0.01,
+          "param_type": "float"
+        },
+        "push_robot": {
+          "name": "push_robot",
+          "value": false,
+          "param_type": "bool"
+        },
+        "push_interval_steps": {
+          "name": "push_interval_steps",
+          "value": 200,
+          "param_type": "int"
+        },
+        "push_force_range": {
+          "name": "push_force_range",
+          "value": "[50, 150]",
+          "param_type": "list"
+        },
+        "enable_friction_rand": {
+          "name": "enable_friction_rand",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "friction_mode": {
+          "name": "friction_mode",
+          "value": "reset",
+          "param_type": "enum"
+        },
+        "static_friction_range": {
+          "name": "static_friction_range",
+          "value": "[0.5, 1.25]",
+          "param_type": "list"
+        },
+        "dynamic_friction_range": {
+          "name": "dynamic_friction_range",
+          "value": "[0.5, 1.25]",
+          "param_type": "list"
+        },
+        "restitution_range": {
+          "name": "restitution_range",
+          "value": "[0.0, 0.4]",
+          "param_type": "list"
+        },
+        "enable_mass_rand": {
+          "name": "enable_mass_rand",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "mass_mode": {
+          "name": "mass_mode",
+          "value": "reset",
+          "param_type": "enum"
+        },
+        "mass_target_body": {
+          "name": "mass_target_body",
+          "value": "torso",
+          "param_type": "string"
+        },
+        "mass_offset_range": {
+          "name": "mass_offset_range",
+          "value": "[-0.5, 0.5]",
+          "param_type": "list"
+        },
+        "mass_operation": {
+          "name": "mass_operation",
+          "value": "add",
+          "param_type": "enum"
+        },
+        "enable_external_push": {
+          "name": "enable_external_push",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "push_mode": {
+          "name": "push_mode",
+          "value": "interval",
+          "param_type": "enum"
+        },
+        "push_interval_range_s": {
+          "name": "push_interval_range_s",
+          "value": "[14.0, 22.0]",
+          "param_type": "list"
+        },
+        "push_velocity_x_range": {
+          "name": "push_velocity_x_range",
+          "value": "[-0.3, 0.3]",
+          "param_type": "list"
+        },
+        "push_velocity_y_range": {
+          "name": "push_velocity_y_range",
+          "value": "[-0.3, 0.3]",
+          "param_type": "list"
+        },
+        "enable_init_pose_rand": {
+          "name": "enable_init_pose_rand",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "init_pose_mode": {
+          "name": "init_pose_mode",
+          "value": "reset",
+          "param_type": "enum"
+        },
+        "init_pos_x_range": {
+          "name": "init_pos_x_range",
+          "value": "[-0.5, 0.5]",
+          "param_type": "list"
+        },
+        "init_pos_y_range": {
+          "name": "init_pos_y_range",
+          "value": "[-0.5, 0.5]",
+          "param_type": "list"
+        },
+        "init_yaw_range": {
+          "name": "init_yaw_range",
+          "value": "[-3.14, 3.14]",
+          "param_type": "list"
+        },
+        "enable_joint_noise": {
+          "name": "enable_joint_noise",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "joint_noise_mode": {
+          "name": "joint_noise_mode",
+          "value": "reset",
+          "param_type": "enum"
+        },
+        "joint_pos_noise": {
+          "name": "joint_pos_noise",
+          "value": "0.05",
+          "param_type": "float"
+        },
+        "joint_vel_noise": {
+          "name": "joint_vel_noise",
+          "value": "0.1",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -2201.7802254725875,
+        "y": -154.5377988679875,
+        "width": 324.0,
+        "height": 746.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#6A3F2D"
+    },
+    {
+      "id": "1007",
+      "schema_id": "rewards",
+      "kind": "custom",
+      "params": {
+        "reward_terms": {
+          "name": "reward_terms",
+          "value": {
+            "track_lin_vel_xy": {
+              "weight": 1.0
+            },
+            "track_ang_vel_z": {
+              "weight": 1.0
+            },
+            "feet_air_time": {
+              "weight": 0.75,
+              "variant": "biped"
+            },
+            "feet_slide": {
+              "weight": -0.1
+            },
+            "feet_clearance": {
+              "weight": 0.3
+            },
+            "flat_orientation": {
+              "weight": -1.0
+            },
+            "lin_vel_z_penalty": {
+              "weight": -0.2
+            },
+            "ang_vel_xy_penalty": {
+              "weight": -0.05
+            },
+            "base_height": {
+              "weight": -1.0
+            },
+            "joint_deviation_l1": {
+              "weight": -0.1
+            },
+            "dof_pos_limits": {
+              "weight": -1.0
+            },
+            "joint_torque_penalty": {
+              "weight": -1.5e-07
+            },
+            "joint_accel_penalty": {
+              "weight": -1e-07
+            },
+            "action_rate_penalty": {
+              "weight": -0.005
+            },
+            "alive_reward": {
+              "weight": 0.15
+            },
+            "undesired_contacts": {
+              "weight": -1.0
+            },
+            "termination_penalty": {
+              "weight": -200.0
+            }
+          },
+          "param_type": "json"
+        },
+        "std": {
+          "name": "std",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "threshold": {
+          "name": "threshold",
+          "value": "0.4",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -1752.7897348990668,
+        "y": -334.91372737695775,
+        "width": 324.0,
+        "height": 696.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Basic Moves Rewards",
+      "color_override": "#145511"
+    },
+    {
+      "id": "1013",
+      "schema_id": "rewards",
+      "kind": "custom",
+      "params": {
+        "reward_terms": {
+          "name": "reward_terms",
+          "value": {
+            "alive_reward": {
+              "weight": 2.0
+            },
+            "lin_vel_xy_penalty": {
+              "weight": -3.0
+            },
+            "ang_vel_z_penalty": {
+              "weight": -1.5
+            },
+            "lin_vel_z_penalty": {
+              "weight": -2.0
+            },
+            "ang_vel_xy_penalty": {
+              "weight": -0.2
+            },
+            "flat_orientation": {
+              "weight": -5.0
+            },
+            "base_height": {
+              "weight": -5.0
+            },
+            "joint_deviation_l1": {
+              "weight": -1.5
+            },
+            "dof_pos_limits": {
+              "weight": -2.0
+            },
+            "joint_torque_penalty": {
+              "weight": -5e-07
+            },
+            "joint_accel_penalty": {
+              "weight": -2e-07
+            },
+            "action_rate_penalty": {
+              "weight": -0.02
+            },
+            "undesired_contacts": {
+              "weight": -2.0
+            },
+            "feet_slide": {
+              "weight": -0.3
+            },
+            "termination_penalty": {
+              "weight": -200.0
+            }
+          },
+          "param_type": "json"
+        },
+        "std": {
+          "name": "std",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "threshold": {
+          "name": "threshold",
+          "value": "0.4",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -1747.8599557509601,
+        "y": 433.83832423138807,
+        "width": 324.0,
+        "height": 632.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Stand Rewards",
+      "color_override": "#145511"
+    },
+    {
+      "id": "1014",
+      "schema_id": "rewards",
+      "kind": "custom",
+      "params": {
+        "reward_terms": {
+          "name": "reward_terms",
+          "value": {
+            "alive_reward": {
+              "weight": 1.0
+            },
+            "track_ang_vel_z": {
+              "weight": 1.5
+            },
+            "track_lin_vel_xy": {
+              "weight": 0.3
+            },
+            "lin_vel_z_penalty": {
+              "weight": -0.2
+            },
+            "ang_vel_xy_penalty": {
+              "weight": -0.05
+            },
+            "flat_orientation": {
+              "weight": -1.0
+            },
+            "base_height": {
+              "weight": -1.0
+            },
+            "joint_deviation_l1": {
+              "weight": -0.3
+            },
+            "dof_pos_limits": {
+              "weight": -1.0
+            },
+            "joint_torque_penalty": {
+              "weight": -1.5e-07
+            },
+            "joint_accel_penalty": {
+              "weight": -1e-07
+            },
+            "joint_vel_penalty": {
+              "weight": -0.001
+            },
+            "action_rate_penalty": {
+              "weight": -0.005
+            },
+            "feet_air_time": {
+              "weight": 0.5,
+              "variant": "biped"
+            },
+            "feet_slide": {
+              "weight": -0.2
+            },
+            "undesired_contacts": {
+              "weight": -1.0
+            },
+            "termination_penalty": {
+              "weight": -200.0
+            }
+          },
+          "param_type": "json"
+        },
+        "std": {
+          "name": "std",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "threshold": {
+          "name": "threshold",
+          "value": "0.4",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -1351.0769630249454,
+        "y": -334.996441515051,
+        "width": 324.0,
+        "height": 696.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Turn Rewards",
+      "color_override": "#145511"
+    },
+    {
+      "id": "1015",
+      "schema_id": "rewards",
+      "kind": "custom",
+      "params": {
+        "reward_terms": {
+          "name": "reward_terms",
+          "value": {
+            "alive_reward": {
+              "weight": 1.0
+            },
+            "track_lin_vel_xy": {
+              "weight": 1.5
+            },
+            "track_ang_vel_z": {
+              "weight": 0.3
+            },
+            "lin_vel_z_penalty": {
+              "weight": -0.2
+            },
+            "ang_vel_xy_penalty": {
+              "weight": -0.05
+            },
+            "flat_orientation": {
+              "weight": -2.0
+            },
+            "base_height": {
+              "weight": -2.0
+            },
+            "joint_deviation_l1": {
+              "weight": -0.2
+            },
+            "dof_pos_limits": {
+              "weight": -1.0
+            },
+            "joint_torque_penalty": {
+              "weight": -1.5e-07
+            },
+            "joint_accel_penalty": {
+              "weight": -1e-07
+            },
+            "action_rate_penalty": {
+              "weight": -0.005
+            },
+            "feet_air_time": {
+              "weight": 0.5,
+              "variant": "biped"
+            },
+            "feet_slide": {
+              "weight": -0.3
+            },
+            "feet_clearance": {
+              "weight": 0.4
+            },
+            "undesired_contacts": {
+              "weight": -1.5
+            },
+            "termination_penalty": {
+              "weight": -200.0
+            }
+          },
+          "param_type": "json"
+        },
+        "std": {
+          "name": "std",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "threshold": {
+          "name": "threshold",
+          "value": "0.4",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -1357.4518377404365,
+        "y": 432.65414327400526,
+        "width": 324.0,
+        "height": 696.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Pace & Strafe Rewards",
+      "color_override": "#145511"
+    },
+    {
+      "id": "1008",
+      "schema_id": "il_observation",
+      "kind": "custom",
+      "params": {
+        "obs_terms": {
+          "name": "obs_terms",
+          "value": "{\"base_lin_vel\": 2.0, \"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
+          "param_type": "json"
+        },
+        "group_name": {
+          "name": "group_name",
+          "value": "policy",
+          "param_type": "string"
+        },
+        "enable_corruption": {
+          "name": "enable_corruption",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "corruption_noise_std": {
+          "name": "corruption_noise_std",
+          "value": "0.05",
+          "param_type": "float"
+        },
+        "obs_noise_curriculum_enabled": {
+          "name": "obs_noise_curriculum_enabled",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "obs_noise_curriculum_start": {
+          "name": "obs_noise_curriculum_start",
+          "value": "0.25",
+          "param_type": "float"
+        },
+        "obs_noise_curriculum_end": {
+          "name": "obs_noise_curriculum_end",
+          "value": "1.0",
+          "param_type": "float"
+        },
+        "obs_noise_curriculum_ramp_iters": {
+          "name": "obs_noise_curriculum_ramp_iters",
+          "value": "500",
+          "param_type": "int"
+        }
+      },
+      "ui": {
+        "x": -469.9703416217226,
+        "y": -87.81506750032864,
+        "width": 324.0,
+        "height": 556.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#561450"
+    },
+    {
+      "id": "1009",
+      "schema_id": "play_ground_setting",
+      "kind": "custom",
+      "params": {
+        "scene_id": {
+          "name": "scene_id",
+          "value": "flat_ground",
+          "param_type": "string"
+        },
+        "scene_type": {
+          "name": "scene_type",
+          "value": "flat",
+          "param_type": "enum"
+        },
+        "gravity_z": {
+          "name": "gravity_z",
+          "value": "-9.81",
+          "param_type": "float"
+        },
+        "arena_extent_x": {
+          "name": "arena_extent_x",
+          "value": "10.0",
+          "param_type": "float"
+        },
+        "arena_extent_y": {
+          "name": "arena_extent_y",
+          "value": "10.0",
+          "param_type": "float"
+        },
+        "friction_static": {
+          "name": "friction_static",
+          "value": "1.0",
+          "param_type": "float"
+        },
+        "friction_dynamic": {
+          "name": "friction_dynamic",
+          "value": "0.8",
+          "param_type": "float"
+        },
+        "roughness_amplitude": {
+          "name": "roughness_amplitude",
+          "value": "0.0",
+          "param_type": "float"
+        },
+        "slope_max": {
+          "name": "slope_max",
+          "value": "0.0",
+          "param_type": "float"
+        },
+        "curriculum_enabled": {
+          "name": "curriculum_enabled",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "difficulty_levels": {
+          "name": "difficulty_levels",
+          "value": "10",
+          "param_type": "int"
+        },
+        "height_scan_enabled": {
+          "name": "height_scan_enabled",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "scan_resolution": {
+          "name": "scan_resolution",
+          "value": "0.1",
+          "param_type": "float"
+        },
+        "scan_size_x": {
+          "name": "scan_size_x",
+          "value": "1.6",
+          "param_type": "float"
+        },
+        "scan_size_y": {
+          "name": "scan_size_y",
+          "value": "1.0",
+          "param_type": "float"
+        },
+        "sim_dt": {
+          "name": "sim_dt",
+          "value": "0.005",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -2575.447828240568,
+        "y": -196.7111183501269,
+        "width": 324.0,
+        "height": 280.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#6A3F2D"
+    },
+    {
+      "id": "1012",
+      "schema_id": "training_motion",
+      "kind": "custom",
+      "params": {
+        "training_items": {
+          "name": "training_items",
+          "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 0.5], \"clip\": null, \"advanced\": {}}, \"forward_fast\": {\"enabled\": true, \"speed\": [0.6, 1.0], \"clip\": null, \"advanced\": {}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 0.6], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": true, \"speed\": [0.3, 0.6], \"clip\": null, \"advanced\": {}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": null, \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 0.5], \"clip\": null, \"advanced\": {}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 0.5], \"clip\": null, \"advanced\": {}}, \"turn\": {\"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.0, 1.0]}}, \"clip\": null, \"enabled\": true, \"speed\": [0.3, 1.0]}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": null, \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.0, 1.0], \"lin_vel_x\": [-1.0, 1.0], \"lin_vel_y\": [-0.5, 0.5]}}}}",
+          "param_type": "json"
+        },
+        "mapping_mode": {
+          "name": "mapping_mode",
+          "value": "linear",
+          "param_type": "enum"
+        },
+        "deadzone": {
+          "name": "deadzone",
+          "value": "0.10",
+          "param_type": "float"
+        },
+        "curve_exponent": {
+          "name": "curve_exponent",
+          "value": "2.00",
+          "param_type": "float"
+        },
+        "runtime_clip": {
+          "name": "runtime_clip",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "gait_enabled": {
+          "name": "gait_enabled",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "gait_frequency_range": {
+          "name": "gait_frequency_range",
+          "value": "[1.0, 2.5]",
+          "param_type": "list"
+        },
+        "body_height_range": {
+          "name": "body_height_range",
+          "value": "[0.70, 0.80]",
+          "param_type": "list"
+        },
+        "step_height_range": {
+          "name": "step_height_range",
+          "value": "[0.05, 0.15]",
+          "param_type": "list"
+        },
+        "gait_presets": {
+          "name": "gait_presets",
+          "value": "",
+          "param_type": "string"
+        },
+        "gain_lin_forward": {
+          "name": "gain_lin_forward",
+          "value": 1.0,
+          "param_type": "float"
+        },
+        "gain_lin_backward": {
+          "name": "gain_lin_backward",
+          "value": 0.5,
+          "param_type": "float"
+        },
+        "gain_lin_lateral": {
+          "name": "gain_lin_lateral",
+          "value": 0.5,
+          "param_type": "float"
+        },
+        "gain_yaw": {
+          "name": "gain_yaw",
+          "value": 1.0,
+          "param_type": "float"
+        },
+        "resampling_time_range": {
+          "name": "resampling_time_range",
+          "value": [
+            6.0,
+            12.0
+          ],
+          "param_type": "list"
+        },
+        "zero_command_probability": {
+          "name": "zero_command_probability",
+          "value": "0.10",
+          "param_type": "float"
+        },
+        "cmd_step_change_prob": {
+          "name": "cmd_step_change_prob",
+          "value": "0.05",
+          "param_type": "float"
+        },
+        "consumer_mode": {
+          "name": "consumer_mode",
+          "value": "tracking",
+          "param_type": "enum"
+        },
+        "phase_mode": {
+          "name": "phase_mode",
+          "value": "loop",
+          "param_type": "enum"
+        },
+        "motion_fps": {
+          "name": "motion_fps",
+          "value": "50.0",
+          "param_type": "float"
+        },
+        "random_start_phase": {
+          "name": "random_start_phase",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "command_curriculum_enabled": {
+          "name": "command_curriculum_enabled",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "command_curriculum_start": {
+          "name": "command_curriculum_start",
+          "value": "0.3",
+          "param_type": "float"
+        },
+        "command_curriculum_end": {
+          "name": "command_curriculum_end",
+          "value": "1.0",
+          "param_type": "float"
+        },
+        "command_curriculum_ramp_iters": {
+          "name": "command_curriculum_ramp_iters",
+          "value": "1000",
+          "param_type": "int"
+        },
+        "reference_state_init_enabled": {
+          "name": "reference_state_init_enabled",
+          "value": false,
+          "param_type": "bool"
+        },
+        "rsi_prob": {
+          "name": "rsi_prob",
+          "value": 0.8,
+          "param_type": "float"
+        },
+        "rsi_joint_noise": {
+          "name": "rsi_joint_noise",
+          "value": 0.02,
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -863.8943126728047,
+        "y": -94.82449622899753,
+        "width": 324.0,
+        "height": 900.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#561450"
+    },
+    {
+      "id": "1011",
+      "schema_id": "robot",
+      "kind": "custom",
+      "params": {
+        "asset_id": {
+          "name": "asset_id",
+          "value": "c2775e595da6",
+          "param_type": "string"
+        },
+        "active_override": {
+          "name": "active_override",
+          "value": "auto",
+          "param_type": "enum"
+        },
+        "body_mapping": {
+          "name": "body_mapping",
+          "value": "{\"body_names\": [\"pelvis\", \"left_hip_yaw_link\", \"left_hip_roll_link\", \"left_hip_pitch_link\", \"left_knee_link\", \"left_ankle_link\", \"right_hip_yaw_link\", \"right_hip_roll_link\", \"right_hip_pitch_link\", \"right_knee_link\", \"right_ankle_link\", \"torso_link\", \"d435_left_imager_link\", \"d435_rgb_module_link\", \"imu_link\", \"left_shoulder_pitch_link\", \"left_shoulder_roll_link\", \"left_shoulder_yaw_link\", \"left_elbow_link\", \"logo_link\", \"mid360_link\", \"right_shoulder_pitch_link\", \"right_shoulder_roll_link\", \"right_shoulder_yaw_link\", \"right_elbow_link\"], \"family\": \"humanoid\", \"roles\": {\"base\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"pelvis\": {\"body\": \"pelvis\", \"manual\": false, \"auto_from_asset\": true}, \"torso\": {\"body\": \"torso_link\", \"manual\": false, \"auto_from_asset\": false}, \"waist\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"head\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"waist_yaw\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"waist_roll\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"waist_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck_yaw\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"head_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_pitch_L\": {\"body\": \"left_hip_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_pitch_R\": {\"body\": \"right_hip_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_roll_L\": {\"body\": \"left_hip_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_roll_R\": {\"body\": \"right_hip_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_yaw_L\": {\"body\": \"left_hip_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_yaw_R\": {\"body\": \"right_hip_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"knee_L\": {\"body\": \"left_knee_link\", \"manual\": false, \"auto_from_asset\": false}, \"knee_R\": {\"body\": \"right_knee_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_L\": {\"body\": \"left_ankle_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_R\": {\"body\": \"right_ankle_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_pitch_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_pitch_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_roll_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_roll_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"foot_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"foot_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_pitch_L\": {\"body\": \"left_shoulder_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_pitch_R\": {\"body\": \"right_shoulder_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_roll_L\": {\"body\": \"left_shoulder_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_roll_R\": {\"body\": \"right_shoulder_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_yaw_L\": {\"body\": \"left_shoulder_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_yaw_R\": {\"body\": \"right_shoulder_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"elbow_L\": {\"body\": \"left_elbow_link\", \"manual\": false, \"auto_from_asset\": false}, \"elbow_R\": {\"body\": \"right_elbow_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_roll_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_roll_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_pitch_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_pitch_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_yaw_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_yaw_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hand_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hand_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_2_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_2_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_imu\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_lidar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_camera\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_radar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_gps\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_sonar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_depth\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"misc\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}}, \"unmapped_bodies\": [], \"out_of_scope_bodies\": [\"d435_left_imager_link\", \"logo_link\", \"mid360_link\"]}",
+          "param_type": "json"
+        },
+        "target_height": {
+          "name": "target_height",
+          "value": 1.0,
+          "param_type": "float"
+        },
+        "pd_param_mode": {
+          "name": "pd_param_mode",
+          "value": "natural_freq",
+          "param_type": "enum"
+        },
+        "pd_groups": {
+          "name": "pd_groups",
+          "value": "{}",
+          "param_type": "json"
+        },
+        "pd_effort_limit": {
+          "name": "pd_effort_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_velocity_limit": {
+          "name": "pd_velocity_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_resolve_at_reset": {
+          "name": "pd_resolve_at_reset",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_calibration_blocking": {
+          "name": "pd_calibration_blocking",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_skip_calibration": {
+          "name": "pd_skip_calibration",
+          "value": false,
+          "param_type": "bool"
+        }
+      },
+      "ui": {
+        "x": -3070.3546725022525,
+        "y": -75.33727313093895,
+        "width": 324.0,
+        "height": 836.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#1A4F6B"
+    },
+    {
+      "id": "1010",
+      "schema_id": "actor_setting",
+      "kind": "custom",
+      "params": {
+        "init_pos_x": {
+          "name": "init_pos_x",
+          "value": "0.0",
+          "param_type": "float"
+        },
+        "init_pos_y": {
+          "name": "init_pos_y",
+          "value": "0.0",
+          "param_type": "float"
+        },
+        "init_pos_z": {
+          "name": "init_pos_z",
+          "value": 1.1,
+          "param_type": "float"
+        },
+        "init_joint_angles": {
+          "name": "init_joint_angles",
+          "value": {
+            "hip_yaw_L": 0.0,
+            "hip_yaw_R": 0.0,
+            "waist_yaw": 0.0,
+            "hip_roll_L": 0.0,
+            "hip_pitch_L": -0.2,
+            "knee_L": 0.42,
+            "ankle_L": 0.0,
+            "hip_roll_R": 0.0,
+            "hip_pitch_R": -0.2,
+            "knee_R": 0.42,
+            "ankle_R": 0.0,
+            "__out_of_scope__": 0.0,
+            "sensor": 0.0,
+            "sensor_imu": 0.0,
+            "shoulder_pitch_L": 0.35,
+            "shoulder_pitch_R": 0.35,
+            "shoulder_roll_L": 0.0,
+            "shoulder_yaw_L": 0.0,
+            "elbow_L": 0.87,
+            "shoulder_roll_R": 0.0,
+            "shoulder_yaw_R": 0.0,
+            "elbow_R": 0.87
+          },
+          "param_type": "json"
+        },
+        "init_pose_mode": {
+          "name": "init_pose_mode",
+          "value": "default",
+          "param_type": "enum"
+        },
+        "init_pose_noise_scale": {
+          "name": "init_pose_noise_scale",
+          "value": 0.05,
+          "param_type": "float"
+        },
+        "init_pose_keyframe_name": {
+          "name": "init_pose_keyframe_name",
+          "value": "home",
+          "param_type": "string"
+        },
+        "init_pose_rsi_prob": {
+          "name": "init_pose_rsi_prob",
+          "value": 1.0,
+          "param_type": "float"
+        },
+        "init_pose_rsi_sample_mode": {
+          "name": "init_pose_rsi_sample_mode",
+          "value": "frame_0",
+          "param_type": "enum"
+        },
+        "contact_body_names": {
+          "name": "contact_body_names",
+          "value": "[\"ankle_roll_L\", \"ankle_roll_R\"]",
+          "param_type": "json"
+        },
+        "contact_history_length": {
+          "name": "contact_history_length",
+          "value": "3",
+          "param_type": "int"
+        },
+        "contact_track_air_time": {
+          "name": "contact_track_air_time",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "stiffness": {
+          "name": "stiffness",
+          "value": "150.0",
+          "param_type": "float"
+        },
+        "damping": {
+          "name": "damping",
+          "value": "5.0",
+          "param_type": "float"
+        },
+        "effort_limit": {
+          "name": "effort_limit",
+          "value": "300.0",
+          "param_type": "float"
+        },
+        "velocity_limit": {
+          "name": "velocity_limit",
+          "value": "30.0",
+          "param_type": "float"
+        },
+        "action_joint_names_expr": {
+          "name": "action_joint_names_expr",
+          "value": "[\".*\"]",
+          "param_type": "json"
+        },
+        "action_scale": {
+          "name": "action_scale",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "action_use_default_offset": {
+          "name": "action_use_default_offset",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "action_scale_curriculum_enabled": {
+          "name": "action_scale_curriculum_enabled",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "action_scale_curriculum_start": {
+          "name": "action_scale_curriculum_start",
+          "value": "0.25",
+          "param_type": "float"
+        },
+        "action_scale_curriculum_end": {
+          "name": "action_scale_curriculum_end",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "action_scale_curriculum_ramp_iters": {
+          "name": "action_scale_curriculum_ramp_iters",
+          "value": "600",
+          "param_type": "int"
+        },
+        "review_pose_engine": {
+          "name": "review_pose_engine",
+          "value": "mujoco",
+          "param_type": "enum"
+        },
+        "_review_pose": {
+          "name": "_review_pose",
+          "value": "",
+          "param_type": "string"
+        }
+      },
+      "ui": {
+        "x": -2570.594537750195,
+        "y": 125.11949528586842,
+        "width": 324.0,
+        "height": 626.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#6A3F2D"
+    },
+    {
+      "id": "1003",
+      "schema_id": "il_ppo_trainer",
+      "kind": "custom",
+      "params": {
+        "training_mode": {
+          "name": "training_mode",
+          "value": "PPO",
+          "param_type": "enum"
+        },
+        "num_envs": {
+          "name": "num_envs",
+          "value": 4096,
+          "param_type": "int"
+        },
+        "max_iterations": {
+          "name": "max_iterations",
+          "value": 1500,
+          "param_type": "int"
+        },
+        "num_steps_per_env": {
+          "name": "num_steps_per_env",
+          "value": 24,
+          "param_type": "int"
+        },
+        "num_learning_epochs": {
+          "name": "num_learning_epochs",
+          "value": "5",
+          "param_type": "int"
+        },
+        "num_minibatches": {
+          "name": "num_minibatches",
+          "value": "4",
+          "param_type": "int"
+        },
+        "learning_rate": {
+          "name": "learning_rate",
+          "value": "0.001",
+          "param_type": "float"
+        },
+        "discount_factor": {
+          "name": "discount_factor",
+          "value": 0.99,
+          "param_type": "float"
+        },
+        "gae_lambda": {
+          "name": "gae_lambda",
+          "value": "0.95",
+          "param_type": "float"
+        },
+        "clip_param": {
+          "name": "clip_param",
+          "value": "0.2",
+          "param_type": "float"
+        },
+        "entropy_coef": {
+          "name": "entropy_coef",
+          "value": 0.008,
+          "param_type": "float"
+        },
+        "value_loss_coef": {
+          "name": "value_loss_coef",
+          "value": "1.0",
+          "param_type": "float"
+        },
+        "max_grad_norm": {
+          "name": "max_grad_norm",
+          "value": "1.0",
+          "param_type": "float"
+        },
+        "schedule": {
+          "name": "schedule",
+          "value": "adaptive",
+          "param_type": "enum"
+        },
+        "desired_kl": {
+          "name": "desired_kl",
+          "value": "0.01",
+          "param_type": "float"
+        },
+        "save_interval": {
+          "name": "save_interval",
+          "value": 50,
+          "param_type": "int"
+        },
+        "seed": {
+          "name": "seed",
+          "value": 42,
+          "param_type": "int"
+        },
+        "headless": {
+          "name": "headless",
+          "value": "true",
+          "param_type": "bool"
+        },
+        "amp_reward_coef": {
+          "name": "amp_reward_coef",
+          "value": "2.0",
+          "param_type": "float"
+        },
+        "task_reward_lerp": {
+          "name": "task_reward_lerp",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "disc_grad_penalty": {
+          "name": "disc_grad_penalty",
+          "value": "10.0",
+          "param_type": "float"
+        },
+        "disc_label_smoothing": {
+          "name": "disc_label_smoothing",
+          "value": "0.9",
+          "param_type": "float"
+        },
+        "amp_replay_buffer_size": {
+          "name": "amp_replay_buffer_size",
+          "value": "1000000",
+          "param_type": "int"
+        },
+        "num_preload_transitions": {
+          "name": "num_preload_transitions",
+          "value": "2000000",
+          "param_type": "int"
+        },
+        "disc_lr": {
+          "name": "disc_lr",
+          "value": "1e-4",
+          "param_type": "float"
+        },
+        "lerp_schedule": {
+          "name": "lerp_schedule",
+          "value": "none",
+          "param_type": "enum"
+        },
+        "lerp_schedule_json": {
+          "name": "lerp_schedule_json",
+          "value": "",
+          "param_type": "string"
+        },
+        "entropy_schedule_enabled": {
+          "name": "entropy_schedule_enabled",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "entropy_schedule_start": {
+          "name": "entropy_schedule_start",
+          "value": "0.01",
+          "param_type": "float"
+        },
+        "entropy_schedule_end": {
+          "name": "entropy_schedule_end",
+          "value": "0.002",
+          "param_type": "float"
+        },
+        "entropy_schedule_ramp_iters": {
+          "name": "entropy_schedule_ramp_iters",
+          "value": "3000",
+          "param_type": "int"
+        }
+      },
+      "ui": {
+        "x": 95.075331187166,
+        "y": 70.35263687809315,
+        "width": 324.0,
+        "height": 808.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#5B0A0A"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_875a8148d992",
+      "source_node": "1009",
+      "source_port": "scene_pipe",
+      "target_node": "1003",
+      "target_port": "scene_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_91e912d14837",
+      "source_node": "1008",
+      "source_port": "obs_vector",
+      "target_node": "1003",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_1cfaf3d2dd2d",
+      "source_node": "1005",
+      "source_port": "domain_rand_config",
+      "target_node": "1003",
+      "target_port": "domain_rand_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_3fe49d84ac64",
+      "source_node": "1006",
+      "source_port": "termination_config",
+      "target_node": "1003",
+      "target_port": "termination_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_fd073454b923",
+      "source_node": "1004",
+      "source_port": "policy",
+      "target_node": "1003",
+      "target_port": "policy",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_0b798d3a55d0",
+      "source_node": "1003",
+      "source_port": "train_pipe",
+      "target_node": "1001",
+      "target_port": "train_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_b462207cd8ee",
+      "source_node": "1002",
+      "source_port": "checkpoint",
+      "target_node": "1003",
+      "target_port": "checkpoint",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_240bd906cc18",
+      "source_node": "1008",
+      "source_port": "obs_vector",
+      "target_node": "1004",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_04bac6f44877",
+      "source_node": "1012",
+      "source_port": "command_pipe",
+      "target_node": "1008",
+      "target_port": "command_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_d99cd7af10af",
+      "source_node": "1011",
+      "source_port": "robot_pipe",
+      "target_node": "1010",
+      "target_port": "robot_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_848a9eb3eb76",
+      "source_node": "1010",
+      "source_port": "actor_pipe",
+      "target_node": "1008",
+      "target_port": "actor_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_dfc5c3645aa7",
+      "source_node": "1010",
+      "source_port": "actor_pipe",
+      "target_node": "1005",
+      "target_port": "actor_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_f6fc445dbd0d",
+      "source_node": "1012",
+      "source_port": "command_pipe",
+      "target_node": "1003",
+      "target_port": "command_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_949f5a18fb21",
+      "source_node": "1010",
+      "source_port": "actor_pipe",
+      "target_node": "1012",
+      "target_port": "actor_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_27ea902e6aca",
+      "source_node": "1007",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__backward",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_f944d679b4e8",
+      "source_node": "1007",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_fast",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_9d2322f6b569",
+      "source_node": "1007",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_slow",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_e5f6a7b8c9d0",
+      "source_node": "1014",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_d4e5f6a7b8c9",
+      "source_node": "1014",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_c3d4e5f6a7b8",
+      "source_node": "1014",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_b2c3d4e5f6a7",
+      "source_node": "1013",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__stand",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_a1b2c3d4e5f6",
+      "source_node": "1007",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__walk",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_7b99fbda2d77",
+      "source_node": "1015",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__pace",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_431e21735fa5",
+      "source_node": "1015",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_ed538c3f5f5d",
+      "source_node": "1015",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    }
+  ],
+  "groups": [
+    {
+      "id": "86e7d3c6ff4a",
+      "title": "Enviroment Settings",
+      "members": [
+        "1005",
+        "1009",
+        "1010"
+      ],
+      "rect": {
+        "x": -2603.447828240568,
+        "y": -239.7111183501269,
+        "w": 741.490615565117,
+        "h": 1008.9611979376511
+      },
+      "color_override": "#6A3F2D"
+    },
+    {
+      "id": "4a0d7af82a0b",
+      "title": "Start",
+      "members": [
+        "1002",
+        "1011"
+      ],
+      "rect": {
+        "x": -3119.569964058838,
+        "y": -232.93661157939746,
+        "w": 398.54546455799345,
+        "h": 1011.4888322797527
+      },
+      "color_override": "#14484E"
+    },
+    {
+      "id": "2fcc9d18d835",
+      "title": "Rewards",
+      "members": [
+        "1007",
+        "1013",
+        "1014",
+        "1015"
+      ],
+      "rect": {
+        "x": -1780.7897348990668,
+        "y": -377.996441515051,
+        "w": 781.7127718741215,
+        "h": 1589.6505847890562
+      },
+      "color_override": "#145511"
+    },
+    {
+      "id": "9ad036e0c387",
+      "title": "Training Settings",
+      "members": [
+        "1006",
+        "1008",
+        "1012"
+      ],
+      "rect": {
+        "x": -891.8943126728047,
+        "y": -137.82449622899753,
+        "w": 760.7703256793691,
+        "h": 972.1346443259359
+      },
+      "color_override": "#561450"
+    },
+    {
+      "id": "16ab99b7402e",
+      "title": "Trainer",
+      "members": [
+        "1004",
+        "1003"
+      ],
+      "rect": {
+        "x": 64.92806423959894,
+        "y": -180.0156031613185,
+        "w": 383.14187151253594,
+        "h": 1079.6685398819168
+      },
+      "color_override": "#5B0A0A"
+    }
+  ]
+}

@@ -120,6 +120,12 @@ class IsaacLabConfig:
     init_pose_rsi_sample_mode: str = "frame_0"
     init_pose_keyframe_name: str = "home"
     body_mapping_json: str = ""
+    # Stage 3 per-format schema: launcher receives the spec's active
+    # format + a JSON {ir_role: joint_name} table for the active format
+    # so RSI can map clip IR roles directly to physical joint names
+    # without the body+suffix heuristic (which fails on Spot etc.).
+    active_format: str = ""
+    joint_names_by_ir_json: str = ""
     robot_asset_id: str = ""
     amp_rsi_enabled: bool = False
     amp_rsi_prob: float = 0.0
@@ -135,7 +141,7 @@ class IsaacLabConfig:
         """Build a config pre-populated with the registered Isaac Lab
         installation (root + python + launcher).
 
-        Reads ``~/UnitPort/engines/isaac_lab.json`` via
+        Reads ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` via
         ``registers.backends._detect_isaac_lab`` to discover the root, then
         derives launcher (``isaaclab.bat|sh``) and python paths under it.
         """
@@ -222,32 +228,96 @@ class IsaacLabConfig:
         ).strip()
 
         algo = getattr(spec_obj, "algorithm", None)
-        il_ppo = getattr(algo, "il_ppo", None) if algo is not None else None
+        if algo is None:
+            raise ValueError(
+                "[IsaacLabConfig.from_training_spec] spec.algorithm is None — "
+                "the canvas algorithm_config node is missing. Refusing to "
+                "substitute PPO + seed=42 + max_iters=1500 defaults "
+                "(CLAUDE.md §1.8); fix the canvas wiring first."
+            )
+        il_ppo = getattr(algo, "il_ppo", None)
+        if il_ppo is None:
+            raise ValueError(
+                "[IsaacLabConfig.from_training_spec] spec.algorithm.il_ppo "
+                "is None — the canvas il_ppo / il_ppo_trainer config is "
+                "missing. Refusing to substitute max_iters=1500 / "
+                "headless=True defaults (CLAUDE.md §1.8)."
+            )
 
-        n_envs = int(getattr(getattr(spec_obj, "env", None), "n_envs", 0) or 0) or 4096
-        seed = int(getattr(algo, "seed", 42) if algo is not None else 42)
-        max_iters = int(
-            getattr(il_ppo, "max_iterations", 1500) if il_ppo is not None else 1500
-        )
-        headless = bool(
-            getattr(il_ppo, "headless", True) if il_ppo is not None else True
-        )
+        # CLAUDE.md §1.8: n_envs / seed / max_iters are training-corrupting
+        # when wrong — fail loud rather than substitute Go2-class defaults
+        # (4096 envs / seed 42 / 1500 iters). The previous chained
+        # `getattr(..., default) or default` masked missing canvas wiring.
+        env_ref = getattr(spec_obj, "env", None)
+        if env_ref is None:
+            raise ValueError(
+                "[IsaacLabConfig.from_training_spec] spec.env is None — "
+                "the canvas env_assembler node is missing. n_envs cannot "
+                "be inferred; refusing 4096 default (CLAUDE.md §1.8)."
+            )
+        n_envs_raw = getattr(env_ref, "n_envs", None)
+        if not n_envs_raw or int(n_envs_raw) <= 0:
+            raise ValueError(
+                f"[IsaacLabConfig.from_training_spec] spec.env.n_envs="
+                f"{n_envs_raw!r} is missing or non-positive. Fix the "
+                f"env_assembler node's n_envs ParamSpec."
+            )
+        n_envs = int(n_envs_raw)
 
-        training_mode = (
-            str(getattr(algo, "training_mode", "PPO") if algo is not None else "PPO")
-            .strip()
-            .upper()
-        )
+        seed_raw = getattr(algo, "seed", None)
+        if seed_raw is None:
+            raise ValueError(
+                "[IsaacLabConfig.from_training_spec] spec.algorithm.seed is "
+                "missing — required for run reproducibility. Set the "
+                "algorithm_config node's seed parameter."
+            )
+        seed = int(seed_raw)
+
+        max_iters_raw = getattr(il_ppo, "max_iterations", None)
+        if not max_iters_raw or int(max_iters_raw) <= 0:
+            raise ValueError(
+                f"[IsaacLabConfig.from_training_spec] spec.algorithm.il_ppo."
+                f"max_iterations={max_iters_raw!r} is missing or non-positive. "
+                f"Training has no stopping condition; set this on the "
+                f"il_ppo_trainer node."
+            )
+        max_iters = int(max_iters_raw)
+
+        # headless is a UI/display preference; True is a sane fallback
+        # (training subprocess defaults to headless, the canvas
+        # il_ppo_trainer node's ``headless`` ParamSpec ships True). Keep
+        # the default but coerce explicitly so the field is always bool.
+        # WHY KEPT: not a data-corrupting field; default matches the
+        # ParamSpec ship value, so the substitution is visible at the
+        # canvas-edit level.
+        headless = bool(getattr(il_ppo, "headless", True))
+
+        training_mode_raw = getattr(algo, "training_mode", None)
+        if not training_mode_raw:
+            raise ValueError(
+                "[IsaacLabConfig.from_training_spec] spec.algorithm.training_mode "
+                "is missing — must be 'PPO' or 'AMP_PPO'. Fix algorithm_config "
+                "node."
+            )
+        training_mode = str(training_mode_raw).strip().upper()
         # IsaacLabConfig.algorithm vocabulary: lower-case "ppo"/"sac" or the
         # exact string "AMP_PPO" — see build_command()'s gating.
         if training_mode == "AMP_PPO":
             algorithm = "AMP_PPO"
         else:
-            algorithm = (
-                str(getattr(algo, "algorithm", "PPO") if algo is not None else "PPO")
-                .strip()
-                .lower() or "ppo"
-            )
+            algorithm_raw = getattr(algo, "algorithm", None)
+            if not algorithm_raw:
+                raise ValueError(
+                    "[IsaacLabConfig.from_training_spec] spec.algorithm.algorithm "
+                    "is missing — required to pick the specific algorithm "
+                    "variant (e.g. 'PPO', 'SAC'). Fix algorithm_config node."
+                )
+            algorithm = str(algorithm_raw).strip().lower()
+            if not algorithm:
+                raise ValueError(
+                    "[IsaacLabConfig.from_training_spec] spec.algorithm.algorithm "
+                    "is empty after strip — fix algorithm_config node."
+                )
 
         cfg = cls.from_registers(
             task_name=task_name,
@@ -269,14 +339,26 @@ class IsaacLabConfig:
         # launcher whenever init_pose_mode=reference_frame_0 or any other
         # path needs IR-role → physical-joint resolution for the active
         # robot. Previously this field defaulted to "" and the launcher's
-        # RSI branch silently skipped applying the reference frame:
-        #     "RSI: no --unitport_body_mapping — cannot route clip joints
-        #      through IR layer. Skipped."
-        # Serialize the RobotSpecRef.body_role_map to JSON so the launcher
-        # can base64-decode and feed JointIRResolver-equivalent lookup.
+        # RSI branch silently skipped applying the reference frame.
+        # Stage 4: in addition to the body_role_map (joint→ir_role
+        # legacy mapping), we now serialise the active format and an
+        # IR-role-keyed joint name table so the launcher can resolve
+        # ``clip_ir_role[i]`` → physical joint name directly, bypassing
+        # the body+suffix heuristic that fails on Spot.
         body_role_map = getattr(robot_ref, "body_role_map", None) if robot_ref is not None else None
         if isinstance(body_role_map, dict) and body_role_map:
             cfg.body_mapping_json = json.dumps(body_role_map)
+
+        if robot_ref is not None:
+            cfg.active_format = str(getattr(robot_ref, "active_format", "") or "")
+            # Build {ir_role: joint_name} for the active format. Uses
+            # RobotSpecRef.joints_role_map_for which returns
+            # {joint_name: ir_role}; we invert here.
+            if cfg.active_format and hasattr(robot_ref, "joints_role_map_for"):
+                joint_role_map = robot_ref.joints_role_map_for(cfg.active_format)
+                if joint_role_map:
+                    by_ir = {ir: jn for jn, ir in joint_role_map.items() if ir}
+                    cfg.joint_names_by_ir_json = json.dumps(by_ir)
 
         init_pose = getattr(getattr(spec_obj, "actor", None), "init_pose", None)
         if init_pose is not None:
@@ -335,52 +417,96 @@ class IsaacLabConfig:
             il = getattr(spec_obj, "il", None)
             amp = getattr(il, "amp", None) if il is not None else None
             motion_ref = getattr(il, "motion_ref", None) if il is not None else None
-            # motion_fps drives the (s, s') transition gap fed to the
-            # discriminator: amp_transition_dt = 1 / motion_fps. Previously
-            # the launcher always saw the IsaacLabConfig default (0.02 s = 50
-            # Hz) regardless of what the user wrote on training_motion.
-            motion_fps = float(getattr(motion_ref, "motion_fps", 50.0) or 50.0) if motion_ref is not None else 50.0
-            if motion_fps > 0:
-                cfg.amp_transition_dt = 1.0 / motion_fps
-            if motion_ref is not None:
-                cfg.amp_phase_mode = str(getattr(motion_ref, "phase_mode", "loop") or "loop")
-                cfg.amp_random_start_phase = bool(
-                    getattr(motion_ref, "random_start_phase", True)
+            # CLAUDE.md §1.8: AMP_PPO requires both motion_ref AND amp
+            # configs wired on the canvas. Substituting Go2-class defaults
+            # (50 Hz motion / 2.0 reward coef / 10.0 grad penalty / etc.)
+            # silently corrupts the discriminator when the user intended
+            # different hyperparams.
+            if motion_ref is None:
+                raise ValueError(
+                    "[IsaacLabConfig.from_training_spec] AMP_PPO requires "
+                    "spec.algorithm.il.motion_ref but got None — the "
+                    "canvas training_motion node is missing. Refusing to "
+                    "substitute 50 Hz default."
                 )
-            if amp is not None:
-                cfg.amp_reward_coef = float(getattr(amp, "amp_reward_coef", 2.0))
-                cfg.amp_task_reward_lerp = float(getattr(amp, "task_reward_lerp", 0.5))
-                cfg.amp_disc_grad_penalty = float(getattr(amp, "disc_grad_penalty", 10.0))
-                cfg.amp_disc_label_smoothing = float(getattr(amp, "disc_label_smoothing", 0.9))
-                cfg.amp_replay_buffer_size = int(getattr(amp, "amp_replay_buffer_size", 1_000_000))
-                cfg.amp_num_preload_transitions = int(getattr(amp, "num_preload_transitions", 2_000_000))
-                cfg.amp_disc_lr = float(getattr(amp, "disc_lr", 1e-4))
-                cfg.amp_lerp_schedule = str(getattr(amp, "lerp_schedule", "") or "")
-                disc = getattr(amp, "disc", None)
-                if disc is not None:
-                    cfg.amp_disc_logit_clamp_max = float(getattr(disc, "disc_logit_clamp_max", 4.0))
-                    cfg.amp_reward_clamp_per_step = float(getattr(disc, "reward_clamp_per_step", 50.0))
-                    cfg.amp_policy_std_clamp_max = float(getattr(disc, "policy_std_clamp_max", 1.5))
-                    # discriminator-specific knobs that the trainer-level amp
-                    # block does not carry (the trainer was being read as a
-                    # fallback only). Without these forwards the canvas's
-                    # discriminator node settings for custom lerp / obs
-                    # routing were silently dropped on the way to launcher.
-                    cfg.amp_lerp_schedule_json = str(getattr(disc, "lerp_schedule_json", "") or "")
-                    cfg.amp_obs_fields = str(getattr(disc, "amp_obs_fields", "") or "")
-                    cfg.amp_auto_inject_ref_obs = bool(getattr(disc, "auto_inject_ref_obs", True))
-                    # When the user picked the "custom" preset on
-                    # discriminator.lerp_schedule + filled lerp_schedule_json,
-                    # the launcher's --unitport_amp_lerp_schedule expects a
-                    # JSON anneal dict ({"start": ..., "end": ..., "over_iters": ...}).
-                    # Override the enum-name forwarding so the JSON actually
-                    # reaches the launcher; otherwise the user's custom
-                    # schedule was a no-op.
-                    _disc_lerp_mode = str(getattr(disc, "lerp_schedule", "") or "")
-                    if _disc_lerp_mode == "custom" and cfg.amp_lerp_schedule_json:
-                        cfg.amp_lerp_schedule = cfg.amp_lerp_schedule_json
-                    elif _disc_lerp_mode and _disc_lerp_mode != "none":
-                        cfg.amp_lerp_schedule = _disc_lerp_mode
+            motion_fps_raw = getattr(motion_ref, "motion_fps", None)
+            if not motion_fps_raw or float(motion_fps_raw) <= 0:
+                raise ValueError(
+                    f"[IsaacLabConfig.from_training_spec] motion_ref.motion_fps"
+                    f"={motion_fps_raw!r} is missing or non-positive. The "
+                    f"discriminator's (s,s') transition gap is derived from "
+                    f"this; refusing 50 Hz default."
+                )
+            motion_fps = float(motion_fps_raw)
+            cfg.amp_transition_dt = 1.0 / motion_fps
+            cfg.amp_phase_mode = str(getattr(motion_ref, "phase_mode", "loop") or "loop")
+            cfg.amp_random_start_phase = bool(
+                getattr(motion_ref, "random_start_phase", True)
+            )
+            if amp is None:
+                raise ValueError(
+                    "[IsaacLabConfig.from_training_spec] AMP_PPO requires "
+                    "spec.algorithm.il.amp but got None — the canvas "
+                    "amp_helper / discriminator node is missing. Refusing "
+                    "to substitute Go2-class AMP hyperparams (reward_coef=2, "
+                    "grad_penalty=10, etc.)."
+                )
+
+            def _required_amp_field(field_name: str, caster):
+                val = getattr(amp, field_name, None)
+                if val is None:
+                    raise ValueError(
+                        f"[IsaacLabConfig.from_training_spec] AMP_PPO "
+                        f"requires spec.algorithm.il.amp.{field_name} but "
+                        f"the field is None. Fix the canvas amp_helper "
+                        f"node's ParamSpec (CLAUDE.md §1.8)."
+                    )
+                try:
+                    return caster(val)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"[IsaacLabConfig.from_training_spec] amp.{field_name}="
+                        f"{val!r} is not coercible to {caster.__name__}."
+                    ) from exc
+
+            cfg.amp_reward_coef = _required_amp_field("amp_reward_coef", float)
+            cfg.amp_task_reward_lerp = _required_amp_field("task_reward_lerp", float)
+            cfg.amp_disc_grad_penalty = _required_amp_field("disc_grad_penalty", float)
+            cfg.amp_disc_label_smoothing = _required_amp_field("disc_label_smoothing", float)
+            cfg.amp_replay_buffer_size = _required_amp_field("amp_replay_buffer_size", int)
+            cfg.amp_num_preload_transitions = _required_amp_field("num_preload_transitions", int)
+            cfg.amp_disc_lr = _required_amp_field("disc_lr", float)
+            cfg.amp_lerp_schedule = str(getattr(amp, "lerp_schedule", "") or "")
+            disc = getattr(amp, "disc", None)
+            if disc is not None:
+                # disc subblock fields stay getattr-with-default since the
+                # disc subnode is itself optional (default behaviour =
+                # canonical clamps when no discriminator node is dropped).
+                # These ARE clamp/limit safety values, not training-corrupting
+                # hyperparams; keep current behavior.
+                cfg.amp_disc_logit_clamp_max = float(getattr(disc, "disc_logit_clamp_max", 4.0))
+                cfg.amp_reward_clamp_per_step = float(getattr(disc, "reward_clamp_per_step", 50.0))
+                cfg.amp_policy_std_clamp_max = float(getattr(disc, "policy_std_clamp_max", 1.5))
+                # discriminator-specific knobs that the trainer-level amp
+                # block does not carry (the trainer was being read as a
+                # fallback only). Without these forwards the canvas's
+                # discriminator node settings for custom lerp / obs
+                # routing were silently dropped on the way to launcher.
+                cfg.amp_lerp_schedule_json = str(getattr(disc, "lerp_schedule_json", "") or "")
+                cfg.amp_obs_fields = str(getattr(disc, "amp_obs_fields", "") or "")
+                cfg.amp_auto_inject_ref_obs = bool(getattr(disc, "auto_inject_ref_obs", True))
+                # When the user picked the "custom" preset on
+                # discriminator.lerp_schedule + filled lerp_schedule_json,
+                # the launcher's --unitport_amp_lerp_schedule expects a
+                # JSON anneal dict ({"start": ..., "end": ..., "over_iters": ...}).
+                # Override the enum-name forwarding so the JSON actually
+                # reaches the launcher; otherwise the user's custom
+                # schedule was a no-op.
+                _disc_lerp_mode = str(getattr(disc, "lerp_schedule", "") or "")
+                if _disc_lerp_mode == "custom" and cfg.amp_lerp_schedule_json:
+                    cfg.amp_lerp_schedule = cfg.amp_lerp_schedule_json
+                elif _disc_lerp_mode and _disc_lerp_mode != "none":
+                    cfg.amp_lerp_schedule = _disc_lerp_mode
             # amp_motion_files was already set above (motion_ref_all branch
             # — works for PPO + RSI too); no need to reset here.
 
@@ -481,26 +607,6 @@ class IsaacLabConfig:
             )
         return str(Path(self.unitport_launcher_path).resolve())
 
-    def _play_script(self) -> str:
-        """Return the absolute path to the play / export script.
-
-        For MVP, fall back to Isaac Lab's stock ``play.py`` next to
-        ``train.py``. UnitPort's il_play_launcher (which routes
-        UnitPort run-dirs around RSL-RL's hardcoded log_root_path
-        regex) lands in Phase 2.5.
-        """
-        if self.unitport_launcher_path:
-            base = Path(self.unitport_launcher_path).parent
-            cand = base / "il_play_launcher.py"
-            if cand.exists():
-                return str(cand)
-        if not self.isaac_lab_path:
-            raise RuntimeError("isaac_lab_path is empty — cannot resolve stock play.py")
-        return str(
-            Path(self.isaac_lab_path)
-            / "scripts" / "reinforcement_learning" / "rsl_rl" / "play.py"
-        )
-
     # ------------------------------------------------------------------
     # Subprocess command builder (verbatim from DEMO except for
     # _train_script default + the robot_asset_id branch which is gated
@@ -528,31 +634,39 @@ class IsaacLabConfig:
         return ["python", script, *args]
 
     def _write_win_wrapper(self, script: str, args: List[str]) -> str:
-        """Create a temp .bat that invokes isaaclab.bat's Python with quoting."""
+        """Create a temp .bat that invokes the registered Isaac Lab Python
+        with proper quoting.
+
+        Uses ``self.isaac_lab_python`` — resolved by
+        ``registers.backends._find_isaac_python`` at ``from_registers()`` time,
+        which checks ``_isaac_sim/``, ``.venv/Scripts/``, and ``CONDA_PREFIX``
+        in that order. Baking the already-resolved path in (instead of
+        re-discovering inside the .bat) avoids the silent fallback to
+        ``where python`` → system Python that occurs for pip-installed Isaac
+        Lab installs where ``_isaac_sim/`` does not exist (per CLAUDE.md §1.8
+        "no silent fallbacks — fail loud, always").
+        """
         import tempfile
 
-        lab_root = self.isaac_lab_path.replace("/", "\\")
+        if not self.isaac_lab_python or not Path(self.isaac_lab_python).exists():
+            raise RuntimeError(
+                "[IsaacLabConfig] cannot launch Isaac Lab: isaac_lab_python "
+                f"is unset or missing (got {self.isaac_lab_python!r}). "
+                "Re-register the Isaac Lab install via "
+                "EngineService.register_isaac_local(<root>) — "
+                "registers.backends._find_isaac_python must locate "
+                "_isaac_sim/python.bat OR .venv/Scripts/python.exe OR "
+                "CONDA_PREFIX/python.exe under the root."
+            )
+
+        python_exe = self.isaac_lab_python.replace("/", "\\")
         args_str = " ".join(f'"{a}"' if " " in a else a for a in args)
         content = (
             "@echo off\r\n"
             "setlocal EnableExtensions EnableDelayedExpansion\r\n"
-            f'set "ISAACLAB_PATH={lab_root}"\r\n'
-            'rem --- discover python (same logic as isaaclab.bat) ---\r\n'
-            'if not "%CONDA_PREFIX%"=="" (\r\n'
-            '    set "python_exe=%CONDA_PREFIX%\\python.exe"\r\n'
-            ') else (\r\n'
-            '    set "python_exe=%ISAACLAB_PATH%\\_isaac_sim\\python.bat"\r\n'
-            ')\r\n'
+            f'set "python_exe={python_exe}"\r\n'
             'if not exist "!python_exe!" (\r\n'
-            '    for /f "delims=" %%i in (\'where python\') do (\r\n'
-            '        if not defined python_exe_found (\r\n'
-            '            set "python_exe_found=%%i"\r\n'
-            '        )\r\n'
-            '    )\r\n'
-            '    if defined python_exe_found set "python_exe=!python_exe_found!"\r\n'
-            ')\r\n'
-            'if not exist "!python_exe!" (\r\n'
-            '    echo [ERROR] No Python found for Isaac Lab\r\n'
+            f'    echo [ERROR] Isaac Python vanished: !python_exe!\r\n'
             '    exit /b 1\r\n'
             ')\r\n'
             'echo [INFO] Using python from: !python_exe!\r\n'
@@ -684,6 +798,17 @@ class IsaacLabConfig:
                         self.body_mapping_json.encode("utf-8")
                     ).decode("ascii")
                     args.extend(["--unitport_body_mapping", encoded])
+                # Stage 4: pass active format + IR-role→joint-name table
+                # so the launcher's RSI can map clip IR roles directly
+                # to physical joint names (no body+suffix heuristic).
+                if self.active_format:
+                    args.extend(["--unitport_active_format", self.active_format])
+                if self.joint_names_by_ir_json:
+                    import base64
+                    encoded = base64.b64encode(
+                        self.joint_names_by_ir_json.encode("utf-8")
+                    ).decode("ascii")
+                    args.extend(["--unitport_joint_names_by_ir", encoded])
                 # reference_frame_0 RSI needs the motion clip; carry the
                 # files even on the PPO path (the AMP block above only
                 # forwards them when algorithm == AMP_PPO).
@@ -725,22 +850,15 @@ class IsaacLabConfig:
         args.extend(self.extra_args)
         return self._build_launcher_cmd(self._train_script(), args)
 
-    def build_export_command(self, checkpoint_path: str) -> List[str]:
-        """Build command to export a trained policy via play.py."""
-        args = [
-            "--task", self.task_name,
-            "--num_envs", "1",
-            "--load_run", str(Path(checkpoint_path).parent),
-            "--load_checkpoint", str(Path(checkpoint_path).name),
-            "--headless",
-        ]
-        return self._build_launcher_cmd(self._play_script(), args)
-
-    def build_review_command(self, checkpoint_dir: str) -> List[str]:
-        """Build command to visually replay a trained policy (Isaac Sim viewport)."""
-        args = [
-            "--task", self.task_name,
-            "--num_envs", "1",
-            "--load_run", checkpoint_dir,
-        ]
-        return self._build_launcher_cmd(self._play_script(), args)
+    # Note: ``build_export_command`` and ``build_review_command`` were
+    # removed (CLAUDE.md §1.8/§1.9). The legacy export path spawned a
+    # second Isaac Sim subprocess via ``il_play_launcher.py`` to write
+    # ``policy.onnx`` as a side-effect; that path was redundant
+    # (bundle_finalizer converts ``.pt`` to ONNX in-process via
+    # ``export_rsl_rl_actor_to_onnx``) and a documented source of RTX
+    # scenedb crashes. The review path now goes through bundle-only
+    # ``IsaacSimReviewTask`` (see
+    # ``application/service/runtime/simulation/isaac_sim/review_session.py``)
+    # which reads ONNX + deploy_contract from the bundle directly,
+    # honouring CLAUDE.md §1.9 portable-artifact rule (no reach-back
+    # into local-only run_dir state).

@@ -1,12 +1,3 @@
-; Homepage — four-card empty-state landing page strings.
-;
-; Section names are the second segment of each tr() key:
-;   tr("homepage.user.headline_signed_out", ...)
-;   → file homepage.txt, section [user], option headline_signed_out
-;
-; New keys land here as we extend the homepage. Keep entries grouped by
-; the card that consumes them.
-
 [user]
 title = Account
 welcome_back_title = Welcome Back,
@@ -28,10 +19,24 @@ sign_out = Sign out
 learn_more = Learn more
 workspace_synced = Synced workspace · projects mirror to your account
 
-[news]
-title = News
-view_all = View all
-coming_soon = News feed coming soon.
+[community]
+title = Community
+support_us = Support Us
+tutorial_title = Official Tutorial
+tutorial_desc = Step-by-step guides for building, training, and deploying your robots with UnitPort Studio.
+tutorial_open = Open Link
+tutorial_coming_soon = Coming soon...
+releases_loading = Loading releases…
+releases_unavailable = Could not load releases. Check your network.
+releases_empty = No releases published yet.
+latest = Latest
+open_page = Open page
+download = Download
+current = Current
+days_ago = {n} days ago
+day_one = 1 day ago
+today = today
+yesterday = yesterday
 
 [projects]
 title = Local Files
@@ -39,6 +44,7 @@ view_all = View all workspaces
 refresh = Refresh
 refresh_tooltip = Refresh local files
 search_placeholder = Search canvases…
+snapshot_label = Snapshot:
 btn_migrate = Migrate
 btn_open_workspace = Open Local Workspace →
 migrate_title = Choose new workspace root
@@ -101,7 +107,7 @@ label_pick_project = Pick a project
 label_canvas_name = Canvas Name
 label_backend = Backend
 label_template = Choose a template
-placeholder_name = e.g. quadruped_demo (letters, digits, _ and -)
+placeholder_name = New Project Name
 placeholder_canvas = e.g. main
 engine_unavailable = unavailable
 error_no_name = Type a project name first.
@@ -114,3 +120,4 @@ error_no_backend = Pick a backend before creating.
 error_no_template = Pick a template (or '<Blank>') before creating.
 error_create_failed = Could not create project '{name}' (name may clash with an existing one — check the log).
 no_templates = No templates available for this backend.
+

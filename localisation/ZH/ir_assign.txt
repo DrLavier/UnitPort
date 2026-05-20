@@ -1,0 +1,16 @@
+[default]
+banner = 某些机器人关节/刚体无法自动分类。请在下方分配它们的 IR 角色以完成设置。
+cancel = 取消
+col_joint = 关节 / 刚体
+col_kind = 类型
+col_role = IR 角色
+confirm = 全部确认
+dialog_title = 为新机器人分配 IR 角色
+kind_body = 刚体
+kind_joint = 关节
+pending_robots = 待处理机器人
+right_title = 关节映射 — {robot}（{family}，{n} 个条目{plural}）
+role_out_of_scope = 
+status_pending = 已分配 {filled}/{total}
+status_ready = 已分配全部 {n} 项，可确认。
+

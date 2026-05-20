@@ -54,9 +54,75 @@ widget = "body_mapping_table"
 description = "body→IR-role 映射 (auto-resolved) / Body→IR-role mapping"
 
 [[parameters]]
+key = "_mjcf_base_offset_status"
+type = "string"
+default = ""
+widget = "mjcf_offset_badge"
+description = "MJCF 落地偏移 / MJCF base spawn-Z offset (auto-calibrated; read-only status)"
+
+[[parameters]]
 key = "target_height"
 type = "float"
 default = 0.0
 widget = "range"
 description = "目标高度 (0 = 跟随资产 nominal_height) / Standing-height override (0 = use asset nominal)"
 meta = { min = 0.0, max = 5.0, step = 0.01 }
+
+# ---------------------------------------------------------------------------
+# PD parameterization (sim2sim_mass-matrix-adaptive) — merged from
+# ex-ActuatorPDNode. Specifies (omega_n, zeta) per joint group; engine-
+# specific kp/kd are derived at runtime via application.physics.{mujoco,physx}_gain_solver.
+# All values are OPTIONAL — empty `pd_groups` ({}) means "use the family
+# default (omega_n, zeta) for every group" from
+# registers/data/pd_groups_defaults.json. spec_compiler merges
+# family defaults + canvas overrides into the canonical PDParam.
+# ---------------------------------------------------------------------------
+
+[[parameters]]
+key = "pd_param_mode"
+type = "enum"
+default = "natural_freq"
+choices = ["natural_freq"]
+description = "PD 参数化模式 / PD parameterization mode"
+
+[[parameters]]
+key = "pd_groups"
+type = "json"
+default = "{}"
+widget = "pd_param_table"
+description = "按关节组覆盖 (omega_n, zeta)；空 {} 表示全部使用 family 默认 / Per-group (omega_n, zeta) overrides; empty {} = family defaults for all groups"
+meta = { language = "json" }
+
+[[parameters]]
+key = "pd_effort_limit"
+type = "float"
+default = 30.0
+widget = "range"
+description = "扭矩上限 / Effort (torque) limit (N·m)"
+meta = { min = 0.0, max = 200.0, step = 1.0 }
+
+[[parameters]]
+key = "pd_velocity_limit"
+type = "float"
+default = 30.0
+widget = "range"
+description = "速度上限 / Joint velocity limit (rad/s)"
+meta = { min = 0.0, max = 100.0, step = 0.5 }
+
+[[parameters]]
+key = "pd_resolve_at_reset"
+type = "bool"
+default = true
+description = "每次 reset 重算 PD (跟随 DR 的 ωn/ζ/质量扰动) / Re-solve gains after each DR reset"
+
+[[parameters]]
+key = "pd_calibration_blocking"
+type = "bool"
+default = true
+description = "校准失败阻断 bundle 导出 / Block bundle export on calibration fail"
+
+[[parameters]]
+key = "pd_skip_calibration"
+type = "bool"
+default = false
+description = "跳过 step-response 校准 (跳过会被记入 provenance) / Skip calibration"

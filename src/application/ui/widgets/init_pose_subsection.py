@@ -260,20 +260,31 @@ class InitPoseSubsection(SectionFrame):
     # Helpers
     # ------------------------------------------------------------------
     def _resolve_ir_roles_for_sku(self, sku: str) -> List[str]:
-        """Return IR roles for ``sku`` in canonical registry order."""
+        """Return IR roles for ``sku`` in canonical registry order.
+
+        Reads from ``joints_per_format``; preserves order from MJCF first
+        (most robots' authoritative source), then USD/URDF additions. The
+        IR role set is identical across formats by construction (same
+        canonical role catalog), so the merged order is what the user
+        expects to see in init-pose UI.
+        """
         if not sku:
             return []
         entry = _robots_registry.get_robot(sku)
         if not entry:
             return []
-        joints_dict = entry.get("joints", {}) or {}
+        per_format = entry.get("joints_per_format", {}) or {}
         roles: List[str] = []
-        for jspec in joints_dict.values():
-            if not isinstance(jspec, dict):
+        for fmt in ("MJCF", "USD", "URDF"):
+            block = per_format.get(fmt)
+            if not isinstance(block, dict):
                 continue
-            role = str(jspec.get("ir_role", "")).strip()
-            if role and role not in roles:
-                roles.append(role)
+            for jspec in block.values():
+                if not isinstance(jspec, dict):
+                    continue
+                role = str(jspec.get("ir_role", "")).strip()
+                if role and role not in roles:
+                    roles.append(role)
         return roles
 
     def _resolve_sku_display_name(self) -> str:

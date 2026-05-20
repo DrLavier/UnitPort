@@ -13,7 +13,7 @@ picks from. Each entry is a ``TrainingItem`` carrying:
 Data layout / Sources:
 
 * Factory defaults: ``data/commands_defaults.json``  (read-only)
-* User overlay   : ``~/UnitPort/registers/commands_custom.json``
+* User overlay   : ``<USER_CONFIG_DIR>/registers/commands_custom.json``
                    (merged on load via ``merge_user_extensions``;
                    written by ``save_user_item`` / ``delete_user_item``
                    through ``Storage.push_data`` — never into the

@@ -63,45 +63,107 @@ class JointIRResolver:
         # → "calf_FL"
     """
 
-    def __init__(self, robot: "RobotSpecRef") -> None:
+    def __init__(
+        self,
+        robot: "RobotSpecRef",
+        *,
+        active_format: Optional[str] = None,
+    ) -> None:
         if robot is None:
             raise ValueError("JointIRResolver requires a RobotSpecRef (got None)")
         self._robot = robot
 
-        ir_roles = list(getattr(robot, "joint_ir_roles", None) or [])
-        physical = list(getattr(robot, "joint_order", None) or [])
+        # Per-format schema (Stage 3): resolve which format's joint table
+        # to read. Caller can pin it explicitly; otherwise we use the
+        # spec's ``active_format``. Empty in both → fall back to the
+        # legacy flat ``joint_order`` (transitional safety net for
+        # callers that haven't been migrated yet).
+        fmt = str(active_format or "").strip().upper()
+        if not fmt:
+            fmt = str(getattr(robot, "active_format", "") or "").upper()
+        self._active_format = fmt
+
+        if fmt:
+            joints_role_map = robot.joints_role_map_for(fmt)
+            ir_roles: List[str] = list(robot.joint_ir_roles_for(fmt))
+            physical: List[str] = list(robot.joint_order_for(fmt))
+            if not ir_roles:
+                # CLAUDE.md §1.8: previously fell back to the flat
+                # ``joint_ir_roles`` / ``joint_order`` views (resolved via
+                # preferred_format) so a mid-rollout caller with the wrong
+                # active_format kept working. That silently substituted a
+                # different format's joint table — IL paths that asked for
+                # USD got MJCF when joints_per_format["USD"] was null. Fail
+                # loud so the data shape that produced this is fixed at the
+                # source (Dump <fmt> in the Robot Asset card).
+                raise ValueError(
+                    f"[JointIRResolver] robot sku={robot.sku!r} declares no "
+                    f"joints under joints_per_format[{fmt!r}] — the format "
+                    f"the resolver was bound to. Silent fallback to another "
+                    f"format's joint table is forbidden: joint orders differ "
+                    f"across MJCF / USD / URDF and serving the wrong table "
+                    f"corrupts every downstream IR↔physical mapping (PD "
+                    f"gains, init-pose, action-joint slot, bundle export). "
+                    f"Populate joints_per_format[{fmt!r}] first via the "
+                    f"Robot Asset card's Dump {fmt} button."
+                )
+        else:
+            ir_roles = list(getattr(robot, "joint_ir_roles", None) or [])
+            physical = list(getattr(robot, "joint_order", None) or [])
 
         if len(ir_roles) != len(physical):
             raise ValueError(
                 f"RobotSpecRef inconsistency: joint_ir_roles ({len(ir_roles)}) "
-                f"vs joint_order ({len(physical)}) length mismatch — "
-                f"the two parallel arrays MUST be the same length"
+                f"vs joint_order ({len(physical)}) length mismatch in format "
+                f"{fmt!r} — the two parallel arrays MUST be the same length"
             )
         if not ir_roles:
             raise ValueError(
-                f"RobotSpecRef sku={robot.sku!r} has empty joint arrays — "
-                f"the robot must have at least one joint with an ir_role "
-                f"declared in registers/data/robots_canonical.json"
+                f"RobotSpecRef sku={robot.sku!r} has empty joint arrays for "
+                f"format {fmt!r} — the robot must declare at least one joint "
+                f"with an ir_role under joints_per_format[{fmt!r}] in "
+                f"registers/data/robots_canonical.json (run Dump {fmt} "
+                f"in the Robot Asset card if the format is new)"
             )
 
         # Build forward + reverse maps for O(1) lookup.
+        # Bucket roles ({"misc"} + any "sensor*" prefix) are explicitly
+        # allowed to bind multiple physical joints — they're catch-all
+        # buckets, not 1:1 identifiers. The auto-suggester routes
+        # cosmetic / out-of-scope joints (Go2's Head_upper, base_white,
+        # IMU mounts, lidar mounts, ...) into these buckets; demanding
+        # uniqueness there would force Dump-time hand-disambiguation of
+        # joints the policy never actuates. Forward lookup
+        # (``to_physical("misc")``) for bucket roles is intentionally
+        # undefined and raises — callers should query specific physical
+        # names via ``to_ir`` instead.
         self._ir_to_physical: Dict[str, str] = {}
         self._physical_to_ir: Dict[str, str] = {}
+        self._bucket_ir_members: Dict[str, List[str]] = {}
         for ir, phys in zip(ir_roles, physical):
             ir = str(ir)
             phys = str(phys)
             if not ir:
                 raise ValueError(
                     f"RobotSpecRef sku={robot.sku!r} has a physical joint "
-                    f"{phys!r} with empty ir_role — every joint must declare "
-                    f"its ir_role in registers/data/robots_canonical.json"
+                    f"{phys!r} with empty ir_role in format {fmt!r} — "
+                    f"every joint must declare its ir_role in "
+                    f"registers/data/robots_canonical.json"
                 )
+            is_bucket = ir == "misc" or ir.startswith("sensor")
+            if is_bucket:
+                # Reverse map stays well-defined (each phys → its bucket).
+                # Forward map skipped — to_physical(bucket) is undefined.
+                self._physical_to_ir[phys] = ir
+                self._bucket_ir_members.setdefault(ir, []).append(phys)
+                continue
             if ir in self._ir_to_physical:
                 raise ValueError(
                     f"RobotSpecRef sku={robot.sku!r}: IR role {ir!r} is bound "
-                    f"to multiple physical joints "
+                    f"to multiple physical joints in format {fmt!r} "
                     f"({self._ir_to_physical[ir]!r} and {phys!r}) — IR roles "
-                    f"must be unique"
+                    f"must be unique (bucket roles 'misc' / 'sensor*' are "
+                    f"exempt from this rule)"
                 )
             self._ir_to_physical[ir] = phys
             self._physical_to_ir[phys] = ir
@@ -114,16 +176,32 @@ class JointIRResolver:
         """Translate one IR role to its physical joint name.
 
         Raises :class:`KeyError` (with a helpful message) if ``ir_role`` is
-        not a registered IR role for this robot.
+        not a registered IR role for this robot, or if it's a bucket role
+        (``misc`` / ``sensor*``) which deliberately maps 1:N.
         """
         try:
             return self._ir_to_physical[ir_role]
         except KeyError:
+            members = self._bucket_ir_members.get(ir_role)
+            if members is not None:
+                raise KeyError(
+                    f"IR role {ir_role!r} is a multi-bind bucket on robot "
+                    f"{self._robot.sku!r} (members: {members!r}). "
+                    f"to_physical() is undefined for buckets — query "
+                    f"specific physical names via to_ir() instead, or "
+                    f"iterate members via bucket_members({ir_role!r})."
+                ) from None
             raise KeyError(
                 f"IR role {ir_role!r} is not defined for robot "
                 f"{self._robot.sku!r} ({self._robot.name!r}). "
                 f"Valid IR roles: {sorted(self._ir_to_physical)}"
             ) from None
+
+    def bucket_members(self, ir_role: str) -> List[str]:
+        """Return the physical joints bound to a multi-bind bucket role
+        (``misc`` / ``sensor*``). Empty list when the role isn't a bucket
+        on this robot."""
+        return list(self._bucket_ir_members.get(ir_role, []))
 
     def to_physical_dict(self, ir_dict: Dict[str, T], *, where: str) -> Dict[str, T]:
         """Translate every key of ``ir_dict`` from IR role to physical name.
@@ -221,13 +299,22 @@ class JointIRResolver:
     def num_joints(self) -> int:
         return len(self._ir_to_physical)
 
+    @property
+    def active_format(self) -> str:
+        """The asset format whose joint table this resolver was bound to."""
+        return self._active_format
+
 
 # ---------------------------------------------------------------------------
 # Top-level convenience: SKU → resolver (deploy / sim review use this)
 # ---------------------------------------------------------------------------
 
 
-def make_resolver_for_sku(robot_sku: str) -> JointIRResolver:
+def make_resolver_for_sku(
+    robot_sku: str,
+    *,
+    active_format: Optional[str] = None,
+) -> JointIRResolver:
     """Build a :class:`JointIRResolver` from a registry SKU lookup.
 
     Used by the deploy stack (``PolicyRunner`` / ``ActionApplier`` /
@@ -235,6 +322,11 @@ def make_resolver_for_sku(robot_sku: str) -> JointIRResolver:
     a full ``TrainingSpec``.  Wraps ``registers.robots.get_robot_spec``
     + :meth:`RobotSpecRef.from_registry` so the deploy code path does not
     re-implement the lookup.
+
+    ``active_format`` (Stage 3): the format whose joint table to bind. If
+    omitted, falls back to the registry's ``preferred_format``. Deploy
+    callers should pin this explicitly when they know which asset their
+    sim review / runtime is loading (Isaac Sim → USD, MuJoCo → MJCF, …).
 
     Raises :class:`ValueError` if the SKU is unknown to the registry.
     """
@@ -253,8 +345,8 @@ def make_resolver_for_sku(robot_sku: str) -> JointIRResolver:
             f"by registers.robots.list_skus()."
         )
 
-    ref = RobotSpecRef.from_registry(rs)
-    return JointIRResolver(ref)
+    ref = RobotSpecRef.from_registry(rs, active_format=active_format or "")
+    return JointIRResolver(ref, active_format=active_format)
 
 
 __all__ = [

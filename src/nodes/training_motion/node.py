@@ -138,19 +138,6 @@ class TrainingMotionNode(BaseNode):
                       widget="training_items",
                       description="训练项字典（item_id → {enabled, speed, clip, advanced}）",
                       meta={"pin_on_collapse": True}),
-            # §1.5 AMP reward conflict analysis (migrated from amp_helper node).
-            # Backend keeps a single JSON blob with two keys:
-            #   ``analysis_result``  — list of RewardEvalItem dicts (Analyse 写入)
-            #   ``applied_overrides``— dict {reward_key: new_weight} (Apply Checked 写入)
-            # UI widget renders [☑, 项, 当前→推荐, reason] table + Analyze / Apply
-            # buttons; spec_compiler reads ``applied_overrides`` to override
-            # per-item / lone-fallback reward term weights.
-            ParamSpec(key="reward_analysis", type="json",
-                      default="{\"analysis_result\": [], \"applied_overrides\": {}}",
-                      widget="reward_conflict_table",
-                      description="AMP 奖励冲突分析（[项, 当前值, 推荐值] 表 + Analyze/Apply）",
-                      meta={"language": "json",
-                            "conditional_on": {"key": "consumer_mode", "op": "==", "value": "amp"}}),
             # §2 Global stick-shaping
             ParamSpec(key="mapping_mode", type="enum", default="linear",
                       choices=["linear", "deadzone", "exponential"],

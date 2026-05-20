@@ -1,0 +1,9 @@
+[default]
+ir_role_picker_unavailable = Impossible d'ouvrir le sélecteur de rôles IR
+joint_pose_editor_unavailable = Impossible d'ouvrir l'éditeur d'angles articulaires
+replace_canvas_text = Le chargement du modèle '{tpl}' remplacera tous les nœuds et arêtes dans '{name}'. Continuer ?
+replace_canvas_title = Remplacer le contenu du canevas
+review_pose_unavailable = Impossible de lancer Review Pose
+unsaved_text = {name} contient des modifications non enregistrées. Enregistrer avant de continuer ?
+unsaved_title = Modifications non enregistrées
+

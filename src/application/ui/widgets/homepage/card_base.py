@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCursor
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QCursor, QIcon
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from unitport_sdk import Config, I18n, tr
+from unitport_sdk import Assets, Config, I18n, tr
 
 
 class HomepageCard(QFrame):
@@ -133,11 +133,30 @@ class HomepageCard(QFrame):
 
     # ----- public --------------------------------------------------------
 
-    def set_action_link(self, key: str, default: str) -> None:
-        """Show the right-aligned link with text ``tr(key, default)``."""
+    def set_action_link(
+        self,
+        key: str,
+        default: str,
+        *,
+        icon: Optional[str] = None,
+    ) -> None:
+        """Show the right-aligned link with text ``tr(key, default)``.
+
+        ``icon``: optional bare stem passed to :meth:`Assets.find_icon`
+        (e.g. ``"coffee"``); when present the icon is rendered to the
+        left of the text at 16×16. Keyword-only so existing callsites
+        keep their text-only behaviour.
+        """
         self._action_key = key
         self._action_default = default
         self._action_btn.setText(tr(key, default))
+        if icon:
+            p = Assets.find_icon(icon)
+            if p is not None:
+                self._action_btn.setIcon(QIcon(str(p)))
+                self._action_btn.setIconSize(QSize(16, 16))
+        else:
+            self._action_btn.setIcon(QIcon())
         self._action_btn.setVisible(True)
 
     def clear_action_link(self) -> None:

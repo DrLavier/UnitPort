@@ -1,13 +1,14 @@
 """TrainingConfigPerspectiveCard — mission_panel 左卡片：训练配置透视.
 
-横向 4 个子区段：
-  1. _TrainingStatusSection   — 状态徽标 + 7 项实时指标 + [Start][Pause] 按钮
-                                 （合并 Start/Stop，状态联动顶部 main_row 按钮）
-  2. _TaskConfigSection        — 任务环境 (readonly) / 任务名 (readonly) / 链路 / 训练设备
-  3. _HyperparamSection        — 超参字段，与画布 ``is_trainer`` 节点双向同步
-  4. _RobotConfigSection       — Training Asset / Asset Files / Joint Mapping / Target Height
+横向 3 个子区段（左 → 右）：
+  1. _RobotConfigSection       — Training Asset / Asset Files / Joint Mapping / Target Height
                                   → 与画布 ``robot`` 节点 4 个 param 双向同步,
                                     数据直接落盘到 ``<canvas>.canvas.json``。
+  2. _HyperparamSection        — 超参字段，与画布 ``is_trainer`` 节点双向同步
+  3. _TrainingStatusSection   — 任务环境 / 任务名 (readonly, 旧 Task Config 合并入此)
+                                 + 状态徽标 + 7 项实时指标 + 训练设备
+                                 + [Link combo] [Start/Stop] 按钮行
+                                 （合并 Start/Stop，状态联动顶部 main_row 按钮）
 
 关键设计：
   - 卡片 ``set_canvas(page, file_id)`` 切换画布上下文；超参 / robot 字段从节点
@@ -479,6 +480,19 @@ class _TrainingStatusSection(_SectionFrame):
         )
         self.body_layout().addWidget(self._badge, 0)
 
+        # ---- merged-in Task Config: backend (=Task Backend) -------------
+        # 旧 Task Config 卡片合并入本区段：任务环境 (=Task Backend) 作为一条
+        # inline row 插入到状态徽标与"已训练时间"之间。任务名已废弃。
+        self._lbl_env_value = _ElidingValueLabel(_empty_text(), self._body)
+        self._lbl_env_value.setObjectName("missionTrainReadonlyValue")
+        self._row_task_env = self._make_inline_row(
+            "mission.train.field.task_env", "任务环境", self._lbl_env_value
+        )
+        self.body_layout().addWidget(self._row_task_env, 0)
+        # 当前画布后端 id（用于按 backend theme slot 给值文本染色）。
+        # 空字符串时回落到 ``main_t1``。
+        self._env_backend_id: str = ""
+
         self._row_elapsed = _StatusRow(
             "mission.train.field.elapsed", "已训练时间", self._body)
         self._row_iter = _StatusRow(
@@ -500,9 +514,40 @@ class _TrainingStatusSection(_SectionFrame):
         ):
             self.body_layout().addWidget(r, 0)
 
-        # ---- bottom Start button row ------------------------------------
-        # 按钮 row 紧贴在实时数据行下方(无上方 stretch),按钮右对齐;
-        # 多余的纵向空间放到按钮 row 之后。
+        # ---- merged-in Task Config: training device (between FPS and run row) ----
+        self._cb_device: LaviComboBox = setComboBox(
+            _list_devices(), height=28, i18n=False, parent=self._body
+        )
+        last_device = str(
+            Config.get_value(_USER_INI_SECTION, "device", "")
+        ).strip()
+        if last_device:
+            for i in range(self._cb_device.count()):
+                if self._cb_device.itemText(i) == last_device:
+                    self._cb_device.setCurrentIndex(i)
+                    break
+        self._cb_device.currentTextChanged.connect(
+            lambda v: Config.set_value(_USER_INI_SECTION, "device", str(v))
+        )
+        self._row_device = self._make_inline_row(
+            "mission.train.field.device", "训练设备", self._cb_device
+        )
+        self.body_layout().addWidget(self._row_device, 0)
+
+        # ---- bottom row: [stretch] [link combo] [Start button] ----------
+        # Link combo 去掉 title (旧"链路"label 取消)，与 Start 同一行紧邻其前。
+        self._cb_link: LaviComboBox = setComboBox(
+            [
+                ("mission.link.local", "本地"),
+                ("mission.link.cloud", "云端"),
+            ],
+            height=32,
+            i18n=True,
+            parent=self._body,
+        )
+        self._cb_link.setItemData(0, "local")
+        self._cb_link.setItemData(1, "cloud")
+
         self._btn_run: QPushButton = setButton(
             "mission.train.btn.start", 100, 32,
             kind="normal", spec="save", default="Start", parent=self._body,
@@ -515,9 +560,15 @@ class _TrainingStatusSection(_SectionFrame):
         btn_row_layout.setContentsMargins(0, 0, 0, 0)
         btn_row_layout.setSpacing(8)
         btn_row_layout.addStretch(1)
+        btn_row_layout.addWidget(self._cb_link, 0)
         btn_row_layout.addWidget(self._btn_run, 0)
         self.body_layout().addWidget(btn_row, 0)
         self.body_layout().addStretch(1)
+
+        # Link sync state — 顶部 [Local|Cloud] combo 双向同步（bind_link_combo 注入）
+        self._top_link_combo: Optional[QComboBox] = None
+        self._link_syncing: bool = False
+        self._cb_link.currentIndexChanged.connect(self._on_local_link_changed)
 
         # Run-mode state machine — moved verbatim from the old _RunControlSection.
         self._run_mode: str = "start"
@@ -533,6 +584,119 @@ class _TrainingStatusSection(_SectionFrame):
         # Singleton constructed lazily — guaranteed safe under QApplication.
         get_training_status_model()
         get_app_signals().training_status_changed.connect(self._on_status)
+
+    # ── merged Task Config helpers ───────────────────────────────────────
+    def _make_inline_row(
+        self,
+        label_key: str,
+        label_default: str,
+        value_widget: QWidget,
+    ) -> QWidget:
+        """Build a label-left / value-right inline row (mirrors `_StatusRow` style)."""
+        row = QWidget(self._body)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        label = I18nLabel(label_key, default=label_default, parent=row)
+        label.setObjectName("missionTrainStatRowLabel")
+        label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        layout.addWidget(label, 0)
+        layout.addWidget(value_widget, 1)
+        row.label = label  # type: ignore[attr-defined]
+        row.value = value_widget  # type: ignore[attr-defined]
+        return row
+
+    def _apply_env_value_style(self) -> None:
+        """Paint ``_lbl_env_value`` using the current backend's theme color.
+
+        Slot resolution goes through :func:`registers.backends.get_theme_slot`;
+        unknown / empty ids fall back to ``main_t1`` so the field never goes
+        unstyled.
+        """
+        font_normal = Config.get_font_size("size_normal")
+        slot = "main_t1"
+        if self._env_backend_id:
+            try:
+                from registers import backends as _backends
+                slot = _backends.get_theme_slot(self._env_backend_id) or "main_t1"
+            except Exception:
+                slot = "main_t1"
+        color = Config.get_color(slot)
+        self._lbl_env_value.setStyleSheet(
+            f"QLabel#missionTrainReadonlyValue {{ color: {color}; "
+            f"font-size: {font_normal}px; font-weight: 600; "
+            f"background: transparent; padding: 4px 6px; }}"
+        )
+
+    def set_canvas_context(self, backend_id: str, _file_id: str) -> None:
+        """画布切换时刷新任务环境 readonly 值 + 文字颜色（按后端 theme slot）。
+
+        任务环境字段走 ``registers.backends.get_display_name(eid)`` 拿面向用户
+        的显示名（"isaac_lab" → "IsaacLab"），core 不让 raw engine_id 出 UI。
+        值文本颜色取 ``registers.backends.get_theme_slot(eid)`` 对应的
+        ``Config.get_color(slot)``；为空时回落到 ``main_t1``。
+        ``_file_id`` 入参保留以维持调用方签名 —— 旧"任务名"行已删除。
+        """
+        be = (backend_id or "").strip()
+        if be:
+            try:
+                from registers import backends as _backends
+                display = str(_backends.get_display_name(be) or be).strip()
+            except Exception:
+                display = be
+            self._lbl_env_value.setText(display or _empty_text())
+        else:
+            self._lbl_env_value.setText(_empty_text())
+        self._env_backend_id = be
+        self._apply_env_value_style()
+
+    def bind_link_combo(self, top_combo: QComboBox) -> None:
+        """与顶部 [Local|Cloud] combo 双向同步。"""
+        self._top_link_combo = top_combo
+        self._sync_card_from_top()
+        top_combo.currentIndexChanged.connect(self._sync_card_from_top)
+
+    def _sync_card_from_top(self, *_: Any) -> None:
+        if self._top_link_combo is None:
+            return
+        if self._link_syncing:
+            return
+        data = str(self._top_link_combo.currentData() or "").strip().lower()
+        if not data:
+            return
+        target = 0 if data == "local" else 1
+        if self._cb_link.currentIndex() == target:
+            return
+        self._link_syncing = True
+        try:
+            self._cb_link.setCurrentIndex(target)
+        finally:
+            self._link_syncing = False
+
+    def _on_local_link_changed(self, _idx: int) -> None:
+        if self._top_link_combo is None:
+            return
+        if self._link_syncing:
+            return
+        data = str(self._cb_link.currentData() or "").strip().lower()
+        if not data:
+            return
+        target_idx = -1
+        for i in range(self._top_link_combo.count()):
+            if str(self._top_link_combo.itemData(i) or "").strip().lower() == data:
+                target_idx = i
+                break
+        if target_idx < 0:
+            return
+        if self._top_link_combo.currentIndex() == target_idx:
+            return
+        self._link_syncing = True
+        try:
+            self._top_link_combo.setCurrentIndex(target_idx)
+        finally:
+            self._link_syncing = False
 
     # ── run-button state machine ─────────────────────────────────────────
     def bind_run_buttons(
@@ -603,6 +767,22 @@ class _TrainingStatusSection(_SectionFrame):
             self._row_episode_length, self._row_fps,
         ):
             r.apply_theme()
+        # Merged Task Config: theme inline rows + readonly value labels + combos.
+        sub = Config.get_color("sub_t2")
+        font_small = Config.get_font_size("size_small")
+        inline_label_style = (
+            f"QLabel#missionTrainStatRowLabel {{ color: {sub}; "
+            f"font-size: {font_small}px; background: transparent; }}"
+        )
+        for row in (self._row_task_env, self._row_device):
+            row.label.setStyleSheet(inline_label_style)  # type: ignore[attr-defined]
+        # 值文本颜色由 _apply_env_value_style 按当前 backend theme slot 决定，
+        # 这里只统一应用一次（initial 或语言/主题切换后）。
+        self._apply_env_value_style()
+        for cb in (self._cb_link, self._cb_device):
+            refresher = getattr(cb, "refresh_style", None)
+            if callable(refresher):
+                refresher()
         refresher = getattr(self._btn_run, "refresh_style", None)
         if callable(refresher):
             refresher()
@@ -704,207 +884,11 @@ def _list_devices() -> List[str]:
 
 
 # ---------------------------------------------------------------------------
-# Section 2 — Task config
-# ---------------------------------------------------------------------------
-
-
-class _TaskConfigSection(_SectionFrame):
-    """任务环境（readonly）/ 任务名（readonly）/ 链路（与顶部 combo 同步）/ 训练设备."""
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(
-            "mission.train.section.task", "任务配置", parent
-        )
-
-        # readonly 值标签（任务环境 / 任务名）— 用 _ElidingValueLabel：宽度不够
-        # 时自动 ElideRight 截断（任务名可能是较长的画布文件名）。
-        self._lbl_env_value = _ElidingValueLabel(_empty_text(), self._body)
-        self._lbl_env_value.setObjectName("missionTrainReadonlyValue")
-        self._lbl_name_value = _ElidingValueLabel(_empty_text(), self._body)
-        self._lbl_name_value.setObjectName("missionTrainReadonlyValue")
-
-        # 链路 combo：local / cloud（与顶部 [Local|Cloud] 双向同步）
-        self._cb_link: LaviComboBox = setComboBox(
-            [
-                ("mission.link.local", "本地"),
-                ("mission.link.cloud", "云端"),
-            ],
-            height=28,
-            i18n=True,
-            parent=self._body,
-        )
-        # 把 itemData 设成 "local" / "cloud" 字面值，便于和顶部 combo 对应
-        self._cb_link.setItemData(0, "local")
-        self._cb_link.setItemData(1, "cloud")
-
-        # 训练设备 combo（保持 user.ini 持久化）
-        self._cb_device: LaviComboBox = setComboBox(
-            _list_devices(), height=28, i18n=False, parent=self._body
-        )
-        last_device = str(Config.get_value(_USER_INI_SECTION, "device", "")).strip()
-        if last_device:
-            for i in range(self._cb_device.count()):
-                if self._cb_device.itemText(i) == last_device:
-                    self._cb_device.setCurrentIndex(i)
-                    break
-        self._cb_device.currentTextChanged.connect(
-            lambda v: Config.set_value(_USER_INI_SECTION, "device", str(v))
-        )
-
-        # 任务环境 / 任务名：横向 label-left / value-right（与 _StatusRow 风格一致，
-        # 值列宽度不足时 ElideRight 截断）。链路 / 训练设备：保留竖排 _FormRow，
-        # combo 在窄列里更适合 label 上 / 控件下。
-        self._row_env = self._make_inline_row(
-            "mission.train.field.task_env", "任务环境", self._lbl_env_value
-        )
-        self._row_name = self._make_inline_row(
-            "mission.train.field.task_name", "任务名称", self._lbl_name_value
-        )
-        self._row_link = _FormRow(
-            "mission.train.field.link", "链路", self._cb_link, self._body
-        )
-        self._row_device = _FormRow(
-            "mission.train.field.device", "训练设备", self._cb_device, self._body
-        )
-        for r in (self._row_env, self._row_name, self._row_link, self._row_device):
-            self.body_layout().addWidget(r, 0)
-        self._rows: List[_FormRow] = [self._row_link, self._row_device]
-        self._inline_rows: List[QWidget] = [self._row_env, self._row_name]
-        self.body_layout().addStretch(1)
-
-        # 顶部 combo 句柄（bind_link_combo 注入）+ 防回环标志
-        self._top_link_combo: Optional[QComboBox] = None
-        self._link_syncing: bool = False
-        self._cb_link.currentIndexChanged.connect(self._on_local_link_changed)
-
-    def _make_inline_row(
-        self,
-        label_key: str,
-        label_default: str,
-        value_widget: QWidget,
-    ) -> QWidget:
-        """Build a label-left / value-right inline row (consistent with `_StatusRow`)."""
-        row = QWidget(self._body)
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(8)
-        label = I18nLabel(label_key, default=label_default, parent=row)
-        label.setObjectName("missionTrainStatRowLabel")
-        label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
-        layout.addWidget(label, 0)
-        layout.addWidget(value_widget, 1)
-        row.label = label  # type: ignore[attr-defined]
-        row.value = value_widget  # type: ignore[attr-defined]
-        return row
-
-    def apply_theme(self) -> None:
-        super().apply_theme()
-        for r in self._rows:
-            r.apply_theme()
-        sub = Config.get_color("sub_t2")
-        main = Config.get_color("main_t1")
-        font_small = Config.get_font_size("size_small")
-        font_normal = Config.get_font_size("size_normal")
-        label_style = (
-            f"QLabel#missionTrainStatRowLabel {{ color: {sub}; "
-            f"font-size: {font_small}px; background: transparent; }}"
-        )
-        for row in self._inline_rows:
-            row.label.setStyleSheet(label_style)  # type: ignore[attr-defined]
-        ro_style = (
-            f"QLabel#missionTrainReadonlyValue {{ color: {main}; "
-            f"font-size: {font_normal}px; background: transparent; "
-            f"padding: 4px 6px; }}"
-        )
-        self._lbl_env_value.setStyleSheet(ro_style)
-        self._lbl_name_value.setStyleSheet(ro_style)
-        for cb in (self._cb_link, self._cb_device):
-            refresher = getattr(cb, "refresh_style", None)
-            if callable(refresher):
-                refresher()
-
-    # ------ canvas binding ------------------------------------------------
-    def set_canvas_context(self, backend_id: str, file_id: str) -> None:
-        """画布切换时刷新任务环境 / 任务名 readonly 值。
-
-        任务环境字段走 ``registers.backends.get_display_name(eid)`` 拿面向用户
-        的显示名（"isaac_lab" → "IsaacLab"），core 不让 raw engine_id 出 UI。
-        """
-        be = (backend_id or "").strip()
-        if be:
-            try:
-                from registers import backends as _backends
-                display = str(_backends.get_display_name(be) or be).strip()
-            except Exception:
-                display = be
-            self._lbl_env_value.setText(display or _empty_text())
-        else:
-            self._lbl_env_value.setText(_empty_text())
-        # 任务名 = file_id 文件名 stem（去掉 .canvas.json）
-        if file_id:
-            stem = Path(str(file_id).replace("\\", "/").rsplit("/", 1)[-1])
-            name = stem.name
-            if name.endswith(".canvas.json"):
-                name = name[: -len(".canvas.json")]
-            self._lbl_name_value.setText(name or _empty_text())
-        else:
-            self._lbl_name_value.setText(_empty_text())
-
-    # ------ link combo sync ----------------------------------------------
-    def bind_link_combo(self, top_combo: QComboBox) -> None:
-        """与顶部 [Local|Cloud] combo 双向同步。"""
-        self._top_link_combo = top_combo
-        # 卡片初始值 ← 顶部
-        self._sync_card_from_top()
-        # 顶部变化 → 卡片
-        top_combo.currentIndexChanged.connect(self._sync_card_from_top)
-
-    def _sync_card_from_top(self, *_: Any) -> None:
-        if self._top_link_combo is None:
-            return
-        if self._link_syncing:
-            return
-        data = str(self._top_link_combo.currentData() or "").strip().lower()
-        if not data:
-            return
-        target = 0 if data == "local" else 1
-        if self._cb_link.currentIndex() == target:
-            return
-        self._link_syncing = True
-        try:
-            self._cb_link.setCurrentIndex(target)
-        finally:
-            self._link_syncing = False
-
-    def _on_local_link_changed(self, _idx: int) -> None:
-        if self._top_link_combo is None:
-            return
-        if self._link_syncing:
-            return
-        data = str(self._cb_link.currentData() or "").strip().lower()
-        if not data:
-            return
-        # 找顶部 combo 中匹配 itemData 的 index
-        target_idx = -1
-        for i in range(self._top_link_combo.count()):
-            if str(self._top_link_combo.itemData(i) or "").strip().lower() == data:
-                target_idx = i
-                break
-        if target_idx < 0:
-            return
-        if self._top_link_combo.currentIndex() == target_idx:
-            return
-        self._link_syncing = True
-        try:
-            self._top_link_combo.setCurrentIndex(target_idx)
-        finally:
-            self._link_syncing = False
-
-
-# ---------------------------------------------------------------------------
-# Section 3 — Hyperparams (canvas-bound, bidirectional)
+# Section 2 — Hyperparams (canvas-bound, bidirectional)
+#
+# Note: the former Task Config section (任务环境 / 任务名 / 链路 / 训练设备)
+# was merged into _TrainingStatusSection per UX redesign (2026-05); see the
+# merged-in block above.
 # ---------------------------------------------------------------------------
 
 
@@ -1305,22 +1289,31 @@ class _BodyMappingTable(QTableWidget):
         except Exception:
             joints_map = {}
 
-        # Step 2: required IR joint roles for this morphology.
+        # Step 2a: actuated-joint IR role ids for this morphology (used for
+        # bookkeeping when matching asset joints to canonical roles).
         try:
-            required_role_ids = list(get_joint_ir_roles(family))
+            actuated_role_ids = list(get_joint_ir_roles(family))
         except Exception as exc:
             log_warning(f"[mission.robot] get_joint_ir_roles failed: {exc!r}")
-            required_role_ids = []
+            actuated_role_ids = []
 
-        # Canonical labels for the family (so the Role column shows
-        # human-readable "Hip AA FL" rather than the raw id "hip_FL").
+        # Step 2b: canonical roles + REQUIRED-only joint role ids. Required
+        # is the gate for "show an empty placeholder row": the new humanoid
+        # catalog has ~30 optional multi-DOF/finger roles (hand_L, wrist_L,
+        # neck_yaw, thumb_2_L, ...) that should be silently skipped when the
+        # robot doesn't declare them — only required roles must surface as
+        # to-be-matched.
         try:
-            role_labels: Dict[str, str] = {
-                str(r.role_id): str(r.label)
-                for r in get_canonical_roles(family)
-            }
+            canonical_roles_list = list(get_canonical_roles(family))
         except Exception:
-            role_labels = {}
+            canonical_roles_list = []
+        role_labels: Dict[str, str] = {
+            str(r.role_id): str(r.label) for r in canonical_roles_list
+        }
+        required_joint_role_ids: set = {
+            str(r.role_id) for r in canonical_roles_list
+            if r.required and str(r.role_id) in set(actuated_role_ids)
+        }
 
         # Step 3a: current-state index of body_link → (role_id, label) coming
         # off the mapper (= canonical + user overrides). When the user has
@@ -1360,7 +1353,7 @@ class _BodyMappingTable(QTableWidget):
                     kind="role", body_text=jn, role_text=role_label,
                     body_link=body_link, role_id=role_id,
                 )
-                if role_id in required_role_ids:
+                if role_id in required_joint_role_ids:
                     matched_required.add(role_id)
             else:
                 self._add_row(
@@ -1369,8 +1362,11 @@ class _BodyMappingTable(QTableWidget):
                     body_link=body_link, role_id="",
                 )
 
-        # Step 4: required IR joint roles with no asset joint covering them.
-        for role_id in required_role_ids:
+        # Step 4: REQUIRED-only IR joint roles with no asset joint covering
+        # them. Optional roles (hand_L, wrist_L, finger roles, etc.) are
+        # silently skipped — see the required_joint_role_ids construction
+        # above; the rule is "show only Current-filled OR Role-required".
+        for role_id in required_joint_role_ids:
             if role_id in matched_required:
                 continue
             label = role_labels.get(role_id, role_id)
@@ -1958,6 +1954,43 @@ class _RobotConfigSection(_SectionFrame):
         finally:
             self._cb_files.blockSignals(False)
 
+    def _resolve_active_format_for_node(self) -> str:
+        """Resolve the canvas Robot node's effective asset format.
+
+        Delegates to :func:`application.ui.canvas.param_rows.resolve_active_format`
+        — the same helper the canvas BodyMappingTableRow uses — so the
+        Mission Control body_mapping table and the canvas table never
+        disagree on which per-format bucket of ``body_ir_overrides`` they
+        read/write. The function inspects ``active_override`` plus the
+        canvas-bound ``backend`` (isaac_lab prefers USD>URDF>MJCF,
+        everything else prefers MJCF>USD>URDF) and returns "MJCF" /
+        "USD" / "URDF" or "" when nothing is available.
+        """
+        if self._page is None or self._robot_node_id is None or self._asset is None:
+            return ""
+        try:
+            from application.ui.canvas.param_rows import resolve_active_format
+        except Exception as exc:
+            log_warning(
+                f"[mission.robot] resolve_active_format import failed: {exc!r}"
+            )
+            return ""
+        params = {
+            "active_override": self._page.get_node_param(
+                self._robot_node_id, "active_override", "auto",
+            ),
+            "backend": self._page.get_node_param(
+                self._robot_node_id, "backend", "sb3",
+            ),
+        }
+        try:
+            return str(resolve_active_format(params, self._asset) or "")
+        except Exception as exc:
+            log_warning(
+                f"[mission.robot] resolve_active_format failed: {exc!r}"
+            )
+            return ""
+
     def _refresh_body_mapping_from_overrides(self) -> None:
         """Rebuild ``BodyIRMapper`` from (asset, overrides) and feed the table."""
         if not self._current_sku or self._asset is None:
@@ -1976,11 +2009,26 @@ class _RobotConfigSection(_SectionFrame):
             self._mapper = None
             self._joints_tbl.set_data(self._asset, None)
             return
+        # Stage 3: resolve the display format through the same helper the
+        # canvas uses (`canvas.param_rows.resolve_active_format`), so the
+        # Mission Control table and the canvas Robot node's body_mapping
+        # table always agree on which format bucket of body_ir_overrides
+        # they read from. Without this, `active_override="auto"` made the
+        # canvas pick the backend-preferred format (USD for isaac_lab)
+        # while MC silently defaulted to MJCF → MC read an empty MJCF
+        # overrides bucket even when the user had assigned every joint
+        # on the canvas, and every row rendered as (Unassigned).
+        display_fmt = self._resolve_active_format_for_node() or None
         try:
-            mapper = BodyIRMapper.from_robot_asset(self._asset)
-            overrides = get_robot_asset_service().get_body_ir_overrides(
-                self._current_sku
-            )
+            mapper = BodyIRMapper.from_robot_asset(self._asset, active_format=display_fmt)
+            if display_fmt:
+                overrides = get_robot_asset_service().get_body_ir_overrides(
+                    self._current_sku, fmt=display_fmt,
+                )
+            else:
+                overrides = get_robot_asset_service().get_body_ir_overrides(
+                    self._current_sku
+                )
             if overrides:
                 apply_user_overrides(mapper, overrides)
             self._mapper = mapper
@@ -2235,8 +2283,13 @@ class _RobotConfigSection(_SectionFrame):
                 )
                 from application.training.body_ir import extract_user_overrides
                 overrides = extract_user_overrides(self._mapper)
+                # Stage 3: write back through the SAME format resolution
+                # the canvas uses (resolve_active_format → honors backend
+                # too, not just active_override) so MC edits land in the
+                # exact bucket the canvas BodyMappingTableRow will read.
+                fmt = self._resolve_active_format_for_node() or None
                 get_robot_asset_service().set_body_ir_overrides(
-                    self._current_sku, overrides if overrides else None,
+                    self._current_sku, overrides if overrides else None, fmt=fmt,
                 )
             except Exception as exc:
                 log_warning(
@@ -2316,14 +2369,13 @@ class TrainingConfigPerspectiveCard(QFrame):
         body_layout.setSpacing(8)
 
         self._sec_status = _TrainingStatusSection(body)
-        self._sec_task = _TaskConfigSection(body)
         self._sec_hyper = _HyperparamSection(body)
         self._sec_robot = _RobotConfigSection(body)
 
-        body_layout.addWidget(self._sec_status, 3)
-        body_layout.addWidget(self._sec_task, 3)
-        body_layout.addWidget(self._sec_hyper, 3)
+        # Robot Config (leftmost) → Hyperparameters → Training Status (rightmost).
         body_layout.addWidget(self._sec_robot, 4)
+        body_layout.addWidget(self._sec_hyper, 3)
+        body_layout.addWidget(self._sec_status, 3)
         outer.addWidget(body, 1)
 
         # Forward Robot Config's SKU changes so external listeners
@@ -2351,7 +2403,7 @@ class TrainingConfigPerspectiveCard(QFrame):
                 backend_id = str(page.backend_id or "")
             except Exception:
                 backend_id = ""
-        self._sec_task.set_canvas_context(backend_id, fid)
+        self._sec_status.set_canvas_context(backend_id, fid)
         self._sec_hyper.set_canvas(page, fid)
         self._sec_robot.set_canvas(page, fid)
 
@@ -2360,7 +2412,8 @@ class TrainingConfigPerspectiveCard(QFrame):
         self._sec_status.bind_run_buttons(top_start, top_stop)
 
     def bind_link_combo(self, top_combo: QComboBox) -> None:
-        self._sec_task.bind_link_combo(top_combo)
+        # Link combo lives in the (merged) status section now.
+        self._sec_status.bind_link_combo(top_combo)
 
     # ------------------------------------------------------------------
     # Theme
@@ -2384,7 +2437,6 @@ class TrainingConfigPerspectiveCard(QFrame):
             f"background: transparent; }}"
         )
         self._sec_status.apply_theme()
-        self._sec_task.apply_theme()
         self._sec_hyper.apply_theme()
         self._sec_robot.apply_theme()
 

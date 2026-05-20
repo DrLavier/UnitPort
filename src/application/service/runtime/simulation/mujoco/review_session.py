@@ -73,13 +73,16 @@ class MujocoReviewTask(Task):
     via ``task_finished`` signal.
 
     Default command policy:
-        Review starts with ``command=None`` ⇒ ObsBuilder feeds the
-        policy a zero ``velocity_command`` obs, so the robot stays
-        still. Isaac Lab UnitreeFlatVelocity trains 5% of envs at zero
-        command (``env.yaml rel_standing_envs=0.05``), so the policy
-        has seen this distribution and the standing pose is in-domain.
-        This matches user expectation that "Review = inspect spawn
-        pose, no auto-walk".
+        Review defaults to ``review_command=[0.0, 0.0, 0.0]`` (explicit
+        stand-still). Isaac Lab UnitreeFlatVelocity trains 5% of envs
+        at zero command (``env.yaml rel_standing_envs=0.05``), so the
+        policy has seen this distribution and the standing pose is
+        in-domain. This matches user expectation that "Review = inspect
+        spawn pose, no auto-walk".
+
+        Per CLAUDE.md §1.8, the command vector is required (no implicit-
+        zero fallback in ObsBuilder); a stand-still default must be
+        passed explicitly here.
 
         To drive a non-zero command, pass ``review_command=[vx, vy,
         vyaw]`` (callable path: canvas → ``review_launch_requested``
@@ -105,9 +108,15 @@ class MujocoReviewTask(Task):
         self._sku = str(sku)
         self._scene_id = str(scene_id)
         self._max_steps = int(max_steps)
-        self._review_command: Optional[List[float]] = (
+        # Explicit stand-still default (CLAUDE.md §1.8: no implicit-zero
+        # fallback in ObsBuilder._get_command — callers must pass an
+        # explicit command vector). Locomotion bundles take a 3-vector
+        # [vx, vy, vyaw]; if a future bundle uses a different command
+        # dim the policy-side _get_command will pad/truncate to its
+        # configured ``dim``.
+        self._review_command: List[float] = (
             [float(v) for v in review_command]
-            if review_command is not None else None
+            if review_command is not None else [0.0, 0.0, 0.0]
         )
         # Seconds to pause between episodes — gives the user time to see
         # the final pose before the next reset. ``0`` for back-to-back
@@ -211,30 +220,41 @@ class MujocoReviewTask(Task):
             # is unavailable / mode='off' the bus returns 0.0 for every
             # field — equivalent to "stand", which is what we want until
             # the user starts driving.
-            _static_fallback = self._review_command
+            _static_default = self._review_command
 
-            def _live_command_provider() -> Optional[List[float]]:
+            def _live_command_provider() -> List[float]:
+                # WHY KEPT (Rule 1.a/c — optional runtime input device):
+                # GlobalInputManager / CommandBus is an optional
+                # gamepad+keyboard bridge. When unavailable (mode=off,
+                # no controller plugged in, or the manager singleton
+                # not yet constructed), return the static default
+                # explicitly — never None, never a silent zero.
                 try:
                     from application.service.input.manager import (
                         get_global_input_manager,
                     )
                     mgr = get_global_input_manager()
                     if mgr is None:
-                        return _static_fallback
+                        return list(_static_default)
                     live = mgr.get_live_values()
                     return [
                         float(live.get("vx", 0.0)),
                         float(live.get("vy", 0.0)),
                         float(live.get("vyaw", 0.0)),
                     ]
-                except Exception:
-                    return _static_fallback
+                except Exception as exc:
+                    log_warning(
+                        f"[review/mujoco] live command read failed "
+                        f"({type(exc).__name__}: {exc}); using static "
+                        f"default {_static_default}"
+                    )
+                    return list(_static_default)
 
             log_info(
                 f"[review/mujoco] review loop starting · max_steps_per_episode="
                 f"{self._max_steps} · inter_episode_pause={self._inter_episode_pause:.1f}s "
                 f"· command_provider=GlobalInputManager "
-                f"(static_fallback={_static_fallback if _static_fallback is not None else 'zero'})"
+                f"(static_default={_static_default})"
             )
 
             # ── Episode loop ─────────────────────────────────────────
@@ -268,7 +288,7 @@ class MujocoReviewTask(Task):
                     env,
                     max_steps=self._max_steps,
                     render=True,
-                    command=_static_fallback,
+                    command=_static_default,
                     command_provider=_live_command_provider,
                 )
                 steps = int(getattr(result, "steps_run", 0))

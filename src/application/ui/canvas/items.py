@@ -232,6 +232,12 @@ class NodeItem(QGraphicsItem):
         # Populated by ``_paint_coverage_badge`` so ``mouseDoubleClickEvent``
         # can dispatch the Inspector dialog without re-computing the report.
         self._coverage_report_cache: Any = None
+        # Dump-health Badge state (Robot Node only — per-format dump
+        # state + cross-format gap + base-height offset). Populated by
+        # ``_paint_dump_health_badge`` for symmetry with the coverage
+        # cache so a future tooltip / context-menu can reuse the same
+        # snapshot without re-querying the registry.
+        self._dump_health_cache: Any = None
 
         # 构建端口
         self._in_ports: List["PortItem"] = []
@@ -262,6 +268,11 @@ class NodeItem(QGraphicsItem):
         # 双方持久化到 canvas JSON,通过 set_collapsed/set_disabled 公共方法变更。
         self._collapsed: bool = False
         self._disabled: bool = False
+        # Diagnostic state — set by canvas error reporter when a self-check
+        # (spec_validator / env_cfg_compiler) flags this node. Non-empty
+        # strings drive ``paint`` to draw a danger-zone outline. Cleared
+        # by ``mark_diagnostic(None)`` / next training submit.
+        self._diag_state: Optional[str] = None
         # 收纳态时由 _compute_layout 设置:展开按钮(chevron)的命中矩形(item-local)
         self._chevron_y: Optional[float] = None
         self._chevron_rect: Optional[QRectF] = None
@@ -394,6 +405,16 @@ class NodeItem(QGraphicsItem):
         # registers.rewards_coverage.evaluate for the rule semantics.
         self._paint_coverage_badge(painter)
 
+        # UX-3: Robot Node dump-health badge. Same visual pattern (tri-
+        # state coloured circle at the title-bar right edge) but on the
+        # robot node it reflects per-format dump state + cross-format
+        # IR-role coverage + base-height calibration. The Robot Node
+        # used to be "always green" because the only visible state was
+        # "asset_id picked", which let users sail past a stale MJCF
+        # table into a multi-hour training run that produced an
+        # undeployable bundle. Now the badge tells them up-front.
+        self._paint_dump_health_badge(painter)
+
         # 5. 端口行 tint + label（任何 tier 都画）
         self._paint_port_rows(painter, tier)
 
@@ -437,11 +458,39 @@ class NodeItem(QGraphicsItem):
         # 用户仍能看到选中态依稀边框透出。
         if self._disabled:
             overlay = QColor(Config.get_color(
-                "canvas_node_disabled_overlay", "#0A0A0AB0",
+                "canvas_node_disabled_overlay", "#1F1F1FE6",
             ))
             painter.setBrush(QBrush(overlay))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(self._bounding, CORNER_R, CORNER_R)
+
+        # 10. Diagnostic overlay — drawn on top of everything except the
+        # disable mask so the user immediately sees which node a
+        # self-check error refers to. Theme slot ``danger_zone`` carries
+        # the same red used by the placeholder-node border (consistent
+        # "something is wrong here" signal across canvas surfaces).
+        if self._diag_state == "danger":
+            danger_color = QColor(Config.get_color("danger_zone"))
+            danger_pen = QPen(danger_color, 2.4)
+            painter.setPen(danger_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(
+                self._bounding.adjusted(-1.0, -1.0, 1.0, 1.0),
+                CORNER_R + 1,
+                CORNER_R + 1,
+            )
+
+    def mark_diagnostic(self, state: Optional[str]) -> None:
+        """Set the diagnostic overlay state for this node and trigger a repaint.
+
+        ``state="danger"`` paints a danger-zone outline; ``None`` clears it.
+        Called by the canvas error reporter when self-check flags this node;
+        cleared on the next training submit.
+        """
+        if state == self._diag_state:
+            return
+        self._diag_state = state
+        self.update()
 
     def _paint_icon(
         self,
@@ -630,6 +679,185 @@ class NodeItem(QGraphicsItem):
         ))
         self.setToolTip("\n".join(tip_lines))
 
+    # ------------------------------------------------------------------
+    # Robot Node dump-health badge (UX-3)
+    # ------------------------------------------------------------------
+
+    def _is_robot_node(self) -> bool:
+        """True iff this node is the Robot Node — the only node carrying
+        a SKU and therefore eligible for the dump-health badge.
+        """
+        return self.manifest.id == "robot"
+
+    def _current_robot_sku(self) -> str:
+        """Resolve the canonical SKU from the Robot Node's asset_id param.
+
+        ``asset_id`` is the user-picked id (brand.model or alias); the
+        registry's ``resolve_id`` turns it into the canonical hex SKU
+        the rest of the pipeline keys off of. Empty string when the
+        param is unset or resolution fails — badge skips painting.
+        """
+        if not self._is_robot_node():
+            return ""
+        raw = ""
+        param_entry = self.params.get("asset_id")
+        if isinstance(param_entry, dict):
+            raw = str(param_entry.get("value") or "")
+        else:
+            raw = str(param_entry or "")
+        raw = raw.strip()
+        if not raw:
+            return ""
+        try:
+            from registers import resolve_id
+            return resolve_id(raw) or raw
+        except Exception:
+            return raw
+
+    def _dump_health_badge_rect(self) -> QRectF:
+        """Badge sits just left of the icon, mirroring the coverage badge slot.
+
+        Robot Node never carries a coverage badge (not phase-aware), so
+        the two badges never overlap; we can share the rect formula.
+        """
+        icon_x = self._width - H_PAD - ICON_SIZE
+        return QRectF(
+            icon_x - BADGE_GAP - BADGE_SIZE,
+            (TITLE_H - BADGE_SIZE) * 0.5,
+            BADGE_SIZE, BADGE_SIZE,
+        )
+
+    def _paint_dump_health_badge(self, painter: "QPainter") -> None:
+        """Tri-state Robot Node badge: per-format dump + cross-format gap.
+
+        Cached health stays on ``self._dump_health_cache`` so the
+        mouseDoubleClickEvent handler can re-use it without recomputing.
+        """
+        if not self._is_robot_node():
+            return
+        sku = self._current_robot_sku()
+        if not sku:
+            self._dump_health_cache = None  # type: ignore[attr-defined]
+            return
+        try:
+            from application.ui.dialogs.joint_mapping_dialog import (
+                JointMappingHealth,
+            )
+            health = JointMappingHealth.build(sku)
+        except Exception:
+            # Best-effort: a registry/import failure must NOT block node
+            # paint. Skip the badge silently — the user's canvas keeps
+            # rendering even if introspection breaks.
+            self._dump_health_cache = None  # type: ignore[attr-defined]
+            return
+        self._dump_health_cache = health  # type: ignore[attr-defined]
+
+        # Decide severity.
+        # red    — neither format dumped, OR active_format empty
+        # yellow — one format only / cross-format gap
+        # green  — both formats present and IR-role sets agree
+        n_mjcf = len(health.mjcf_rows)
+        n_usd = len(health.usd_rows)
+        if not n_mjcf and not n_usd:
+            sev = "critical"
+        elif health.coverage_has_gap or (n_mjcf == 0) != (n_usd == 0):
+            sev = "warning"
+        else:
+            sev = "ok"
+
+        if sev == "critical":
+            bg_slot, glyph = "canvas_badge_critical", "!"
+        elif sev == "warning":
+            bg_slot, glyph = "canvas_badge_warning", "!"
+        else:
+            bg_slot, glyph = "safe_zone", "OK"
+
+        rect = self._dump_health_badge_rect()
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        bg = QColor(Config.get_color(bg_slot, "#999999"))
+        fg = QColor(Config.get_color("canvas_badge_text", "#0A0A0A"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(rect)
+        painter.setPen(QPen(fg))
+        f = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        f.setPixelSize(9 if len(glyph) > 1 else 11)
+        f.setBold(True)
+        painter.setFont(f)
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), glyph)
+        painter.restore()
+
+        # Tooltip carries the actionable summary. Reusing setToolTip
+        # here is safe because Robot Node is not phase-aware and the
+        # coverage badge tooltip writer never fires on it.
+        offset_overlay = health.height_offset or {}
+        offset_z = offset_overlay.get("offset_z")
+        if offset_z is None:
+            offset_str = tr(
+                "canvas.robot.health.offset_uncalibrated",
+                "(not calibrated)",
+            )
+        else:
+            try:
+                offset_str = f"{float(offset_z):.4f} m"
+            except (TypeError, ValueError):
+                offset_str = str(offset_z)
+        tip_lines = [
+            tr("canvas.robot.health.title", "Robot dump health"),
+            tr(
+                "canvas.robot.health.counts",
+                "MJCF: {m} joints  ·  USD: {u} joints  ·  base offset: {off}",
+            ).format(m=n_mjcf, u=n_usd, off=offset_str),
+        ]
+        if sev == "critical":
+            tip_lines.append(tr(
+                "canvas.robot.health.crit",
+                "Neither format has been dumped — open Robot Assets and "
+                "click Dump MJCF / Dump USD before training.",
+            ))
+        elif sev == "warning":
+            if n_mjcf == 0 or n_usd == 0:
+                missing_fmt = "MJCF" if n_mjcf == 0 else "USD"
+                tip_lines.append(tr(
+                    "canvas.robot.health.single",
+                    "Only {present} is dumped — the {missing} deploy target "
+                    "will be unavailable for bundles trained against this robot.",
+                ).format(
+                    present=("USD" if n_mjcf == 0 else "MJCF"),
+                    missing=missing_fmt,
+                ))
+            else:
+                aff = ", ".join(health.coverage_affected_targets) or "(see View joint mapping)"
+                tip_lines.append(tr(
+                    "canvas.robot.health.gap",
+                    "MJCF and USD declare different IR-role sets — affected: {aff}.",
+                ).format(aff=aff))
+        else:
+            tip_lines.append(tr(
+                "canvas.robot.health.ok",
+                "MJCF and USD agree on joint set — both deploy targets available.",
+            ))
+        tip_lines.append("")
+        tip_lines.append(tr(
+            "canvas.robot.health.double_click_hint",
+            "Double-click the badge for the full joint mapping table.",
+        ))
+        self.setToolTip("\n".join(tip_lines))
+
+    def _open_joint_mapping_dialog(self, event) -> None:
+        """Mouse-double-click dispatch: open the joint mapping dialog."""
+        sku = self._current_robot_sku()
+        if not sku:
+            return
+        try:
+            from application.ui.dialogs import JointMappingDialog
+            JointMappingDialog.open_for(None, sku)
+        except Exception:
+            # Dialog open failure must not crash the canvas. The dump
+            # health was already visible via the badge tooltip.
+            return
+
     def mouseDoubleClickEvent(self, event):  # type: ignore[override]
         """收纳态:双击节点体任意处展开。展开态:title 区域 → 改名;coverage badge 区 → Inspector。"""
         # 收纳态双击 → 展开(三种入口之一,与 chevron / toolbar 共用 _toggle_collapse_for_node)
@@ -640,6 +868,14 @@ class NodeItem(QGraphicsItem):
                 page._toggle_collapse_for_node(self.node_id)
             event.accept()
             return
+        # Robot Node dump-health badge dispatch (priority over title rename,
+        # because the badge sits in the right portion of the title bar).
+        if event.button() == Qt.MouseButton.LeftButton and self._is_robot_node():
+            rect = self._dump_health_badge_rect()
+            if rect.contains(event.pos()):
+                self._open_joint_mapping_dialog(event)
+                event.accept()
+                return
         # 展开态:Coverage badge dispatch(优先于 title rename,因为 badge 在右侧)
         if event.button() == Qt.MouseButton.LeftButton and self._is_coverage_node():
             rect = self._coverage_badge_rect()
@@ -1315,6 +1551,22 @@ class NodeItem(QGraphicsItem):
         except Exception:
             pass
         self._mark_edges_dirty()
+        # Canvas-derived-keys rule: when a Robot Node's asset_id changes,
+        # every downstream ActorSetting whose init_joint_angles key set
+        # is derived from that SKU must auto-reconcile. We dispatch from
+        # here so any pathway that mutates Robot Node params (UI edit,
+        # undo/redo, programmatic load) goes through the same hook.
+        try:
+            if (
+                str(getattr(self.manifest, "id", "") or "") == "robot"
+                and str(key) == "asset_id"
+            ):
+                from .param_rows import (
+                    _reconcile_downstream_actor_settings,
+                )
+                _reconcile_downstream_actor_settings(self)
+        except Exception:
+            pass
 
     def _refresh_conditional_visibility(self) -> None:
         """Apply ``ParamSpec.meta['conditional_on']`` and ``PortSpec.meta

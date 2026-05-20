@@ -1,0 +1,80 @@
+[language]
+title = Sélectionner la langue
+hint = Choisissez votre langue préférée pour UnitPort. Vous pourrez la changer plus tard depuis la barre latérale.
+ok = Continuer
+
+[wizard]
+window_title = UnitPort — Configuration personnalisée
+header_title = Configuration de UnitPort
+header_subtitle = Choisissez les composants à installer. Vous pourrez les modifier plus tard dans Paramètres.
+btn_skip = Ignorer la configuration
+btn_back = Retour
+btn_next = Suivant
+btn_finish = Terminer
+
+[data_dir]
+title = Répertoire de données
+hint = Choisissez où UnitPort stocke toutes les données par utilisateur : projets, politiques exportées, jetons de connexion, caches de télémétrie, moteurs téléchargés et surcharge user.ini. Le dossier d'installation de l'application n'est jamais écrit à l'exécution ; c'est donc ce répertoire qui survit aux redéploiements / git pull.
+label_dir = Rép. UserConfig :
+btn_browse = Parcourir ...
+btn_reset = Réinitialiser par défaut
+note = Par défaut : ~/UnitPort (résolu vers votre dossier personnel). Choisissez un autre disque si le disque C: manque d'espace.
+status_invalid = Chemin invalide
+status_default = Utilisation de l'emplacement par défaut.
+status_custom_exists = Emplacement personnalisé — existe déjà à {path}
+status_custom_create = Emplacement personnalisé — sera créé à {path}
+placeholder = Choisir un chemin absolu (ex. D:\UnitPort)
+status_relative = Le chemin doit être absolu (reçu : {path}).
+status_required = Requis — choisissez un chemin absolu pour la racine de l'espace de travail.
+
+[menagerie]
+title = Modèles MuJoCo Menagerie
+hint = Sélectionnez les modèles de robot dont vous avez besoin depuis mujoco_menagerie. Les modèles pris en charge par UnitPort sont présélectionnés. Les autres sont optionnels.
+btn_select_all = Tout sélectionner
+btn_deselect_all = Tout désélectionner
+btn_refresh = Actualiser depuis GitHub
+loading = Chargement de la liste des modèles depuis GitHub …
+
+[sdk]
+title = Paquets SDK
+hint = Sélectionnez les paquets SDK robot à télécharger. Seuls les éléments cochés seront clonés. Vous pourrez en installer davantage plus tard depuis Paramètres.
+
+[backend]
+title = Environnement backend
+hint = Configurez les backends de simulation pour l'entraînement et l'exécution. Décochez les éléments dont vous n'avez pas besoin pour accélérer la configuration.
+group_mujoco = MuJoCo
+cb_mujoco = Installer MuJoCo (paquet pip)
+cb_mujoco_tip = Requis pour la simulation et l'entraînement basés sur MuJoCo.
+cb_loco = Télécharger la bibliothèque de mouvements de référence loco-mujoco
+cb_loco_tip = Bibliothèque communautaire de mouvements de référence pour l'entraînement à la locomotion. Clonée depuis github.com/robfiras/loco-mujoco.
+group_ros2 = ROS2
+cb_ros2 = Installer le support ROS2
+cb_ros2_tip = Active les marques basées sur ROS2 (Unitree Go2, Mangdang Mini Pupper, …). Une installation native ROS2 Humble est réutilisée si disponible ; sinon l'image de pont Docker est construite.
+ros2_note = Détecte automatiquement une installation native ROS2 (Humble de préférence). Si aucune n'est présente, l'image de pont Docker UnitPort est construite à la place — Docker Desktop / Docker Engine doit être en cours d'exécution.
+group_isaac = Isaac Lab (NVIDIA)
+cb_isaac = Activer l'intégration Isaac Lab
+cb_isaac_tip = Isaac Lab fournit une simulation accélérée GPU via NVIDIA Isaac Sim. Vous pouvez l'installer maintenant ou pointer vers une installation existante.
+rb_isaac_install = Installer Isaac Lab + Isaac Sim (depuis zéro)
+rb_isaac_locate = Localiser une installation Isaac Lab existante
+rb_isaac_cloud = Déployer Isaac Lab sur un serveur Linux distant (SSH)
+install_hint = Choisissez le répertoire d'installation. Isaac Lab + Isaac Sim seront installés avec un venv dédié dans ce répertoire.
+isaac_install_dir_ph = Répertoire d'installation ...
+isaac_locate_dir_ph = Répertoire racine Isaac Lab ...
+install_note = Isaac Sim 5.1.0 | IsaacLab (verrouillé) | PyTorch 2.7+cu128\nDisque : ~30 Go | Requiert : GPU NVIDIA avec pilote CUDA 12.x
+isaac_valid = Installation Isaac Lab valide détectée
+isaac_invalid = Impossible de vérifier Isaac Lab à cet emplacement -- isaaclab.sh/bat ou le répertoire source/ est attendu
+cloud_hint = Saisissez les détails de connexion SSH du serveur GPU distant. Isaac Lab sera installé via SSH + SFTP.
+cloud_server_name = Nom du serveur :
+cloud_host = Hôte :
+cloud_port = Port :
+cloud_user = Nom d'utilisateur :
+cloud_auth = Auth :
+cloud_auth_key = Clé SSH
+cloud_auth_pwd = Mot de passe
+cloud_key_file = Fichier de clé :
+cloud_password = Mot de passe :
+cloud_remote_path = Chemin distant :
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (verrouillé) | PyTorch 2.7+cu128\nRequiert : Ubuntu 22.04+, GPU NVIDIA, CUDA 12.x, ~30 Go de disque
+custom_mods_hint = Dépôts optionnels de mouvements tiers / références AMP. Chacun est cloné superficiellement dans custom_mods/motions/. Laissez décoché pour ignorer — vous pourrez les installer plus tard en modifiant custom_mods/installs.txt.
+group_custom_mods = Bibliothèques de mouvements de référence (optionnel)
+

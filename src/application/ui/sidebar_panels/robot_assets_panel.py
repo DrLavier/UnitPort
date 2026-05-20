@@ -3,10 +3,10 @@
 Sidebar's Robot Asset panel is the **canonical entrypoint for editing the
 registers.robots register**. It surfaces every (brand, model) known to
 ``registers.robots`` — both canonical (factory ``data/robots_canonical.json``)
-and user-layer (``~/UnitPort/registers/robots_custom.json``) — and lets the
+and user-layer (``<USER_CONFIG_DIR>/registers/robots_custom.json``) — and lets the
 user add / edit / delete user-layer entries through :class:`RobotEditorDialog`.
 Per-asset selection / family-tag / body-IR override state still lives in
-``~/UnitPort/robot_assets/state.json`` via ``RobotAssetService``.
+``<USER_CONFIG_DIR>/robot_assets/state.json`` via ``RobotAssetService``.
 
 UI rules (CLAUDE.md §1.5):
     * every label uses size_small;
@@ -20,17 +20,21 @@ UI rules (CLAUDE.md §1.5):
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QSize, Qt, pyqtSlot
-from PyQt6.QtGui import QCursor
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSlot
+from PyQt6.QtGui import QAction, QCursor
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QMenu,
+    QMessageBox,
     QScrollArea,
     QSizePolicy,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -41,7 +45,9 @@ from unitport_sdk import (
     TagInput,
     i18n_bind,
     log_debug,
+    log_error,
     log_info,
+    log_warning,
     setButton,
     setText,
     tr,
@@ -53,8 +59,10 @@ from application.service.robot_assets import (
     STATUS_MISSING,
     STATUS_REMOTE,
     AssetRecord,
+    AssetRecordGroup,
     get_robot_asset_service,
 )
+from application.ui.dialogs.menagerie_browser_dialog import MenagerieBrowserDialog
 from application.ui.sidebar_panels.robot_editor_dialog import RobotEditorDialog
 
 
@@ -205,13 +213,63 @@ class _AssetCard(QWidget):
         tags_row.addWidget(self._tag_input, 1)
         body_layout.addLayout(tags_row)
 
-        # Disabled action buttons (Stage C tooling). Stacked vertically to fit
-        # inside the 280-px sidebar without overflow. "Download from HF" is
-        # hidden until the HF transport lands — re-add the tuple to surface it.
+        # Unified Dump button. The cascade in ``_on_dump_format`` already
+        # auto-runs the second format after the first succeeds, so two
+        # buttons were redundant — they did the same thing modulo which
+        # format ran first. Pick the available format as the "primary":
+        # prefer MJCF (in-process via mujoco, ~0.1s) over USD (Isaac Lab
+        # subprocess, ~5-30s) when both are available, since MJCF
+        # success warms the cascade fast.
+        mjcf_local = record.status.get("MJCF") == "local"
+        usd_avail = (
+            record.status.get("USD") in ("local", "remote")
+            or bool(record.canonical_url.get("USD"))
+        )
+        if mjcf_local:
+            primary_fmt = "MJCF"
+        elif usd_avail:
+            primary_fmt = "USD"
+        else:
+            primary_fmt = ""
+
+        dump_btn = setButton(
+            f"robot_assets.dump.{record.sku}", 0, 22,
+            kind="border", spec="none",
+            default=tr("robot_assets.dump", "Dump bodies / joints"),
+        )
+        dump_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        dump_btn.setEnabled(bool(primary_fmt))
+        if not primary_fmt:
+            dump_btn.setToolTip(
+                tr("robot_assets.dump_disabled",
+                   "Neither MJCF nor USD asset is available "
+                   "(no local file and no Nucleus URL declared)")
+            )
+        else:
+            dump_btn.clicked.connect(
+                lambda _c=False, sku=record.sku, fmt=primary_fmt:
+                self._on_dump_format(sku, fmt)
+            )
+        body_layout.addWidget(dump_btn)
+
+        # UX-1: dedicated "View joint mapping" entrypoint so users can
+        # inspect the joint table + height-offset state WITHOUT running
+        # a fresh dump. Opens the same dialog the dump-end shows.
+        view_mapping_btn = setButton(
+            f"robot_assets.view_mapping.{record.sku}", 0, 22,
+            kind="border", spec="none",
+            default=tr("robot_assets.view_mapping", "View joint mapping"),
+        )
+        view_mapping_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        view_mapping_btn.clicked.connect(
+            lambda _c=False, sku=record.sku: self._on_view_joint_mapping(sku)
+        )
+        body_layout.addWidget(view_mapping_btn)
+
+        # Coming-soon placeholders kept (calibrate xacro etc.)
         coming_soon = tr("robot_assets.coming_soon", "Coming soon")
         for key, default in (
             ("robot_assets.calibrate_xacro", "Calibrate XACRO"),
-            ("robot_assets.convert_usd",     "MJCF to USD"),
         ):
             btn = setButton(key, 0, 22, kind="border", spec="none", default=default)
             btn.setEnabled(False)
@@ -386,6 +444,280 @@ class _AssetCard(QWidget):
             self._record.brand, self._record.model, self._tag_input.get_values(),
         )
 
+    def _is_format_dump_available(self, fmt: str) -> bool:
+        """True iff this card's robot has the asset path/URL needed to dump ``fmt``.
+
+        Mirrors the per-format enablement logic used at button-construction
+        time (lines 226-249) so the cascade in :meth:`_on_dump_format` decides
+        the same way the explicit buttons would have.
+        """
+        f = (fmt or "").upper()
+        if f == "MJCF":
+            return self._record.status.get("MJCF") == "local"
+        if f == "USD":
+            return (
+                self._record.status.get("USD") in ("local", "remote")
+                or bool(self._record.canonical_url.get("USD"))
+            )
+        return False
+
+    def _dump_one_format(self, sku: str, fmt: str):
+        """Execute one dump_and_persist + emit log lines. Returns the DumpResult.
+
+        Extracted from :meth:`_on_dump_format` so the cascade can run the
+        same pipeline for the "other" format without duplicating
+        error-routing logic. The caller decides how to present results
+        (single dialog or combined).
+        """
+        log_info(f"[robot_assets] dump {fmt} start: sku={sku!r}")
+        result = self._svc.dump_and_persist(sku, fmt)
+        if result.ok:
+            log_info(
+                f"[robot_assets] dump {fmt} OK sku={sku!r}: "
+                f"{len(result.joints)} joints "
+                f"({result.n_joints_resolved} resolved), "
+                f"{len(result.bodies)} bodies "
+                f"({result.n_bodies_resolved} resolved), "
+                f"{result.n_unresolved} need manual IR-role assignment"
+            )
+        return result
+
+    def _on_view_joint_mapping(self, sku: str) -> None:
+        """Open the read-only joint mapping dialog without re-dumping.
+
+        Same dialog the post-dump cascade shows; this entry point lets
+        the user inspect the current state of the MJCF / USD per-format
+        tables + cached base-height offset at any time (e.g. before
+        clicking Play to confirm dump health, or after a registry
+        overlay edit to verify the result).
+        """
+        try:
+            from application.ui.dialogs import JointMappingDialog
+            JointMappingDialog.open_for(self, sku)
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                f"[robot_assets] JointMappingDialog open failed: {exc!r}"
+            )
+            QMessageBox.warning(
+                self,
+                tr("robot_assets.view_mapping_error_title",
+                   "Joint mapping unavailable"),
+                f"{exc}",
+            )
+
+    def _on_dump_format(self, sku: str, fmt: str) -> None:
+        """Dump MJCF / USD bodies + joints into the per-format registry slot.
+
+        Thin UI wrapper around :meth:`RobotAssetService.dump_and_persist`:
+        adds a busy cursor (USD path may block 5-30s) and routes errors
+        into QMessageBox for the user. The actual dump+persist pipeline,
+        seed map / family lookup, and exception handling all live in the
+        service so the canvas Body Mapping Refresh button can share it.
+
+        Single-click both-format sync: after the explicitly-clicked
+        format dumps successfully, automatically dump the OTHER format
+        too when its asset is declared. The two per-format tables must
+        agree on joint count for Isaac Lab → MuJoCo sim2sim (bundle
+        export's ``_derive_mujoco_pd_gains_for_bundle`` looks up every IR
+        role across BOTH tables); cascading the dump removes the
+        "I dumped USD but forgot MJCF (or vice versa) → bundle export
+        explodes on IR-role-not-in-MJCF" footgun. Cross-format joint
+        count drift after both dumps surfaces as a loud warning so the
+        user notices when their asset paths point at incompatible
+        variants (e.g. G1 ``scene.xml`` 29-DOF vs. ``g1.usd`` 43-DOF).
+        """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+
+        cascade_fmt = "MJCF" if fmt.upper() == "USD" else "USD"
+        do_cascade = self._is_format_dump_available(cascade_fmt)
+
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        try:
+            primary = self._dump_one_format(sku, fmt)
+            cascade = None
+            if primary.ok and do_cascade:
+                log_info(
+                    f"[robot_assets] cascading dump {cascade_fmt} after "
+                    f"successful {fmt} (single-click both-format sync)"
+                )
+                cascade = self._dump_one_format(sku, cascade_fmt)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        # Primary failure short-circuits everything — show the canonical
+        # per-error dialog and exit. Cascade is never attempted when
+        # primary fails (see guard above) so we don't need to merge here.
+        if not primary.ok:
+            self._show_dump_error(sku, fmt, primary)
+            return
+
+        # Cascade failure: primary succeeded, but the auto-second-format
+        # didn't. Surface as a warning (not a fatal) — the primary write
+        # IS already on disk and visible to the rest of the app. User may
+        # need to manually fix the cascade format (missing asset path,
+        # Isaac kit crash, etc.).
+        if cascade is not None and not cascade.ok:
+            log_warning(
+                f"[robot_assets] cascade dump {cascade_fmt} failed after "
+                f"successful {fmt}: kind={cascade.error_kind} "
+                f"msg={cascade.error!r}"
+            )
+            self._show_dump_error(sku, cascade_fmt, cascade, cascade=True)
+            # Fall through — still want to show the primary's success and
+            # any divergence info, since the primary IS a real change.
+
+        # Build the combined success dialog body.
+        lines = [self._format_success_line(fmt, primary)]
+        if cascade is not None and cascade.ok:
+            lines.append(self._format_success_line(cascade_fmt, cascade))
+
+            # Cross-format joint-count divergence — ADVISORY only. The
+            # two formats describing different DOF-variants only limits
+            # deploy-target availability (smaller-DOF format can't honor
+            # the trained joint set); training itself is unaffected.
+            # Hard block belongs at MuJoCo runtime load, not here.
+            n_primary = len(primary.joints)
+            n_cascade = len(cascade.joints)
+            if n_primary != n_cascade:
+                # Name the format with fewer joints — its deploy target
+                # is the one that loses coverage.
+                if n_primary < n_cascade:
+                    smaller_fmt, smaller_n, larger_fmt, larger_n = (
+                        fmt, n_primary, cascade_fmt, n_cascade,
+                    )
+                else:
+                    smaller_fmt, smaller_n, larger_fmt, larger_n = (
+                        cascade_fmt, n_cascade, fmt, n_primary,
+                    )
+                affected = (
+                    "MuJoCo deploy" if smaller_fmt == "MJCF"
+                    else "IsaacSim deploy"
+                )
+                lines.append(
+                    tr(
+                        "robot_assets.dump_format_mismatch",
+                        "\n⚠ {larger_fmt} has {larger_n} joints but "
+                        "{smaller_fmt} has {smaller_n}. Training is "
+                        "unaffected, but {affected} won't be available "
+                        "for bundles trained against the {larger_fmt}-side "
+                        "joint set. If you need both deploy targets, "
+                        "repoint the {smaller_fmt} asset to a matching "
+                        "variant (e.g. for G1 use scene_with_hands.xml "
+                        "alongside g1.usd) and re-Dump."
+                    ).format(
+                        smaller_fmt=smaller_fmt, smaller_n=smaller_n,
+                        larger_fmt=larger_fmt, larger_n=larger_n,
+                        affected=affected,
+                    )
+                )
+                log_warning(
+                    f"[robot_assets] joint-count divergence sku={sku!r}: "
+                    f"{smaller_fmt}={smaller_n} < {larger_fmt}={larger_n} "
+                    f"— {affected} target unavailable for bundles trained "
+                    f"against {larger_fmt}"
+                )
+
+        QMessageBox.information(
+            self,
+            tr("robot_assets.dump_done_title", "Dump complete"),
+            "\n".join(lines),
+        )
+
+        # UX-1: every dump (success or cascade-partial) now hands the user
+        # the full joint mapping table — what's matched, what's orphan,
+        # what's still unmapped, and the cached USD↔MJCF base-height
+        # offset. Closes the "30 joints written" → "user can't see if
+        # there's a problem" footgun the user explicitly called out.
+        try:
+            from application.ui.dialogs import JointMappingDialog
+            JointMappingDialog.open_for(self, sku)
+        except Exception as exc:  # noqa: BLE001
+            # Dialog failure must NOT block the dump itself — the dump
+            # already succeeded and registry is updated. Just log so the
+            # next dev sees the issue.
+            log_warning(f"[robot_assets] JointMappingDialog open failed: {exc!r}")
+
+    def _format_success_line(self, fmt: str, result) -> str:
+        """Build one human-readable success summary line for a completed dump."""
+        if result.n_unresolved == 0:
+            key, default = (
+                "robot_assets.dump_done_body_complete",
+                "{fmt}: {n_bodies} bodies / {n_joints} joints written. "
+                "Open the canvas Robot node to review IR-role assignments.",
+            )
+        else:
+            key, default = (
+                "robot_assets.dump_done_body_partial",
+                "{fmt}: {n_bodies} bodies / {n_joints} joints written. "
+                "{unresolved} entries could not be auto-mapped — open the "
+                "canvas Robot node BodyMappingTable to assign their IR roles "
+                "before training.",
+            )
+        return tr(key, default).format(
+            fmt=fmt,
+            n_bodies=len(result.bodies),
+            n_joints=len(result.joints),
+            unresolved=result.n_unresolved,
+        )
+
+    def _show_dump_error(self, sku: str, fmt: str, result, *, cascade: bool = False) -> None:
+        """Route a failed DumpResult into the canonical per-error QMessageBox."""
+        kind = result.error_kind
+        msg = result.error or "unknown error"
+        title_key = ("robot_assets.dump_cascade_error_title"
+                     if cascade else "robot_assets.dump_error_title")
+        title_default = (f"Cascade dump ({fmt}) failed"
+                         if cascade else "Dump failed")
+        if kind == "no_asset":
+            log_warning(f"[robot_assets] dump {fmt} failed: {msg}")
+            QMessageBox.warning(
+                self,
+                tr(title_key, title_default),
+                tr("robot_assets.dump_error_no_asset",
+                   "Cannot resolve robot asset for SKU {sku}").format(sku=sku),
+            )
+            return
+        if kind == "discovery":
+            log_warning(
+                f"[robot_assets] dump {fmt} discovery error sku={sku!r}: {msg}"
+            )
+            QMessageBox.warning(self, tr(title_key, title_default), msg)
+            return
+        if kind == "validation":
+            log_warning(
+                f"[robot_assets] dump {fmt} validation failed sku={sku!r}: {msg}"
+            )
+            QMessageBox.warning(
+                self,
+                tr(title_key, title_default),
+                tr("robot_assets.dump_error_validation",
+                   "Validation failed after writing {fmt} mapping:\n\n{exc}\n\n"
+                   "Open the canvas Robot node and fix the flagged "
+                   "joint/body IR roles, then re-Dump.").format(fmt=fmt, exc=msg),
+            )
+            return
+        if kind == "persist":
+            log_warning(
+                f"[robot_assets] dump {fmt} persist returned False sku={sku!r}"
+            )
+            QMessageBox.warning(
+                self,
+                tr(title_key, title_default),
+                tr("robot_assets.dump_error_persist",
+                   "Failed to persist discovered bodies for {fmt}").format(fmt=fmt),
+            )
+            return
+        # "unexpected" or any other kind — log error and surface raw msg
+        log_error(
+            f"[robot_assets] dump {fmt} unexpected error sku={sku!r}: {msg}"
+        )
+        QMessageBox.warning(
+            self,
+            tr(title_key, title_default),
+            f"Unexpected error: {msg}",
+        )
+
     def _on_combo_changed(self, kind: str, path: str) -> None:
         if not path:
             return
@@ -408,34 +740,193 @@ class _AssetCard(QWidget):
             )
 
 
+class _ModelGroupCard(QWidget):
+    """Card grouping a base + one or more variants under (brand, model_family).
+
+    Renders a header with the family display name, a horizontal chip strip
+    naming each variant (``variant_label``), and a body that hosts the
+    currently-selected variant's :class:`_AssetCard`. Switching chip
+    rebuilds the body in place — no QStackedWidget so each card pays one
+    AssetCard's worth of memory.
+    """
+
+    def __init__(
+        self,
+        group: AssetRecordGroup,
+        on_edit_request,
+        on_delete_request,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self._group = group
+        self._records: List[AssetRecord] = list(group.records)
+        self._on_edit_request = on_edit_request
+        self._on_delete_request = on_delete_request
+        self._active_sku: str = self._records[0].sku if self._records else ""
+
+        self.setObjectName("modelGroupCard")
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setStyleSheet(
+            f"#modelGroupCard {{ background: transparent;"
+            f" border: 1px solid {Config.get_color('sidebar_card_active_border')};"
+            f" border-radius: 4px; }}"
+        )
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(4, 2, 4, 4)
+        outer.setSpacing(2)
+
+        # ----- header (family display name) -----
+        header = QHBoxLayout()
+        header.setContentsMargins(4, 2, 4, 0)
+        # ``records[0].name`` carries the base robot's display ("Unitree Go2");
+        # we strip the variant tail ("Standard"/"Air") so the family header
+        # reads "Unitree Go2" rather than "Unitree Go2 Standard".
+        base = self._records[0] if self._records else None
+        family_name = (base.name if base else group.model_family) or group.model_family
+        title = setText(
+            f"robot_assets.family.{group.brand}.{group.model_family}",
+            default=family_name,
+            kind="title", size=_ss(),
+            color=Config.get_color("highlight"),
+        )
+        title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        title.setMinimumWidth(0)
+        title.setToolTip(family_name)
+        header.addWidget(title, 1)
+
+        count_chip = QLabel(f"× {len(self._records)}")
+        count_chip.setStyleSheet(
+            f"color: {Config.get_color('sub_t2')};"
+            f" background: transparent; font-size: {_ss()}px;"
+        )
+        header.addWidget(count_chip)
+        outer.addLayout(header)
+
+        # ----- variant chip strip -----
+        self._chip_row = QHBoxLayout()
+        self._chip_row.setContentsMargins(4, 0, 4, 4)
+        self._chip_row.setSpacing(4)
+        self._chips: Dict[str, QToolButton] = {}
+        for rec in self._records:
+            chip = QToolButton(self)
+            chip.setText(rec.variant_label or "Standard")
+            chip.setCheckable(True)
+            chip.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            chip.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            chip.setToolTip(rec.name or rec.sku)
+            chip.clicked.connect(
+                lambda _c=False, sku=rec.sku: self._on_chip_clicked(sku)
+            )
+            self._chips[rec.sku] = chip
+            self._chip_row.addWidget(chip)
+        self._chip_row.addStretch(1)
+        outer.addLayout(self._chip_row)
+        self._apply_chip_styles()
+
+        # ----- variant body host -----
+        self._body_host = QWidget(self)
+        body_layout = QVBoxLayout(self._body_host)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        self._body_layout = body_layout
+        outer.addWidget(self._body_host)
+
+        self._rebuild_body()
+
+    # ----- chip ------------------------------------------------------------
+
+    def _chip_qss(self, *, active: bool) -> str:
+        bg = (
+            Config.get_color("highlight") if active
+            else "transparent"
+        )
+        fg = (
+            Config.get_color("bg_1") if active
+            else Config.get_color("main_t2")
+        )
+        border = (
+            Config.get_color("highlight") if active
+            else Config.get_color("border_1")
+        )
+        return (
+            f"QToolButton {{ background: {bg}; color: {fg};"
+            f" border: 1px solid {border}; border-radius: 3px;"
+            f" padding: 1px 8px; font-size: {_ss()}px; }}"
+        )
+
+    def _apply_chip_styles(self) -> None:
+        for sku, chip in self._chips.items():
+            active = (sku == self._active_sku)
+            chip.setChecked(active)
+            chip.setStyleSheet(self._chip_qss(active=active))
+
+    def _on_chip_clicked(self, sku: str) -> None:
+        if sku == self._active_sku:
+            # keep selection (toggle-back not allowed)
+            self._chips[sku].setChecked(True)
+            return
+        self._active_sku = sku
+        self._apply_chip_styles()
+        self._rebuild_body()
+
+    # ----- body ------------------------------------------------------------
+
+    def _rebuild_body(self) -> None:
+        while self._body_layout.count():
+            item = self._body_layout.takeAt(0)
+            w = item.widget() if item is not None else None
+            if w is not None:
+                w.deleteLater()
+        rec = next((r for r in self._records if r.sku == self._active_sku), None)
+        if rec is None:
+            return
+        card = _AssetCard(
+            rec,
+            on_edit_request=self._on_edit_request,
+            on_delete_request=self._on_delete_request,
+            parent=self._body_host,
+        )
+        self._body_layout.addWidget(card)
+
+
 class RobotAssetsPanel(QWidget):
     """Top-level Robot Asset content."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._svc = get_robot_asset_service()
+        self._pending_editor_queue: List[Dict[str, str]] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
         # ----- header -----
+        # NOTE: the leading "Registered robots" title was removed — the sidebar
+        # group already carries the panel title, so the inline label was
+        # redundant. A leading stretch keeps the action cluster (add /
+        # Menagerie / refresh) right-aligned where it used to sit.
         header = QHBoxLayout()
-        header.addWidget(setText(
-            "robot_assets.section", default="Registered robots",
-            kind="title", size=_ss(),
-        ), 1)
-        self._btn_add = setButton(
-            "robot_assets.add_robot", 24, 24,
-            kind="light", spec="none",
-            default="+",
+        header.addStretch(1)
+        self._btn_add = self._build_add_menu_button()
+        header.addWidget(self._btn_add)
+
+        # Width pinned to 110 px so the "M" head and "…" tail of "Menagerie…"
+        # render without clipping in both EN and ZH (the ZH localisation also
+        # keeps the literal "Menagerie…" word — see robot_assets.txt).
+        self._btn_menagerie = setButton(
+            "robot_assets.menagerie", 110, 24,
+            kind="border", spec="none",
+            default=tr("robot_assets.menagerie", "Menagerie…"),
         )
         i18n_bind(
-            self._btn_add, "setToolTip",
-            "robot_assets.add_robot_tip", "Register a new robot",
+            self._btn_menagerie, "setToolTip",
+            "robot_assets.menagerie_tip",
+            "Browse and download MuJoCo Menagerie packages",
         )
-        self._btn_add.clicked.connect(self._on_add_robot)
-        header.addWidget(self._btn_add)
+        self._btn_menagerie.clicked.connect(self._on_open_menagerie)
+        header.addWidget(self._btn_menagerie)
 
         self._btn_refresh = setButton(
             "robot_assets.refresh", 24, 24,
@@ -476,23 +967,183 @@ class RobotAssetsPanel(QWidget):
 
     # ----- actions --------------------------------------------------------
 
+    def _build_add_menu_button(self) -> QToolButton:
+        btn = QToolButton(self)
+        btn.setText("+")
+        btn.setFixedSize(QSize(24, 24))
+        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        btn.setStyleSheet(
+            f"QToolButton {{ background: transparent;"
+            f" color: {Config.get_color('main_t2')};"
+            f" border: 1px solid {Config.get_color('border_1')};"
+            f" border-radius: 3px; font-size: {_ss() + 1}px; }}"
+            f"QToolButton:hover {{ background: {Config.get_color('row_1')}; }}"
+            f"QToolButton::menu-indicator {{ image: none; width: 0; }}"
+        )
+        i18n_bind(
+            btn, "setToolTip",
+            "robot_assets.add_tip", "Register a new robot or variant",
+        )
+        menu = QMenu(btn)
+        act_new_model = QAction(self)
+        i18n_bind(act_new_model, "setText", "robot_assets.add_robot", "New model")
+        act_new_model.triggered.connect(self._on_add_robot_new_model)
+        menu.addAction(act_new_model)
+        act_new_variant = QAction(self)
+        i18n_bind(act_new_variant, "setText", "robot_assets.add_variant", "New variant of …")
+        act_new_variant.triggered.connect(self._on_add_robot_new_variant)
+        menu.addAction(act_new_variant)
+        btn.setMenu(menu)
+        # Keep a reference so the menu+actions outlive the local scope.
+        self._add_menu = menu
+        return btn
+
     def _on_refresh(self) -> None:
         n = self._svc.scan_and_merge()
         log_debug(f"[robot_assets] scan_and_merge -> {n} entries")
 
-    def _on_add_robot(self) -> None:
+    def _on_add_robot_new_model(self) -> None:
         dlg = RobotEditorDialog(existing=None, parent=self)
+        dlg.exec()
+
+    def _on_add_robot_new_variant(self) -> None:
+        from registers import robots as _robots
+        # Candidates = every registered robot that is NOT itself a variant.
+        candidates: List = []
+        for sku in _robots.list_skus():
+            if _robots.is_variant(sku):
+                continue
+            entry = _robots.get_robot(sku) or {}
+            label = entry.get("name") or f"{entry.get('brand', '')}.{entry.get('model', '')}"
+            candidates.append((label, sku))
+        if not candidates:
+            QMessageBox.information(
+                self,
+                tr("robot_assets.add_variant", "New variant of …"),
+                tr("robot_assets.add_variant_empty",
+                   "No base robots registered yet. Add a model first."),
+            )
+            return
+        candidates.sort(key=lambda kv: kv[0].lower())
+        labels = [kv[0] for kv in candidates]
+        chosen, ok = QInputDialog.getItem(
+            self,
+            tr("robot_assets.add_variant", "New variant of …"),
+            tr("robot_assets.pick_parent",
+               "Choose the base model this variant inherits from:"),
+            labels, 0, False,
+        )
+        if not ok or not chosen:
+            return
+        parent_sku = next(sku for lab, sku in candidates if lab == chosen)
+        dlg = RobotEditorDialog(existing=None, parent=self, parent_sku=parent_sku)
         dlg.exec()
 
     def _on_edit_robot(self, sku: str) -> None:
         from registers import robots as _robots
-        entry = _robots.get_robot(sku) or {}
-        dlg = RobotEditorDialog(existing=dict(entry, sku=sku), parent=self)
+        # Round-trip via the raw (pre-inheritance) view so variants don't
+        # accidentally persist inherited fields back into the user overlay.
+        entry = _robots.get_raw_robot(sku) or _robots.get_robot(sku) or {}
+        parent_sku = _robots.get_parent_sku(sku)
+        dlg = RobotEditorDialog(
+            existing=dict(entry, sku=sku),
+            parent=self,
+            parent_sku=parent_sku,
+        )
         dlg.exec()
 
     def _on_delete_robot(self, sku: str) -> None:
-        if self._svc.remove_user_robot(sku):
+        from registers.robots import CascadeProtectionError
+        try:
+            removed = self._svc.remove_user_robot(sku)
+        except CascadeProtectionError as exc:
+            QMessageBox.warning(
+                self,
+                tr("robot_assets.cascade_title", "Cannot delete"),
+                tr("robot_assets.cascade_body",
+                   "This robot has user variants that depend on it. "
+                   "Delete or detach the variants first.\n\n{detail}")
+                .replace("{detail}", str(exc)),
+            )
+            return
+        if removed:
             log_info(f"[robot_assets] removed user robot sku={sku}")
+
+    def _on_open_menagerie(self) -> None:
+        dlg = MenagerieBrowserDialog(parent=self)
+        dlg.download_finished.connect(self._on_menagerie_download_finished)
+        dlg.exec()
+
+    def _on_menagerie_download_finished(self, installed_names: List[str]) -> None:
+        """Stage 4: smart-match each newly-installed package.
+
+        Flow per package:
+          1. Rescan registry + asset state so canonical entries whose MJCF
+             path matches the new dir flip their status from remote/missing
+             to local (no editor needed).
+          2. ``try_match_menagerie_package`` — if a SKU resolves (canonical
+             or user-layer), log and move on.
+          3. Otherwise: queue a ``RobotEditorDialog`` pre-filled with brand /
+             model / mjcf so the user can register it as a new model. The
+             queue uses ``QTimer.singleShot`` so multiple unmatched packages
+             open the dialog one-at-a-time instead of stacking modals.
+        """
+        try:
+            self._svc.scan_and_merge()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[robot_assets] post-menagerie rescan failed: {exc}")
+
+        names = [str(n) for n in (installed_names or []) if n]
+        if not names:
+            return
+
+        unmatched: List[Dict[str, str]] = []
+        for dir_name in names:
+            matched = self._svc.try_match_menagerie_package(dir_name)
+            if matched:
+                log_info(f"[robot_assets] menagerie/{dir_name} -> {matched} (auto-attached)")
+                continue
+            hint = self._svc.menagerie_register_hint(dir_name)
+            unmatched.append(hint)
+
+        if not unmatched:
+            return
+        # Append to the panel's queue; if no editor is currently open, kick
+        # the next-tick scheduler so the first dialog opens shortly.
+        was_idle = not self._pending_editor_queue
+        self._pending_editor_queue.extend(unmatched)
+        if was_idle:
+            QTimer.singleShot(0, self._open_next_pending_editor)
+
+    def _open_next_pending_editor(self) -> None:
+        if not self._pending_editor_queue:
+            return
+        hint = self._pending_editor_queue.pop(0)
+        existing_seed = {
+            "brand": hint.get("brand", ""),
+            "model": hint.get("model", ""),
+            "name": hint.get("name", ""),
+            "assets": {"MJCF": hint.get("mjcf", "")},
+        }
+        # We use existing= with sku missing so RobotEditorDialog treats it as
+        # edit-mode display-only for brand/model (disabled). The user can
+        # still edit name/families/adapter/joints; on Save the dialog calls
+        # add_user_robot (not update) because saved_sku derives from build_sku
+        # and the entry won't already be in the registry.
+        # Simpler path: open in create-mode and pre-fill via setText.
+        dlg = RobotEditorDialog(existing=None, parent=self)
+        try:
+            dlg._brand.setText(existing_seed["brand"])
+            dlg._model.setText(existing_seed["model"])
+            dlg._name.setText(existing_seed["name"])
+            mjcf_row = dlg._path_rows.get("MJCF")
+            if mjcf_row is not None:
+                mjcf_row._edit.setText(existing_seed["assets"]["MJCF"])
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[robot_assets] menagerie editor prefill failed: {exc}")
+        dlg.finished.connect(lambda _r: QTimer.singleShot(0, self._open_next_pending_editor))
+        dlg.show()
 
     @pyqtSlot()
     def _refresh(self) -> None:
@@ -502,8 +1153,9 @@ class RobotAssetsPanel(QWidget):
             if w is not None:
                 w.deleteLater()
 
-        records: List[AssetRecord] = self._svc.list_assets()
-        if not records:
+        groups = self._svc.list_assets_grouped()
+        records_flat: List[AssetRecord] = [r for g in groups for r in g.records]
+        if not records_flat:
             placeholder = setText(
                 "robot_assets.empty_state",
                 default=(
@@ -515,12 +1167,21 @@ class RobotAssetsPanel(QWidget):
             placeholder.setWordWrap(True)
             self._host_layout.addWidget(placeholder)
         else:
-            for rec in records:
-                self._host_layout.addWidget(_AssetCard(
-                    rec,
-                    on_edit_request=self._on_edit_robot,
-                    on_delete_request=self._on_delete_robot,
-                ))
+            for group in groups:
+                if len(group.records) <= 1:
+                    self._host_layout.addWidget(_AssetCard(
+                        group.records[0],
+                        on_edit_request=self._on_edit_robot,
+                        on_delete_request=self._on_delete_robot,
+                        parent=self._host,
+                    ))
+                else:
+                    self._host_layout.addWidget(_ModelGroupCard(
+                        group,
+                        on_edit_request=self._on_edit_robot,
+                        on_delete_request=self._on_delete_robot,
+                        parent=self._host,
+                    ))
         self._host_layout.addStretch(1)
 
 

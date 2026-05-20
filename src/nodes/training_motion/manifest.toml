@@ -62,21 +62,6 @@ description = "训练项字典（item_id → {enabled, speed, clip, advanced}）
 meta = { pin_on_collapse = true }
 
 # ---------------------------------------------------------------------------
-# Parameters — §1.5 AMP reward conflict analysis (migrated from amp_helper)
-# ---------------------------------------------------------------------------
-# Single JSON blob carrying ``analysis_result`` (list of RewardEvalItem) +
-# ``applied_overrides`` (dict {key:new_weight}). UI widget renders
-# [☑, 项, 当前→推荐, reason] table + Analyze/Apply Checked buttons.
-
-[[parameters]]
-key = "reward_analysis"
-type = "json"
-default = "{\"analysis_result\": [], \"applied_overrides\": {}}"
-widget = "reward_conflict_table"
-description = "AMP 奖励冲突分析（[项, 当前值, 推荐值] 表 + Analyze/Apply）/ AMP reward-conflict table"
-meta = { language = "json", conditional_on = { key = "consumer_mode", op = "==", value = "amp" } }
-
-# ---------------------------------------------------------------------------
 # Parameters — §2 Global stick-shaping
 # ---------------------------------------------------------------------------
 

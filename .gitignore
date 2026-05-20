@@ -40,12 +40,16 @@ log/
 *.swp
 *.swo
 *.bak
+*.orig
 .cache/
 .pytest_cache/
+.idea/
+.vscode/
 
 # OS files
 .DS_Store
 desktop.ini
+Thumbs.db
 
 # Project-level ignores
 AGENTS.md

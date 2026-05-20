@@ -48,11 +48,11 @@ info_unlink_current_provider = 已取消当前登录方式的关联，稍后可�
 error_email_rate_limited = 请求过于频繁，请稍后再试。
 identity_conflict_title = 该登录方式已被占用
 identity_conflict_body = 无法关联 {provider}。
-
+	
 	该账号已经是另一个 UnitPort 用户，Supabase 不支持把两个已存在的账号合并。
-
+	
 	你可以直接用 {provider} 登录到那个账号，或者换一个 {provider} 账号试试。
-
+	
 	服务器返回：{message}
 identity_conflict_switch = 改用 {provider} 登录
 

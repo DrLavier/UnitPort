@@ -1,0 +1,20 @@
+[default]
+close_btn = Close
+dialog_title = MuJoCo Menagerie
+download_btn = Download selected
+download_busy = Already downloading; please wait.
+download_done = Downloaded {n} package(s).
+download_empty = Tick at least one package before clicking Download.
+download_failed = Download failed: {err}
+downloading = Sparse-checkout {n} package(s)…
+filter_ph = Filter packages…
+icons_offline = Icon fetch failed; cached icons still render.
+progress_icons = Fetching {n} preview icons…
+refresh_btn = Refresh from GitHub
+refresh_busy = Already refreshing; please wait.
+refresh_done = Refreshed: {n} packages.
+refresh_empty = GitHub returned an empty package list; keeping the snapshot.
+refresh_failed = Could not reach GitHub — keeping the bundled snapshot.
+refreshing = Fetching live package list from GitHub…
+status_line = {installed} / {total} installed · {selected} selected
+

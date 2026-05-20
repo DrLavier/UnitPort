@@ -27,7 +27,7 @@ icon = "actor_setting.svg"
 [[inputs]]
 name = "robot_pipe"
 type = "robot_pipe"
-description = "Structural body list / joint names from the paired Robot node"
+description = "Structural body list / joint names / PD parameterization from the paired Robot node"
 
 # ---------------------------------------------------------------------------
 # Outputs
@@ -64,7 +64,7 @@ type = "float"
 default = 0.4
 widget = "range"
 description = "初始 Z 位置 / Init world-frame Z (m)"
-meta = { min = 0.0, max = 5.0, step = 0.01 }
+meta = { min = 0.0, max = 2.4, step = 0.01 }
 
 # ---------------------------------------------------------------------------
 # Parameters — §2 Init joint angles (single source of truth)
@@ -128,9 +128,9 @@ meta = { conditional_on = { key = "init_pose_mode", op = "==", value = "referenc
 key = "contact_body_names"
 type = "json"
 default = "[]"
-widget = "code"
-description = "接触 body 名 (JSON list) / Contact-sensor body names"
-meta = { language = "json" }
+widget = "ir_body_picker"
+description = "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node)"
+meta = { source = "body", default_select_all = false, language = "json" }
 
 [[parameters]]
 key = "contact_history_length"
@@ -190,9 +190,9 @@ meta = { min = 0.0, max = 100.0, step = 0.5 }
 key = "action_joint_names_expr"
 type = "json"
 default = "[]"
-widget = "code"
-description = "动作关节名表达 (JSON list / regex) / Action joint names expr"
-meta = { language = "json" }
+widget = "ir_joint_picker"
+description = "动作关节 IR 角色 / Action joint IR roles (multi-select; empty = all, deselect to suspend)"
+meta = { source = "joint", default_select_all = true, language = "json" }
 
 [[parameters]]
 key = "action_scale"
@@ -246,12 +246,21 @@ meta = { min = 1, max = 1000000 }
 # Parameters — §7 Review Pose 按钮 (full-width teal button)
 # ---------------------------------------------------------------------------
 # 触发后用当前 init_pos_{x,y,z} + init_joint_angles 构造 InitPoseOverride，
-# 走上游 RobotNode 解析到的 SKU 提交 RobotReviewTask（纯加载 MJCF + 注入 pose）。
+# 走上游 RobotNode 解析到的 SKU 提交对应引擎的 ReviewTask（纯加载 USD/MJCF
+# + 注入 pose）。引擎下拉决定走 MuJoCo (RobotReviewTask) 还是 IsaacSim
+# (IsaacSimPoseReviewTask)。
+
+[[parameters]]
+key = "review_pose_engine"
+type = "enum"
+default = "mujoco"
+choices = ["mujoco", "isaac_sim"]
+description = "Review 引擎 / Review engine (mujoco = MJCF, isaac_sim = USD)"
 
 [[parameters]]
 key = "_review_pose"
 type = "string"
 default = ""
 widget = "actor_review_pose_button"
-description = "▶ Review init pose in MuJoCo viewer"
+description = "▶ Review init pose in selected engine"
 meta = { full_width_widget = true }

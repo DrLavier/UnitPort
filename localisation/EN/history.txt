@@ -1,0 +1,10 @@
+[default]
+clear_all = Clear All
+
+[row]
+delete.tip = Delete this run
+
+[confirm]
+clear_title = Clear all training history?
+clear_body = This deletes every run directory under <project>/training/runs/ and every canvas snapshot in _runs_/. This cannot be undone.
+

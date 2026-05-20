@@ -254,6 +254,7 @@ def check_topology(ir: "WorkflowIR") -> List[ValidationIssue]:
     issues.extend(_check_required_ports(ir))
     issues.extend(_check_reward_term_conflicts(ir))
     issues.extend(_check_base_asset_resolvable(ir))
+    issues.extend(_check_legacy_dr_fields(ir))  # R_DR1 — Stage H migration
     return issues
 
 
@@ -478,11 +479,117 @@ def check_spec(spec: "TrainingSpec") -> List[ValidationIssue]:
     issues.extend(_check_amp_wiring(spec))
     issues.extend(_check_robot(spec))
     issues.extend(_check_joint_ir_canonical(spec))   # R8 — Phase 5 IR-only contract
+    issues.extend(_check_init_joint_angles_in_range(spec))  # R_INIT1 — joint limit pre-flight
     issues.extend(_check_command_template_contract(spec))
     issues.extend(_check_recommended_reward_terms(spec))
     issues.extend(_check_sb3_reward_term_kinds(spec))
     issues.extend(_check_sb3_termination_kinds(spec))
+    issues.extend(_check_pd_param(spec))             # R_PD1..R_PD4 — sim2sim PD
     return issues
+
+
+def _check_legacy_dr_fields(ir: "WorkflowIR") -> List[ValidationIssue]:
+    """R_DR1 — surface legacy motor_strength_range / joint_damping_range.
+
+    Stage H of the sim2sim PD framework deleted these two DR knobs in
+    favor of ``omega_n_log_uniform`` / ``zeta_log_uniform``. Old
+    canvases save them verbatim — silently dropping them would mask the
+    user's expectation that "their DR was still applied"; loudly
+    pointing at the renamed field is the only acceptable behavior
+    (RELEASE/CLAUDE.md §1.8).
+    """
+    out: List[ValidationIssue] = []
+    for n in ir.nodes:
+        if n.schema_id != "domain_rand":
+            continue
+        # IRNode.params is Dict[str, IRParam] — membership test by key
+        # is enough; we only need to know whether the legacy field was
+        # persisted on this node.
+        params = n.params if hasattr(n, "params") and isinstance(n.params, dict) else {}
+        if "motor_strength_range" in params:
+            out.append(ValidationIssue(
+                code=IssueCode.UNKNOWN_PARAM_VALUE,
+                severity=Severity.ERROR,
+                node_id=n.id,
+                field="motor_strength_range",
+                message=(
+                    "domain_rand.motor_strength_range was replaced by "
+                    "omega_n_log_uniform (Stage H of the sim2sim PD "
+                    "framework). Open the Domain Rand node and re-pick "
+                    "the field — the new knob perturbs the canonical "
+                    "(ωn, ζ) parameterization instead of MJCF actuator "
+                    "gear, so the same DR semantics apply on IsaacLab/PhysX."
+                ),
+            ))
+        if "joint_damping_range" in params:
+            out.append(ValidationIssue(
+                code=IssueCode.UNKNOWN_PARAM_VALUE,
+                severity=Severity.ERROR,
+                node_id=n.id,
+                field="joint_damping_range",
+                message=(
+                    "domain_rand.joint_damping_range was replaced by "
+                    "zeta_log_uniform (Stage H of the sim2sim PD "
+                    "framework). Open the Domain Rand node and re-pick "
+                    "the field — the new knob perturbs the canonical ζ "
+                    "instead of MJCF dof_damping."
+                ),
+            ))
+    return out
+
+
+def _check_pd_param(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """R_PD1..R_PD4 — sim2sim PD parameterization integrity.
+
+    Most rules are enforced upstream:
+      * R_PD1 (unknown group for family) — ``spec_compiler._compile_pd_param``
+        emits at compile time.
+      * R_PD2 (omega_n / zeta out of range) — ``PDGroup.__post_init__``
+        raises at construction time.
+      * R_PD3 (at-most-one ActuatorPDNode) — IR layer's by_id collapses
+        duplicates onto the first instance; topology check below would
+        catch it if we add one, but spec-level we can only confirm the
+        single survivor is well-formed.
+      * R_PD4 (legacy stiffness/damping coexist with pd_param) — WARN
+        when both are non-default to direct the user toward cleanup.
+
+    The check below covers R_PD4 (the only rule that needs spec-level
+    state). Returns the issues list (possibly empty).
+    """
+    out: List[ValidationIssue] = []
+    actor = getattr(spec, "actor", None)
+    if actor is None:
+        return out
+    pd_param = getattr(actor, "pd_param", None)
+    if pd_param is None:
+        return out
+
+    # R_PD4: if pd_param is set, the legacy ActuatorConfig.stiffness/damping
+    # fields are dead. Warn the user that any value they typed there is
+    # ignored to avoid the "I edited stiffness and nothing changed"
+    # debugging trap.
+    legacy_actuator = getattr(actor, "actuator", None)
+    if legacy_actuator is not None:
+        # ActuatorConfig dataclass defaults: stiffness=25.0, damping=0.5.
+        if (
+            abs(float(getattr(legacy_actuator, "stiffness", 25.0)) - 25.0) > 1e-9
+            or abs(float(getattr(legacy_actuator, "damping", 0.5)) - 0.5) > 1e-9
+        ):
+            out.append(ValidationIssue(
+                code=IssueCode.UNKNOWN_PARAM_VALUE,
+                severity=Severity.WARNING,
+                node_id="actor_setting",
+                field="stiffness/damping",
+                message=(
+                    "ActuatorPDNode is wired; ActorSetting.stiffness / "
+                    "damping are ignored. Reset them to defaults (25.0 / "
+                    "0.5) to remove this warning. PD now flows through "
+                    "the canonical (omega_n, zeta) parameterization on "
+                    "ActuatorPDNode."
+                ),
+            ))
+
+    return out
 
 
 def _check_sb3_reward_term_kinds(spec: "TrainingSpec") -> List[ValidationIssue]:
@@ -756,8 +863,10 @@ def _check_sim_dt(spec: "TrainingSpec") -> List[ValidationIssue]:
 
 
 def _check_action_joints(spec: "TrainingSpec") -> List[ValidationIssue]:
-    """If actor.action_joint_names_expr is not empty, every name must be in
-    RobotSpec.joint_order (no regex support yet — Stage 4 may extend)."""
+    """If actor.action_joint_names_expr is not empty, every *literal* name must
+    be in RobotSpec.joint_order. Regex items (containing ``.*+?[](){}|^$\\``)
+    and the bare catchall ``".*"`` are passed through to Isaac Lab as-is —
+    matching the contract documented in ``_check_joint_ir_canonical``."""
     out: List[ValidationIssue] = []
     expr = spec.actor.action_joint_names_expr
     if not expr:
@@ -765,7 +874,13 @@ def _check_action_joints(spec: "TrainingSpec") -> List[ValidationIssue]:
     known = set(spec.robot.joint_order)
     if not known:
         return out  # robot not resolved; another check will flag
-    missing = [n for n in expr if isinstance(n, str) and n not in known]
+    regex_chars = set(".*+?[](){}|^$\\")
+    missing = [
+        n for n in expr
+        if isinstance(n, str) and n and n != ".*"
+        and not any(c in regex_chars for c in n)
+        and n not in known
+    ]
     if missing:
         out.append(ValidationIssue(
             code=IssueCode.UNMAPPED_ACTION_JOINTS,
@@ -844,6 +959,115 @@ def _check_robot(spec: "TrainingSpec") -> List[ValidationIssue]:
             message=(
                 f"robot {spec.robot.sku} has no declared joints; "
                 f"action_dim will fall back to 0"
+            ),
+        ))
+    return out
+
+
+def _check_init_joint_angles_in_range(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """R_INIT1 — every ``actor.joint_init`` angle must fall inside the robot's
+    physical joint limits.
+
+    Reads ranges from the robot's on-disk MJCF (resolved via
+    RobotAssetService → absolute path). The pipe carries USD data too,
+    but USD-side range extraction would require loading the asset inside
+    the IsaacLab venv; MJCF is the convenient cross-engine canonical
+    today. Skipped (with WARN) when the SKU has no on-disk MJCF.
+
+    Pinpointing on the canvas: the offending node is the
+    ``actor_setting`` node — the validator surfaces ``node_id`` on the
+    issue so the UI can highlight that node with the ``danger_zone``
+    theme color. CLAUDE.md §1.8: this is fail-loud at the earliest
+    possible boundary, preventing the silent corruption where the
+    canvas's inline view shows correct values but the slider editor
+    drops them and 0.0 gets emitted to env.yaml.
+    """
+    out: List[ValidationIssue] = []
+    if spec.actor is None:
+        return out
+    ji = getattr(spec.actor, "joint_init", None)
+    if not isinstance(ji, dict) or not ji:
+        return out
+    sku = str(getattr(spec.robot, "sku", "") or "")
+    if not sku:
+        return out
+
+    # Resolve MJCF via the same path the canvas / runtime uses.
+    try:
+        from application.service.robot_assets.service import (
+            get_robot_asset_service,
+        )
+        asset = get_robot_asset_service().resolve(sku)
+    except Exception:  # noqa: BLE001
+        return out
+    if asset is None or asset.mjcf_path is None or not asset.mjcf_path.is_file():
+        # No MJCF on disk — env_cfg_compiler's runtime validator still
+        # protects, just with a less-actionable error. We can't enforce
+        # the contract without the source-of-truth ranges.
+        return out
+
+    try:
+        import mujoco  # type: ignore
+    except Exception:  # noqa: BLE001
+        return out
+    try:
+        m = mujoco.MjModel.from_xml_path(str(asset.mjcf_path))
+    except Exception:  # noqa: BLE001
+        return out
+
+    # Map MJCF joint name → (lo, hi) when limited.
+    mj_ranges: dict[str, tuple[float, float]] = {}
+    for ji_id in range(m.njnt):
+        jname = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, ji_id)
+        if not jname:
+            continue
+        if not bool(m.jnt_limited[ji_id]):
+            continue
+        mj_ranges[jname] = (float(m.jnt_range[ji_id][0]),
+                            float(m.jnt_range[ji_id][1]))
+
+    # IR role → physical joint name via JointIRResolver (MJCF format).
+    try:
+        from application.training.joint_ir import JointIRResolver
+        resolver = JointIRResolver(spec.robot, active_format="MJCF")
+    except Exception:  # noqa: BLE001
+        return out
+
+    violations: List[tuple[str, str, float, float, float]] = []
+    for ir_role, angle in ji.items():
+        try:
+            phys = resolver.to_physical(str(ir_role))
+        except Exception:  # noqa: BLE001
+            continue
+        if phys not in mj_ranges:
+            continue
+        lo, hi = mj_ranges[phys]
+        try:
+            a = float(angle)
+        except (TypeError, ValueError):
+            continue
+        if a < lo or a > hi:
+            violations.append((str(ir_role), phys, a, lo, hi))
+
+    if violations:
+        bullet_lines = "\n".join(
+            f"  • IR role {ir!r} (physical {phys!r}): {a:.4f} rad "
+            f"outside [{lo:.4f}, {hi:.4f}]"
+            for ir, phys, a, lo, hi in violations
+        )
+        out.append(ValidationIssue(
+            code=IssueCode.PARAM_OUT_OF_RANGE,
+            severity=Severity.ERROR,
+            node_id="actor_setting",
+            field="init_joint_angles",
+            message=(
+                "actor_setting.init_joint_angles has angles outside the "
+                "robot's MJCF joint limits:\n" + bullet_lines + "\n\n"
+                "Open ActorSetting → init_joint_angles in the canvas and "
+                "pick a pose inside every joint's physical range. "
+                f"Reference for quadrupeds: hip ≈ 0, thigh ≈ 0.9, "
+                f"knee ≈ -1.55 to -1.8 (Spot bends backward, Go2 forward; "
+                f"check the per-joint range above)."
             ),
         ))
     return out

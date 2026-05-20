@@ -13,7 +13,7 @@ Only one function is meant to be called from main.py:
 from __future__ import annotations
 
 import sys
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
@@ -73,10 +73,31 @@ class DeeplinkHandler(QObject):
             self.url_received.emit(data)
 
 
-def install_single_instance_guard(argv: List[str]) -> Optional[DeeplinkHandler]:
-    """Return a live DeeplinkHandler if primary; None if a primary is already running.
+def install_single_instance_guard(
+    argv: List[str],
+) -> Tuple[Optional[DeeplinkHandler], bool]:
+    """Set up deep-link routing and decide whether to keep running.
 
-    When None is returned, caller should sys.exit(0) — pending URL was forwarded.
+    Returns ``(handler, should_exit)``:
+
+    * ``(DeeplinkHandler, False)`` — we are the primary. Use the handler
+      to receive deep-link URLs from future secondaries.
+    * ``(None, True)`` — we are a secondary launched WITH a
+      ``unitport://`` URL in argv. The URL has been forwarded to the
+      primary; the caller should ``sys.exit(0)`` before constructing
+      any windows.
+    * ``(None, False)`` — we are a secondary launched WITHOUT a
+      deep-link URL (a parallel install / dev test / second `start.bat`).
+      The caller should keep running as a standalone window. Note that
+      OS-level ``unitport://`` URL scheme registration is a single
+      global — OAuth callbacks will land in whichever primary is alive
+      at the moment the user clicks the link, not in this parallel
+      instance.
+
+    Compatibility note: prior versions returned ``Optional[DeeplinkHandler]``
+    and callers treated ``None`` as "exit". The split was needed because
+    the old shape conflated "we forwarded a URL" with "we are a secondary",
+    causing parallel ``start.bat`` launches to silently exit.
     """
     pending_url = _find_deeplink_url(argv)
 
@@ -88,10 +109,18 @@ def install_single_instance_guard(argv: List[str]) -> Optional[DeeplinkHandler]:
             probe.flush()
             probe.waitForBytesWritten(200)
             log_info(
-                f"[deeplink] forwarded deep-link to running instance: {pending_url[:80]}"
+                f"[deeplink] forwarded deep-link to running primary: "
+                f"{pending_url[:80]}"
             )
+            probe.disconnectFromServer()
+            return None, True
         probe.disconnectFromServer()
-        return None
+        log_info(
+            "[deeplink] another UnitPort primary is already running; "
+            "this process will continue as a parallel instance. "
+            "OAuth callbacks will route to the primary."
+        )
+        return None, False
 
     handler = DeeplinkHandler()
     if not handler.listen():
@@ -99,7 +128,7 @@ def install_single_instance_guard(argv: List[str]) -> Optional[DeeplinkHandler]:
             "[deeplink] running without single-instance guard — "
             "subsequent launches may not forward OAuth callbacks"
         )
-    return handler
+    return handler, False
 
 
 def find_deeplink_url(argv: Optional[List[str]] = None) -> Optional[str]:

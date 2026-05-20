@@ -6,6 +6,7 @@ expand = 展开
 skip = 禁用
 enable = 启用
 delete = 删除
+color = 选择颜色（右键重置）
 
 [group]
 default_title = 分组
@@ -33,6 +34,7 @@ true = 是
 false = 否
 no_items = （无内容）
 bool_check = ✔
+ir_picker_all = 全部（默认）
 
 [body_mapping]
 col_current = 当前
@@ -60,4 +62,35 @@ init_pose.unlimited_hint = （无限制）
 init_pose.empty = 该 SKU 没有可用关节。
 init_pose.review_button = 预览
 review_pose.button = 预览姿态
+
+[button]
+close = 关闭
+
+[error]
+copy.done = 已将画布错误报告复制到剪贴板。
+empty = （没有结构化问题）
+headline.errors = 画布存在 {e} 个必须修复的问题，修复后才能开始训练。
+headline.mixed = 画布存在 {e} 个错误和 {w} 个警告。请先修复下方错误后再重试。
+headline.unknown = 画布检查报告了一个问题。
+headline.warnings = 画布存在 {w} 个警告。
+hint = 下方每一项都指向触发检查的画布节点和参数。打开该节点，调整数值，保存画布后再试一次 ▶。
+title = 画布检查失败
+
+[rewards]
+coverage.add_set = 添加推荐组合
+coverage.banner.critical = 严重：一个或多个阶段缺少必需的负向奖励。训练可能产生原地甩肢等非预期行为。
+coverage.banner.ok = 所有阶段都具备正向 + 负向奖励覆盖。
+coverage.banner.warning = 警告：至少有一个阶段缺少推荐的奖励覆盖。
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = 阶段
+coverage.col.pos = +
+coverage.col.status = 状态
+coverage.double_click_hint = 双击标记以打开覆盖检查器。
+coverage.empty = 尚未配置奖励项，至少添加一项后才能评估覆盖情况。
+coverage.green = 所有阶段都具备正向 + 负向奖励覆盖。
+coverage.inspector.title = 奖励覆盖检查器
+coverage.red = 严重：一个或多个阶段缺少必需的约束奖励。
+coverage.title = 奖励覆盖
+coverage.yellow = 警告：至少有一个阶段缺少推荐奖励。
 

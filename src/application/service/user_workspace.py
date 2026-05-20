@@ -91,13 +91,23 @@ _MACHINE_STATE_FILES: tuple[tuple[str, str], ...] = (
 
 
 def default_user_config_dir() -> Path:
-    """Factory default WORKSPACE root — ``~/UnitPort``.
+    """**DEPRECATED — there is no default USER_CONFIG_DIR.**
 
-    This is **only** the absolute last-resort fallback when the user has
-    never configured a workspace location. ``read_workspace_root()`` is
-    what business code should call to discover the live WORKSPACE root.
+    Kept ONLY so older external callers don't crash on import; calling
+    this function always raises. The install wizard's
+    :class:`DataDirectoryPage` is the sole authoritative establisher
+    of ``USER_CONFIG_DIR``; before it runs the value is unset and any
+    code that would need a default is a boot-order bug to fix at the
+    source, not paper over.
     """
-    return Path.home() / "UnitPort"
+    raise RuntimeError(
+        "default_user_config_dir() has no value to return. "
+        "USER_CONFIG_DIR is established by the install wizard's "
+        "DataDirectoryPage and persisted into system.ini[Workspace].root + "
+        "[Resources].user_config_dir. Code reaching this function before "
+        "the wizard ran is a boot-order bug — fix the call site, do not "
+        "introduce a fallback."
+    )
 
 
 # ===========================================================================
@@ -312,15 +322,22 @@ def _delete_bootstrap_shim() -> bool:
 # ===========================================================================
 
 
-def read_workspace_root() -> Path:
+def read_workspace_root() -> Optional[Path]:
     """Resolve the live WORKSPACE root from ``system.ini[Workspace].root``.
+
+    Returns ``None`` when neither ``[Workspace].root`` nor
+    ``[Resources].user_config_dir`` is configured — that is the
+    correct state on the first launch BEFORE the install wizard's
+    DataDirectoryPage runs. Callers that need a Path must check for
+    ``None`` and either wait for the wizard or raise; there is no
+    fallback default.
 
     Resolution order:
       1. ``system.ini[Workspace].root`` if set;
-      2. Else derived from ``system.ini[Resources].user_config_dir``: if
-         its tail is ``_guest`` or a per-account slug, the parent; else
-         the path itself (legacy, where ``user_config_dir`` is the root);
-      3. ``default_user_config_dir()`` (``~/UnitPort``) — final fallback.
+      2. Else derived from ``system.ini[Resources].user_config_dir``:
+         if its tail is ``_guest`` or sits next to a ``_guest`` sibling,
+         the parent; else the path itself.
+      3. None — wizard has not yet been completed.
     """
     explicit = _read_system_ini_value("Workspace", "root")
     if explicit:
@@ -349,7 +366,7 @@ def read_workspace_root() -> Path:
         except OSError:
             pass
 
-    return default_user_config_dir()
+    return None
 
 
 def read_active_user() -> Optional[str]:
@@ -365,8 +382,21 @@ def read_active_username() -> Optional[str]:
 
 
 def machine_config_dir() -> Path:
-    """Machine-level shared root — same as the WORKSPACE root."""
-    return read_workspace_root()
+    """Machine-level shared root — same as the WORKSPACE root.
+
+    Raises ``RuntimeError`` if the workspace root is not yet configured
+    (wizard's DataDirectoryPage hasn't run). Machine-level state has
+    no business existing before the user has chosen WHERE.
+    """
+    root = read_workspace_root()
+    if root is None:
+        raise RuntimeError(
+            "machine_config_dir() called before WORKSPACE.root is "
+            "configured. The install wizard's DataDirectoryPage must "
+            "run first; fix the call site rather than introducing a "
+            "fallback."
+        )
+    return root
 
 
 # ===========================================================================
@@ -386,14 +416,27 @@ def machine_config_dir() -> Path:
 _MACHINE_LOCALE_FILENAME = "locale.ini"
 
 
-def _machine_locale_path() -> Path:
-    return machine_config_dir() / _MACHINE_LOCALE_FILENAME
+def _machine_locale_path() -> Optional[Path]:
+    """Return ``WORKSPACE/locale.ini`` or ``None`` when workspace unset.
+
+    A fresh install (wizard not yet run) has no workspace root and
+    therefore no place to store the device-level locale; the in-memory
+    SDK value carries the pick until the wizard runs.
+    """
+    root = read_workspace_root()
+    if root is None:
+        return None
+    return root / _MACHINE_LOCALE_FILENAME
 
 
 def read_machine_locale() -> Optional[str]:
-    """Return the device-level language code, or ``None`` if unset."""
+    """Return the device-level language code, or ``None`` if unset.
+
+    Also returns ``None`` if the workspace root is not yet configured —
+    the wizard hasn't run, so there's no file to read.
+    """
     path = _machine_locale_path()
-    if not path.exists():
+    if path is None or not path.exists():
         return None
     try:
         cp = ConfigParser()
@@ -407,11 +450,18 @@ def read_machine_locale() -> Optional[str]:
 
 
 def write_machine_locale(lang: str) -> None:
-    """Persist the device-level language code to ``WORKSPACE/locale.ini``."""
+    """Persist the device-level language code to ``WORKSPACE/locale.ini``.
+
+    No-op when the workspace root is not yet configured (fresh install
+    pre-wizard). The in-memory SDK value holds the pick until the wizard
+    establishes a workspace.
+    """
     lang = (lang or "").strip()
     if not lang:
         return
     path = _machine_locale_path()
+    if path is None:
+        return
     cp = ConfigParser()
     if path.exists():
         try:
@@ -726,7 +776,7 @@ def clear_shim() -> None:
     """Remove the legacy bootstrap shim AND clear ``[Resources].user_config_dir``.
 
     After this, the SDK falls back to its built-in default for
-    USER_CONFIG_DIR (``~/UnitPort``).
+    USER_CONFIG_DIR (``PROJECT_ROOT/runtime/user_config``; never ``~/UnitPort``).
     """
     _delete_bootstrap_shim()
     _patch_system_ini({
@@ -962,12 +1012,17 @@ def ensure_default_workspace_config(base_dir: Optional[Path] = None) -> bool:
       1. Rescue any legacy ``~/.unitport_paths.ini`` shim into
          ``system.ini`` (only filling gaps; never overwriting existing
          values), then delete the shim.
-      2. Resolve / persist ``[Workspace].root`` (derived from existing
-         user_config_dir, or default).
-      3. Validate ``[Resources].user_config_dir``:
-         * empty or pointing at a non-existent parent → initialise to
-           ``<root>/_guest/`` (the only path that materialises _guest);
-         * else **leave it alone** and just ensure the directory exists.
+      2. If ``[Workspace].root`` and ``[Resources].user_config_dir``
+         are BOTH unset → **return False immediately**. The install
+         wizard's :class:`DataDirectoryPage` is the authoritative
+         establisher; this function NEVER materialises a default
+         directory on the user's behalf. Silent fallback would write
+         files to a path the rest of the app never reads back from,
+         producing the illusion of saved state.
+      3. Otherwise (settings are configured): mkdir the configured
+         paths if missing (the user explicitly chose them so creating
+         is authorised), persist ``[Workspace].root`` if it was
+         derivable from ``user_config_dir``, and validate.
       4. If ``[Session]`` is empty but ``user_config_dir`` is a slug,
          recover session from on-disk ``session.json``.
 
@@ -991,19 +1046,42 @@ def ensure_default_workspace_config(base_dir: Optional[Path] = None) -> bool:
 
     rewritten = _delete_bootstrap_shim()
 
-    # Step 2 — resolve workspace root.
+    # Step 2 — refuse to materialise a default when both settings are blank.
+    # The wizard's DataDirectoryPage is the sole authority; here we only
+    # validate / mkdir paths the user has already authorised.
+    recorded_root = _read_system_ini_value("Workspace", "root").strip()
+    recorded_ucd = _read_system_ini_value("Resources", "user_config_dir").strip()
+    if not recorded_root and not recorded_ucd:
+        log_info(
+            "[workspace] [Workspace].root and [Resources].user_config_dir "
+            "are both unset; awaiting install wizard's DataDirectoryPage. "
+            "Refusing to materialise a default — anything written via "
+            "Storage.push before the wizard runs will raise loudly."
+        )
+        return rewritten   # only True if the legacy shim was deleted
+
     if base_dir is None:
         base_dir = read_workspace_root()
+        if base_dir is None:
+            # ``recorded_ucd`` was set but unparseable — log and skip
+            # without inventing anything.
+            log_warning(
+                f"[workspace] user_config_dir={recorded_ucd!r} could not "
+                f"be resolved to a Path; leaving system.ini alone. Re-run "
+                f"the wizard to pick a valid location."
+            )
+            return rewritten
     base = Path(base_dir).expanduser()
+    # User-authorised mkdir: this path comes from a value the user
+    # picked (either now or in a past wizard run), so creating it is
+    # legitimate.
     base.mkdir(parents=True, exist_ok=True)
 
-    recorded_root = _read_system_ini_value("Workspace", "root").strip()
     if recorded_root != str(base):
         _patch_system_ini({"Workspace": {"root": str(base)}})
         rewritten = True
 
     # Step 3 — validate user_config_dir WITHOUT clobbering an existing slug.
-    recorded_ucd = _read_system_ini_value("Resources", "user_config_dir").strip()
     if recorded_ucd:
         try:
             current_ucd = Path(recorded_ucd).expanduser()
@@ -1012,29 +1090,17 @@ def ensure_default_workspace_config(base_dir: Optional[Path] = None) -> bool:
     else:
         current_ucd = None
 
-    ucd_is_valid = (
-        current_ucd is not None
-        and current_ucd.parent.exists()
-    )
-
-    if not ucd_is_valid:
-        # Fresh install (or shim that pointed somewhere unreachable):
-        # initialise as _guest. This is the ONLY code path allowed to
-        # set user_config_dir back to _guest.
-        target = base / "_guest"
-        target.mkdir(parents=True, exist_ok=True)
-        _patch_system_ini({
-            "Resources": {"user_config_dir": str(target)},
-        })
-        log_info(
-            f"[workspace] initialised user_config_dir = {target} "
-            f"(fresh install or invalid prior value)"
+    if current_ucd is None:
+        # Workspace.root is set but user_config_dir is unparseable.
+        # Do NOT default-materialise _guest/ — that's the wizard's job.
+        log_warning(
+            "[workspace] [Workspace].root is set but "
+            "[Resources].user_config_dir is unset/unparseable; awaiting "
+            "wizard. NOT auto-creating _guest/."
         )
-        rewritten = True
-    else:
-        # Existing user_config_dir is valid — KEEP IT (data-loss prevention).
-        # Just make sure the directory itself exists on disk; the parent
-        # is already known to exist.
+    elif current_ucd.parent.exists():
+        # Both Workspace.root and user_config_dir are configured — the
+        # user picked this path explicitly. Creating it is authorised.
         if not current_ucd.exists():
             try:
                 current_ucd.mkdir(parents=True, exist_ok=True)
@@ -1045,6 +1111,12 @@ def ensure_default_workspace_config(base_dir: Optional[Path] = None) -> bool:
                 log_warning(
                     f"[workspace] could not create {current_ucd}: {exc}"
                 )
+    else:
+        log_warning(
+            f"[workspace] user_config_dir = {current_ucd} points at a "
+            f"location whose parent does not exist; re-run the wizard "
+            f"to pick a valid path. NOT auto-defaulting."
+        )
 
     # Step 4 — recover [Session] from cached profile when missing but the
     # user_config_dir is a slug (i.e. someone was signed in before the
@@ -1138,10 +1210,14 @@ def migrate_legacy_root_to_guest(base_dir: Optional[Path] = None) -> bool:
     data and moving them would destroy a user's workspace. The whitelist
     approach is a hard safety guarantee, not a heuristic.
 
-    Idempotent. Returns ``True`` if anything was moved.
+    Idempotent. Returns ``True`` if anything was moved. Returns ``False``
+    silently when the workspace root is not yet configured (fresh install
+    pre-wizard).
     """
     if base_dir is None:
         base_dir = read_workspace_root()
+    if base_dir is None:
+        return False
     base = Path(base_dir).expanduser()
 
     if not base.exists():
@@ -1211,10 +1287,13 @@ def migrate_user_state_to_machine_level(
 
     Older builds wrote these under USER_CONFIG_DIR (per-account); move
     them out to the WORKSPACE root so wizard / SDK-install state is
-    shared across accounts. Idempotent.
+    shared across accounts. Idempotent. Returns ``False`` silently when
+    the workspace root is not yet configured (fresh install pre-wizard).
     """
     if base_dir is None:
         base_dir = read_workspace_root()
+    if base_dir is None:
+        return False
     base = Path(base_dir).expanduser()
     if not base.exists():
         return False

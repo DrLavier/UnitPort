@@ -2572,16 +2572,15 @@ class AMPOnPolicyRunner:
             must fix by aligning ``actor_hidden_dims`` / observation
             layout with the source checkpoint.
         """
-        # PyTorch 2.6+ flips the default to weights_only=True, which rejects
-        # checkpoints containing anything outside a small whitelist (dicts,
-        # tensors, etc.). Our checkpoints are produced by this same runner's
-        # save() and include harmless objects (Normalizer pickle, optimizer
-        # state with custom keys, stage metadata infos dict) — trusted.
-        try:
-            loaded = torch.load(path, weights_only=False)
-        except TypeError:
-            # Older PyTorch without the weights_only kwarg — fall back.
-            loaded = torch.load(path)
+        # The path argument arrives from the launcher's resume / warm-start
+        # arg, which is wired to the GUI's checkpoint picker. The picker can
+        # point at any file the user chose, so this is an untrusted-possible
+        # pickle path. Funnel through load_checkpoint_safely: a matching
+        # .sha256 sidecar unlocks weights_only=False; otherwise the loader
+        # first tries weights_only=True and falls back only after explicit
+        # user consent. Plan P1-1.
+        from application.training._ckpt_safety import load_checkpoint_safely
+        loaded = load_checkpoint_safely(path)
 
         # Detect checkpoint format. Two shapes are accepted:
         #

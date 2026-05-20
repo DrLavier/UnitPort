@@ -294,23 +294,23 @@ class CompatibilityChecker:
             ))
 
         # DC4 — joint_sdk_names carries IR role names (Phase 5 contract).
-        # Translate to physical names via contract.robot_sku before MJCF
+        # Translate to physical names via the caller-supplied robot_sku
+        # (= manifest.robot.sku, the single source of truth) before MJCF
         # lookup; mirrors joint_space.joint_spaces_from_deploy_contract.
+        # The contract itself no longer stores a SKU.
         mj_model = getattr(env, "mj_model", None)
         if mj_model is not None:
             try:
                 import mujoco
-                robot_sku = (
-                    getattr(contract, "robot_sku", "") or ""
-                ).strip()
+                contract_sku = (robot_sku or "").strip()
                 names_to_check: List[str] = list(contract.joint_sdk_names)
-                if robot_sku:
+                if contract_sku:
                     try:
                         from application.service.runtime.policy.joint_name_utils import (
                             ir_roles_to_physical_names,
                         )
                         names_to_check = ir_roles_to_physical_names(
-                            contract.joint_sdk_names, robot_sku
+                            contract.joint_sdk_names, contract_sku
                         )
                     except ValueError:
                         # IR translation failed — fall through to direct
@@ -330,7 +330,7 @@ class CompatibilityChecker:
                         message=(
                             f"deploy_contract names {len(missing)} joint(s) "
                             f"that are not in the env's MJCF: {missing} "
-                            f"(robot_sku={robot_sku!r})"
+                            f"(robot_sku={contract_sku!r})"
                         ),
                         severity=CompatStatus.FAIL,
                         field="deploy_contract.joint_sdk_names",

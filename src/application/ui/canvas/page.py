@@ -337,7 +337,7 @@ class CanvasPage(QWidget):
         self._node_library: Optional[NodeLibraryOverlay] = None
         self._node_library_controller: Optional[NodeLibraryCardController] = None
 
-        # 右下角 overlay 容器：control_guide 在上、minimap 在下，
+        # 右下角 overlay 容器：仅 minimap（control_guide 独立浮于左下角）。
         # 单点定位整体（viewport 子 widget，固定像素位置）。
         self._overlay = QWidget(self._view.viewport())
         self._overlay.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -345,16 +345,7 @@ class CanvasPage(QWidget):
         overlay_layout.setContentsMargins(0, 0, 0, 0)
         overlay_layout.setSpacing(0)
 
-        # control_guide（在上；纯展示，找不到 SVG 则跳过）
-        self._control_guide: Optional[CanvasControlGuide] = self._build_control_guide()
-        if self._control_guide is not None:
-            self._control_guide.setParent(self._overlay)
-            overlay_layout.addWidget(
-                self._control_guide, 0, Qt.AlignmentFlag.AlignRight
-            )
-            overlay_layout.addSpacing(self._OVERLAY_GAP)
-
-        # minimap（在下，保留鼠标交互）
+        # minimap（保留鼠标交互）
         self._minimap = CanvasMiniMap(self._view)
         self._minimap.setParent(self._overlay)
         overlay_layout.addWidget(self._minimap, 0, Qt.AlignmentFlag.AlignRight)
@@ -366,6 +357,37 @@ class CanvasPage(QWidget):
         self._overlay.show()
         self._overlay.raise_()
         self._reposition_overlay()
+
+        # 左下角 overlay 容器：control_guide。结构与右下 self._overlay 镜像，
+        # 唯一区别是锚定在 viewport 左下角。viewport 子 widget → 不随 scene
+        # pan/zoom 移动，也不会随窗口压缩被裁剪到画面外。
+        self._overlay_left = QWidget(self._view.viewport())
+        self._overlay_left.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        overlay_left_layout = QVBoxLayout(self._overlay_left)
+        overlay_left_layout.setContentsMargins(0, 0, 0, 0)
+        overlay_left_layout.setSpacing(0)
+
+        # control_guide（纯展示，找不到 SVG 则跳过）
+        self._control_guide: Optional[CanvasControlGuide] = self._build_control_guide()
+        if self._control_guide is not None:
+            self._control_guide.setParent(self._overlay_left)
+            overlay_left_layout.addWidget(
+                self._control_guide, 0, Qt.AlignmentFlag.AlignLeft
+            )
+
+        self._overlay_left.adjustSize()
+        self._overlay_left.show()
+        self._overlay_left.raise_()
+        self._reposition_overlay_left()
+        # QGraphicsView pan 走 viewport.scroll(dx,dy)，会把 viewport 的子
+        # widget 一起平移；和 minimap 一样，必须在滚动条 valueChanged 上
+        # 重新钉住绝对位置，否则会看起来像被印在画布上跟着相机走。
+        self._view.horizontalScrollBar().valueChanged.connect(
+            self._reposition_overlay_left
+        )
+        self._view.verticalScrollBar().valueChanged.connect(
+            self._reposition_overlay_left
+        )
 
         # 选区悬浮工具栏 —— 单实例,parent=viewport,跟随选区在最靠上 item 上方 20px。
         self._selection_toolbar = SelectionToolbar(self._view.viewport())
@@ -423,10 +445,10 @@ class CanvasPage(QWidget):
                 except Exception:
                     pass
 
-    # ---- canvas overlay 重排（control_guide + minimap 同一容器）----
+    # ---- canvas overlay 重排（minimap 右下、control_guide 左下，各自独立）----
 
-    _OVERLAY_MARGIN = 12   # 整体容器距 viewport 右 / 下边距
-    _OVERLAY_GAP = 8       # control_guide 与 minimap 之间的纵向间隔
+    _OVERLAY_MARGIN = 12         # minimap 距 viewport 右 / 下边距
+    _CONTROL_GUIDE_MARGIN = 10   # control_guide 距 viewport 左 / 下边距
 
     def _build_control_guide(self) -> Optional[CanvasControlGuide]:
         path = Assets.find_icon("control_guide")
@@ -448,6 +470,20 @@ class CanvasPage(QWidget):
         )
         overlay.raise_()
 
+    def _reposition_overlay_left(self) -> None:
+        overlay = getattr(self, "_overlay_left", None)
+        if overlay is None:
+            return
+        overlay.adjustSize()
+        margin = self._CONTROL_GUIDE_MARGIN
+        vp = self._view.viewport()
+        sz = overlay.size()
+        overlay.move(
+            margin,
+            max(0, vp.height() - sz.height() - margin),
+        )
+        overlay.raise_()
+
     def _refresh_minimap(self) -> None:
         self._reposition_overlay()
         if getattr(self, "_minimap", None) is not None:
@@ -456,6 +492,7 @@ class CanvasPage(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._reposition_overlay()
+        self._reposition_overlay_left()
         # 选区工具栏跟 viewport 几何 → 窗口尺寸变化时一并重定位
         if getattr(self, "_selection_toolbar", None) is not None:
             self._reposition_selection_toolbar()
@@ -908,6 +945,29 @@ class CanvasPage(QWidget):
             log_warning(f"[ui.canvas] connect: {e}")
             return None
         self._scene.addItem(edge)
+        # Canvas-derived-keys rule: ActorSetting.init_joint_angles is a
+        # field whose KEY SET is derived from the upstream Robot Node.
+        # Connecting a robot_pipe to an actor_setting's input port
+        # therefore must re-populate that field. Same goes for a fresh
+        # canvas load that calls _connect_raw to rebuild edges from
+        # storage. (Disconnect is handled in _disconnect_edge_by_id_raw.)
+        try:
+            if (
+                str(dst_port_name) == "robot_pipe"
+                and str(getattr(dst_node.manifest, "id", "") or "")
+                    == "actor_setting"
+            ):
+                from .param_rows import (
+                    _reconcile_actor_init_joint_angles,
+                    _reconcile_actor_actuator_params,
+                )
+                _reconcile_actor_init_joint_angles(dst_node)
+                _reconcile_actor_actuator_params(dst_node)
+        except Exception as exc:
+            log_warning(
+                f"[ui.canvas] connect: actor_setting reconcile after "
+                f"robot_pipe connect failed: {exc}"
+            )
         return edge
 
     # ---- Undo helpers (raw mutation primitives used by command classes) ----
@@ -942,7 +1002,40 @@ class CanvasPage(QWidget):
         edge = self._find_edge_by_id(edge_id)
         if edge is None:
             return False
+        # Capture dst before disconnect (the edge object's port refs may
+        # become stale once disconnected). Used to trigger ActorSetting
+        # reconcile if the cut edge was a Robot→ActorSetting robot_pipe.
+        dst_port = getattr(edge, "dst_port", None)
+        dst_node = None
+        dst_port_name = ""
+        if dst_port is not None:
+            try:
+                dst_node = dst_port.parent_node()
+                dst_port_name = str(
+                    getattr(dst_port, "port_name", "") or ""
+                )
+            except Exception:
+                dst_node = None
         edge.disconnect()
+        try:
+            if (
+                dst_node is not None
+                and dst_port_name == "robot_pipe"
+                and str(getattr(dst_node.manifest, "id", "") or "")
+                    == "actor_setting"
+            ):
+                from .param_rows import (
+                    _reconcile_actor_init_joint_angles,
+                )
+                # After disconnect, _upstream_robot_sku raises → reconcile
+                # collapses init_joint_angles to {}. Per canvas-derived-keys
+                # rule: no pipe → no authoritative IR roles → no keys.
+                _reconcile_actor_init_joint_angles(dst_node)
+        except Exception as exc:
+            log_warning(
+                f"[ui.canvas] disconnect: actor_setting reconcile after "
+                f"robot_pipe disconnect failed: {exc}"
+            )
         return True
 
     def _delete_node_raw(self, instance_id: Optional[str]) -> None:

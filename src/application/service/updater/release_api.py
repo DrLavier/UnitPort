@@ -7,7 +7,7 @@ Pure-httpx, no Qt. Mirrors the error-handling shape of
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 import httpx
 
@@ -45,7 +45,7 @@ def _user_agent() -> str:
 
 
 def _normalize_version(tag: str) -> str:
-    """Strip the leading ``v`` from a tag name (``v0.9.0`` -> ``0.9.0``).
+    """Strip the leading ``v`` from a tag name (``v1.0.0`` -> ``1.0.0``).
 
     The git tag convention is ``v<version>`` per CLAUDE.md §1.6, and the
     GitHub API returns the tag with the prefix. ``packaging.version``
@@ -148,8 +148,65 @@ def fetch_latest_release(
     return _parse_release(payload)
 
 
+def fetch_releases(
+    repo: str = "DrLavier/UnitPort",
+    n: int = 3,
+    *,
+    timeout: float = 8.0,
+    include_prereleases: bool = False,
+) -> List[ReleaseInfo]:
+    """Fetch up to ``n`` most-recent releases, newest first.
+
+    Hits ``/repos/{repo}/releases?per_page=<page>`` and filters draft +
+    pre-release entries client-side. ``page`` is sized a bit larger than
+    ``n`` so the loop still has candidates after skipping drafts. Raises
+    the same exceptions as :func:`fetch_latest_release` (the homepage
+    fetch task catches both and degrades to an empty list).
+    """
+    if n <= 0:
+        return []
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": _user_agent(),
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    page = max(n * 2, 5)
+    url = f"{_GITHUB_API_BASE}/repos/{repo}/releases?per_page={page}"
+    try:
+        resp = httpx.get(url, headers=headers, timeout=timeout)
+    except httpx.RequestError as exc:
+        raise UpdateNetworkError(str(exc)) from exc
+    if resp.status_code // 100 != 2:
+        raise UpdateParseError(
+            f"GitHub Releases API returned HTTP {resp.status_code}: "
+            f"{resp.text[:200]}"
+        )
+    try:
+        payload = resp.json()
+    except Exception as exc:
+        raise UpdateParseError(f"invalid JSON: {exc}") from exc
+    if not isinstance(payload, list):
+        raise UpdateParseError("expected a list of releases")
+    out: List[ReleaseInfo] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("draft"):
+            continue
+        if not include_prereleases and entry.get("prerelease"):
+            continue
+        try:
+            out.append(_parse_release(entry))
+        except UpdateParseError:
+            continue
+        if len(out) >= n:
+            break
+    return out
+
+
 __all__ = [
     "UpdateNetworkError",
     "UpdateParseError",
     "fetch_latest_release",
+    "fetch_releases",
 ]

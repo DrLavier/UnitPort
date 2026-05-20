@@ -2,7 +2,7 @@
 
 Opened from RobotAssetsPanel via the "+" button (new) or per-card "Edit"
 (existing user-layer SKU). Saves through RobotAssetService.add_user_robot /
-update_user_robot, which persist to ``~/UnitPort/registers/robots_custom.json``
+update_user_robot, which persist to ``<USER_CONFIG_DIR>/registers/robots_custom.json``
 and trigger ``RegistryHub.reload() + validate()``.
 
 Fields:
@@ -203,18 +203,36 @@ class RobotEditorDialog(QDialog):
         self,
         existing: Optional[Dict[str, Any]] = None,
         parent: Optional[QWidget] = None,
+        *,
+        parent_sku: Optional[str] = None,
     ) -> None:
         super().__init__(parent)
         self._svc = get_robot_asset_service()
         self._existing = existing
+        self._parent_sku = (parent_sku or "").strip() or None
         self.saved_sku: Optional[str] = None
 
+        # Variant mode is active iff parent_sku is set. Either:
+        #   * create-mode + parent_sku   → "New variant of <parent>"
+        #   * edit-mode + existing.inherits_from → existing variant being edited
+        # In both cases brand is inherited and the joints table is optional.
+        self._variant_mode = bool(self._parent_sku)
+        self._parent_entry: Dict[str, Any] = {}
+        if self._variant_mode:
+            from registers import robots as _robots
+            self._parent_entry = dict(_robots.get_robot(self._parent_sku) or {})
+
         is_edit = existing is not None
-        i18n_bind(
-            self, "setWindowTitle",
-            "robot_editor.title_edit" if is_edit else "robot_editor.title_new",
-            "Edit Robot" if is_edit else "Add Robot",
-        )
+        if self._variant_mode and not is_edit:
+            title_key = "robot_editor.title_new_variant"
+            title_default = "New variant"
+        elif self._variant_mode and is_edit:
+            title_key = "robot_editor.title_edit_variant"
+            title_default = "Edit variant"
+        else:
+            title_key = "robot_editor.title_edit" if is_edit else "robot_editor.title_new"
+            title_default = "Edit Robot" if is_edit else "Add Robot"
+        i18n_bind(self, "setWindowTitle", title_key, title_default)
         self.setModal(True)
         self.resize(520, 600)
 
@@ -240,16 +258,62 @@ class RobotEditorDialog(QDialog):
         scroll.setWidget(host)
         outer.addWidget(scroll, 1)
 
-        # Brand / Model / Name
-        self._brand = LaviLineEdit(text=str((existing or {}).get("brand", "")),
+        # ----- variant banner (visible only in variant mode) -----
+        if self._variant_mode:
+            parent_label = (
+                self._parent_entry.get("name")
+                or f"{self._parent_entry.get('brand', '')} {self._parent_entry.get('model', '')}".strip()
+                or self._parent_sku
+            )
+            banner = setText(
+                "robot_editor.variant_banner",
+                default=(
+                    f"Variant of {parent_label} — joints/bodies/assets/init poses "
+                    "inherit from the parent. Fill in only what differs."
+                ),
+                kind="content", size=sz,
+            )
+            banner.setWordWrap(True)
+            banner.setStyleSheet(
+                f"color: {Config.get_color('main_c1')};"
+                f" background: transparent; padding: 4px 0;"
+            )
+            form.addWidget(banner)
+
+            self._variant_label_edit = LaviLineEdit(
+                text=str((existing or {}).get("variant_label", "") or "Variant"),
+                placeholder=tr("robot_editor.variant_label_ph",
+                               "e.g. Air, Pro, X, Field-Test"),
+            )
+            form.addLayout(self._labelled(
+                "robot_editor.variant_label", "Variant", self._variant_label_edit,
+            ))
+        else:
+            self._variant_label_edit = None  # type: ignore[assignment]
+
+        # ----- Brand / Model / Name -----
+        # In variant create-mode, brand pre-fills from parent and is locked;
+        # model defaults to ``<parent_model>_<slug(variant_label)>`` at save time
+        # if the user leaves it blank.
+        if self._variant_mode and not is_edit:
+            default_brand = str(self._parent_entry.get("brand", ""))
+            default_model = ""
+        else:
+            default_brand = str((existing or {}).get("brand", ""))
+            default_model = str((existing or {}).get("model", ""))
+
+        self._brand = LaviLineEdit(text=default_brand,
                                    placeholder=tr("robot_editor.brand_ph", "e.g. unitree"))
-        self._model = LaviLineEdit(text=str((existing or {}).get("model", "")),
+        self._model = LaviLineEdit(text=default_model,
                                    placeholder=tr("robot_editor.model_ph", "e.g. go2"))
         self._name = LaviLineEdit(text=str((existing or {}).get("name", "")),
                                   placeholder=tr("robot_editor.name_ph", "Display name"))
         if is_edit:
             self._brand.setEnabled(False)
             self._model.setEnabled(False)
+        elif self._variant_mode:
+            # Variant inherits brand from parent; model auto-derives at save.
+            self._brand.setEnabled(False)
 
         form.addLayout(self._labelled("robot_editor.brand", "Brand", self._brand))
         form.addLayout(self._labelled("robot_editor.model", "Model", self._model))
@@ -393,6 +457,40 @@ class RobotEditorDialog(QDialog):
         brand = self._brand.text().strip()
         model = self._model.text().strip()
         name = self._name.text().strip() or model
+
+        # Variant create-mode: brand inherits, model may be auto-derived. We
+        # only need a non-empty variant_label and parent_sku.
+        if self._variant_mode and self._existing is None:
+            variant_label = (self._variant_label_edit.text() or "").strip() if self._variant_label_edit else ""
+            if not variant_label:
+                QMessageBox.warning(
+                    self,
+                    tr("robot_editor.error_title", "Invalid input"),
+                    tr("robot_editor.error_variant_label",
+                       "Variant label is required."),
+                )
+                return
+            families = list(self._families.get_values() or [])
+            adapter = self._adapter.currentKey() or ""
+            try:
+                self.saved_sku = self._svc.add_user_variant_robot(
+                    parent_sku=self._parent_sku or "",
+                    variant_label=variant_label,
+                    name=name or "",
+                    brand=brand or None,
+                    model=model or None,
+                    adapter=adapter,
+                )
+            except Exception as exc:  # noqa: BLE001
+                QMessageBox.critical(
+                    self,
+                    tr("robot_editor.error_title", "Save failed"),
+                    str(exc),
+                )
+                return
+            self.accept()
+            return
+
         if not brand or not model:
             QMessageBox.warning(
                 self,
@@ -417,20 +515,56 @@ class RobotEditorDialog(QDialog):
             jsku = resolve_joint_sku(sku, jname)
             joints[jsku] = {"name": jname, "ir_role": jspec.get("ir_role", "")}
 
+        # Per-format schema (Stage 2): UI editor only edits one joint table
+        # at a time; we assume it represents the MJCF format because the
+        # editor never had a USD/URDF picker. USD bodies/joints land via
+        # the Robot Asset card's Dump USD button.
         try:
             if self._existing is None:
                 self.saved_sku = self._svc.add_user_robot(
                     brand=brand, model=model, name=name,
                     families=families, adapter=adapter,
                     assets=assets, joints=joints,
+                    joints_format="MJCF",
                 )
+            elif self._variant_mode:
+                # Edit-existing variant: only persist override fields, never
+                # write the parent's inherited blocks back into the overlay.
+                variant_label = (
+                    (self._variant_label_edit.text() or "").strip()
+                    if self._variant_label_edit else
+                    str(self._existing.get("variant_label", "") or "Variant")
+                )
+                patch: Dict[str, Any] = {
+                    "name": name,
+                    "variant_label": variant_label,
+                    "families": families,
+                    "adapter": adapter,
+                }
+                ok = self._svc.update_user_robot(sku, patch)
+                if not ok:
+                    raise RuntimeError("update_user_robot returned False")
+                self.saved_sku = sku
             else:
+                # Build a per-format patch that preserves USD/URDF blocks
+                # already in the existing entry (only the MJCF slot is
+                # owned by this editor today).
+                from registers import robots as _robots_registry
+                existing_pf = dict(
+                    (_robots_registry.get_robot(sku) or {})
+                    .get("joints_per_format") or {}
+                )
+                existing_pf["MJCF"] = joints
                 ok = self._svc.update_user_robot(sku, {
                     "name": name,
                     "families": families,
                     "adapter": adapter,
                     "assets": {k: v for k, v in assets.items()},
-                    "joints": joints,
+                    "joints_per_format": {
+                        "MJCF": existing_pf.get("MJCF"),
+                        "USD": existing_pf.get("USD"),
+                        "URDF": existing_pf.get("URDF"),
+                    },
                 })
                 if not ok:
                     raise RuntimeError("update_user_robot returned False")

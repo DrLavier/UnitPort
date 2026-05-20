@@ -1,0 +1,96 @@
+[toolbar]
+group = Grouper
+ungroup = Dissocier
+collapse = Replier
+expand = Déplier
+skip = Désactiver
+enable = Activer
+delete = Supprimer
+color = Choisir une couleur (clic droit pour réinitialiser)
+
+[group]
+default_title = Groupe
+
+[menu]
+duplicate = Dupliquer (Ctrl+D)
+copy = Copier (Ctrl+C)
+disconnect_all = Déconnecter toutes les arêtes
+disconnect = Déconnecter
+delete = Supprimer
+add_node = Ajouter un nœud
+paste_here = Coller ici (Ctrl+V)
+
+[btn]
+node_lib.tip = Bibliothèque de nœuds
+
+[port]
+optional = (optionnel)
+
+[row]
+empty = —
+selected = {n} sélectionnés
+entries = {n} entrées
+true = Vrai
+false = Faux
+no_items = (aucun élément)
+bool_check = ✔
+ir_picker_all = Tous (par défaut)
+
+[body_mapping]
+col_current = Actuel
+col_role = Rôle
+select_asset = Sélectionner un asset_id
+no_roles = Aucun rôle de corps pour cette ressource
+refresh = Actualiser
+label_unassigned = (Non assigné)
+label_out_of_scope = (Hors périmètre)
+warn_joints = ⚠ {n} joint(s) non apparié(s) — assignez-les ou marquez-les hors périmètre : {preview}
+
+[active_file]
+col_type = Type
+col_status = Statut
+status_loaded = Chargé
+status_cloud = Cloud
+
+[review_launch]
+button = Lancer la revue
+
+[actor_setting]
+init_pose.dialog_title = Éditeur de pose initiale
+init_pose.joints_label = Angles d'articulations [rad] — plage issue du MJCF
+init_pose.unlimited_hint = (illimité)
+init_pose.empty = Aucun joint disponible pour ce SKU.
+init_pose.review_button = Revoir
+review_pose.button = Revoir la pose
+
+[button]
+close = Fermer
+
+[error]
+copy.done = Rapport d'erreur du canevas copié dans le presse-papiers.
+empty = (aucun problème structuré signalé)
+headline.errors = Le canevas contient {e} problème(s) qui doivent être corrigés avant de démarrer l'entraînement.
+headline.mixed = Le canevas contient {e} erreur(s) et {w} avertissement(s). Corrigez les erreurs ci-dessous puis relancez.
+headline.unknown = La vérification du canevas a signalé un problème.
+headline.warnings = Le canevas contient {w} avertissement(s).
+hint = Chaque entrée ci-dessous indique le nœud du canevas et le paramètre qui a déclenché la vérification. Ouvrez le nœud, ajustez la valeur, enregistrez le canevas, puis réessayez ▶.
+title = Échec de la vérification du canevas
+
+[rewards]
+coverage.add_set = Ajouter l'ensemble recommandé
+coverage.banner.critical = Critique : une ou plusieurs phases n'ont pas la récompense négative requise. L'entraînement peut produire des comportements indésirables comme des battements de membres à vide.
+coverage.banner.ok = Toutes les phases disposent d'une couverture de récompenses positive + négative.
+coverage.banner.warning = Avertissement : au moins une phase n'a pas la couverture de récompense recommandée.
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = Phase
+coverage.col.pos = +
+coverage.col.status = Statut
+coverage.double_click_hint = Double-cliquez sur le badge pour ouvrir l'inspecteur de couverture.
+coverage.empty = Aucun terme de récompense configuré — ajoutez au moins un terme pour obtenir une évaluation de couverture.
+coverage.green = Toutes les phases disposent d'une couverture de récompenses positive + négative.
+coverage.inspector.title = Inspecteur de couverture des récompenses
+coverage.red = Critique : une ou plusieurs phases n'ont pas la récompense de contrainte requise.
+coverage.title = Couverture des récompenses
+coverage.yellow = Avertissement : au moins une phase n'a pas une récompense recommandée.
+

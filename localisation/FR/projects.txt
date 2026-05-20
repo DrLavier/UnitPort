@@ -1,0 +1,5 @@
+[default]
+empty = Aucun projet trouvé
+open_folder_tip = Ouvrir le dossier des projets dans l'explorateur du système
+refresh_tip = Réanalyser le dossier des projets
+

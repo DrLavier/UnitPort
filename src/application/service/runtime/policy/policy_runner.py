@@ -125,23 +125,53 @@ class PolicyRunner:
     ) -> CompatReport:
         """Load and validate a bundle against *env*.
 
-        ``robot_sku`` is the canonical robot identity. When supplied by the
-        caller (UI / training-time round-trip), it wins. When None, falls
-        back to ``bundle.robot_sku`` (the SKU stored in manifest.yaml).
-        Reverse-resolving SKU from manifest brand/model strings is no
-        longer supported — that was an antipattern that broke whenever
-        the brand string was the human display name (e.g. "Unitree Go2").
+        SKU contract:
+
+        * ``bundle.robot_sku`` (= ``manifest.robot.sku``) is the **single
+          source of truth** for the bundle's robot identity. It was frozen
+          at training time from the canvas Robot Node selection; the
+          policy weights are bound to that specific robot's joint /
+          observation / actuator topology.
+        * ``robot_sku`` (caller arg) is optional. When supplied it MUST
+          equal ``bundle.robot_sku`` — bundles cannot be replayed on a
+          different robot. A mismatch raises
+          :class:`IncompatibleWeightError` immediately rather than
+          silently producing a malformed runtime (which used to happen
+          when the UI passed the *current* canvas SKU as an override).
         """
         self._loaded = False
 
         bundle = self._loader.load(Path(bundle_path))
-        effective_sku = (robot_sku or bundle.robot_sku or "").strip()
-        if not effective_sku:
+        caller_sku = (robot_sku or "").strip()
+        bundle_sku = (bundle.robot_sku or "").strip()
+        if not bundle_sku:
             raise IncompatibleWeightError(
-                f"Bundle '{bundle_path}' has no robot.sku and the caller "
-                f"passed none. Re-export the bundle so manifest.yaml "
-                f"carries the SKU, or pass robot_sku= explicitly."
+                f"Bundle '{bundle_path}' has no robot.sku in manifest.yaml. "
+                f"Re-export the bundle from a project where the canvas "
+                f"Robot Node has a registered SKU. Reverse-resolving SKU "
+                f"from manifest brand/model display strings is not "
+                f"supported (CLAUDE.md §1.7)."
             )
+        if caller_sku and caller_sku != bundle_sku:
+            try:
+                from registers.robots import get_robot_spec
+                bundle_name = getattr(
+                    get_robot_spec(bundle_sku), "name", None
+                ) or "unregistered"
+                caller_name = getattr(
+                    get_robot_spec(caller_sku), "name", None
+                ) or "unregistered"
+            except Exception:
+                bundle_name = caller_name = "unresolved"
+            raise IncompatibleWeightError(
+                f"Bundle '{bundle_path}' is SKU-locked to "
+                f"robot_sku={bundle_sku!r} ({bundle_name}); caller asked "
+                f"to load it against robot_sku={caller_sku!r} "
+                f"({caller_name}). Bundles cannot be replayed on a "
+                f"different robot — re-train for this robot or pick a "
+                f"bundle whose SKU matches."
+            )
+        effective_sku = bundle_sku
 
         # ── AMP_PPO advisory checks ───────────────────────────────────
         try:
@@ -188,17 +218,14 @@ class PolicyRunner:
         qpos_space: Optional[JointSpace] = None
         ctrl_space: Optional[JointSpace] = None
 
-        contract = None
-        try:
-            contract = bundle.deploy_contract
-        except ValueError as exc:
-            log.error(
-                "PolicyRunner.load: bundle has a deploy_contract section but "
-                "it failed validation (%s); falling back to legacy joint-space "
-                "heuristic — sim2sim parity is NOT guaranteed.",
-                exc,
-            )
-            contract = None
+        # Strict-mode contract: ``bundle.deploy_contract`` MUST parse
+        # cleanly. Earlier code caught the ValueError and fell back to
+        # a legacy joint-space heuristic, silently producing a malformed
+        # runtime when the contract was present but invalid (CLAUDE.md
+        # §1.8 ban). If the contract fails to parse, raise — the bundle
+        # is broken and replaying it would corrupt every joint-space
+        # term.
+        contract = bundle.deploy_contract
 
         # Normalize legacy IL bundles to the Isaac Lab USD articulation
         # joint order BEFORE any downstream consumer (JointSpace /
@@ -212,37 +239,51 @@ class PolicyRunner:
         # CheckpointBundle.deploy_contract instance, so all subsequent
         # bundle.deploy_contract reads see the corrected order.
         if contract is not None:
-            try:
-                PolicyRunner._normalize_il_contract_joint_order(
-                    contract, bundle.raw_manifest or {}
-                )
-            except Exception:
-                log.exception(
-                    "PolicyRunner.load: contract joint-order normalize raised"
-                )
+            PolicyRunner._normalize_il_contract_joint_order(
+                contract, bundle.raw_manifest or {}
+            )
 
         mj_model = getattr(env, "mj_model", None)
         if contract is not None and mj_model is not None:
-            try:
-                bundle_space, qpos_space, ctrl_space = (
-                    joint_spaces_from_deploy_contract(mj_model, contract)
+            # MuJoCo-deploy opt-out gate (CLAUDE.md §1.10): when bundle
+            # finalize couldn't derive MuJoCo PD gains because the
+            # registered MJCF didn't cover the trained joint set, it
+            # records the diagnostic on ``contract.mujoco_deploy_unsupported``.
+            # Refuse at this MuJoCo-binding boundary — the carried text
+            # is much more actionable than the low-level
+            # "ir_roles_to_physical_names: roles not declared" that
+            # ``joint_spaces_from_deploy_contract`` would otherwise raise
+            # downstream when the bundle's IR roles include hand/finger
+            # joints absent from the registry's MJCF table.
+            unsupported = getattr(contract, "mujoco_deploy_unsupported", None)
+            if unsupported:
+                raise IncompatibleWeightError(
+                    f"Bundle is marked MuJoCo-deploy-unsupported by the "
+                    f"finalizer (reason: {unsupported}). Use IsaacSim / "
+                    f"cloud deploy target, or re-export this bundle "
+                    f"against a robot whose ``assets.MJCF`` covers the "
+                    f"trained joint set (for Unitree G1: ensure "
+                    f"``joints_per_format[\"MJCF\"]`` in the registry "
+                    f"has been re-Dumped from ``scene_with_hands.xml`` "
+                    f"so the 14 hand-finger IR roles are present)."
                 )
-                log.info(
-                    "PolicyRunner.load: built joint spaces from deploy_contract "
-                    "(%d joints, identity_map=%s)",
-                    contract.n_joints,
-                    contract.is_identity_joint_map(),
+            # SKU is plumbed in from the manifest (effective_sku);
+            # the contract itself no longer carries one. See
+            # DeployContract docstring. If joint-space construction
+            # fails, raise — silently falling back to a legacy heuristic
+            # produces the "looks fine but is silently wrong" outcome
+            # CLAUDE.md §1.8 specifically forbids.
+            bundle_space, qpos_space, ctrl_space = (
+                joint_spaces_from_deploy_contract(
+                    mj_model, contract, effective_sku
                 )
-            except (ValueError, NotImplementedError) as exc:
-                log.error(
-                    "PolicyRunner.load: deploy_contract joint-space construction "
-                    "failed (%s); falling back to legacy heuristic — sim2sim "
-                    "parity is NOT guaranteed.",
-                    exc,
-                )
-                bundle_space = None
-                qpos_space = None
-                ctrl_space = None
+            )
+            log.info(
+                "PolicyRunner.load: built joint spaces from deploy_contract "
+                "(%d joints, identity_map=%s)",
+                contract.n_joints,
+                contract.is_identity_joint_map(),
+            )
 
         if bundle_space is None:
             # bundle.joint_names is IR roles (Phase 5+). Translate to
@@ -632,35 +673,35 @@ class PolicyRunner:
                     return
 
         # Step 3: legacy private-attribute path (try adapter first).
+        # WHY KEPT (Rule 1.c — on-disk legacy bundle compat): old MuJoCo
+        # env adapters predate ``set_default_qpos`` and only expose
+        # ``_default_qpos`` / ``_default_qpos_full`` as direct attribute
+        # writes. Once all callers migrate to the public setter (Step 1+2)
+        # this private-attribute fallback can be deleted.
         for candidate in (adapter, env):
             if candidate is None:
                 continue
             if not hasattr(candidate, "_default_qpos_full") and not hasattr(candidate, "_default_qpos"):
                 continue
-            try:
-                if hasattr(candidate, "_default_qpos_full"):
-                    candidate._default_qpos_full = base.astype(np.float32)
-                if hasattr(candidate, "_default_qpos"):
-                    existing_subset = getattr(candidate, "_default_qpos", None)
-                    if existing_subset is not None:
-                        n_sub = int(np.asarray(existing_subset).shape[0])
-                        candidate._default_qpos = base[:n_sub].astype(np.float32)
-                return
-            except Exception:
-                log.exception(
-                    "PolicyRunner._align_env_default_pose: legacy write-back to %s failed",
-                    type(candidate).__name__,
-                )
-                return
+            if hasattr(candidate, "_default_qpos_full"):
+                candidate._default_qpos_full = base.astype(np.float32)
+            if hasattr(candidate, "_default_qpos"):
+                existing_subset = getattr(candidate, "_default_qpos", None)
+                if existing_subset is not None:
+                    n_sub = int(np.asarray(existing_subset).shape[0])
+                    candidate._default_qpos = base[:n_sub].astype(np.float32)
+            return
 
-        # Step 4: loud warning.
-        log.warning(
-            "PolicyRunner._align_env_default_pose: env %s exposes neither "
-            "set_default_qpos() nor _default_qpos[_full]; IL standing pose "
-            "alignment skipped — the policy will start from whatever pose "
-            "the env's default reset() lands at, which may be OOD for "
-            "Isaac Lab-trained bundles.",
-            type(env).__name__,
+        # No write path matched — the env cannot accept a default pose
+        # override. This is a structural mismatch (env API contract),
+        # not something we should silently "skip" — Isaac Lab-trained
+        # bundles need this alignment or every replay starts OOD.
+        raise RuntimeError(
+            f"PolicyRunner._align_env_default_pose: env "
+            f"{type(env).__name__} exposes neither set_default_qpos() "
+            f"nor _default_qpos[_full]; cannot align IL standing pose. "
+            f"Either the env adapter is incomplete or this bundle's "
+            f"target env is not the one PolicyRunner expects."
         )
 
     @staticmethod

@@ -1,0 +1,13 @@
+[default]
+already_running = Un entraînement est déjà actif
+no_canvas = Aucun canevas chargé
+started = Entraînement démarré : run={run} backend={backend} algo={algo}
+
+[coverage]
+blocked.body = La couverture de récompense est critique — la politique risque d'apprendre des comportements indésirables lorsque les phases concernées sont actives.
+blocked.cancel = Annuler
+blocked.header = Impossible de démarrer l'entraînement : échec de la vérification de la couverture des récompenses.
+blocked.hint = Double-cliquez sur le badge du nœud Rewards pour ouvrir l'inspecteur de couverture et voir les corrections suggérées.
+blocked.proceed = Continuer quand même
+blocked.title = Problème de couverture des récompenses
+

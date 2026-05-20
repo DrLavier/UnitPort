@@ -31,10 +31,15 @@ echo "    __pycache__ / *.pyc               Python cache (everywhere)"
 echo "    .pip-tmp/ / .pip-cache/           pip scratch + cache"
 echo "    .pytest_cache/ / .cache/          Test/build caches"
 echo ""
+echo "  WILL BE NORMALIZED (back to factory state):"
+echo ""
+echo "    src/config/system.ini             Drop [Workspace] / [Session],"
+echo "                                      blank [Resources] values,"
+echo "                                      reset [Localisation] lang = EN"
+echo ""
 echo "  NOT TOUCHED:"
 echo ""
-echo "    src/config/system.ini             SDK factory defaults (read-only)"
-echo "    src/                              Source tree"
+echo "    src/                              Source tree (other than system.ini)"
 echo "    custom_mods/nodes/                User-authored nodes"
 echo "    projects/                         User project data"
 echo "    \$HOME/UnitPort/                   Per-user state (user.ini, tokens, etc.)"
@@ -67,20 +72,38 @@ del_dir() {
     fi
 }
 
-# [1/5] Virtual environment
-echo "  [1/5] Removing virtual environment ..."
+# [1/6] system.ini normalize (pure stdlib, ok to run before venv removal)
+echo "  [1/6] Normalizing src/config/system.ini to factory state ..."
+PY_EXE=""
+if [ -x "$SCRIPT_DIR/.venv311/bin/python" ]; then
+    PY_EXE="$SCRIPT_DIR/.venv311/bin/python"
+elif [ -x "$SCRIPT_DIR/.venv311/Scripts/python.exe" ]; then
+    PY_EXE="$SCRIPT_DIR/.venv311/Scripts/python.exe"
+elif command -v python3 >/dev/null 2>&1; then
+    PY_EXE="python3"
+elif command -v python >/dev/null 2>&1; then
+    PY_EXE="python"
+fi
+if [ -n "$PY_EXE" ]; then
+    "$PY_EXE" "$SCRIPT_DIR/bootstrap/reset_system_ini.py" || true
+else
+    echo "  [SKIP] no Python interpreter found, system.ini left as-is"
+fi
+
+# [2/6] Virtual environment
+echo "  [2/6] Removing virtual environment ..."
 del_dir ".venv311"
 
-# [2/5] Runtime install state
-echo "  [2/5] Removing runtime install state ..."
+# [3/6] Runtime install state
+echo "  [3/6] Removing runtime install state ..."
 del_dir "runtime/env"
 
-# [3/5] Cloned reference libraries
-echo "  [3/5] Removing cloned reference libraries ..."
+# [4/6] Cloned reference libraries
+echo "  [4/6] Removing cloned reference libraries ..."
 del_dir "custom_mods/motions/loco-mujoco"
 
-# [4/5] Cache and logs
-echo "  [4/5] Clearing cache and logs ..."
+# [5/6] Cache and logs
+echo "  [5/6] Clearing cache and logs ..."
 del_dir "log"
 del_dir ".pip-tmp"
 del_dir ".pip-cache"
@@ -90,8 +113,8 @@ find "$SCRIPT_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || 
 echo "  [DEL]  __pycache__ (all)"
 find "$SCRIPT_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
 
-# [5/5] Per-user state hint
-echo "  [5/5] Hint: per-user state (user.ini, auth tokens, telemetry caches) lives"
+# [6/6] Per-user state hint
+echo "  [6/6] Hint: per-user state (user.ini, auth tokens, telemetry caches) lives"
 echo "        under \$HOME/UnitPort/ and is NOT touched by reset."
 echo "        Delete it manually if you want a truly clean first-run experience."
 

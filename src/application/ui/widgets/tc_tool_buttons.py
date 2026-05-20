@@ -179,6 +179,17 @@ class TCToolButtonsCluster(QWidget):
 
         self._sync_initial_state()
 
+    def set_undo_redo_visible(self, visible: bool) -> None:
+        """Toggle visibility of the undo/redo pair while keeping Save shown.
+
+        Used by MissionControlPanel: in MC mode the canvas Save button stays
+        accessible (so unsaved canvas edits made under the MC overlay can be
+        flushed without switching back to TC), but the undo/redo affordances
+        only make sense in the interactive TC view and are hidden there.
+        """
+        self._undo_btn.setVisible(visible)
+        self._redo_btn.setVisible(visible)
+
     def apply_theme(self) -> None:
         """主题切换:刷 LaviButton QSS,并重生成 undo/redo disabled-mode pixmap。
 

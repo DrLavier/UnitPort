@@ -1,0 +1,68 @@
+[language]
+tip = Langue
+short = Langue
+
+[update]
+tip = Mise à jour
+tip_latest = Vous utilisez la dernière version
+tip_needed = Nouvelle version disponible — cliquez pour l'appliquer
+short_latest = Dernière
+short_needed = Mise à jour
+
+[settings]
+tip = Paramètres
+short = Paramètres
+
+[fullscreen]
+tip = Plein écran
+short = Plein écran
+
+[user]
+tip = Utilisateur
+short = Utilisateur
+title = Utilisateur
+
+[node_library]
+tip = Bibliothèque de nœuds
+short = Nœuds
+title = Bibliothèque de nœuds
+
+[projects]
+tip = Fichiers du projet
+short = Projets
+title = Fichiers du projet
+
+[robot_assets]
+tip = Ressource robot
+short = Robots
+title = Ressource robot
+
+[controller]
+tip = Contrôleur
+short = Contrôleur
+title = Contrôleur
+
+[resources]
+tip = Jeux de données de mouvements tiers et bundles de politique
+short = Ressources
+title = Ressources
+
+[rewards]
+tip = Modules prédéfinis de récompense
+short = Récomp.
+title = Récompenses
+
+[terminations]
+tip = Modules prédéfinis de terminaison
+short = Termin.
+title = Terminaisons
+
+[observations]
+tip = Modules prédéfinis d'observation
+short = Observ.
+title = Observations
+
+[training]
+tip = Scripts du projet + globaux
+short = Entraîn.
+title = Scripts d'entraînement

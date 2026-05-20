@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
   "backend": "isaac_lab",
-  "robot_id": "b1f3e435aabe",
+  "robot_id": "6f3ea19141c4",
   "metadata": {
     "view": {
-      "zoom": 0.5748548375212149,
-      "center_x": -961.981989026215,
-      "center_y": 464.46508330922137
+      "zoom": 0.4998737717575792,
+      "center_x": -1498.3782753123485,
+      "center_y": 266.06717038256653
     }
   },
   "nodes": [
@@ -18,15 +18,10 @@
         "start_point": {
           "name": "start_point",
           "value": "__new__",
-          "param_type": "string"
+          "param_type": "enum"
         },
-        "asset_id": {
-          "name": "asset_id",
-          "value": "",
-          "param_type": "string"
-        },
-        "checkpoint_file": {
-          "name": "checkpoint_file",
+        "checkpoint_id": {
+          "name": "checkpoint_id",
           "value": "",
           "param_type": "string"
         },
@@ -34,16 +29,23 @@
           "name": "load_mode",
           "value": "scratch",
           "param_type": "enum"
+        },
+        "last_run_id": {
+          "name": "last_run_id",
+          "value": "canvas__20260519T164915Z__07a82c",
+          "param_type": "string"
         }
       },
       "ui": {
-        "x": -17.776448234165855,
-        "y": -4.443833195431967,
+        "x": -2982.168566909383,
+        "y": -485.570546028501,
         "width": 324.0,
         "height": 88.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#1A4F6B"
     },
     {
       "id": "1001",
@@ -52,7 +54,7 @@
       "params": {
         "bundle_name": {
           "name": "bundle_name",
-          "value": "NEW_TEST",
+          "value": "G1_PPO_TEST",
           "param_type": "string"
         },
         "overwrite": {
@@ -137,13 +139,15 @@
         }
       },
       "ui": {
-        "x": 382.64533242310176,
-        "y": 213.5841637254034,
+        "x": -265.6072522161418,
+        "y": -336.3243691893916,
         "width": 324.0,
         "height": 537.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#1B356B"
     },
     {
       "id": "1004",
@@ -152,12 +156,12 @@
       "params": {
         "actor_hidden_dims": {
           "name": "actor_hidden_dims",
-          "value": "[256, 128, 64]",
+          "value": "[256, 128, 128]",
           "param_type": "list"
         },
         "critic_hidden_dims": {
           "name": "critic_hidden_dims",
-          "value": "[256, 128, 64]",
+          "value": "[256, 128, 128]",
           "param_type": "list"
         },
         "activation": {
@@ -172,13 +176,15 @@
         }
       },
       "ui": {
-        "x": -27.155424667738544,
-        "y": 118.03358059620022,
+        "x": -687.4239501386858,
+        "y": -310.57170585952224,
         "width": 324.0,
         "height": 194.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#5B0A0A"
     },
     {
       "id": "1006",
@@ -189,9 +195,9 @@
           "name": "termination_conditions",
           "value": {
             "illegal_contact": 1.0,
-            "base_height": 0.2,
-            "bad_orientation": 0.6,
-            "time_out": 15.0
+            "base_height": 0.55,
+            "bad_orientation": 0.7,
+            "time_out": 20.0
           },
           "param_type": "json"
         },
@@ -202,28 +208,30 @@
         },
         "termination_curriculum_start": {
           "name": "termination_curriculum_start",
-          "value": "0.15",
+          "value": "0.50",
           "param_type": "float"
         },
         "termination_curriculum_end": {
           "name": "termination_curriculum_end",
-          "value": "0.20",
+          "value": "0.60",
           "param_type": "float"
         },
         "termination_curriculum_ramp_iters": {
           "name": "termination_curriculum_ramp_iters",
-          "value": "800",
+          "value": "600",
           "param_type": "int"
         }
       },
       "ui": {
-        "x": -405.8930994485487,
-        "y": 665.0337172179238,
+        "x": -1192.3768500374242,
+        "y": 805.0404608721699,
         "width": 324.0,
         "height": 328.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#561450"
     },
     {
       "id": "1005",
@@ -257,17 +265,17 @@
         },
         "friction_range": {
           "name": "friction_range",
-          "value": "[0.5, 1.5]",
+          "value": "[0.6, 1.4]",
           "param_type": "list"
         },
-        "motor_strength_range": {
-          "name": "motor_strength_range",
-          "value": "[0.9, 1.1]",
+        "omega_n_log_uniform": {
+          "name": "omega_n_log_uniform",
+          "value": "[0.8, 1.25]",
           "param_type": "list"
         },
-        "joint_damping_range": {
-          "name": "joint_damping_range",
-          "value": "[0.95, 1.05]",
+        "zeta_log_uniform": {
+          "name": "zeta_log_uniform",
+          "value": "[0.9, 1.11]",
           "param_type": "list"
         },
         "obs_noise_std": {
@@ -317,7 +325,7 @@
         },
         "enable_mass_rand": {
           "name": "enable_mass_rand",
-          "value": "true",
+          "value": "false",
           "param_type": "bool"
         },
         "mass_mode": {
@@ -327,7 +335,7 @@
         },
         "mass_target_body": {
           "name": "mass_target_body",
-          "value": "base",
+          "value": "torso",
           "param_type": "string"
         },
         "mass_offset_range": {
@@ -357,12 +365,12 @@
         },
         "push_velocity_x_range": {
           "name": "push_velocity_x_range",
-          "value": "[-0.6, 0.6]",
+          "value": "[-0.3, 0.3]",
           "param_type": "list"
         },
         "push_velocity_y_range": {
           "name": "push_velocity_y_range",
-          "value": "[-0.6, 0.6]",
+          "value": "[-0.3, 0.3]",
           "param_type": "list"
         },
         "enable_init_pose_rand": {
@@ -412,13 +420,15 @@
         }
       },
       "ui": {
-        "x": -2087.5408154192583,
-        "y": 277.2010147564115,
+        "x": -1193.5256850754934,
+        "y": -768.6928462924081,
         "width": 324.0,
         "height": 746.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#6A3F2D"
     },
     {
       "id": "1007",
@@ -428,59 +438,56 @@
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "action_rate_penalty": {
-              "weight": -0.01
-            },
-            "alive_reward": {
+            "track_lin_vel_xy": {
               "weight": 1.0
+            },
+            "track_ang_vel_z": {
+              "weight": 1.0
+            },
+            "feet_air_time": {
+              "weight": 0.75
+            },
+            "feet_slide": {
+              "weight": -0.1
+            },
+            "feet_clearance": {
+              "weight": 0.3
+            },
+            "flat_orientation": {
+              "weight": -1.0
+            },
+            "lin_vel_z_penalty": {
+              "weight": -0.2
             },
             "ang_vel_xy_penalty": {
               "weight": -0.05
             },
-            "dof_pos_limits": {
-              "weight": -2.0
-            },
-            "flat_orientation": {
-              "weight": -3.0
-            },
-            "joint_accel_penalty": {
-              "weight": -2.5e-07
-            },
-            "joint_torque_penalty": {
-              "weight": -0.0005
-            },
-            "joint_vel_penalty": {
-              "weight": -0.001
-            },
-            "lin_vel_z_penalty": {
-              "weight": -2.0
-            },
             "base_height": {
-              "weight": -2.0
+              "weight": -1.0
             },
             "joint_deviation_l1": {
-              "weight": -0.3
+              "weight": -0.1
             },
-            "track_lin_vel_xy": {
-              "weight": 1.5
+            "dof_pos_limits": {
+              "weight": -1.0
             },
-            "track_ang_vel_z": {
-              "weight": 0.5
+            "joint_torque_penalty": {
+              "weight": -1.5e-07
             },
-            "feet_air_time": {
-              "weight": 0.5
+            "joint_accel_penalty": {
+              "weight": -1e-07
             },
-            "gait": {
-              "weight": 1.0
+            "action_rate_penalty": {
+              "weight": -0.005
+            },
+            "alive_reward": {
+              "weight": 0.15
             },
             "undesired_contacts": {
-              "weight": -2.0
+              "weight": -1.0
             },
-            "feet_slide": {
-              "weight": -0.3
-            },
-            "feet_clearance": {
-              "weight": 0.5
+            "termination_penalty": {
+              "weight": -200.0
             }
           },
           "param_type": "json"
@@ -497,13 +504,16 @@
         }
       },
       "ui": {
-        "x": -1695.6296240619504,
-        "y": -282.6734504531173,
+        "x": -2486.975084751713,
+        "y": -476.94958525035804,
         "width": 324.0,
-        "height": 728.0,
+        "height": 696.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Basic Moves Rewards",
+      "color_override": "#145511"
     },
     {
       "id": "1013",
@@ -529,31 +539,34 @@
               "weight": -0.2
             },
             "flat_orientation": {
-              "weight": -10.0
+              "weight": -5.0
             },
             "base_height": {
-              "weight": -8.0
+              "weight": -5.0
             },
             "joint_deviation_l1": {
-              "weight": -2.0
+              "weight": -1.5
             },
             "dof_pos_limits": {
-              "weight": -3.0
+              "weight": -2.0
             },
             "joint_torque_penalty": {
-              "weight": -0.0005
+              "weight": -5e-07
             },
             "joint_accel_penalty": {
-              "weight": -5e-07
+              "weight": -2e-07
             },
             "action_rate_penalty": {
               "weight": -0.02
             },
             "undesired_contacts": {
-              "weight": -3.0
+              "weight": -2.0
             },
             "feet_slide": {
-              "weight": -0.5
+              "weight": -0.3
+            },
+            "termination_penalty": {
+              "weight": -200.0
             }
           },
           "param_type": "json"
@@ -565,18 +578,21 @@
         },
         "threshold": {
           "name": "threshold",
-          "value": "0.5",
+          "value": "0.4",
           "param_type": "float"
         }
       },
       "ui": {
-        "x": -1697.618833191888,
-        "y": 455.8080274387849,
+        "x": -2482.0453056036063,
+        "y": 291.80246635798795,
         "width": 324.0,
-        "height": 568.0,
+        "height": 632.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Stand Rewards",
+      "color_override": "#145511"
     },
     {
       "id": "1014",
@@ -593,52 +609,49 @@
               "weight": 1.5
             },
             "track_lin_vel_xy": {
-              "weight": 0.5
-            },
-            "lin_vel_xy_penalty": {
-              "weight": 0.0
+              "weight": 0.3
             },
             "lin_vel_z_penalty": {
-              "weight": -2.0
+              "weight": -0.2
             },
             "ang_vel_xy_penalty": {
               "weight": -0.05
             },
             "flat_orientation": {
-              "weight": -2.0
+              "weight": -1.0
             },
             "base_height": {
-              "weight": -2.0
+              "weight": -1.0
             },
             "joint_deviation_l1": {
-              "weight": -0.5
+              "weight": -0.3
             },
             "dof_pos_limits": {
-              "weight": -3.0
+              "weight": -1.0
             },
             "joint_torque_penalty": {
-              "weight": -0.0008
+              "weight": -1.5e-07
             },
             "joint_accel_penalty": {
-              "weight": -2.5e-07
+              "weight": -1e-07
             },
             "joint_vel_penalty": {
-              "weight": -0.002
+              "weight": -0.001
             },
             "action_rate_penalty": {
-              "weight": -0.01
+              "weight": -0.005
             },
             "feet_air_time": {
-              "weight": 0.4
-            },
-            "gait": {
-              "weight": 0.8
-            },
-            "undesired_contacts": {
-              "weight": -2.0
+              "weight": 0.5
             },
             "feet_slide": {
-              "weight": -0.4
+              "weight": -0.2
+            },
+            "undesired_contacts": {
+              "weight": -1.0
+            },
+            "termination_penalty": {
+              "weight": -200.0
             }
           },
           "param_type": "json"
@@ -650,18 +663,21 @@
         },
         "threshold": {
           "name": "threshold",
-          "value": "0.5",
+          "value": "0.4",
           "param_type": "float"
         }
       },
       "ui": {
-        "x": -1296.5114727920954,
-        "y": -331.18908253752033,
+        "x": -2085.2623128775917,
+        "y": -477.0322993884513,
         "width": 324.0,
-        "height": 728.0,
+        "height": 696.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Turn Rewards",
+      "color_override": "#145511"
     },
     {
       "id": "1015",
@@ -675,58 +691,52 @@
               "weight": 1.0
             },
             "track_lin_vel_xy": {
-              "weight": 2.5
+              "weight": 1.5
             },
             "track_ang_vel_z": {
               "weight": 0.3
             },
-            "ang_vel_z_penalty": {
-              "weight": -0.5
-            },
             "lin_vel_z_penalty": {
-              "weight": -2.0
+              "weight": -0.2
             },
             "ang_vel_xy_penalty": {
               "weight": -0.05
             },
             "flat_orientation": {
-              "weight": -4.0
-            },
-            "base_height": {
-              "weight": -3.0
-            },
-            "joint_deviation_l1": {
-              "weight": -0.3
-            },
-            "dof_pos_limits": {
               "weight": -2.0
             },
+            "base_height": {
+              "weight": -2.0
+            },
+            "joint_deviation_l1": {
+              "weight": -0.2
+            },
+            "dof_pos_limits": {
+              "weight": -1.0
+            },
             "joint_torque_penalty": {
-              "weight": -0.0005
+              "weight": -1.5e-07
             },
             "joint_accel_penalty": {
-              "weight": -2.5e-07
-            },
-            "joint_vel_penalty": {
-              "weight": -0.001
+              "weight": -1e-07
             },
             "action_rate_penalty": {
-              "weight": -0.01
+              "weight": -0.005
             },
             "feet_air_time": {
               "weight": 0.5
             },
-            "gait": {
-              "weight": 0.8
-            },
-            "undesired_contacts": {
-              "weight": -2.5
-            },
             "feet_slide": {
-              "weight": -0.5
+              "weight": -0.3
             },
             "feet_clearance": {
-              "weight": 0.6
+              "weight": 0.4
+            },
+            "undesired_contacts": {
+              "weight": -1.5
+            },
+            "termination_penalty": {
+              "weight": -200.0
             }
           },
           "param_type": "json"
@@ -738,18 +748,21 @@
         },
         "threshold": {
           "name": "threshold",
-          "value": "0.5",
+          "value": "0.4",
           "param_type": "float"
         }
       },
       "ui": {
-        "x": -1297.8268373292667,
-        "y": 412.20179960164336,
+        "x": -2091.6371875930827,
+        "y": 290.618285400605,
         "width": 324.0,
-        "height": 760.0,
+        "height": 696.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Pace & Strafe Rewards",
+      "color_override": "#145511"
     },
     {
       "id": "1008",
@@ -773,12 +786,12 @@
         },
         "corruption_noise_std": {
           "name": "corruption_noise_std",
-          "value": "0.03",
+          "value": "0.05",
           "param_type": "float"
         },
         "obs_noise_curriculum_enabled": {
           "name": "obs_noise_curriculum_enabled",
-          "value": "false",
+          "value": "true",
           "param_type": "bool"
         },
         "obs_noise_curriculum_start": {
@@ -798,13 +811,15 @@
         }
       },
       "ui": {
-        "x": -416.76713450448574,
-        "y": 69.952714658208,
+        "x": -1186.1511461101343,
+        "y": 236.2667490558802,
         "width": 324.0,
         "height": 556.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#561450"
     },
     {
       "id": "1009",
@@ -848,12 +863,12 @@
         },
         "roughness_amplitude": {
           "name": "roughness_amplitude",
-          "value": "0.08",
+          "value": "0.0",
           "param_type": "float"
         },
         "slope_max": {
           "name": "slope_max",
-          "value": "20.0",
+          "value": "0.0",
           "param_type": "float"
         },
         "curriculum_enabled": {
@@ -893,13 +908,15 @@
         }
       },
       "ui": {
-        "x": -2089.091790621473,
-        "y": -74.08297096098788,
+        "x": -1567.1932878434739,
+        "y": -810.8661657745477,
         "width": 324.0,
         "height": 280.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#6A3F2D"
     },
     {
       "id": "1012",
@@ -908,7 +925,7 @@
       "params": {
         "training_items": {
           "name": "training_items",
-          "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"forward_fast\": {\"enabled\": true, \"speed\": [1.0, 1.5], \"clip\": null, \"advanced\": {}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": true, \"speed\": [0.5, 1.2], \"clip\": null, \"advanced\": {}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": null, \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"turn\": {\"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.5, 1.5]}}, \"clip\": null, \"enabled\": true, \"speed\": [0.3, 1.0]}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.0, 1.5], \"clip\": null, \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.2, 1.2], \"lin_vel_x\": [-1.5, 1.5], \"lin_vel_y\": [-1.2, 1.2]}}}}",
+          "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 0.5], \"clip\": null, \"advanced\": {}}, \"forward_fast\": {\"enabled\": true, \"speed\": [0.6, 1.0], \"clip\": null, \"advanced\": {}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 0.6], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": true, \"speed\": [0.3, 0.6], \"clip\": null, \"advanced\": {}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": null, \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 0.5], \"clip\": null, \"advanced\": {}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 0.5], \"clip\": null, \"advanced\": {}}, \"turn\": {\"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.0, 1.0]}}, \"clip\": null, \"enabled\": true, \"speed\": [0.3, 1.0]}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": null, \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.0, 1.0], \"lin_vel_x\": [-1.0, 1.0], \"lin_vel_y\": [-0.5, 0.5]}}}}",
           "param_type": "json"
         },
         "mapping_mode": {
@@ -938,17 +955,17 @@
         },
         "gait_frequency_range": {
           "name": "gait_frequency_range",
-          "value": "[1.5, 5.0]",
+          "value": "[1.0, 2.5]",
           "param_type": "list"
         },
         "body_height_range": {
           "name": "body_height_range",
-          "value": "[0.35, 0.5]",
+          "value": "[0.70, 0.80]",
           "param_type": "list"
         },
         "step_height_range": {
           "name": "step_height_range",
-          "value": "[0.1, 0.2]",
+          "value": "[0.05, 0.15]",
           "param_type": "list"
         },
         "gait_presets": {
@@ -958,29 +975,29 @@
         },
         "gain_lin_forward": {
           "name": "gain_lin_forward",
-          "value": 2.0,
+          "value": 1.0,
           "param_type": "float"
         },
         "gain_lin_backward": {
           "name": "gain_lin_backward",
-          "value": 1.0,
+          "value": 0.5,
           "param_type": "float"
         },
         "gain_lin_lateral": {
           "name": "gain_lin_lateral",
-          "value": 1.5,
+          "value": 0.5,
           "param_type": "float"
         },
         "gain_yaw": {
           "name": "gain_yaw",
-          "value": 1.5,
+          "value": 1.0,
           "param_type": "float"
         },
         "resampling_time_range": {
           "name": "resampling_time_range",
           "value": [
-            4.0,
-            8.0
+            6.0,
+            12.0
           ],
           "param_type": "list"
         },
@@ -991,7 +1008,7 @@
         },
         "cmd_step_change_prob": {
           "name": "cmd_step_change_prob",
-          "value": "0.15",
+          "value": "0.05",
           "param_type": "float"
         },
         "consumer_mode": {
@@ -1021,7 +1038,7 @@
         },
         "command_curriculum_start": {
           "name": "command_curriculum_start",
-          "value": "0.4",
+          "value": "0.3",
           "param_type": "float"
         },
         "command_curriculum_end": {
@@ -1031,7 +1048,7 @@
         },
         "command_curriculum_ramp_iters": {
           "name": "command_curriculum_ramp_iters",
-          "value": "2500",
+          "value": "1000",
           "param_type": "int"
         },
         "reference_state_init_enabled": {
@@ -1051,13 +1068,15 @@
         }
       },
       "ui": {
-        "x": -854.0981352822214,
-        "y": -0.19421185468404545,
+        "x": -1580.0751171612167,
+        "y": 229.2573203272113,
         "width": 324.0,
         "height": 900.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#561450"
     },
     {
       "id": "1011",
@@ -1066,7 +1085,7 @@
       "params": {
         "asset_id": {
           "name": "asset_id",
-          "value": "unitree_go2",
+          "value": "6f3ea19141c4",
           "param_type": "string"
         },
         "active_override": {
@@ -1076,23 +1095,60 @@
         },
         "body_mapping": {
           "name": "body_mapping",
-          "value": "{\"body_names\": [\"FL_hip\", \"FL_thigh\", \"FL_calf\", \"FR_hip\", \"FR_thigh\", \"FR_calf\", \"RL_hip\", \"RL_thigh\", \"RL_calf\", \"RR_hip\", \"RR_thigh\", \"RR_calf\", \"FL_foot\", \"FR_foot\", \"RL_foot\", \"RR_foot\"], \"family\": \"quadruped\", \"roles\": {\"base\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_FL\": {\"body\": \"FL_hip\", \"manual\": false, \"auto_from_asset\": false}, \"hip_FR\": {\"body\": \"FR_hip\", \"manual\": false, \"auto_from_asset\": false}, \"hip_RL\": {\"body\": \"RL_hip\", \"manual\": false, \"auto_from_asset\": false}, \"hip_RR\": {\"body\": \"RR_hip\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_FL\": {\"body\": \"FL_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_FR\": {\"body\": \"FR_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_RL\": {\"body\": \"RL_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_RR\": {\"body\": \"RR_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"calf_FL\": {\"body\": \"FL_calf\", \"manual\": false, \"auto_from_asset\": false}, \"calf_FR\": {\"body\": \"FR_calf\", \"manual\": false, \"auto_from_asset\": false}, \"calf_RL\": {\"body\": \"RL_calf\", \"manual\": false, \"auto_from_asset\": false}, \"calf_RR\": {\"body\": \"RR_calf\", \"manual\": false, \"auto_from_asset\": false}, \"foot_FL\": {\"body\": \"FL_foot\", \"manual\": false, \"auto_from_asset\": true}, \"foot_FR\": {\"body\": \"FR_foot\", \"manual\": false, \"auto_from_asset\": true}, \"foot_RL\": {\"body\": \"RL_foot\", \"manual\": false, \"auto_from_asset\": true}, \"foot_RR\": {\"body\": \"RR_foot\", \"manual\": false, \"auto_from_asset\": true}}, \"unmapped_bodies\": [], \"out_of_scope_bodies\": []}",
+          "value": "{\"body_names\": [\"left_hand_index_0_link\", \"left_hand_index_1_link\", \"left_hand_middle_0_link\", \"left_hand_middle_1_link\", \"left_hand_thumb_0_link\", \"left_hand_thumb_1_link\", \"left_hand_thumb_2_link\", \"left_hand_palm_link\", \"pelvis\", \"left_hip_pitch_link\", \"left_hip_roll_link\", \"left_hip_yaw_link\", \"left_knee_link\", \"left_ankle_pitch_link\", \"left_ankle_roll_link\", \"right_hip_pitch_link\", \"right_hip_roll_link\", \"right_hip_yaw_link\", \"right_knee_link\", \"right_ankle_pitch_link\", \"right_ankle_roll_link\", \"waist_yaw_link\", \"waist_roll_link\", \"torso_link\", \"left_shoulder_pitch_link\", \"left_shoulder_roll_link\", \"left_shoulder_yaw_link\", \"left_elbow_link\", \"left_wrist_roll_link\", \"left_wrist_pitch_link\", \"left_wrist_yaw_link\", \"right_shoulder_pitch_link\", \"right_shoulder_roll_link\", \"right_shoulder_yaw_link\", \"right_elbow_link\", \"right_wrist_roll_link\", \"right_wrist_pitch_link\", \"right_wrist_yaw_link\", \"right_hand_index_0_link\", \"right_hand_index_1_link\", \"right_hand_middle_0_link\", \"right_hand_middle_1_link\", \"right_hand_thumb_0_link\", \"right_hand_thumb_1_link\", \"right_hand_thumb_2_link\", \"right_hand_palm_link\"], \"family\": \"humanoid\", \"roles\": {\"base\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"pelvis\": {\"body\": \"pelvis\", \"manual\": false, \"auto_from_asset\": true}, \"torso\": {\"body\": \"torso_link\", \"manual\": false, \"auto_from_asset\": false}, \"waist\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"head\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"waist_yaw\": {\"body\": \"waist_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"waist_roll\": {\"body\": \"waist_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"waist_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck_yaw\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"head_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_pitch_L\": {\"body\": \"left_hip_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_pitch_R\": {\"body\": \"right_hip_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_roll_L\": {\"body\": \"left_hip_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_roll_R\": {\"body\": \"right_hip_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_yaw_L\": {\"body\": \"left_hip_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_yaw_R\": {\"body\": \"right_hip_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"knee_L\": {\"body\": \"left_knee_link\", \"manual\": false, \"auto_from_asset\": false}, \"knee_R\": {\"body\": \"right_knee_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_pitch_L\": {\"body\": \"left_ankle_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_pitch_R\": {\"body\": \"right_ankle_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_roll_L\": {\"body\": \"left_ankle_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_roll_R\": {\"body\": \"right_ankle_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"foot_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"foot_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_pitch_L\": {\"body\": \"left_shoulder_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_pitch_R\": {\"body\": \"right_shoulder_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_roll_L\": {\"body\": \"left_shoulder_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_roll_R\": {\"body\": \"right_shoulder_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_yaw_L\": {\"body\": \"left_shoulder_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_yaw_R\": {\"body\": \"right_shoulder_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"elbow_L\": {\"body\": \"left_elbow_link\", \"manual\": false, \"auto_from_asset\": false}, \"elbow_R\": {\"body\": \"right_elbow_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_roll_L\": {\"body\": \"left_wrist_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_roll_R\": {\"body\": \"right_wrist_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_pitch_L\": {\"body\": \"left_wrist_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_pitch_R\": {\"body\": \"right_wrist_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_yaw_L\": {\"body\": \"left_wrist_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_yaw_R\": {\"body\": \"right_wrist_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"hand_L\": {\"body\": \"left_hand_palm_link\", \"manual\": false, \"auto_from_asset\": false}, \"hand_R\": {\"body\": \"right_hand_palm_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_0_L\": {\"body\": \"left_hand_thumb_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_0_R\": {\"body\": \"right_hand_thumb_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_1_L\": {\"body\": \"left_hand_thumb_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_1_R\": {\"body\": \"right_hand_thumb_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_2_L\": {\"body\": \"left_hand_thumb_2_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_2_R\": {\"body\": \"right_hand_thumb_2_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_0_L\": {\"body\": \"left_hand_index_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_0_R\": {\"body\": \"right_hand_index_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_1_L\": {\"body\": \"left_hand_index_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_1_R\": {\"body\": \"right_hand_index_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_0_L\": {\"body\": \"left_hand_middle_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_0_R\": {\"body\": \"right_hand_middle_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_1_L\": {\"body\": \"left_hand_middle_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_1_R\": {\"body\": \"right_hand_middle_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"ring_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_imu\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_lidar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_camera\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_radar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_gps\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_sonar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_depth\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"misc\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}}, \"unmapped_bodies\": [], \"out_of_scope_bodies\": []}",
           "param_type": "json"
         },
         "target_height": {
           "name": "target_height",
-          "value": 0.4,
+          "value": 0.78,
           "param_type": "float"
+        },
+        "pd_param_mode": {
+          "name": "pd_param_mode",
+          "value": "natural_freq",
+          "param_type": "enum"
+        },
+        "pd_groups": {
+          "name": "pd_groups",
+          "value": "{}",
+          "param_type": "json"
+        },
+        "pd_effort_limit": {
+          "name": "pd_effort_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_velocity_limit": {
+          "name": "pd_velocity_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_resolve_at_reset": {
+          "name": "pd_resolve_at_reset",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_calibration_blocking": {
+          "name": "pd_calibration_blocking",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_skip_calibration": {
+          "name": "pd_skip_calibration",
+          "value": false,
+          "param_type": "bool"
         }
       },
       "ui": {
-        "x": -2475.247950121608,
-        "y": -68.74790977882898,
+        "x": -2979.64351676644,
+        "y": -370.97120758004246,
         "width": 324.0,
-        "height": 488.0,
+        "height": 1256.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#1A4F6B"
     },
     {
       "id": "1010",
@@ -1111,17 +1167,86 @@
         },
         "init_pos_z": {
           "name": "init_pos_z",
-          "value": "0.40",
+          "value": 0.8,
           "param_type": "float"
         },
         "init_joint_angles": {
           "name": "init_joint_angles",
-          "value": "{\"hip_FL\": 0.0, \"thigh_FL\": 0.9, \"calf_FL\": -1.8, \"hip_FR\": 0.0, \"thigh_FR\": 0.9, \"calf_FR\": -1.8, \"hip_RL\": 0.0, \"thigh_RL\": 0.9, \"calf_RL\": -1.8, \"hip_RR\": 0.0, \"thigh_RR\": 0.9, \"calf_RR\": -1.8}",
+          "value": {
+            "hip_pitch_L": -0.2,
+            "hip_roll_L": 0.0,
+            "hip_yaw_L": 0.0,
+            "knee_L": 0.42,
+            "ankle_pitch_L": -0.23,
+            "ankle_roll_L": 0.0,
+            "hip_pitch_R": -0.2,
+            "hip_roll_R": 0.0,
+            "hip_yaw_R": 0.0,
+            "knee_R": 0.42,
+            "ankle_pitch_R": -0.23,
+            "ankle_roll_R": 0.0,
+            "waist_yaw": 0.0,
+            "waist_roll": 0.0,
+            "waist_pitch": 0.0,
+            "shoulder_pitch_L": 0.35,
+            "shoulder_roll_L": 0.0,
+            "shoulder_yaw_L": 0.0,
+            "elbow_L": 0.87,
+            "wrist_roll_L": 0.0,
+            "wrist_pitch_L": 0.0,
+            "wrist_yaw_L": 0.0,
+            "shoulder_pitch_R": 0.35,
+            "shoulder_roll_R": 0.0,
+            "shoulder_yaw_R": 0.0,
+            "elbow_R": 0.87,
+            "wrist_roll_R": 0.0,
+            "wrist_pitch_R": 0.0,
+            "wrist_yaw_R": 0.0,
+            "index_0_L": 0.0,
+            "index_1_L": 0.0,
+            "middle_0_L": 0.0,
+            "middle_1_L": 0.0,
+            "thumb_0_L": 0.0,
+            "thumb_1_L": 0.0,
+            "thumb_2_L": 0.0,
+            "index_0_R": 0.0,
+            "index_1_R": 0.0,
+            "middle_0_R": 0.0,
+            "middle_1_R": 0.0,
+            "thumb_0_R": 0.0,
+            "thumb_1_R": 0.0,
+            "thumb_2_R": 0.0
+          },
           "param_type": "json"
+        },
+        "init_pose_mode": {
+          "name": "init_pose_mode",
+          "value": "default",
+          "param_type": "enum"
+        },
+        "init_pose_noise_scale": {
+          "name": "init_pose_noise_scale",
+          "value": 0.05,
+          "param_type": "float"
+        },
+        "init_pose_keyframe_name": {
+          "name": "init_pose_keyframe_name",
+          "value": "home",
+          "param_type": "string"
+        },
+        "init_pose_rsi_prob": {
+          "name": "init_pose_rsi_prob",
+          "value": 1.0,
+          "param_type": "float"
+        },
+        "init_pose_rsi_sample_mode": {
+          "name": "init_pose_rsi_sample_mode",
+          "value": "frame_0",
+          "param_type": "enum"
         },
         "contact_body_names": {
           "name": "contact_body_names",
-          "value": "[]",
+          "value": "[\"ankle_roll_L\", \"ankle_roll_R\"]",
           "param_type": "json"
         },
         "contact_history_length": {
@@ -1136,17 +1261,17 @@
         },
         "stiffness": {
           "name": "stiffness",
-          "value": "25.0",
+          "value": "150.0",
           "param_type": "float"
         },
         "damping": {
           "name": "damping",
-          "value": "0.5",
+          "value": "5.0",
           "param_type": "float"
         },
         "effort_limit": {
           "name": "effort_limit",
-          "value": "45.0",
+          "value": "300.0",
           "param_type": "float"
         },
         "velocity_limit": {
@@ -1156,12 +1281,12 @@
         },
         "action_joint_names_expr": {
           "name": "action_joint_names_expr",
-          "value": "[]",
+          "value": "[\".*\"]",
           "param_type": "json"
         },
         "action_scale": {
           "name": "action_scale",
-          "value": "0.25",
+          "value": "0.5",
           "param_type": "float"
         },
         "action_use_default_offset": {
@@ -1171,23 +1296,28 @@
         },
         "action_scale_curriculum_enabled": {
           "name": "action_scale_curriculum_enabled",
-          "value": "true",
+          "value": "false",
           "param_type": "bool"
         },
         "action_scale_curriculum_start": {
           "name": "action_scale_curriculum_start",
-          "value": "0.15",
+          "value": "0.25",
           "param_type": "float"
         },
         "action_scale_curriculum_end": {
           "name": "action_scale_curriculum_end",
-          "value": "0.25",
+          "value": "0.5",
           "param_type": "float"
         },
         "action_scale_curriculum_ramp_iters": {
           "name": "action_scale_curriculum_ramp_iters",
           "value": "600",
           "param_type": "int"
+        },
+        "review_pose_engine": {
+          "name": "review_pose_engine",
+          "value": "mujoco",
+          "param_type": "enum"
         },
         "_review_pose": {
           "name": "_review_pose",
@@ -1196,13 +1326,15 @@
         }
       },
       "ui": {
-        "x": -2480.406282310231,
-        "y": 470.3382029442257,
+        "x": -1562.3399973531007,
+        "y": -489.03555213855225,
         "width": 324.0,
-        "height": 580.0,
+        "height": 626.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#6A3F2D"
     },
     {
       "id": "1003",
@@ -1221,7 +1353,7 @@
         },
         "max_iterations": {
           "name": "max_iterations",
-          "value": 4000,
+          "value": 1000,
           "param_type": "int"
         },
         "num_steps_per_env": {
@@ -1241,7 +1373,7 @@
         },
         "learning_rate": {
           "name": "learning_rate",
-          "value": "0.0005",
+          "value": "0.001",
           "param_type": "float"
         },
         "discount_factor": {
@@ -1261,7 +1393,7 @@
         },
         "entropy_coef": {
           "name": "entropy_coef",
-          "value": 0.01,
+          "value": 0.008,
           "param_type": "float"
         },
         "value_loss_coef": {
@@ -1286,7 +1418,7 @@
         },
         "save_interval": {
           "name": "save_interval",
-          "value": 1000,
+          "value": 50,
           "param_type": "int"
         },
         "seed": {
@@ -1346,7 +1478,7 @@
         },
         "entropy_schedule_enabled": {
           "name": "entropy_schedule_enabled",
-          "value": "true",
+          "value": "false",
           "param_type": "bool"
         },
         "entropy_schedule_start": {
@@ -1366,13 +1498,15 @@
         }
       },
       "ui": {
-        "x": -26.79047666803865,
-        "y": 367.87494154087375,
+        "x": -685.2766831911188,
+        "y": -103.2034658201106,
         "width": 324.0,
-        "height": 834.0,
+        "height": 808.0,
         "collapsed": false
       },
-      "opaque_code": null
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#5B0A0A"
     }
   ],
   "edges": [
@@ -1575,6 +1709,87 @@
       "target_node": "1012",
       "target_port": "reward_in__strafe_right",
       "edge_type": "flow"
+    }
+  ],
+  "groups": [
+    {
+      "id": "86e7d3c6ff4a",
+      "title": "Enviroment Settings",
+      "members": [
+        "1005",
+        "1009",
+        "1010"
+      ],
+      "rect": {
+        "x": -1595.1932878434739,
+        "y": -853.8661657745477,
+        "w": 741.490615565117,
+        "h": 1008.9611979376511
+      },
+      "color_override": "#6A3F2D"
+    },
+    {
+      "id": "4a0d7af82a0b",
+      "title": "Start",
+      "members": [
+        "1002",
+        "1011"
+      ],
+      "rect": {
+        "x": -3028.8588083230256,
+        "y": -528.570546028501,
+        "w": 408.18021083560507,
+        "h": 1435.7527031692966
+      },
+      "color_override": "#14484E"
+    },
+    {
+      "id": "2fcc9d18d835",
+      "title": "Rewards",
+      "members": [
+        "1007",
+        "1013",
+        "1014",
+        "1015"
+      ],
+      "rect": {
+        "x": -2514.975084751713,
+        "y": -520.0322993884513,
+        "w": 781.7127718741215,
+        "h": 1589.6505847890562
+      },
+      "color_override": "#145511"
+    },
+    {
+      "id": "9ad036e0c387",
+      "title": "Training Settings",
+      "members": [
+        "1006",
+        "1008",
+        "1012"
+      ],
+      "rect": {
+        "x": -1608.0751171612167,
+        "y": 186.25732032721135,
+        "w": 760.7703256793691,
+        "h": 972.1346443259359
+      },
+      "color_override": "#561450"
+    },
+    {
+      "id": "16ab99b7402e",
+      "title": "Trainer",
+      "members": [
+        "1004",
+        "1003"
+      ],
+      "rect": {
+        "x": -715.4239501386858,
+        "y": -353.57170585952224,
+        "w": 383.14187151253594,
+        "h": 1079.6685398819168
+      },
+      "color_override": "#5B0A0A"
     }
   ]
 }

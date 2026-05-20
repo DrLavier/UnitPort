@@ -36,6 +36,7 @@ own manifest dict end-to-end. It does **not** call ``export_bundle``
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from dataclasses import dataclass
@@ -185,6 +186,37 @@ def _validate_deploy_contract(
                 f"{len(lst) if isinstance(lst, list) else 'N/A'}, "
                 f"expected {n} (or null)."
             )
+
+    # Stage F: v2 PD provenance fields. When pd_param is present, the
+    # per-engine derived arrays MUST be present and length-matched —
+    # UNLESS the deploy target is explicitly marked unsupported (e.g.
+    # mujoco_deploy_unsupported set when MJCF can't cover the trained
+    # joint set; bundle still ships for IsaacSim / cloud targets). The
+    # marker carries the reason text so MuJoCo runtime loader can
+    # surface it on refused-load.
+    if contract.get("pd_param") is not None:
+        mujoco_unsupported = bool(contract.get("mujoco_deploy_unsupported"))
+        for key in ("mujoco_pd_gains", "mujoco_pd_damping"):
+            lst = contract.get(key)
+            if mujoco_unsupported:
+                # When MuJoCo deploy is explicitly opted out, both arrays
+                # MUST be None (sentinel) — present-but-wrong-length is
+                # still a bug we should catch.
+                if lst is not None:
+                    raise RuntimeError(
+                        f"[bundle_finalizer] deploy_contract.{key} = "
+                        f"{type(lst).__name__} but mujoco_deploy_unsupported "
+                        f"is set — expected None when MuJoCo target opted "
+                        f"out."
+                    )
+                continue
+            if not isinstance(lst, list) or len(lst) != n:
+                raise RuntimeError(
+                    f"[bundle_finalizer] deploy_contract.{key} has length "
+                    f"{len(lst) if isinstance(lst, list) else 'N/A'}, "
+                    f"expected {n} (pd_param is set; per-engine derived "
+                    f"arrays must be populated)."
+                )
 
     # sim_dt / step_dt / decimation consistency (mirrors deploy_contract.py:404)
     try:
@@ -433,22 +465,28 @@ def _skill_manifest_to_v1_dict(
     backwards-compatible carry-along).
     """
     if len(joint_names) != int(manifest.action_dim):
-        # Manifest is the source of truth for action_dim (it was inferred
-        # from env.yaml's action manager). If joint_names disagrees the
-        # spec / env.yaml are out of sync — pad/trim to match so
-        # ``BundleExporter.build_manifest`` does not raise mid-write.
-        # Log so the discrepancy is visible.
-        log_warning(
-            f"[bundle_finalizer] joint_names len={len(joint_names)} mismatches "
-            f"manifest.action_dim={manifest.action_dim}; padding to "
-            f"action_dim length so build_manifest accepts the bundle."
+        # CLAUDE.md §1.8: the legacy behaviour padded/trimmed joint_names to
+        # manifest.action_dim length (filling with synthetic ``joint_N``
+        # placeholders) so ``BundleExporter.build_manifest`` would accept
+        # the bundle. That hid a real upstream bug — manifest.action_dim
+        # was being silently substituted with 12 (the Go2 default) by
+        # ``_extract_action_config`` whenever env.yaml's ``joint_pos``
+        # action lacked a static ``dim`` field, corrupting the bundle's
+        # joint table with fake names that downstream code (PolicyRunner,
+        # deploy_contract validators) couldn't map. Refuse to ship the
+        # bundle and surface the real disagreement so the upstream
+        # mis-inference can be fixed at its source.
+        raise RuntimeError(
+            f"[bundle_finalizer] joint_names length ({len(joint_names)}) "
+            f"does not match manifest.action_dim ({manifest.action_dim}). "
+            f"Both should equal the trained policy's action width — the "
+            f"disagreement means either env.yaml's action manager was "
+            f"mis-parsed (check _extract_action_config) or "
+            f"spec.robot.joint_ir_roles was sourced from the wrong "
+            f"format. Refusing to fabricate placeholder joint names "
+            f"(CLAUDE.md §1.8). joint_names sample: "
+            f"{list(joint_names)[:6]}{'...' if len(joint_names) > 6 else ''}"
         )
-        if len(joint_names) < manifest.action_dim:
-            joint_names = list(joint_names) + [
-                f"joint_{i}" for i in range(len(joint_names), manifest.action_dim)
-            ]
-        else:
-            joint_names = list(joint_names)[: manifest.action_dim]
 
     extra: Dict[str, Any] = {}
     if manifest.command_interface is not None:
@@ -527,6 +565,9 @@ def _extract_normalization_stats(
     import json as _json
     import torch
 
+    # WHY KEPT: source_pt 由本 finalize pipeline 上游的 AmpOnPolicyRunner.save() /
+    # OnPolicyRunner.save() 写出，trusted trainer artifact，路径不取自用户输入。
+    # weights_only=True 会拒绝合法的 Normalizer / optimizer pickle。Plan P1-1.
     src = torch.load(str(source_pt), map_location="cpu", weights_only=False)
     if not isinstance(src, dict):
         return (False, {})
@@ -578,6 +619,8 @@ def _extract_discriminator_pt(
     """
     import torch
 
+    # WHY KEPT: source_pt 由本 finalize pipeline 上游的 AmpOnPolicyRunner.save()
+    # 写出，trusted trainer artifact。weights_only=True 拒绝合法 pickle。Plan P1-1.
     src = torch.load(str(source_pt), map_location="cpu", weights_only=False)
     if not isinstance(src, dict) or "discriminator_state_dict" not in src:
         return (False, [])
@@ -598,6 +641,180 @@ def _extract_discriminator_pt(
 # ---------------------------------------------------------------------------
 # Public entry — finalize_isaac_lab_bundle
 # ---------------------------------------------------------------------------
+
+
+def _derive_mujoco_pd_gains_for_bundle(
+    *,
+    deploy_meta_path: Optional[Path],
+    robot_sku: str,
+    joint_names_ir: List[str],
+    default_joint_pos: List[float],
+) -> Optional[Dict[str, Any]]:
+    """Read pd_param from deploy_meta.json and derive MuJoCo per-joint kp/kd.
+
+    Returns ``{"pd_param": {...}, "mujoco_pd_gains": [...],
+    "mujoco_pd_damping": [...]}`` ready to merge into deploy_contract_dict,
+    or ``None`` when no ActuatorPDNode was wired (no ``unitport_pd_param``
+    block in the sidecar).
+
+    The returned arrays are aligned with ``joint_names_ir`` (the SDK
+    canonical order). The bundle finalizer's joint_permutation block
+    reorders them into Isaac-Lab order along with the other per-joint
+    arrays.
+
+    Raises (fail-loud per RELEASE/CLAUDE.md §1.8) when:
+      * pd_param is present but the robot has no MJCF (cannot solve);
+      * mujoco_gain_solver fails (NaN inertia, joint name mismatch, etc).
+    """
+    if deploy_meta_path is None:
+        return None
+    try:
+        meta = json.loads(Path(deploy_meta_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log_warning(
+            f"[bundle_finalizer] failed to read deploy_meta.json at "
+            f"{deploy_meta_path!r} ({exc}); skipping MuJoCo PD derivation."
+        )
+        return None
+    pd_block = (meta or {}).get("unitport_pd_param")
+    if not pd_block:
+        return None
+    pd_param_dict = pd_block.get("pd_param")
+    if not isinstance(pd_param_dict, dict):
+        log_warning(
+            "[bundle_finalizer] deploy_meta.unitport_pd_param.pd_param is "
+            "missing or malformed; skipping MuJoCo PD derivation."
+        )
+        return None
+
+    # Resolve MJCF path from the SKU. RobotSpec stores the canonical raw
+    # string (relative like "menagerie/<dir>/scene.xml"); the real on-disk
+    # resolution against _canonical_asset_roots happens in
+    # RobotAssetService.resolve() — same code path the canvas / RobotNode
+    # uses, so this stays in sync with the UI's view of the asset.
+    from registers import robots as _registers_robots
+    from application.service.robot_assets.service import get_robot_asset_service
+
+    rs = _registers_robots.get_robot_spec(robot_sku)
+    if rs is None:
+        raise RuntimeError(
+            f"[bundle_finalizer] robot_sku={robot_sku!r} not in registry; "
+            f"cannot resolve MJCF for MuJoCo PD derivation."
+        )
+
+    asset = get_robot_asset_service().resolve(robot_sku)
+    resolved_mjcf = asset.mjcf_path if asset is not None else None
+    if resolved_mjcf is None or not resolved_mjcf.is_file():
+        # No MJCF on disk → can't run mj_fullM. Surface as a hard error
+        # (rule §1.8 fail-loud): the canvas has an ActuatorPDNode wired,
+        # so the bundle MUST carry MuJoCo gains for the (omega_n, zeta)
+        # contract to hold. Telling the user to run "Dump MJCF" is the
+        # cleaner failure mode than silently producing a half-v2 bundle.
+        raw_hint = getattr(rs, "mjcf_path", None)
+        raise RuntimeError(
+            f"[bundle_finalizer] robot_sku={robot_sku!r} has no on-disk "
+            f"MJCF (canonical raw={raw_hint!r}, resolved="
+            f"{str(resolved_mjcf) if resolved_mjcf else None!r}); cannot "
+            f"derive MuJoCo PD gains. Open the Robot Asset card and run "
+            f"'Dump MJCF' before exporting the bundle. (ActuatorPDNode is "
+            f"wired on the canvas — without an MJCF the canonical "
+            f"(omega_n, zeta) contract cannot be honored.)"
+        )
+    mjcf_path = resolved_mjcf
+
+    # Map IR roles → physical joint names via JointIRResolver, then call
+    # the solver. The solver uses mj_fullM at the bundle's default qpos
+    # (legs in trained pose), which is what the deploy stack will face.
+    try:
+        from application.physics.mujoco_gain_solver import solve as _mj_solve
+        from application.physics.pd_param import PDParam
+        from application.training.joint_ir import JointIRResolver
+        from application.training.training_spec import RobotSpecRef
+    except Exception as exc:
+        raise RuntimeError(
+            f"[bundle_finalizer] failed to import physics helpers: {exc}"
+        ) from exc
+
+    try:
+        pd_param = PDParam.from_dict(pd_param_dict)
+    except Exception as exc:
+        raise RuntimeError(
+            f"[bundle_finalizer] deploy_meta.pd_param is malformed: {exc}"
+        ) from exc
+
+    # Build a RobotSpecRef from the registry so JointIRResolver works.
+    # MJCF coverage check: when MJCF declares FEWER IR roles than the
+    # trained policy uses (e.g. G1 trained on 43-DOF USD but MJCF is
+    # the 29-DOF stock variant), we CANNOT derive MuJoCo PD gains for
+    # the missing roles. Per user-clarified semantics, this is a
+    # deploy-target availability concern, not a bundle-export failure:
+    # we ship the bundle with pd_param (source of truth, always
+    # populated) + PhysX gains (always derivable for IL) so the
+    # IsaacSim deploy target works; mujoco_pd_gains / mujoco_pd_damping
+    # are omitted and MuJoCo runtime refuses to load this bundle. The
+    # raise pattern previously here blocked bundle export entirely,
+    # which the user pushed back on as overly restrictive — the
+    # IsaacSim-only bundle is still a valid artifact.
+    spec_ref = RobotSpecRef.from_registry(rs, target_height=0.0, active_format="MJCF")
+    resolver = JointIRResolver(spec_ref, active_format="MJCF")
+    physical_names: List[str] = []
+    missing_in_mjcf: List[str] = []
+    for ir_role in joint_names_ir:
+        try:
+            physical_names.append(resolver.to_physical(ir_role))
+        except KeyError:
+            missing_in_mjcf.append(str(ir_role))
+
+    if missing_in_mjcf:
+        log_warning(
+            f"[bundle_finalizer] MJCF table for robot_sku={robot_sku!r} "
+            f"does not declare {len(missing_in_mjcf)} of the "
+            f"{len(joint_names_ir)} IR roles the trained policy uses: "
+            f"{missing_in_mjcf}. Skipping MuJoCo PD gain derivation — "
+            f"the bundle will ship with pd_param + PhysX gains only "
+            f"(IsaacSim / cloud deploy targets remain available; MuJoCo "
+            f"deploy target will be unavailable). If MuJoCo deploy is "
+            f"needed, repoint assets.MJCF to a variant that covers the "
+            f"trained joint set (for Unitree G1: "
+            f"``menagerie/unitree_g1/scene_with_hands.xml``) and re-export."
+        )
+        return {
+            "pd_param": pd_param.to_dict(),
+            "mujoco_pd_gains": None,
+            "mujoco_pd_damping": None,
+            "_mujoco_unsupported_reason": (
+                f"MJCF missing {len(missing_in_mjcf)} IR role(s) the "
+                f"trained policy uses: {missing_in_mjcf}"
+            ),
+        }
+
+    # Build a nominal qpos: 7-dof free root + per-joint defaults. The
+    # MJCF's keyframe may exist; if so we use it via nominal_qpos=None,
+    # which the solver auto-resolves. Otherwise we synthesize.
+    nominal_qpos = None  # solver will use model.key_qpos[0] or model.qpos0
+
+    gains = _mj_solve(
+        mjcf_path=Path(mjcf_path),
+        joint_order_physical=physical_names,
+        joint_ir_roles=list(joint_names_ir),
+        nominal_qpos=nominal_qpos,
+        pd_param=pd_param,
+    )
+
+    log_info(
+        f"[bundle_finalizer] MuJoCo PD gains derived (mj_fullM @ nominal): "
+        f"family={pd_block.get('primary_family')} "
+        f"kp_range=[{min(gains.kp):.2f}, {max(gains.kp):.2f}] "
+        f"kd_range=[{min(gains.kd):.2f}, {max(gains.kd):.2f}]"
+    )
+
+    return {
+        "pd_param": pd_param.to_dict(),
+        "mujoco_pd_gains": [float(v) for v in gains.kp],
+        "mujoco_pd_damping": [float(v) for v in gains.kd],
+        "_solver_derivation": gains.derivation,  # dropped before manifest write
+    }
+
 
 def finalize_isaac_lab_bundle(
     *,
@@ -732,8 +949,15 @@ def finalize_isaac_lab_bundle(
         # ``RobotSpecRef.from_registry`` populates spec.robot.sku from
         # the canvas RobotNode's binding; if it's empty here, lowering
         # produced an unregistered robot and the fix belongs upstream
-        # — never paper-over by reading display strings.
+        # — never paper-over by reading display strings. CLAUDE.md §1.7.
         robot_sku = str(getattr(spec.robot, "sku", "") or "")
+        if not robot_sku:
+            raise ValueError(
+                "[bundle_finalizer] spec.robot.sku is empty — lowering "
+                "produced an unregistered robot. Fix the canvas Robot Node "
+                "binding upstream; bundle finalize refuses to ship a "
+                "bundle without a SKU (CLAUDE.md §1.7)."
+            )
         # IR roles, NOT physical names — the substrate-side translation
         # happens deploy-time via ir_roles_to_physical_names(roles, sku).
         joint_names = list(getattr(spec.robot, "joint_ir_roles", []) or [])
@@ -755,36 +979,92 @@ def finalize_isaac_lab_bundle(
     # order → ObsBuilder feeds joint_pos/joint_vel/last_action to the
     # policy in wrong slots → "twitching like electric shock" at deploy.
     # See plan: release-demo-sim2sim-policy-...md §1.
+    # CLAUDE.md §1.8: previous behaviour was "log_warning + fall back to
+    # SDK canonical order", which produced a bundle whose joint_sdk_names
+    # ordering didn't match the USD-articulation order the policy was
+    # trained against. PolicyRunner / sim2sim then fed obs/action through
+    # the wrong joint slots, manifesting as the "electric shock" twitching
+    # the user reported. Refuse to finalize on any sort of mismatch — a
+    # broken bundle that *looks* exported is worse than no bundle at all.
+    #
+    # Active-format-driven branching (Stage 3 design):
+    #   * active_format == "USD": joint_ir_roles ARE already in USD-
+    #     articulation order (USD-table insertion order = articulation
+    #     order). No permutation needed; isaac_lab_joint_order is at most
+    #     an optional sanity check.
+    #   * active_format != "USD" (legacy): spec.robot.joint_ir_roles is
+    #     in the active format's order (typically MJCF / SDK-canonical).
+    #     The bundle MUST be reordered to Isaac Lab's USD-articulation
+    #     order, which is what isaac_lab_joint_order records.
+    active_format = ""
+    if spec is not None and getattr(spec, "robot", None) is not None:
+        active_format = str(getattr(spec.robot, "active_format", "") or "").upper()
+
     joint_permutation: Optional[List[int]] = None
-    if isaac_lab_order and joint_names:
+    if not joint_names or not robot_sku:
+        # No joint topology declared (e.g. minimal smoke spec) — nothing
+        # to permute. Allowed to skip silently.
+        pass
+    elif active_format == "USD":
+        # joint_ir_roles is already in USD-articulation order; ship as-is.
+        # If isaac_lab_joint_order is also declared, sanity-check it (don't
+        # silently ignore the discrepancy).
+        if isaac_lab_order:
+            if list(isaac_lab_order) != list(joint_names):
+                raise RuntimeError(
+                    f"[bundle_finalizer] robot_sku={robot_sku!r} declares "
+                    f"isaac_lab_joint_order but its contents disagree with "
+                    f"the USD-derived joint_ir_roles. With "
+                    f"joints_per_format[\"USD\"] populated the USD insertion "
+                    f"order is the source of truth — either drop the "
+                    f"isaac_lab_joint_order field from the registry entry, "
+                    f"or fix it to match. "
+                    f"joint_ir_roles={joint_names!r}, "
+                    f"isaac_lab_joint_order={list(isaac_lab_order)!r}."
+                )
+        # No permutation: joint_names stays as-is.
+    elif not isaac_lab_order:
+        raise RuntimeError(
+            f"[bundle_finalizer] robot_sku={robot_sku!r} was compiled "
+            f"against active_format={active_format!r} (not USD) and has "
+            f"no isaac_lab_joint_order declared in registers/data/"
+            f"robots_canonical.json (or the user overlay). The bundle "
+            f"would ship joint_sdk_names in {active_format!r} order, "
+            f"which does not match the USD-articulation order Isaac Lab "
+            f"reports at deploy time — sim2sim then feeds obs/action "
+            f"through the wrong joint slots and the policy twitches "
+            f"(CLAUDE.md §1.8 forbids shipping known-broken artifacts). "
+            f"Two ways to fix, in order of preference: "
+            f"(1) populate joints_per_format[\"USD\"] for this robot via "
+            f"the Robot Asset card's \"Dump USD\" button and re-train — "
+            f"the USD-table insertion order becomes the contract and this "
+            f"field is no longer needed; "
+            f"(2) hand-author isaac_lab_joint_order as a flat list of IR "
+            f"roles in Isaac Lab's `Available strings` order (see the Go2 "
+            f"entry in robots_canonical.json as a reference shape)."
+        )
+    else:
         canonical_index = {role: i for i, role in enumerate(joint_names)}
         try:
             candidate = [canonical_index[r] for r in isaac_lab_order]
         except KeyError as exc:
-            log_warning(
-                f"[bundle_finalizer] isaac_lab_joint_order role {exc} not "
-                f"in spec.robot.joint_ir_roles for SKU {robot_sku!r}; "
-                f"falling back to SDK canonical order — sim2sim parity "
-                f"NOT guaranteed."
-            )
-            candidate = None
-        if candidate is not None and len(candidate) == len(joint_names):
-            joint_permutation = candidate
-        elif candidate is not None:
-            log_warning(
+            raise RuntimeError(
+                f"[bundle_finalizer] isaac_lab_joint_order references IR "
+                f"role {exc} that is not in spec.robot.joint_ir_roles for "
+                f"SKU {robot_sku!r}. Registry data is inconsistent — fix "
+                f"robots_canonical.json (or the user overlay) so every "
+                f"isaac_lab_joint_order entry matches a declared "
+                f"joints_per_format ir_role."
+            ) from exc
+        if len(candidate) != len(joint_names):
+            raise RuntimeError(
                 f"[bundle_finalizer] isaac_lab_joint_order length "
-                f"({len(candidate)}) ≠ joint_ir_roles ({len(joint_names)}) "
-                f"for SKU {robot_sku!r}; falling back."
+                f"({len(candidate)}) ≠ joint_ir_roles "
+                f"({len(joint_names)}) for SKU {robot_sku!r}. Registry "
+                f"data is inconsistent — both lists must cover the same "
+                f"joint set."
             )
-    elif joint_names and robot_sku:
-        log_warning(
-            f"[bundle_finalizer] robot_sku={robot_sku!r} has no "
-            f"isaac_lab_joint_order in robots_canonical.json; bundle "
-            f"uses SDK canonical joint order which may not match Isaac "
-            f"Lab USD articulation order — sim2sim parity NOT guaranteed. "
-            f"Add the field to robots_canonical.json after confirming USD "
-            f"joint order for this robot."
-        )
+        joint_permutation = candidate
 
     if joint_permutation is not None:
         joint_names = [joint_names[i] for i in joint_permutation]
@@ -814,14 +1094,14 @@ def finalize_isaac_lab_bundle(
         ).upper()
         algorithm = mode
 
-    # Inject spec.robot.sku into the parser-built contract (the parser
-    # doesn't have spec in scope so it leaves robot_sku=""). Phase 5 IR
-    # resolution at runtime keys off this field.
+    # ``robot_sku`` is NOT stored on the contract anymore — it lives only
+    # on manifest.robot.sku (single source of truth). Strip any leftover
+    # field that might have come from a legacy parser path so the bundle
+    # written to disk is clean.
     deploy_contract_dict: Optional[Dict[str, Any]] = None
     if sm.deploy_contract is not None:
         deploy_contract_dict = dict(sm.deploy_contract)
-        if not deploy_contract_dict.get("robot_sku"):
-            deploy_contract_dict["robot_sku"] = robot_sku
+        deploy_contract_dict.pop("robot_sku", None)
 
         # Persist the Isaac Lab training init root position so MuJoCo
         # deploy spawns the robot at the same base z the policy was
@@ -846,6 +1126,91 @@ def finalize_isaac_lab_bundle(
                     init_pos_x, init_pos_y, init_pos_z
                 ]
 
+        # MJCF base spawn-Z offset overlay (USD↔MJCF anchor compensation).
+        # Embed the per-SKU offset into the bundle so a downstream
+        # MuJoCo runtime on a different machine doesn't need the user's
+        # robot_assets/state.json — CLAUDE.md §1.9 portable artifacts.
+        if robot_sku:
+            try:
+                from application.service.robot_assets.service import (
+                    get_robot_asset_service,
+                )
+                overlay = get_robot_asset_service().get_mjcf_base_offset(robot_sku)
+                if isinstance(overlay, dict) and overlay:
+                    deploy_contract_dict["mjcf_base_height_offset"] = overlay
+            except Exception as exc:  # noqa: BLE001
+                # WHY KEPT (§1.8 (c)): finalize must not fail because
+                # of an overlay read glitch; uncalibrated state surfaces
+                # via the runtime reader on the deploy machine.
+                log_warning(
+                    f"[bundle_finalizer] could not attach "
+                    f"mjcf_base_height_offset to deploy_contract: {exc}"
+                )
+
+        # Stage F: derive MuJoCo PD gains from deploy_meta.json's
+        # unitport_pd_param block (written by env_cfg_compiler when an
+        # ActuatorPDNode is wired). Done BEFORE joint_permutation so
+        # the new arrays get reordered along with the existing ones.
+        # Returns None when no ActuatorPDNode is in the canvas; the
+        # bundle is then v2 but with pd_param=None (legacy scalar PD
+        # for the MuJoCo runtime, same as v1).
+        #
+        # Coverage-gap handling: when MJCF doesn't declare every IR role
+        # the trained policy uses (e.g. trained against 43-DOF USD G1
+        # but MJCF asset is 29-DOF stock variant), the derivation
+        # returns a partial payload with mujoco_pd_gains / mujoco_pd_damping
+        # = None and _mujoco_unsupported_reason set. We still write
+        # pd_param (source of truth, always carried) and mark the bundle
+        # as MuJoCo-deploy-unsupported via a sentinel field — MuJoCo
+        # runtime loader checks this and refuses to load; IsaacSim /
+        # cloud deploy targets remain unaffected.
+        pre_perm_joint_names = list(deploy_contract_dict.get("joint_sdk_names") or joint_names)
+        pre_perm_default_pos = list(deploy_contract_dict.get("default_joint_pos") or [])
+        if robot_sku and pre_perm_joint_names:
+            try:
+                pd_payload = _derive_mujoco_pd_gains_for_bundle(
+                    deploy_meta_path=deploy_meta,
+                    robot_sku=robot_sku,
+                    joint_names_ir=pre_perm_joint_names,
+                    default_joint_pos=pre_perm_default_pos,
+                )
+            except Exception as exc:
+                # Re-raise: this path is for unexpected solver/import
+                # failures (genuine bugs). Per-joint MJCF coverage gaps
+                # are handled inside the function and return a partial
+                # payload, not raised.
+                log_warning(
+                    f"[bundle_finalizer] MuJoCo PD derivation failed: {exc}"
+                )
+                raise
+            if pd_payload is not None:
+                # Drop the diagnostic-only key before injection.
+                pd_payload.pop("_solver_derivation", None)
+                deploy_contract_dict["pd_param"] = pd_payload["pd_param"]
+                deploy_contract_dict["mujoco_pd_gains"] = pd_payload["mujoco_pd_gains"]
+                deploy_contract_dict["mujoco_pd_damping"] = pd_payload["mujoco_pd_damping"]
+                # MuJoCo-unsupported marker, when MJCF coverage gap forced
+                # the derivation to return None for the engine-specific
+                # arrays. Runtime loader (mj_actor / pd_controller) checks
+                # this and refuses with the carried reason rather than
+                # crashing on AttributeError / None arithmetic.
+                unsupported = pd_payload.pop("_mujoco_unsupported_reason", None)
+                if unsupported:
+                    deploy_contract_dict["mujoco_deploy_unsupported"] = (
+                        str(unsupported)
+                    )
+
+        # Bump the contract schema_version to v2 unconditionally — every
+        # bundle exported by this pipeline carries the v2 shape, with
+        # pd_param/mujoco_pd_gains populated only when an ActuatorPDNode
+        # was wired. Legacy v1 readers will reject the version; this is
+        # intentional (the v1 → v2 transition is irreversible per
+        # mjcf-usd-pd plan Stage F).
+        from application.service.runtime.policy.deploy_contract import (
+            CURRENT_SCHEMA_VERSION as _PD_SCHEMA_VERSION,
+        )
+        deploy_contract_dict["schema_version"] = int(_PD_SCHEMA_VERSION)
+
         # Apply the same Isaac-Lab-order permutation to every parallel
         # per-joint array in the deploy_contract so they line up with
         # the manifest's reordered joint_names. After this step
@@ -861,6 +1226,8 @@ def finalize_isaac_lab_bundle(
                 "effort_limit",
                 "velocity_limit",
                 "saturation_effort",
+                "mujoco_pd_gains",
+                "mujoco_pd_damping",
             ):
                 arr = deploy_contract_dict.get(field_name)
                 if isinstance(arr, list) and len(arr) == n_perm:

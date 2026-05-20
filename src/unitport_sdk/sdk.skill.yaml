@@ -141,8 +141,11 @@ paths:
       ASSETS_DIR       [Resources].assets_dir       → default RELEASE/src/application/bin/assets/
       REGISTERS_DIR    [Resources].registers_dir    → default RELEASE/src/registers/
       RUNTIME_DIR      [Resources].runtime_dir      → default RELEASE/src/runtime/
-      USER_CONFIG_DIR  [Resources].user_config_dir  → default Path.home() / "UnitPort"
-                                                       (Windows: C:\Users\<u>\UnitPort)
+      USER_CONFIG_DIR  [Resources].user_config_dir  → default PROJECT_ROOT/runtime/user_config
+                                                       (in-tree; NEVER falls back to ~/UnitPort —
+                                                        deployments wanting per-user state outside
+                                                        the project tree MUST set this key to an
+                                                        absolute path explicitly)
       USER_INI         (no INI key)                 → derived USER_CONFIG_DIR / "user.ini"
 
     USER_INI is Tier-B even though it's a file (not a directory): its location

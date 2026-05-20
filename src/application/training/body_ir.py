@@ -76,12 +76,12 @@ def list_known_families() -> Set[str]:
 # links). Filters get_canonical_roles() down to the IR roles a user can
 # actuate via init_joint_angles / action_joint_names_expr.
 _JOINT_CATEGORIES_BY_FAMILY: Dict[str, FrozenSet[str]] = {
-    "quadruped":   frozenset({"hips", "thighs", "calves"}),
-    "biped":       frozenset({"hips", "knees", "shoulders", "elbows", "wrists"}),
-    "humanoid":    frozenset({"hips", "knees", "shoulders", "elbows", "wrists"}),
-    "manipulator": frozenset({"shoulders", "elbows", "wrists"}),
-    "wheeled":     frozenset(),
-    "generic":     frozenset(),
+    "quadruped":   frozenset({"hips", "thighs", "calves", "sensors", "misc"}),
+    "biped":       frozenset({"hips", "knees", "ankles", "shoulders", "elbows", "wrists", "waist", "neck", "fingers", "sensors", "misc"}),
+    "humanoid":    frozenset({"hips", "knees", "ankles", "shoulders", "elbows", "wrists", "waist", "neck", "fingers", "sensors", "misc"}),
+    "manipulator": frozenset({"shoulders", "elbows", "wrists", "sensors", "misc"}),
+    "wheeled":     frozenset({"sensors", "misc"}),
+    "generic":     frozenset({"sensors", "misc"}),
 }
 
 
@@ -131,15 +131,19 @@ def detect_family(asset: Any) -> str:
 PART_KEYWORDS: Dict[str, str] = {
     "foot":     "feet",
     "toe":      "feet",
-    "ankle":    "feet",
     "sole":     "feet",
     "wheel":    "feet",
+    "ankle":    "ankles",
     "thigh":    "thighs",
     "upper_leg": "thighs",
+    "uleg":     "thighs",
+    "uarm":     "shoulders",
     "hip":      "hips",
     "calf":     "calves",
     "shank":    "calves",
     "lower_leg": "calves",
+    "lleg":     "calves",
+    "larm":     "elbows",
     "knee":     "knees",
     "shoulder": "shoulders",
     "upper_arm": "shoulders",
@@ -148,13 +152,63 @@ PART_KEYWORDS: Dict[str, str] = {
     "wrist":    "wrists",
     "hand":     "hands",
     "finger":   "fingers",
+    "thumb":    "fingers",
+    "index":    "fingers",
+    "middle":   "fingers",
+    "ring":     "fingers",
+    "little":   "fingers",
+    "pinky":    "fingers",
     "waist":    "waist",
-    "torso":    "base",
-    "trunk":    "base",
+    "neck":     "neck",
+    "head":     "head",
+    "torso":    "torso",
+    "trunk":    "torso",
+    "spine":    "torso",
+    "pelvis":   "pelvis",
     "base":     "base",
-    "pelvis":   "base",
     "body":     "base",
+    # ── Sensor mount keywords ─────────────────────────────────────────
+    # Map every common sensor stem to the "sensors" category; the
+    # _suggest_role_id sensor branch then picks the specific role
+    # (sensor_imu / sensor_lidar / ...) from the matched token.
+    "imu":      "sensors",
+    "accel":    "sensors",
+    "gyro":     "sensors",
+    "lidar":    "sensors",
+    "camera":   "sensors",
+    "depth":    "sensors",
+    "rgb":      "sensors",
+    "rgbd":     "sensors",
+    "radar":    "sensors",
+    "gps":      "sensors",
+    "sonar":    "sensors",
+    "ultrasonic": "sensors",
+    "sensor":   "sensors",
 }
+
+# Axis-suffix tokens for multi-DOF humanoid joints (left_hip_PITCH_joint, ...).
+# Stored separately from PART_KEYWORDS because they don't denote a category by
+# themselves — they qualify a part stem (hip + pitch, ankle + roll, ...).
+_AXIS_TOKENS: FrozenSet[str] = frozenset({"pitch", "roll", "yaw"})
+
+# Finger names used for humanoid hand decomposition (thumb_0_L, index_1_R, ...).
+_FINGER_NAMES: FrozenSet[str] = frozenset({
+    "thumb", "index", "middle", "ring", "little", "pinky"
+})
+
+# Family-conditional category remapping. Biped/humanoid get their own
+# pelvis / torso / neck slots in the catalog; on every other family those
+# tokens collapse back into the generic "base" slot.
+_BIPED_LIKE_FAMILIES: FrozenSet[str] = frozenset({"biped", "humanoid"})
+# Categories that ONLY exist on biped/humanoid catalogs — when seen on
+# any other family, the tokeniser collapses them back to "base" so they
+# don't produce orphan role_ids. ``ankles`` is biped-only: quadrupeds
+# (Spot / Go2 / A1 / ...) have 3 actuated DOFs per leg (hip / thigh /
+# calf) and no ankle joint. Any "*_ank" prim found in a quadruped USD
+# is a FixedJoint attaching the foot rigid body to the lower leg, not
+# an articulation DOF — and the discovery script now rejects FixedJoints
+# upstream so it never reaches the tokeniser anyway.
+_BIPED_ONLY_CATEGORIES: FrozenSet[str] = frozenset({"pelvis", "torso", "neck", "waist", "fingers", "head", "ankles"})
 
 PART_TOKEN_KEYWORDS: Dict[str, str] = {
     "hx":         "hips",
@@ -167,6 +221,34 @@ PART_TOKEN_KEYWORDS: Dict[str, str] = {
     "flexion":    "thighs",
     "kn":         "knees",
     "kfe":        "knees",
+    # NOTE: "ank" was previously mapped to "ankles" on the false premise
+    # that BD Spot has a 4th-DOF ankle per leg. Spot has 3 actuated DOFs
+    # per leg; the "*_ank" prim in Spot's USD is a non-actuated
+    # FixedJoint attaching the foot to the lower leg. discover_usd_bodies
+    # now strips those phantom joints, so this entry has been removed.
+}
+
+# Sensor-type → role_id suffix. Used by the sensors branch of
+# _suggest_role_id to refine "category=sensors" into a specific
+# role_id (sensor_imu / sensor_camera / ...). Ordered list because
+# tokenise() may produce both "depth" and "camera" for a depth-RGB
+# camera body name; we want the more specific "camera" winner-first.
+_SENSOR_TYPE_PRIORITY: Tuple[str, ...] = (
+    "imu",      # accel/gyro packaged
+    "lidar",
+    "camera",   # incl. rgb/depth/rgbd → camera variant
+    "depth",
+    "radar",
+    "gps",
+    "sonar",
+    "ultrasonic",
+    "accel",
+    "gyro",
+)
+_SENSOR_TYPE_REMAP: Dict[str, str] = {
+    "rgb":  "camera",
+    "rgbd": "camera",
+    "ultrasonic": "sonar",
 }
 
 POSITION_KEYWORDS: Dict[str, str] = {
@@ -186,7 +268,30 @@ _REAR_TOKENS: FrozenSet[str] = frozenset({"rear", "back", "hind"})
 _LEFT_TOKENS: FrozenSet[str] = frozenset({"left"})
 _RIGHT_TOKENS: FrozenSet[str] = frozenset({"right"})
 
-AUTO_FROM_ASSET_CATEGORIES: FrozenSet[str] = frozenset({"base", "feet"})
+AUTO_FROM_ASSET_CATEGORIES: FrozenSet[str] = frozenset({"base", "feet", "pelvis"})
+
+# Semantic alias table for ``BodyIRMapper.get_category_bodies``. When a
+# requested category has zero direct hits on the bound robot, fall back
+# to the listed IR role ids in declaration order. Each entry is a
+# deliberate cross-family equivalence — kept SMALL and EXPLICIT.
+#
+# Why this exists: presets in ``task_module_registry`` template body
+# regex via ``{ir:feet}`` (the rewards-oriented "ground contact" body
+# set). Biped morphologies have NO ``feet`` category in the IR catalog
+# (the lower limb ends at ankle_roll, which IS the foot end-effector),
+# so a direct lookup returns []. Without this fallback, every IL
+# locomotion preset emits ``(UNRESOLVED:feet)`` and IsaacLab dies at
+# sensor regex resolve time. Quadrupeds keep their direct ``feet`` hit
+# (the table only fires on empty direct result), so this is a zero-impact
+# addition for existing morphologies.
+#
+# DO NOT add hierarchy here — this is alias resolution, not inheritance.
+_CATEGORY_FAMILY_FALLBACK: Dict[Tuple[str, str], Tuple[str, ...]] = {
+    ("biped",    "feet"): ("ankle_roll_L", "ankle_roll_R"),
+    ("humanoid", "feet"): ("ankle_roll_L", "ankle_roll_R"),
+    # Add wheeled / manipulator / other families here when their reward
+    # presets start referencing categories the IR catalog doesn't expose.
+}
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -279,12 +384,17 @@ _CATEGORY_TO_ROLE_PREFIX: Dict[str, str] = {
     "calves":    "calf",
     "knees":     "knee",
     "feet":      "foot",
+    "ankles":    "ankle",
     "shoulders": "shoulder",
     "elbows":    "elbow",
     "wrists":    "wrist",
     "hands":     "hand",
     "fingers":   "finger",
     "waist":     "waist",
+    "neck":      "neck",
+    "head":      "head",
+    "torso":     "torso",
+    "pelvis":    "pelvis",
     "base":      "base",
 }
 
@@ -329,11 +439,36 @@ _FAMILY_ROLE_ALIASES: Dict[str, Dict[str, str]] = {
     "quadruped": {
         f"knee_{p}": f"calf_{p}" for p in ("FL", "FR", "RL", "RR")
     },
+    # Bare-name aliases for biped joints whose name doesn't decompose into
+    # part+axis cleanly. Keyed by the joint's tokenised bare name (joints
+    # with no _joint suffix only — body names retain their _link suffix,
+    # see _suggest_role_id step 5).
+    #
+    # H1 quirk: its single waist DOF is named "torso" (Z-axis = G1 waist_yaw
+    # same kinematic spot). The body H1 actuates is named "torso_link" which
+    # tokenises differently (bare="torso_link") and falls through to the
+    # "torso" body role; the joint (bare="torso") gets re-routed here.
+    "biped": {
+        "torso": "waist_yaw",
+    },
+    "humanoid": {
+        "torso": "waist_yaw",
+    },
 }
 
 
-def _suggest_role_id(link_name: str) -> str:
-    """Compute the canonical role_id a link name *might* fill."""
+def _suggest_role_id(link_name: str, family: str = "generic") -> str:
+    """Compute the canonical role_id a link/joint name *might* fill.
+
+    ``family`` enables family-aware decisions:
+      * biped/humanoid: recognise multi-DOF axis-split joints
+        (``hip_pitch_L``, ``ankle_roll_R``, ``waist_yaw``, ...) +
+        finger roles (``thumb_2_L``, ``index_tip_R``, ...);
+        ``pelvis``/``torso``/``neck`` get dedicated role slots.
+      * other families: collapse pelvis/torso/neck back to ``base``,
+        and ignore axis tokens (no axis-split slots exist in the
+        catalog for non-biped morphologies).
+    """
     pair = detect_segment_pair_role(link_name)
     if pair is not None:
         cat, pos = pair
@@ -344,17 +479,106 @@ def _suggest_role_id(link_name: str) -> str:
         return f"{prefix}_{pos}" if pos else prefix
 
     tokens = tokenize(link_name)
+    is_biped_like = family in _BIPED_LIKE_FAMILIES
+    family_aliases = _FAMILY_ROLE_ALIASES.get(family, {})
+
+    # 1. Family alias by bare joint name. The bare form filters _joint
+    #    suffix but keeps _link so the H1 joint "torso" (bare="torso")
+    #    routes to waist_yaw while the body "torso_link" (bare="torso_link")
+    #    falls through to the dedicated torso body role below.
+    bare = "_".join(t for t in tokens if t != "joint")
+    if bare in family_aliases:
+        return family_aliases[bare]
+
+    # 2. Finger names take priority on biped (thumb/index/middle/ring/
+    #    little/pinky + numeric index, or "tip" for fingertip body roles).
+    if is_biped_like:
+        finger_name = next((t for t in tokens if t in _FINGER_NAMES), None)
+        if finger_name:
+            if finger_name == "pinky":
+                finger_name = "little"
+            side = detect_position(tokens)
+            side = side if side in ("L", "R") else ""
+            if "tip" in tokens or "fingertip" in tokens:
+                return f"{finger_name}_tip_{side}" if side else f"{finger_name}_tip"
+            idx_tok = next((t for t in tokens if t.isdigit()), None)
+            if idx_tok is not None:
+                return f"{finger_name}_{idx_tok}_{side}" if side else f"{finger_name}_{idx_tok}"
+            seg_idx = next(
+                (str(i) for i, kw in enumerate(("proximal", "intermediate", "distal"))
+                 if kw in tokens), None,
+            )
+            if seg_idx is not None:
+                return f"{finger_name}_{seg_idx}_{side}" if side else f"{finger_name}_{seg_idx}"
+            return f"hand_{side}" if side else ""
+
     cat = detect_part(tokens) or ""
     pos = detect_position(tokens)
+    axis_tok = next((t for t in tokens if t in _AXIS_TOKENS), None)
+
+    # 3. Sensor mounts — family-agnostic. Refine "sensors" category into
+    #    a specific role_id by looking for the most-specific sensor-type
+    #    token (imu / lidar / camera / radar / gps / sonar / depth).
+    #    Generic mount with no type token → bare "sensor".
+    if cat == "sensors":
+        for stype in _SENSOR_TYPE_PRIORITY:
+            if stype in tokens:
+                final = _SENSOR_TYPE_REMAP.get(stype, stype)
+                return f"sensor_{final}"
+        return "sensor"
+
+    # 4. Family-conditional remapping for biped-only categories on
+    #    non-biped families.
+    #    - head / neck / fingers: have no kinematic meaning on a
+    #      quadruped / wheeled / manipulator; legs/wheels/arms don't
+    #      have necks or fingers. Decorative head shells (Go2's
+    #      Head_upper / Head_lower) belong in the misc bucket — they
+    #      shouldn't compete with the actual base body for the base
+    #      slot.
+    #    - pelvis / torso / waist: kinematically ARE the chassis on
+    #      non-biped robots, so fold them into the base slot.
+    if not is_biped_like and cat in _BIPED_ONLY_CATEGORIES:
+        if cat in {"head", "neck", "fingers"}:
+            return "misc"
+        cat = "base"
+        axis_tok = None
+
     if not cat:
         return ""
+
+    # 4. Multi-DOF axis-split joints (biped/humanoid only).
+    if is_biped_like and axis_tok:
+        if cat == "waist":
+            return f"waist_{axis_tok}"
+        if cat == "neck":
+            return f"neck_{axis_tok}"
+        if cat == "head":
+            return f"head_{axis_tok}"
+        if cat in {"hips", "ankles", "shoulders", "wrists"} and pos:
+            prefix = _CATEGORY_TO_ROLE_PREFIX.get(cat, cat.rstrip("s"))
+            return f"{prefix}_{axis_tok}_{pos}"
+
+    # 5. Dedicated body roles with no side qualifier.
     if cat == "base":
         return "base"
+    if cat == "pelvis":
+        return "pelvis"
+    if cat == "torso":
+        return "torso"
+    if cat == "head":
+        return "head"
+    if cat == "neck":
+        return "neck"
+
+    # 6. Standard prefix_{pos} fallback.
     prefix = _CATEGORY_TO_ROLE_PREFIX.get(
         cat,
         cat.rstrip("s") if cat.endswith("s") else cat,
     )
-    return f"{prefix}_{pos}" if pos else prefix
+    role = f"{prefix}_{pos}" if pos else prefix
+    if role and role in family_aliases:
+        return family_aliases[role]
+    return role
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -400,96 +624,209 @@ class BodyIRMapper:
         self._by_id: Dict[str, IRRole] = {}
         self._unmapped_bodies: List[str] = []
         self._out_of_scope: Set[str] = set()
+        # Bodies tagged with a "multi-allowed" role (``misc`` /
+        # ``sensor_*``) bypass the 1-slot-per-role model entirely:
+        # they are kinematic-only links the user has explicitly
+        # classified (cosmetic shells, sensor mounts) and must NOT
+        # compete for the limb slot, NOT be surfaced as unmapped, and
+        # NOT trigger any contact-sensor / IK plumbing. Kept here as a
+        # plain set so callers that need "all decorative/sensor links
+        # on this robot" can query directly (collision filtering, debug
+        # visualisation, etc.).
+        self._silent_bodies: Set[str] = set()
 
     # ── Factory methods ───────────────────────────────────────────────
 
     @classmethod
-    def from_robot_asset(cls, asset: Any) -> "BodyIRMapper":
-        """Build from a RELEASE :class:`RobotAsset`.
+    def from_robot_asset(
+        cls, asset: Any, *, active_format: Optional[str] = None,
+    ) -> "BodyIRMapper":
+        """Build a mapper by **pure lookup** from the asset's per-format tables.
 
-        Reads ``asset.joints`` (dict[name, ir_role]) for joint names and
-        ``asset.families`` for morphology family. Foot links are inferred
-        from calf joint names (``FL_calf_joint`` → ``FL_foot``) since the
-        canonical entry only declares actuated joints, not contact bodies.
+        Stage 3: the mapper no longer parses MJCF / USD files at runtime.
+        Body and IR-role data come from the registry's
+        ``bodies_per_format[active_format]`` (and ``joints_per_format`` as
+        fallback for actuated bodies). The Dump MJCF / Dump USD buttons
+        in the Robot Asset card are the only place real assets are
+        parsed; their output lands in the registry, then this method
+        reads it back deterministically — no runtime heuristics.
+
+        ``active_format`` is required for unambiguous lookup. When a
+        RobotAsset only declares one format, callers may pass ``None``
+        and we auto-pick the single declared format. When more than one
+        format is declared and no preference is given, we raise — the
+        caller must commit to a format (env_cfg_compiler passes
+        ``spec.robot.active_format``, UI passes the selected tab).
+
+        :func:`discover_from_mjcf` (utility) is what migration / Dump
+        MJCF use to extract body lists from a live MuJoCo model — the
+        only place ``mujoco.MjModel`` is loaded by this module.
         """
-        joints_map = dict(getattr(asset, "joints", {}) or {})
-        joint_names = list(joints_map.keys())
-
-        bodies: List[str] = []
-
-        # Joint-derived link names (FL_hip_joint → FL_hip etc.)
-        for jn in joint_names:
-            ln = joint_name_to_link_name(jn)
-            if ln not in bodies:
-                bodies.append(ln)
-
-        # Foot link inference: every calf/shank/ankle joint implies a foot
-        # body sharing the same position prefix.
-        foot_links_inferred: List[str] = []
-        for jn in joint_names:
-            ln = joint_name_to_link_name(jn)
-            if "calf" in ln.lower() or "shank" in ln.lower() or "ankle" in ln.lower():
-                candidate = re.sub(r"(?i)calf|shank|ankle", "foot", ln)
-                if candidate != ln and candidate not in bodies:
-                    bodies.append(candidate)
-                    foot_links_inferred.append(candidate)
-
         family = detect_family(asset)
-        mapper = cls(bodies, family=family)
 
-        # Seed roles from the canonical IR mapping that the registers entry
-        # already provides for joints. This is authoritative — no keyword
-        # guessing for joint-derived bodies.
-        for jn, ir_role in joints_map.items():
-            if not ir_role:
-                continue
-            ln = joint_name_to_link_name(jn)
-            mapper._roles  # ensure present (filled below)
-            # Stash the (body, role_id) — applied after _build_roles_from_bodies.
+        # ── 1. Pick the format ────────────────────────────────────────
+        declared = list(asset.available_formats()) if hasattr(asset, "available_formats") else []
+        fmt = str(active_format or "").strip().upper()
+        if not fmt:
+            if len(declared) == 1:
+                fmt = declared[0]
+            elif declared:
+                # Prefer MJCF when unspecified (existing canvas
+                # display assumption); the env_cfg path always pins
+                # active_format explicitly.
+                fmt = "MJCF" if "MJCF" in declared else declared[0]
+            else:
+                # No format declared — produce an empty mapper rather
+                # than raising. UI uses this to render "no data yet,
+                # run Dump MJCF/USD" placeholders without crashing.
+                return cls([], family=family)
 
+        # ── 2. Pull the per-format body/joint tables ─────────────────
+        bodies_map = asset.bodies_for(fmt) if hasattr(asset, "bodies_for") else {}
+        joints_map = asset.joints_for(fmt) if hasattr(asset, "joints_for") else {}
+
+        body_names: List[str] = list(bodies_map.keys())
+        mapper = cls(body_names, family=family)
         mapper._build_roles_from_bodies()
 
-        # Override auto-suggestions with the canonical joint→ir_role map.
-        # This is the RELEASE-specific path: the canonical entry asserts
-        # which IR role each joint occupies, so we trust it over the
-        # keyword tokenizer.
-        for jn, ir_role in joints_map.items():
+        # ── 3. Apply explicit body→ir_role assignments from the table ─
+        # bodies_map[name] = ir_role is the authoritative per-format
+        # declaration; respect it over keyword tokeniser suggestions.
+        from registers.robots import OUT_OF_SCOPE_IR_ROLE
+        from application.service.robot_assets.discovery_subprocess import (
+            _is_non_unique_role,
+        )
+        for body_name, ir_role in bodies_map.items():
             if not ir_role:
+                continue
+            # OOS sentinel — user explicitly tagged this body as
+            # "completely ignore at training time". Sentinel isn't a
+            # real catalog role (mapper._by_id has no slot), so route
+            # to the dedicated out_of_scope set instead of letting it
+            # fall through to "slot is None → continue → stuck in
+            # unmapped from step 2".
+            if ir_role == OUT_OF_SCOPE_IR_ROLE:
+                # Drop any speculative step-2 assignment to this body
+                # first so it doesn't double-count.
+                if mapper._is_assigned(body_name):
+                    mapper._send_to_unmapped(body_name)
+                mapper._silent_bodies.discard(body_name)
+                mapper._unmark_unmapped(body_name)
+                mapper._out_of_scope.add(body_name)
+                continue
+            # Multi-allowed roles (misc / sensor_*) — register the body
+            # as silently classified, never compete for a slot. Drop
+            # any speculative tokeniser slot assignment to this body.
+            if _is_non_unique_role(ir_role):
+                for r in mapper._roles:
+                    if r.body == body_name:
+                        r.body = None
+                        r.manual = False
+                        r.auto_from_asset = False
+                mapper._silent_bodies.add(body_name)
+                mapper._unmark_unmapped(body_name)
                 continue
             slot = mapper._by_id.get(ir_role)
             if slot is None:
                 continue
-            ln = joint_name_to_link_name(jn)
-            if slot.body is not None and slot.body != ln:
+            if slot.body is not None and slot.body != body_name:
                 mapper._send_to_unmapped(slot.body)
-            slot.body = ln
-            mapper._unmark_unmapped(ln)
-
-        # Foot-from-calf inference: assign each inferred foot body to the
-        # matching foot_<POS> slot (auto_from_asset = True so UI hides it
-        # from the validator).
-        for fl in foot_links_inferred:
-            slot = next((r for r in mapper._roles if r.body == fl), None)
-            if slot is not None:
-                if slot.category == "feet":
-                    slot.auto_from_asset = True
-                continue
-            pos = detect_position(tokenize(fl))
-            target = next(
-                (r for r in mapper._roles
-                 if r.category == "feet" and r.body is None and r.position == pos),
-                None,
-            ) or next(
-                (r for r in mapper._roles
-                 if r.category == "feet" and r.body is None),
-                None,
-            )
-            if target is not None:
-                target.body = fl
-                target.auto_from_asset = True
-                mapper._unmark_unmapped(fl)
+            slot.body = body_name
+            # Foot bodies (no actuated joint, declared in body table) are
+            # marked auto_from_asset so the UI validator hides them.
+            if slot.category == "feet":
+                slot.auto_from_asset = True
+            # Once we explicitly bind, this body is resolved — drop any
+            # silent-bucket / unmapped tags left by step 2.
+            mapper._silent_bodies.discard(body_name)
+            mapper._unmark_unmapped(body_name)
 
         return mapper
+
+    # ------------------------------------------------------------------
+    # Discovery utilities — used by migration script + Dump MJCF/USD
+    # buttons. NOT part of the runtime lookup path.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def discover_from_mjcf(
+        mjcf_path: Any,
+        joints_role_map: Dict[str, str],
+    ) -> Dict[str, str]:
+        """Parse an MJCF file and return ``{body_name: ir_role}``.
+
+        Used by:
+          * ``bootstrap/migrate_canonical_to_per_format.py`` to seed
+            ``bodies_per_format.MJCF`` from the existing joint table
+          * UI Dump MJCF button (if added) to refresh the table after a
+            menagerie update
+
+        Logic:
+          1. ``mujoco.MjModel.from_xml_path(mjcf_path)`` → real body list
+             + ``jnt_bodyid`` joint↔body relationship
+          2. For each joint in ``joints_role_map``, assign its IR role to
+             the body it actuates (jnt_bodyid lookup)
+          3. For unassigned bodies, keyword-match "foot/toe/sole" / "base/
+             trunk/pelvis/torso" → assign to the matching foot_{POS} or
+             base IR role
+
+        Returns ``{body_name: ir_role}`` ready to feed back into
+        ``bodies_per_format[<FORMAT>]`` (after uid generation).
+        """
+        import mujoco  # type: ignore
+        from pathlib import Path as _Path
+
+        mp = _Path(str(mjcf_path))
+        if not mp.exists():
+            raise FileNotFoundError(f"MJCF not found: {mjcf_path}")
+        # tinyxml2 / fopen on Windows mis-translates non-ASCII bytes via the
+        # ANSI codepage; route through the short-path helper. See
+        # application/physics/mujoco_path_compat.py for the full rationale.
+        from application.physics.mujoco_path_compat import safe_mjcf_path
+        m = mujoco.MjModel.from_xml_path(safe_mjcf_path(mp))
+
+        bodies: List[str] = []
+        for i in range(1, m.nbody):
+            bn = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, i)
+            if bn and bn not in bodies:
+                bodies.append(bn)
+
+        joint_to_body: Dict[str, str] = {}
+        for i in range(m.njnt):
+            jn = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, i)
+            if not jn:
+                continue
+            bid = int(m.jnt_bodyid[i])
+            bn = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, bid)
+            if bn:
+                joint_to_body[jn] = bn
+
+        body_to_ir: Dict[str, str] = {}
+        # Step 1: actuated bodies via joint→body
+        for jn, ir_role in joints_role_map.items():
+            if not ir_role:
+                continue
+            bn = joint_to_body.get(jn)
+            if bn and bn not in body_to_ir:
+                body_to_ir[bn] = ir_role
+
+        # Step 2: structural bodies — feet / base via keyword + position
+        _BASE_KW = ("body", "base", "trunk", "pelvis", "torso")
+        _FOOT_KW = ("foot", "toe", "sole")
+        for bn in bodies:
+            if bn in body_to_ir:
+                continue
+            low = bn.lower()
+            if any(k in low for k in _BASE_KW) and "base" not in body_to_ir.values():
+                body_to_ir[bn] = "base"
+                continue
+            if any(k in low for k in _FOOT_KW):
+                pos = detect_position(tokenize(bn))
+                role = f"foot_{pos}" if pos else "foot"
+                if role not in body_to_ir.values():
+                    body_to_ir[bn] = role
+
+        return {bn: body_to_ir[bn] for bn in bodies if bn in body_to_ir}
 
     @classmethod
     def from_body_list(cls, body_names: List[str],
@@ -574,17 +911,35 @@ class BodyIRMapper:
             self._by_id[canon.role_id] = role
 
         # 2. Auto-suggest assignments via keyword matching
+        from application.service.robot_assets.discovery_subprocess import (
+            _is_cosmetic_name,
+            _is_non_unique_role,
+        )
         for raw_name in self._body_names:
             link_name = joint_name_to_link_name(raw_name)
             if link_name in self._out_of_scope:
                 continue
             if self._is_assigned(link_name):
                 continue
-            role_id = _suggest_role_id(link_name)
+            # Cosmetic substring (protector / calflower / shroud ...)
+            # short-circuits straight to silent bucket — overrides any
+            # limb-stem match the tokeniser would have produced.
+            if _is_cosmetic_name(link_name):
+                self._silent_bodies.add(link_name)
+                continue
+            role_id = _suggest_role_id(link_name, self._family)
             if role_id and role_id not in self._by_id:
                 role_id = _FAMILY_ROLE_ALIASES.get(
                     self._family, {}
                 ).get(role_id, role_id)
+            # Multi-allowed roles (misc / sensor_*) bypass the slot
+            # model — they go into the silent bucket so the body is
+            # marked "resolved" without competing for a 1:1 slot. The
+            # explicit step 3 pass below will overwrite this for bodies
+            # whose registry ir_role disagrees with the tokeniser.
+            if role_id and _is_non_unique_role(role_id):
+                self._silent_bodies.add(link_name)
+                continue
             slot = self._by_id.get(role_id) if role_id else None
             if slot is not None and slot.body is None:
                 slot.body = link_name
@@ -613,7 +968,10 @@ class BodyIRMapper:
                 r.body = None
                 r.manual = False
                 r.auto_from_asset = False
-        if body not in self._out_of_scope:
+        # Silent bodies (misc / sensor mounts) are already classified —
+        # never demote them to unmapped just because a slot was taken
+        # by another body. OOS bodies are explicitly excluded too.
+        if body not in self._out_of_scope and body not in self._silent_bodies:
             self._mark_unmapped(body)
 
     # ── Public API ────────────────────────────────────────────────────
@@ -679,8 +1037,26 @@ class BodyIRMapper:
         return self._by_id.get(role_id)
 
     def get_category_bodies(self, category: str) -> List[str]:
-        return [r.body for r in self._roles
-                if r.category == category and r.body is not None]
+        direct = [r.body for r in self._roles
+                  if r.category == category and r.body is not None]
+        if direct:
+            return direct
+        # Family-aware semantic fallback. The IR catalog does not always
+        # expose a category by the same name across morphologies — e.g.
+        # biped has no "feet" category (the lower limb ends at
+        # ankle_roll, which IS the foot end-effector). Without this
+        # fallback, presets templated as ``body_names={ir:feet}`` emit
+        # ``(UNRESOLVED:feet)`` on biped and IsaacLab dies. See
+        # ``_CATEGORY_FAMILY_FALLBACK`` for the alias table.
+        fallback_role_ids = _CATEGORY_FAMILY_FALLBACK.get(
+            (self._family, category), ()
+        )
+        out: List[str] = []
+        for alt_role_id in fallback_role_ids:
+            role = self._by_id.get(alt_role_id)
+            if role is not None and role.body is not None:
+                out.append(role.body)
+        return out
 
     def all_resolved(self, required_only: bool = True) -> bool:
         for r in self._roles:
@@ -706,7 +1082,20 @@ class BodyIRMapper:
         return out
 
     def unmapped_bodies(self) -> List[str]:
-        return list(self._unmapped_bodies)
+        # Silent bucket holds bodies the user explicitly tagged
+        # misc/sensor — they're resolved and must not show up as
+        # "needs attention" in the canvas Body Mapping table.
+        return [b for b in self._unmapped_bodies
+                if b not in self._silent_bodies]
+
+    def silent_bodies(self) -> List[str]:
+        """Bodies classified as misc / sensor mounts — kinematic-only
+        links resolved by the user but not bound to any limb slot.
+
+        Spec-compiler / collision-filter callers can query this list to
+        e.g. exclude these bodies from contact reward terms while still
+        keeping them in the simulation."""
+        return list(self._silent_bodies)
 
     def out_of_scope_bodies(self) -> List[str]:
         return sorted(self._out_of_scope)

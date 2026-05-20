@@ -46,24 +46,30 @@ class Paths:
 
         RELEASE/                       ← PROJECT_ROOT (Tier-A, install root)
         ├── log/                       ← LOGS_DIR        (Tier-B, configurable)
+        ├── custom_mods/               ← CUSTOM_MODS_DIR (Tier-B, configurable; third-party assets)
+        ├── runtime/                   ← bootstrap state (install.bat-managed)
+        │   └── user_config/           ← USER_CONFIG_DIR default (Tier-B, configurable)
+        │       └── user.ini           ← USER_INI        (Tier-B, derived from USER_CONFIG_DIR)
         └── src/
             ├── unitport_sdk/          ← SDK_ROOT        (Tier-A, install anchor)
             ├── config/                ← CONFIG_DIR      (Tier-A, bootstrap; system.ini only)
             ├── registers/             ← REGISTERS_DIR   (Tier-B, configurable)
-            ├── runtime/               ← RUNTIME_DIR     (Tier-B, configurable)
+            ├── runtime/               ← RUNTIME_DIR     (Tier-B, configurable; Python cache)
             └── application/
                 └── ui/assets/         ← ASSETS_DIR      (Tier-B, configurable)
-
-        ~/UnitPort/                    ← USER_CONFIG_DIR (Tier-B, per-user state root)
-            └── user.ini               ← USER_INI        (Tier-B, derived from USER_CONFIG_DIR)
 
     Tier-A is hardcoded because it describes where the SDK *lives* on disk
     (you can't read where ``system.ini`` is from inside ``system.ini``).
     Tier-B is overlay-resolvable so deployments can relocate logs/assets/
-    runtime/per-user-state without code edits. User-customised settings
-    (user.ini and any future user-side state files) always live under
-    USER_CONFIG_DIR — outside the project tree — so a clean ``git pull`` /
-    redeploy never clobbers user data.
+    runtime/per-user-state without code edits.
+
+    **USER_CONFIG_DIR default rule (strict):** the in-tree default is
+    ``PROJECT_ROOT / "runtime" / "user_config"``. The SDK NEVER falls
+    back to ``~/UnitPort`` or any other home-rooted path — silently
+    materialising directories under the user's home is forbidden. A
+    deployment that wants user state outside the project must set
+    ``system.ini[Resources].user_config_dir`` to an absolute path
+    (e.g. a per-account UUID slug under ``<chosen-root>/UnitPort/``).
 
     Bootstrap exception: ``USER_INI`` is Tier-B but its location depends on
     ``USER_CONFIG_DIR``. Therefore ``[Resources].user_config_dir`` is the *one*
@@ -90,13 +96,57 @@ class Paths:
     ASSETS_DIR: Path = APP_ROOT / "ui" / "assets"
     REGISTERS_DIR: Path = SRC_ROOT / "registers"
     RUNTIME_DIR: Path = SRC_ROOT / "runtime"
-    USER_CONFIG_DIR: Path = Path.home() / "UnitPort"
+    CUSTOM_MODS_DIR: Path = PROJECT_ROOT / "custom_mods"
+    # USER_CONFIG_DIR has NO factory default. It is established by the
+    # InstallConfigWizard's DataDirectoryPage on first launch (the FIRST
+    # path picked after the language selector) and written immediately
+    # into ``system.ini[Resources].user_config_dir`` + ``[Workspace].root``,
+    # then ``Paths._resolve_dynamic`` is re-run so every subsequent path
+    # derives from the user-chosen root.
+    #
+    # Until the wizard runs and writes the value, USER_CONFIG_DIR holds
+    # the sentinel below. ``Paths.is_user_config_dir_set`` and
+    # ``Paths.require_user_config_dir`` are the only sanctioned ways to
+    # test / consume the value — direct attribute access is allowed but
+    # any I/O that would write through it MUST call
+    # ``require_user_config_dir`` first so unconfigured state surfaces
+    # as a clean RuntimeError rather than silently materialising files
+    # at the sentinel path.
+    USER_CONFIG_DIR_UNSET: Path = Path("__USER_CONFIG_DIR_NOT_CONFIGURED__")
+    USER_CONFIG_DIR: Path = USER_CONFIG_DIR_UNSET
     USER_INI: Path = USER_CONFIG_DIR / "user.ini"
     PROJECTS_DIR: Path = USER_CONFIG_DIR / "projects"
 
     # SDK install-location anchor for assets layering — Assets.find() searches
     # both ASSETS_DIR (overlay-resolved) and this canonical install dir.
     _ASSETS_INTERNAL_DIR: Path = APP_ROOT / "ui" / "assets"
+
+    @classmethod
+    def is_user_config_dir_set(cls) -> bool:
+        """True iff ``USER_CONFIG_DIR`` has been configured (wizard ran)."""
+        return cls.USER_CONFIG_DIR != cls.USER_CONFIG_DIR_UNSET
+
+    @classmethod
+    def require_user_config_dir(cls) -> Path:
+        """Return ``USER_CONFIG_DIR`` or raise ``RuntimeError`` if unset.
+
+        Call this from any I/O entry point that writes through
+        USER_CONFIG_DIR (``Storage.push``, business code that persists
+        per-user state). The point is to fail loudly: ``USER_CONFIG_DIR``
+        is the FIRST path the install wizard sets after language
+        selection — if we reach an I/O site without it being set, the
+        wizard's DataDirectoryPage hasn't completed and any "write" we
+        do would land at a path the rest of the app never reads back,
+        producing the illusion of saved state.
+        """
+        if not cls.is_user_config_dir_set():
+            raise RuntimeError(
+                "Paths.USER_CONFIG_DIR is not configured. The install "
+                "wizard's DataDirectoryPage must run before any per-user "
+                "I/O. Refusing to write through the sentinel "
+                f"{cls.USER_CONFIG_DIR_UNSET!s}."
+            )
+        return cls.USER_CONFIG_DIR
 
     @classmethod
     def resolve_under_project_root(cls, raw_path: str, fallback: Path) -> Path:
@@ -178,10 +228,24 @@ class Paths:
                 else (cls.PROJECT_ROOT / shim_path)
             )
         else:
-            cls.USER_CONFIG_DIR = cls.resolve_under_project_root(
-                cls._read_resource_from(cls.SYSTEM_INI, "user_config_dir"),
-                Path.home() / "UnitPort",
-            )
+            recorded = cls._read_resource_from(cls.SYSTEM_INI, "user_config_dir").strip()
+            if recorded:
+                p = Path(recorded).expanduser()
+                cls.USER_CONFIG_DIR = (
+                    p if p.is_absolute() else (cls.PROJECT_ROOT / p)
+                )
+            else:
+                # No system.ini value AND no bootstrap shim. The wizard's
+                # DataDirectoryPage has not run yet (or wrote a blank
+                # value). Hold the sentinel; any I/O that depends on
+                # USER_CONFIG_DIR will fail loudly via
+                # ``require_user_config_dir()`` instead of silently
+                # materialising a fallback directory. NO ``~/UnitPort``,
+                # NO ``PROJECT_ROOT/runtime/user_config`` default — both
+                # produced files at locations nothing in the rest of the
+                # app would read back from, creating the illusion of a
+                # successful write.
+                cls.USER_CONFIG_DIR = cls.USER_CONFIG_DIR_UNSET
         # 2) USER_INI lives under USER_CONFIG_DIR.
         cls.USER_INI = cls.USER_CONFIG_DIR / "user.ini"
 
@@ -197,6 +261,9 @@ class Paths:
         )
         cls.RUNTIME_DIR = cls.resolve_under_project_root(
             cls._read_resource("runtime_dir"), cls.SRC_ROOT / "runtime"
+        )
+        cls.CUSTOM_MODS_DIR = cls.resolve_under_project_root(
+            cls._read_resource("custom_mods_dir"), cls.PROJECT_ROOT / "custom_mods"
         )
         cls.PROJECTS_DIR = cls.resolve_under_project_root(
             cls._read_resource("projects_dir"), cls.USER_CONFIG_DIR / "projects"
@@ -426,14 +493,49 @@ class Config:
     def set_value(cls, section: str, key: str, value: Any) -> None:
         """Write to user.ini overlay. system.ini is treated as immutable factory
         defaults at runtime — never written by ``set_value``. Creates
-        USER_CONFIG_DIR (and any parents) if it doesn't yet exist."""
+        USER_CONFIG_DIR (and any parents) if it doesn't yet exist.
+
+        Pre-workspace safety: when ``USER_CONFIG_DIR`` is unset (the
+        install wizard has not yet established it), the in-memory parser
+        is still updated so the value is immediately readable via
+        ``get_value``, but disk persistence is deferred — flushing to
+        ``USER_INI`` would either crash on the sentinel path or, worse,
+        create a literal ``__USER_CONFIG_DIR_NOT_CONFIGURED__/user.ini``
+        in the CWD. The wizard's ``_apply_data_dir_choice`` calls
+        :meth:`Config.flush_pending_overlay_writes` after establishing
+        the workspace to write any queued values to disk.
+        """
         with cls._lock:
             user_cp = cls._ensure_user_parser()
             if not user_cp.has_section(section):
                 user_cp.add_section(section)
             user_cp.set(section, key, str(value))
+            if not Paths.is_user_config_dir_set():
+                # Defer flush — the wizard back-fills once workspace exists.
+                return
             Paths.USER_INI.parent.mkdir(parents=True, exist_ok=True)
             cls._flush(user_cp, Paths.USER_INI)
+
+    @classmethod
+    def flush_pending_overlay_writes(cls) -> None:
+        """Persist the in-memory user.ini overlay to disk.
+
+        Used after the install wizard's DataDirectoryPage establishes
+        ``USER_CONFIG_DIR``: any ``set_value`` calls that happened
+        pre-workspace (language picker, etc.) updated the in-memory
+        parser but skipped the disk write to avoid materialising the
+        sentinel. This method flushes them now that the destination
+        is real. No-op if the workspace is still unset.
+        """
+        if not Paths.is_user_config_dir_set():
+            return
+        with cls._lock:
+            user_cp = cls._ensure_user_parser()
+            try:
+                Paths.USER_INI.parent.mkdir(parents=True, exist_ok=True)
+                cls._flush(user_cp, Paths.USER_INI)
+            except Exception:                                       # pragma: no cover
+                pass
 
     @classmethod
     def reload(cls) -> None:
@@ -1053,7 +1155,22 @@ class Storage:
         - Returns True on success, False on failure or unknown channel.
         """
         if channel == "local":
-            target = Paths.USER_CONFIG_DIR / Path(rel_path)
+            # USER_CONFIG_DIR MUST be configured before any local-channel
+            # write. If the wizard's DataDirectoryPage hasn't run yet,
+            # raise rather than silently writing through the sentinel
+            # path. Anything that gets here pre-wizard is a boot-order
+            # bug and must be fixed at the call site, not papered over.
+            try:
+                root = Paths.require_user_config_dir()
+            except RuntimeError as exc:
+                try:
+                    from .logger import log_error
+
+                    log_error(f"[Storage.push] refusing local write: {exc}")
+                except Exception:
+                    pass
+                return False
+            target = root / Path(rel_path)
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
             except Exception as e:

@@ -424,6 +424,59 @@ class CanvasErrorDialog(QDialog):
 # ---------------------------------------------------------------------------
 
 
+def _mark_offending_nodes_on_canvas(
+    parent: Optional[QWidget],
+    raw_issues: List[Any],
+) -> None:
+    """Paint the danger-zone outline on every canvas node referenced by an
+    issue's ``node_id`` field. Node lookup accepts BOTH the canvas
+    instance id (e.g. ``"1010"``) AND the manifest schema id (e.g.
+    ``"actor_setting"``) — validator authors use whichever is convenient,
+    and this resolver tolerates both so highlights always land.
+
+    Best-effort: missing parent / page / NodeItem class → silent no-op
+    (the dialog message itself still surfaces; we just lose the visual
+    cue). Called from :func:`show_canvas_error_dialog` before the dialog
+    blocks on ``exec``.
+    """
+    if parent is None:
+        return
+    page = None
+    cursor = parent
+    for _ in range(6):
+        page = getattr(cursor, "_canvas_page", None)
+        if page is not None:
+            break
+        cursor = getattr(cursor, "parent", lambda: None)()
+        if cursor is None:
+            break
+    if page is None or not hasattr(page, "_instances"):
+        return
+    try:
+        from application.ui.canvas.items import NodeItem
+    except Exception:  # noqa: BLE001
+        return
+
+    targets: set[str] = set()
+    for iss in raw_issues:
+        nid = str(getattr(iss, "node_id", "") or "").strip()
+        if nid:
+            targets.add(nid)
+    if not targets:
+        return
+
+    for ni in page._instances.values():
+        if not isinstance(ni, NodeItem):
+            continue
+        schema_id = str(getattr(ni.manifest, "id", "") or "")
+        inst_id = str(getattr(ni, "node_id", "") or "")
+        if schema_id in targets or inst_id in targets:
+            try:
+                ni.mark_diagnostic("danger")
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def show_canvas_error_dialog(
     exc: BaseException,
     *,
@@ -440,6 +493,11 @@ def show_canvas_error_dialog(
     issues = issues_from_exception(exc)
     if issues is None:
         return False
+    # Also reach into the raw exception's `issues` so node_id strings
+    # propagate to the canvas highlighter even though they're flattened
+    # away in the dialog-side CanvasIssue dataclass.
+    raw = getattr(exc, "issues", None) or []
+    _mark_offending_nodes_on_canvas(parent, raw)
     dlg = CanvasErrorDialog(
         issues, title=title, headline=headline, parent=parent,
     )
@@ -447,9 +505,40 @@ def show_canvas_error_dialog(
     return True
 
 
+def clear_canvas_diagnostic_marks(parent: Optional[QWidget]) -> None:
+    """Clear all danger-zone marks on the active canvas. Called from
+    main_window before submitting a fresh training run so stale marks
+    from a previous failed attempt don't bleed into the new check.
+    """
+    if parent is None:
+        return
+    page = None
+    cursor = parent
+    for _ in range(6):
+        page = getattr(cursor, "_canvas_page", None)
+        if page is not None:
+            break
+        cursor = getattr(cursor, "parent", lambda: None)()
+        if cursor is None:
+            break
+    if page is None or not hasattr(page, "_instances"):
+        return
+    try:
+        from application.ui.canvas.items import NodeItem
+    except Exception:  # noqa: BLE001
+        return
+    for ni in page._instances.values():
+        if isinstance(ni, NodeItem):
+            try:
+                ni.mark_diagnostic(None)
+            except Exception:  # noqa: BLE001
+                pass
+
+
 __all__ = [
     "CanvasErrorDialog",
     "CanvasIssue",
     "issues_from_exception",
     "show_canvas_error_dialog",
+    "clear_canvas_diagnostic_marks",
 ]

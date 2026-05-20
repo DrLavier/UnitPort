@@ -202,10 +202,17 @@ class ProvisioningTask(Task):
             report["steps"].append({"requirements": "skipped"})
             return {"status": "skipped", "checked": len(pairs), "installed": []}
 
+        # Prefer the pinned lockfile when present so end-user installs
+        # land on the exact versions the maintainer tested. Falls back to
+        # requirements.txt when the lockfile is absent (dev clones / very
+        # old release branches). Plan P1-2.
+        lock_path = Paths.PROJECT_ROOT / "requirements.lock"
+        install_target = lock_path if lock_path.exists() else req_path
+
         missing_names = [f.pkg for f in missing]
         self.log_warning(
             f"{len(missing)} package(s) missing: {missing_names}; "
-            f"running pip install -r requirements.txt"
+            f"running pip install -r {install_target.name}"
         )
 
         cmd = [
@@ -216,7 +223,7 @@ class ProvisioningTask(Task):
             "--no-cache-dir",
             "--disable-pip-version-check",
             "-r",
-            str(req_path),
+            str(install_target),
         ]
         self._run_streaming(cmd)
 
@@ -559,6 +566,7 @@ class PostSetupTask(Task):
         self._step_sdks(report)
         self._step_menagerie(report)
         self._step_loco_mujoco(report)
+        self._step_custom_mods(report)
         self._step_isaac_lab(report)
         self._step_ros2(report)
         self._step_finalize_install_state(report)
@@ -652,7 +660,7 @@ class PostSetupTask(Task):
             report["steps"].append({"loco_mujoco": "disabled"})
             return
 
-        loco_dir = Paths.PROJECT_ROOT / "custom_mods" / "motions" / "loco-mujoco"
+        loco_dir = Paths.CUSTOM_MODS_DIR / "motions" / "loco-mujoco"
         if (loco_dir / ".git").exists():
             self.log_info("loco-mujoco already present")
             report["steps"].append({"loco_mujoco": "skipped"})
@@ -683,15 +691,116 @@ class PostSetupTask(Task):
         report["steps"].append({"loco_mujoco": "cloned"})
         self.log_success("loco-mujoco cloned")
 
-    def _step_isaac_lab(self, report: dict) -> None:
-        """Isaac Lab register / install / cloud-deploy.
+    def _step_custom_mods(self, report: dict) -> None:
+        """Shallow-clone the user-picked entries from ``custom_mods/installs.txt``.
 
-        - locate-existing -> :class:`SdkManager.register_isaaclab_path`
-          (validates + writes to ``EngineService``)
-        - fresh install / cloud-deploy -> implementations land in a
-          follow-up turn (Task #28 in the migration plan). For now we
-          log_warning and report the deferral rather than raising,
-          since the user's choice is already persisted in setup_state.json.
+        Selection comes from ``selections.backend.custom_mods`` (list of
+        entry keys). On the skipped-wizard path nothing is cloned -- these
+        are explicit opt-in extras, not part of any default. Each entry
+        is cloned into ``Paths.CUSTOM_MODS_DIR / <relative_path>`` (the
+        manifest ships every line under ``motions/``).
+        """
+        from application.service.installers.custom_mods_manifest import (
+            entry_already_installed,
+            load_manifest_entries,
+        )
+
+        if self._sel.get("skipped"):
+            self.log_info("custom_mods skipped (wizard skipped)")
+            report["steps"].append({"custom_mods": "skipped"})
+            return
+
+        backend = self._sel.get("backend") or {}
+        selected_keys = list(backend.get("custom_mods") or [])
+        if not selected_keys:
+            self.log_info("custom_mods: no entries selected")
+            report["steps"].append({"custom_mods": "none_selected"})
+            return
+
+        try:
+            entries = load_manifest_entries()
+        except Exception as exc:  # noqa: BLE001
+            self.log_warning(f"custom_mods manifest unreadable: {exc}")
+            report["steps"].append({"custom_mods": "manifest_unreadable"})
+            return
+
+        by_key = {e.key: e for e in entries}
+        results: list[dict] = []
+
+        if shutil.which("git") is None:
+            self.log_warning(
+                "git not on PATH; skipping custom_mods clones "
+                "(selected entries will be unavailable)"
+            )
+            report["steps"].append({"custom_mods": "no_git"})
+            return
+
+        for key in selected_keys:
+            entry = by_key.get(key)
+            if entry is None:
+                self.log_warning(
+                    f"custom_mods: selection {key!r} is not in installs.txt; "
+                    f"skipping"
+                )
+                results.append({"key": key, "status": "missing_manifest_entry"})
+                continue
+
+            if entry_already_installed(entry):
+                self.log_info(f"custom_mods: {entry.key} already installed")
+                results.append({"key": entry.key, "status": "already_installed"})
+                continue
+
+            target = entry.target_dir
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() and any(target.iterdir()):
+                self.log_warning(
+                    f"custom_mods: target {target} exists and is non-empty "
+                    f"but has no git metadata; skipping {entry.key}"
+                )
+                results.append({"key": entry.key, "status": "target_dirty"})
+                continue
+
+            cmd = ["git", "clone", "--depth=1", "--progress", entry.url, str(target)]
+            if entry.ref:
+                cmd[3:3] = ["--branch", entry.ref]
+            self.log_info(f"cloning custom_mod {entry.key} -> {target}")
+            try:
+                self._run_streaming(cmd)
+            except RuntimeError as exc:
+                self.log_warning(
+                    f"custom_mods: clone of {entry.key} failed ({exc})"
+                )
+                results.append({"key": entry.key, "status": "failed"})
+                continue
+            results.append({"key": entry.key, "status": "cloned"})
+            self.log_success(f"custom_mod {entry.key} cloned")
+
+        report["steps"].append({"custom_mods": results})
+
+    def _step_isaac_lab(self, report: dict) -> None:
+        """Isaac Lab register / install / cloud-deploy — fail loud, never silent.
+
+        Branches and their exit conventions:
+
+        - **disabled** (``isaaclab_enabled=False``): legitimate user opt-out,
+          returns normally; PostSetupTask continues with later steps.
+        - **locate ok**: returns normally.
+        - **install dispatched**: returns normally; the long-running
+          IsaacLabInstallTask reports its own success / failure via
+          ``AppSignals.isaac_install_*`` and the progress dialog.
+        - **ANY other branch** (locate failed, cloud-deploy chosen but
+          unimplemented, no-mode-selected wizard state, install dispatch
+          rejected by EULA / path guards): :meth:`_fail_isaac_install`
+          which ``log_error``s, broadcasts a failure signal so the
+          progress dialog opens with the error view, and **raises**.
+
+        The raise is deliberate. PostSetupTask propagates the exception
+        to the SDK Task framework, which lands in
+        ``UnitPortMain._on_task_finished`` with ``ok=False``; that handler
+        sets the fatal flag and freezes the LoadingScreen on the error.
+        The user cannot mistake a failed Isaac install for a successful
+        one, and the boot does NOT march on through ros2 / finalize as
+        if nothing happened.
         """
         backend = self._sel.get("backend") or {}
         if not backend.get("isaaclab_enabled"):
@@ -699,36 +808,485 @@ class PostSetupTask(Task):
             report["steps"].append({"isaac_lab": "disabled"})
             return
 
+        # Fundamental idempotency gate. Whatever the wizard's recorded
+        # mode (install / locate / cloud_deploy), if Isaac Lab is already
+        # present on disk AND registered with EngineService, this step
+        # is a no-op. Re-running the installer when the install is
+        # already done is the user-reported bug "Engines\isaac_lab 明明
+        # 已经有 isaac 了，但是每次启动程序都会再走一次安装进程": the
+        # wizard saved isaaclab_install=True on first launch, the
+        # installer succeeded, but nothing flipped setup_state.json back
+        # to locate mode, so every subsequent boot re-dispatched the
+        # 30 GB install. The precheck below is the root fix — it makes
+        # _step_isaac_lab idempotent regardless of which mode setup_state
+        # claims, so the same selection dict can be replayed safely on
+        # every boot. main.py also flips setup_state on install success
+        # (state-machine closure); this gate is the belt that catches
+        # the case where the flip never happened (older installs, manual
+        # placement of Isaac Lab under Engines/, hand-edited setup_state,
+        # crash between install success and main.py's complete handler).
+        if self._isaac_lab_already_usable(backend):
+            report["steps"].append({"isaac_lab": "already_registered"})
+            return
+
         if backend.get("isaaclab_locate"):
             from application.service.models.sdk_manager import register_isaaclab_path
+            path = str(backend.get("isaaclab_path", "")).strip()
+            if not path:
+                self._fail_isaac_install(
+                    "Isaac Lab locate requested but isaaclab_path is "
+                    "empty in setup_state.json. Re-run the wizard and "
+                    "either type/browse the Isaac Lab root, or pick a "
+                    "different mode.",
+                    report,
+                )
+            # Refuse to register a skeleton-valid but venv-broken install.
+            # "Locate" semantically asserts "this install is ready to use";
+            # silently registering one whose .venv has the wrong torch
+            # flavor or missing RL framework would surface as the same
+            # _C.pyd PyInit__C ACCESS_VIOLATION at first training. Fail
+            # loud with the precise reason and tell the user what to do.
+            healthy, reason = self._isaac_lab_venv_healthy(Path(path).expanduser())
+            if not healthy:
+                self._fail_isaac_install(
+                    f"Isaac Lab at {path!r} is registered as locatable but "
+                    f"its venv is unhealthy: {reason}. Re-run the wizard "
+                    f"and choose 'Install Isaac Lab' (the installer will "
+                    f"repair the venv — ensure_cuda_torch + "
+                    f"isaaclab_rl[all]), or fix the venv manually via "
+                    f"`{path}\\isaaclab.bat -i` before retrying locate.",
+                    report,
+                )
             ok = register_isaaclab_path(
-                str(backend.get("isaaclab_path", "")).strip(),
-                progress=self._sdk_progress_callback(),
+                path, progress=self._sdk_progress_callback(),
             )
-            report["steps"].append({"isaac_lab": "located" if ok else "locate_failed"})
+            if not ok:
+                self._fail_isaac_install(
+                    f"Isaac Lab locate failed: {path!r} is not a valid "
+                    f"installation (missing isaaclab.sh / isaaclab.bat "
+                    f"and/or source/ directory).",
+                    report,
+                )
+            report["steps"].append({"isaac_lab": "located"})
             return
 
         if backend.get("isaaclab_install"):
-            self.log_warning(
-                "isaac_lab fresh-install path not yet wired in this build; "
-                f"the chosen install_dir={backend.get('isaaclab_path')!r} is recorded in "
-                f"setup_state.json -- run bootstrap/install_isaac_lab.bat (or its eventual "
-                f"in-app trigger) to perform the ~30 GB install."
-            )
-            report["steps"].append({"isaac_lab": "install_deferred"})
+            # _dispatch_isaac_install raises on its own guards (path
+            # empty / EULA missing / EULA stale); successful dispatch
+            # returns and PostSetupTask finishes — the actual long-running
+            # install reports its own success/failure via signals.
+            self._dispatch_isaac_install(backend, report)
             return
 
         if backend.get("isaaclab_cloud_deploy"):
-            self.log_warning(
-                "isaac_lab cloud-deploy path not yet wired in this build; "
-                "the SSH config is recorded in setup_state.json -- run the cloud "
-                "deployer manually to provision the remote server."
+            self._fail_isaac_install(
+                "Isaac Lab cloud-deploy is not implemented in this "
+                "build (deferred post-1.0). Your SSH config has been "
+                "recorded in setup_state.json for future use, but no "
+                "remote install will run. Re-run the wizard and choose "
+                "'Install Isaac Lab' or 'Locate existing installation'.",
+                report,
             )
-            report["steps"].append({"isaac_lab": "cloud_deferred"})
-            return
 
-        self.log_info("isaac_lab enabled but no mode selected")
-        report["steps"].append({"isaac_lab": "no_mode"})
+        # User enabled Isaac Lab but didn't pick install / locate / cloud.
+        # Radio buttons should be mutually exclusive in the wizard — if
+        # we get here, either setup_state.json was hand-edited or the
+        # wizard's get_config built a malformed dict. Either way it's
+        # a hard failure, not a "use defaults" condition.
+        self._fail_isaac_install(
+            "Isaac Lab enabled but no install mode (install / locate / "
+            "cloud_deploy) was selected. Setup state is corrupted; "
+            "delete the [App].setup_state pointer or re-run install.bat "
+            "to redo the wizard from scratch.",
+            report,
+        )
+
+    def _fail_isaac_install(self, message: str, report: dict) -> None:
+        """Log error, broadcast failure signal, ABORT PostSetupTask.
+
+        Three responsibilities, all loud:
+
+        1. ``log_error`` with the searchable ``[ISAAC INSTALL FAILED]``
+           sentinel so the user can grep CmdLogWidget / file log.
+        2. Emit ``isaac_install_complete(False, msg)`` so the
+           ``IsaacInstallProgressDialog`` auto-opens with the error
+           view (main.py's race-recovery handler covers the case where
+           no phase signal preceded this).
+        3. ``raise RuntimeError`` — this is what NEVER returns. The
+           previous version's ``return`` after logging let PostSetupTask
+           continue to ``_step_ros2`` etc., making the failure look
+           like a non-event in the boot report. Re-raising propagates
+           to ``UnitPortMain._on_task_finished`` which sets the boot
+           fatal flag and stops the rest of the pipeline.
+
+        Does not return. The annotation NoReturn would be more honest
+        but we don't import typing.NoReturn elsewhere in this module.
+        """
+        self.log_error(f"=== [ISAAC INSTALL FAILED] {message} ===")
+        try:
+            from application.service.signals import get_app_signals
+            get_app_signals().isaac_install_complete.emit(False, message)
+        except Exception as exc:  # noqa: BLE001
+            # Never let a UX-only side-effect mask the real failure —
+            # surface this on log_error too, then re-raise the original.
+            self.log_error(
+                f"(also: could not broadcast isaac_install_complete signal: "
+                f"{exc!r})"
+            )
+        report["steps"].append({"isaac_lab": "failed", "reason": message})
+        raise RuntimeError(f"Isaac Lab install aborted: {message}")
+
+    def _dispatch_isaac_install(self, backend: dict, report: dict) -> None:
+        """Submit an :class:`IsaacLabInstallTask` and return without waiting.
+
+        Every guard before submission RAISES via
+        :meth:`_fail_isaac_install` on failure — never returns silently.
+        See its docstring for why we abort PostSetupTask on guard failure
+        instead of just logging a warning and marching on.
+
+        On successful submission, returns; the long-running install
+        task drives its own success/failure via ``AppSignals.isaac_install_*``.
+        """
+        install_path = str(backend.get("isaaclab_path", "")).strip()
+        if not install_path:
+            self._fail_isaac_install(
+                "Isaac Lab fresh-install requested but isaaclab_path is "
+                "empty in setup_state.json. Re-run the wizard and either "
+                "type / browse an install directory, or pick a different "
+                "mode.",
+                report,
+            )
+
+        # EULA gate: only ``setup_state.json.selections.backend.eula_accepted_ids``
+        # is the authoritative source. That list comes from the wizard's
+        # EulaDialog where the user explicitly ticked + clicked Accept,
+        # and is the bit of state PostSetupTask actually needs to verify.
+        #
+        # We deliberately do NOT also require ``<USER_CONFIG_DIR>/eula_acceptance.json``
+        # to contain matching records. That persistent store is a UX
+        # cache so the wizard can skip re-prompting on subsequent runs;
+        # it is NOT a security boundary (anyone who can edit
+        # setup_state.json can edit the persistent store too). Gating on
+        # both produced a brittle flow where deleting the cache invalidated
+        # an otherwise-valid wizard acceptance.
+        from application.service.installers import eula as _eula
+        claimed_ids = list(backend.get("eula_accepted_ids") or [])
+        required_ids = {spec.eula_id for spec in _eula.list_required_eulas()}
+        if not required_ids.issubset(set(claimed_ids)):
+            missing = sorted(required_ids - set(claimed_ids))
+            self._fail_isaac_install(
+                f"Isaac Lab fresh-install requested without complete EULA "
+                f"acceptance. Missing from setup_state.json: {missing}. "
+                f"Re-run the wizard, tick every tab in the EULA dialog, "
+                f"and click Accept.",
+                report,
+            )
+        # Best-effort: top up the persistent store from the wizard's
+        # claim so future wizard runs skip the modal. Failures here are
+        # purely a future-UX issue (user gets re-prompted next time);
+        # they MUST NOT block the install.
+        try:
+            for spec in _eula.list_required_eulas():
+                if spec.eula_id in set(claimed_ids):
+                    _eula.record_acceptance(spec.eula_id, spec.version)
+        except Exception as exc:  # noqa: BLE001
+            self.log_warning(
+                f"could not back-fill <USER_CONFIG_DIR>/eula_acceptance.json "
+                f"from setup_state claim (non-fatal): {exc!r}"
+            )
+
+        # Fire-and-forget: submit to TasksManager and return.
+        # Cancellation / progress flow through the SDK Task framework
+        # + AppSignals; PostSetupTask is unblocked immediately. ANY
+        # failure inside the install task surfaces via the progress
+        # dialog + ``isaac_install_complete(False, …)``; it does NOT
+        # propagate back here (this method has already returned by then).
+        from application.service.installers import is_install_path_internal
+        from application.tools.isaac_lab_install_task import IsaacLabInstallTask
+        from unitport_sdk import get_tasks_manager
+
+        mode = "internal" if is_install_path_internal(install_path) else "external"
+        task = IsaacLabInstallTask(
+            install_dir=Path(install_path),
+            eula_ids=claimed_ids,
+        )
+        task_id = get_tasks_manager().submit(task)
+        self.log_info(
+            f"isaac install dispatched as task {task_id} "
+            f"(install_dir={install_path}, mode={mode})"
+        )
+        report["steps"].append({
+            "isaac_lab": "install_dispatched",
+            "task_id": task_id,
+            "install_dir": install_path,
+            "mode": mode,
+        })
+
+    def _isaac_lab_venv_healthy(self, root: Path) -> tuple[bool, str]:
+        """Probe the Isaac Lab venv for runtime-critical state.
+
+        Skeleton markers (isaaclab.bat + source/) say nothing about
+        whether the venv inside ``<root>/.venv`` actually has a CUDA
+        torch and the RL frameworks the launcher requires. If those
+        are missing, training fails at first launch with either:
+
+          * ``_C.pyd!PyInit__C`` ACCESS_VIOLATION (exit 0xC0000005)
+            — torch is CPU-only, Isaac Sim's native ext can't bind
+            CUDA symbols. Root cause for the post-``reset.bat`` case:
+            reset wipes ``runtime/env/`` but leaves
+            ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` and the
+            Engine venv intact, so ``_isaac_lab_already_usable``
+            would short-circuit on the stale-but-skeleton-valid
+            registration and the installer's ``_ensure_cuda_torch``
+            step would never run.
+
+          * "Isaac venv is missing rsl_rl" — older installer that
+            pip-installed isaaclab_rl bare (no [all] extras).
+
+        Returns (ok, reason). When ok=False the reason is logged so
+        the user / log reader sees *why* we're re-running the
+        installer rather than just "looks stale, retrying" without
+        context. External / conda-managed installs that don't put the
+        venv at ``<root>/.venv`` are returned as healthy (we have no
+        way to probe them and we don't own them anyway).
+        """
+        from sys import platform as _platform
+        venv_dir = root / ".venv"
+        if not venv_dir.is_dir():
+            return True, ""
+        py = (
+            venv_dir / "Scripts" / "python.exe"
+            if _platform == "win32"
+            else venv_dir / "bin" / "python"
+        )
+        if not py.exists():
+            return False, f".venv interpreter missing at {py}"
+
+        import subprocess as _sub
+        # Probe torch flavor — CUDA build sets ``torch.version.cuda``
+        # to a non-empty string ("12.8" etc.); CPU build leaves it as
+        # None. ImportError (torch missing) and ``cuda is None`` are
+        # the same fault class — both reach the launcher as the same
+        # PyInit__C crash. Also probe tensordict's version line — the
+        # 0.12.x wheels are built against torch 2.8 ABI and crash with
+        # the same ACCESS_VIOLATION at ``tensordict._C`` load inside an
+        # Isaac Sim Kit subprocess even though standalone Python imports
+        # them fine. ``isaac_lab_installer._ensure_cuda_torch`` pins it
+        # to 0.11.x; surface the same constraint here so a stray ``pip
+        # install`` that yanks tensordict forward triggers a repair.
+        probe = (
+            "import sys\n"
+            "try:\n"
+            "    import torch\n"
+            "    cuda = torch.version.cuda\n"
+            "    print('TORCH', torch.__version__, '|', cuda or 'cpu')\n"
+            "except Exception as e:\n"
+            "    print('TORCH_FAIL', type(e).__name__, e); sys.exit(1)\n"
+            "import importlib.util as u\n"
+            "import importlib.metadata as m\n"
+            "for n in ('rsl_rl',):\n"
+            "    print('PKG', n, 'OK' if u.find_spec(n) else 'MISSING')\n"
+            "try:\n"
+            "    print('TD', m.version('tensordict'))\n"
+            "except m.PackageNotFoundError:\n"
+            "    print('TD', 'MISSING')\n"
+        )
+        try:
+            res = _sub.run(
+                [str(py), "-c", probe],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, _sub.TimeoutExpired) as exc:
+            return False, f"venv probe failed to spawn: {exc!r}"
+        if res.returncode != 0:
+            return False, (
+                f"venv probe non-zero (rc={res.returncode}): "
+                f"{(res.stderr or res.stdout).strip()[:200]}"
+            )
+        out = res.stdout or ""
+        torch_line = next(
+            (ln for ln in out.splitlines() if ln.startswith("TORCH ")),
+            "",
+        )
+        if "| cpu" in torch_line or "| None" in torch_line:
+            return False, (
+                f"venv has CPU-only torch ({torch_line.strip()}) — "
+                f"Isaac Sim 5.x needs CUDA torch"
+            )
+        missing_pkgs = [
+            ln.split()[1]
+            for ln in out.splitlines()
+            if ln.startswith("PKG ") and ln.endswith("MISSING")
+        ]
+        if missing_pkgs:
+            return False, f"venv missing packages: {', '.join(missing_pkgs)}"
+        td_line = next(
+            (ln for ln in out.splitlines() if ln.startswith("TD ")),
+            "",
+        )
+        td_ver = td_line.split(" ", 1)[1].strip() if " " in td_line else ""
+        if td_ver == "MISSING":
+            return False, "venv missing package: tensordict"
+        # Reject the torch-2.8-ABI line (tensordict >= 0.12) when paired
+        # with our pinned torch 2.7 — wheel ABI mismatch crashes Kit at
+        # tensordict._C load with ACCESS_VIOLATION.
+        if td_ver and not td_ver.startswith("0.11."):
+            return False, (
+                f"tensordict=={td_ver} is incompatible with torch 2.7 "
+                f"under Isaac Sim Kit (need 0.11.x)"
+            )
+        return True, ""
+
+    def _isaac_lab_already_usable(self, backend: dict) -> bool:
+        """Probe whether Isaac Lab is already installed AND registered.
+
+        Returns True iff after this method runs:
+
+        - ``EngineService.get_local("isaac_lab")`` reports
+          ``registered=True`` with a ``root`` that on disk still has
+          the markers (``isaaclab.sh`` or ``isaaclab.bat`` + ``source/``
+          directory); OR
+        - the wizard-declared ``isaaclab_path`` validates as an Isaac
+          Lab root and is freshly registered through ``EngineService``
+          on this call; OR
+        - the machine-level ``sdk/install_state.json`` records a prior
+          successful install whose ``root`` validates and is registered
+          on this call.
+
+        This is the single source of truth for "Isaac Lab is ready to
+        use, do not run any installer/locate work." It treats the
+        on-disk install + ``EngineService.local`` registration as the
+        physical fact and ignores what ``setup_state.json`` claims —
+        the wizard's selection is intent, not state.
+
+        Re-registration uses ``source="boot_repair"`` so audit tools
+        can distinguish first-time wizard-driven registration from
+        idempotent re-registration during boot.
+        """
+        # Lazy imports keep this method off the cold path when isaaclab
+        # is disabled by the user — those imports pull in user_workspace
+        # which reads machine-level state, and EngineService which loads
+        # engines/*.json. No reason to pay that on disabled boots.
+        from application.service.engines import get_engine_service
+        from application.service.user_workspace import machine_config_dir
+        from unitport_sdk import read_data
+
+        def _markers_ok(root: Path) -> bool:
+            try:
+                if not root.is_dir():
+                    return False
+                has_launcher = (
+                    (root / "isaaclab.sh").exists()
+                    or (root / "isaaclab.bat").exists()
+                )
+                has_source = (root / "source").is_dir()
+                return has_launcher and has_source
+            except OSError:
+                return False
+
+        _venv_healthy = self._isaac_lab_venv_healthy
+
+        svc = get_engine_service()
+        local = svc.get_local("isaac_lab")
+
+        # Signal 1 — EngineService says we registered it. Trust only if
+        # the markers still exist AND the venv passes the runtime-health
+        # probe. The skeleton check (isaaclab.bat + source/) survives a
+        # reset.bat but says nothing about whether the venv inside has
+        # the right torch flavor / RL frameworks — see `_venv_healthy`
+        # for why this matters.
+        if local.get("registered") and local.get("root"):
+            root = Path(str(local["root"]))
+            if _markers_ok(root):
+                healthy, reason = _venv_healthy(root)
+                if healthy:
+                    self.log_info(
+                        f"isaac_lab already registered at {root}; "
+                        f"skipping locate/install step"
+                    )
+                    return True
+                self.log_warning(
+                    f"isaac_lab registered at {root} but venv is "
+                    f"unhealthy ({reason}); re-running install_lab to "
+                    f"repair (ensure_cuda_torch + isaaclab_rl[all])"
+                )
+            else:
+                self.log_warning(
+                    f"isaac_lab engines state claims root={root} but the "
+                    f"markers (isaaclab.sh|isaaclab.bat + source/) are "
+                    f"missing; treating registration as stale and probing "
+                    f"other locations"
+                )
+
+        # Signal 2 — wizard recorded a path; if Isaac Lab is in fact
+        # installed there (manual placement under Engines/, or the
+        # installer succeeded on a prior boot but no one updated the
+        # engines state), repair the EngineService registration in
+        # place and short-circuit. This is what catches the canonical
+        # user-reported case: Isaac Lab sitting at the wizard's chosen
+        # path with all markers, EngineService still empty.
+        declared = str(backend.get("isaaclab_path", "")).strip()
+        if declared:
+            root = Path(declared).expanduser()
+            if _markers_ok(root):
+                healthy, reason = _venv_healthy(root)
+                if not healthy:
+                    self.log_warning(
+                        f"isaac_lab skeleton at {root} (wizard path) but "
+                        f"venv unhealthy ({reason}); falling through to "
+                        f"install_lab so it can be repaired"
+                    )
+                else:
+                    resolved = str(root.resolve())
+                    if svc.register_isaac_local(resolved, source="boot_repair"):
+                        self.log_info(
+                            f"isaac_lab found at {root} (wizard path); "
+                            f"re-registered without re-installing"
+                        )
+                        return True
+
+        # Signal 3 — install_state.json records a prior successful
+        # install. Same repair flow as signal 2 but the path source is
+        # the install record, which survives wizard state corruption.
+        try:
+            state_path = machine_config_dir() / "sdk" / "install_state.json"
+            if state_path.exists():
+                data = read_data(state_path)
+                if isinstance(data, dict):
+                    isaac_block = data.get("isaac_lab") or {}
+                    recorded_root = str(isaac_block.get("root", "")).strip()
+                    if recorded_root:
+                        root = Path(recorded_root)
+                        if _markers_ok(root):
+                            healthy, reason = _venv_healthy(root)
+                            if not healthy:
+                                self.log_warning(
+                                    f"isaac_lab skeleton at {root} (from "
+                                    f"install_state.json) but venv unhealthy "
+                                    f"({reason}); falling through to "
+                                    f"install_lab so it can be repaired"
+                                )
+                            else:
+                                resolved = str(root.resolve())
+                                if svc.register_isaac_local(
+                                    resolved, source="boot_repair"
+                                ):
+                                    self.log_info(
+                                        f"isaac_lab found at {root} (from "
+                                        f"sdk/install_state.json); re-registered "
+                                        f"without re-installing"
+                                    )
+                                    return True
+        except Exception as exc:  # noqa: BLE001
+            # Probe is best-effort: a corrupt install_state.json must
+            # not block the normal locate/install flow. Log and fall
+            # through so the wizard's recorded mode still runs.
+            self.log_warning(
+                f"isaac_lab install_state.json probe failed (non-fatal): "
+                f"{exc!r}"
+            )
+
+        return False
 
     def _step_ros2(self, report: dict) -> None:
         """ROS2 native-detect + Docker bridge build.

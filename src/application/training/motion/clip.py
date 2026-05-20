@@ -66,6 +66,79 @@ class MotionClip:
         return int(self.joint_pos.shape[1])
 
     @property
+    def ir_roles(self) -> list:
+        """IR role for each clip joint channel (parallel to ``joint_pos``).
+
+        Loaders fill ``metadata["ir_roles"]`` with the canonical role list
+        for their format (e.g. ``QUADRUPED_AMP_IR_ROLES`` for
+        ``amp_legged_gym``). Falls back to looking up the format default
+        when a legacy clip has no explicit metadata entry; returns ``[]``
+        for formats without a portable IR contract (``unitport_npy``).
+        """
+        roles = self.metadata.get("ir_roles")
+        if isinstance(roles, list) and roles:
+            return list(roles)
+        # Fallback: look up the format's default IR roles (avoids importing
+        # motion_ir_mapping at module-load time — kept as a lazy import).
+        try:
+            from application.training.motion_ir_mapping import get_ir_roles
+            return get_ir_roles(self.format_id)
+        except Exception:
+            return []
+
+    def to_robot_joint_order(
+        self,
+        joints_role_map: Dict[str, str],
+        *,
+        what: str = "joint_pos",
+    ) -> np.ndarray:
+        """Reorder the clip's joint channels to match a robot's joint order.
+
+        Parameters
+        ----------
+        joints_role_map
+            ``{joint_name: ir_role}`` for the target robot in the format
+            it will be loaded under (``RobotSpecRef.joints_role_map_for(
+            active_format)``).
+        what
+            Which clip array to reorder. Either ``"joint_pos"`` (default)
+            or ``"joint_vel"`` (when present).
+
+        Returns
+        -------
+        np.ndarray
+            ``(n_frames, n_joints)`` reordered so column *i* corresponds
+            to the robot's *i*-th joint in ``joints_role_map`` insertion
+            order. Joints whose IR role doesn't appear in this clip get
+            ``0.0``.
+        """
+        src = self.joint_pos if what == "joint_pos" else self.joint_vel
+        if src is None or src.size == 0:
+            return np.empty((0, 0), dtype=np.float64)
+
+        clip_roles = self.ir_roles
+        if not clip_roles:
+            raise MotionClipError(
+                f"MotionClip '{self.name}' format {self.format_id!r} has no "
+                f"IR-role metadata — cannot reorder to robot joint layout. "
+                f"Make sure the loader fills metadata['ir_roles']."
+            )
+        if len(clip_roles) != src.shape[1]:
+            raise MotionClipError(
+                f"MotionClip '{self.name}' joint_pos has {src.shape[1]} "
+                f"channels but ir_roles declares {len(clip_roles)} — "
+                f"clip metadata is inconsistent."
+            )
+
+        role_to_col = {r: i for i, r in enumerate(clip_roles)}
+        out = np.zeros((src.shape[0], len(joints_role_map)), dtype=src.dtype)
+        for j_idx, (_jname, ir_role) in enumerate(joints_role_map.items()):
+            col = role_to_col.get(ir_role)
+            if col is not None:
+                out[:, j_idx] = src[:, col]
+        return out
+
+    @property
     def frame_dt(self) -> float:
         return 1.0 / self.fps if self.fps > 0 else 0.0
 

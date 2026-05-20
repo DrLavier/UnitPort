@@ -1,12 +1,25 @@
 [default]
 canvas_saved = 画布已保存：{path}
 feature_pending = 
+history_cleared = 训练历史已清空
+history_delete_failed = 删除运行记录 {} 失败
+history_deleted = 运行记录 {} 已删除
+history_loaded = 已从运行 {} 恢复画布 —— 按 Ctrl+S 保存
 history_missing = 运行记录 [{}] {} 在磁盘上已不存在
 history_no_chart = 已选择运行记录：{}（图表尚未就绪）
 history_selected = 已选择运行记录：
+history_snapshot_missing = 运行 [{}] {} 对应的画布切片在磁盘上不存在
 no_project = 未加载项目
 policy_missing = 已选择策略 [{}] {}，但磁盘上缺少对应的包路径
 policy_no_project = 未加载项目
 policy_selected = 已选择策略： [{}] {}
 ready = UnitPort 已就绪
+template_apply_failed = 应用模板内容失败
+template_backend_mismatch = 模板后端 '{tb}' 与当前画布后端 '{cb}' 不匹配
+template_loaded = 模板 '{name}' 已加载到当前画布——按 Ctrl+S 保存
+template_missing = 磁盘上未找到模板
+template_no_backend = 模板缺少 backend 字段
+template_no_canvas = 加载模板前请先打开一个画布
+template_no_project = 加载模板前请先打开项目和画布
+template_read_failed = 读取模板失败
 

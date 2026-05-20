@@ -1,0 +1,80 @@
+[language]
+title = 选择语言
+hint = 选择您偏好的 UnitPort 显示语言。之后可在侧边栏随时切换。
+ok = 继续
+
+[wizard]
+window_title = UnitPort — 自定义安装
+header_title = UnitPort 安装
+header_subtitle = 选择要安装的组件。这些设置稍后可在设置中修改。
+btn_skip = 跳过安装
+btn_back = 上一步
+btn_next = 下一步
+btn_finish = 完成
+
+[data_dir]
+title = 数据目录
+hint = 选择 UnitPort 存放所有用户数据的位置:项目、导出的策略、登录令牌、遥测缓存、下载的引擎以及 user.ini 覆盖配置。应用安装目录在运行时不会被写入,所以此目录是跨重新部署/git pull 保留下来的内容。
+label_dir = 用户数据目录:
+btn_browse = 浏览 ...
+btn_reset = 重置为默认
+note = 默认值:~/UnitPort (解析到您的用户主目录)。如果 C: 盘空间不足,可以选择其他盘。
+status_invalid = 路径无效
+status_default = 正在使用默认位置。
+status_custom_exists = 自定义位置 — 已存在于 {path}
+status_custom_create = 自定义位置 — 将在 {path} 创建
+placeholder = 选择绝对路径（例如 D:\UnitPort）
+status_relative = 路径必须是绝对路径（当前：{path}）。
+status_required = 必填——请为工作区根目录选择一个绝对路径。
+
+[menagerie]
+title = MuJoCo Menagerie 模型
+hint = 从 mujoco_menagerie 中选择需要的机器人模型。UnitPort 支持的模型已预先勾选,其他为可选。
+btn_select_all = 全选
+btn_deselect_all = 全不选
+btn_refresh = 从 GitHub 刷新
+loading = 正在从 GitHub 加载模型列表 …
+
+[sdk]
+title = SDK 套件
+hint = 选择要下载的机器人 SDK 套件。仅勾选的项目会被克隆。之后可在设置中安装更多。
+
+[backend]
+title = 后端环境
+hint = 配置训练与执行所用的仿真后端。取消勾选不需要的项目可加快安装速度。
+group_mujoco = MuJoCo
+cb_mujoco = 安装 MuJoCo (pip 包)
+cb_mujoco_tip = 基于 MuJoCo 的仿真与训练所必需。
+cb_loco = 下载 loco-mujoco 参考动作库
+cb_loco_tip = 社区维护的运动训练参考动作库。源自 github.com/robfiras/loco-mujoco。
+group_ros2 = ROS2
+cb_ros2 = 安装 ROS2 支持
+cb_ros2_tip = 启用基于 ROS2 的品牌 (Unitree Go2、Mangdang Mini Pupper 等)。若本机已安装 ROS2 Humble 则复用;否则将构建 Docker 桥接镜像。
+ros2_note = 自动检测本机 ROS2 安装 (优先 Humble)。如果不存在,将改为构建 UnitPort Docker 桥接镜像 — Docker Desktop / Docker Engine 必须处于运行状态。
+group_isaac = Isaac Lab (NVIDIA)
+cb_isaac = 启用 Isaac Lab 集成
+cb_isaac_tip = Isaac Lab 通过 NVIDIA Isaac Sim 提供 GPU 加速仿真。可立即安装,或指向现有安装。
+rb_isaac_install = 安装 Isaac Lab + Isaac Sim (全新安装)
+rb_isaac_locate = 定位已有的 Isaac Lab 安装
+rb_isaac_cloud = 通过 SSH 部署 Isaac Lab 到远程 Linux 服务器
+install_hint = 选择安装目录。Isaac Lab + Isaac Sim 将以独立 venv 安装到此目录。
+isaac_install_dir_ph = 安装目录 ...
+isaac_locate_dir_ph = Isaac Lab 根目录 ...
+install_note = Isaac Sim 5.1.0 | IsaacLab (锁定版本) | PyTorch 2.7+cu128\n磁盘:约 30 GB | 要求:NVIDIA GPU + CUDA 12.x 驱动
+isaac_valid = 检测到有效的 Isaac Lab 安装
+isaac_invalid = 无法在该路径下验证 Isaac Lab — 缺少 isaaclab.sh/bat 或 source/ 目录
+cloud_hint = 输入远程 GPU 服务器的 SSH 连接信息。Isaac Lab 将通过 SSH + SFTP 安装。
+cloud_server_name = 服务器名称:
+cloud_host = 主机:
+cloud_port = 端口:
+cloud_user = 用户名:
+cloud_auth = 认证:
+cloud_auth_key = SSH 密钥
+cloud_auth_pwd = 密码
+cloud_key_file = 密钥文件:
+cloud_password = 密码:
+cloud_remote_path = 远程路径:
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (锁定版本) | PyTorch 2.7+cu128\n要求:Ubuntu 22.04+、NVIDIA GPU、CUDA 12.x,约 30 GB 磁盘空间
+custom_mods_hint = 可选的第三方动作 / AMP 参考仓库。每个仓库都会浅克隆到 custom_mods/motions/。不勾选则跳过；之后仍可通过编辑 custom_mods/installs.txt 安装。
+group_custom_mods = 参考动作库（可选）
+

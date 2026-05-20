@@ -1,57 +1,45 @@
 """MissionControlPanel -- top-level main work area shell.
 
-This panel is now an **overlay** raised above an external CanvasPage. The
-host (``MainWindow.main_panel``) parents the canvas at the bottom layer
+This panel is an **overlay** raised above an external CanvasPage. The host
+(``MainWindow.main_panel``) parents the canvas at the bottom layer
 (QVBoxLayout-managed, fills the panel) and parents this MissionControlPanel
 as a free-floating sibling raised on top. The host calls
 :meth:`set_canvas` to give this panel a reference to the canvas it
 overlays, then watches :attr:`overlay_compact_changed` to resize this
-panel between two states::
+panel between **full-cover** and **top-row-only** states.
 
-    Mission Control mode  → fills the entire main_panel
-                            (chart visible at user-set opacity over canvas)
-    Training Canva mode   → shrinks to top_row strip only
-    + canvas loaded       (canvas fully exposed below the strip)
+Three view modes (3-way SliderSwitch on the top-right, gated by
+``canvas_loaded``):
+
+    Mission Control  → full-cover; chart visible at user-set opacity
+                       over the (hidden) canvas, cards in mission_panel
+    Training Canva   → compact (top_row strip only); canvas fully
+                       exposed below for editing
+    Scripts          → full-cover; built-in script compiler fills
+                       main_screen, mission_panel hidden, undo/redo/save
+                       cluster in the top_row (mirrors TC tool cluster)
 
 Layout::
 
     +------------------------------ top_row (always visible, opaque) ----+
-    | [run dropdown | opacity slider | node lib btn]      <slider switch>|
+    | <MC: run dropdown | opacity slider> | <TC: undo/redo/save canvas> |
+    | <Scripts: undo/redo/save script>                  <slider switch> |
     +-------------- vertical splitter (drag, cursor) -- hidden in TC ----+
-    |        main_screen (top, flex, transparent — chart applies opacity)|
+    |   main_screen (transparent — chart applies opacity in MC; editor   |
+    |                fills full height in Scripts mode)                  |
     +-------------- vertical split ---------------------------------------+
-    |     mission_panel (init H = 400, opaque)                            |
+    |   mission_panel (cards row; hidden in Scripts)                      |
     +---------------------------------------------------------------------+
 
-The ``files_list`` QWidget is constructed by this panel but **not** placed
-inside its own layout — it is an orphan widget that ``MainWindow`` adopts
-into the sidebar's Project Files panel via :meth:`take_files_list_widget`.
-
-* ``files_list``  — single ``LaviTabTable`` (single-select) carrying
-  the ``Canvas | Script`` tab head.
-* ``top_row``     — fixed-height opaque strip. Hosts:
-  - Mission Control middle widgets (RunSourceSelector + opacity QSlider).
-    Training Canva mode shows no middle widgets here — its Node Library
-    palette is permanently mounted on the canvas itself.
-  - SliderSwitch on the right, hidden until a canvas file is loaded into
-    the external canvas.
-* ``main_screen`` — transparent QWidget hosting the content stack:
-  - Canvas tab inner stack: ``new_file_panel`` placeholder (no selection)
-    or the ``TrainingChartPanel`` chart (plain QWidget composite, no
-    QGraphicsView inside) wrapped in a ``QGraphicsOpacityEffect`` driven
-    by the top_row's opacity slider (90-100%).
-  - Script tab: standby placeholder ↔ CodeEditorWidget toolbar+editor.
-* ``mission_panel`` — opaque bottom region, currently a placeholder.
-
-In Training Canva mode the splitter (and therefore both ``main_screen``
-and ``mission_panel``) is hidden via ``setVisible(False)`` — the host
-shrinks this panel's geometry to ``top_row.height`` so the canvas behind
-becomes fully visible and click-through.
+The Project Files sidebar panel and the four Scripts-mode sidebar panels
+(Training / Rewards / Termins / Observs) own their own data widgets now —
+this panel only listens for ``set_project`` / ``open_canvas`` /
+``load_script`` from MainWindow.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
@@ -60,6 +48,7 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -74,13 +63,12 @@ from unitport_sdk import (
     CodeEditorWidget,
     Config,
     I18nLabel,
-    LaviTabTable,
+    Paths,
     SliderSwitch,
     i18n_bind,
     log_debug,
     log_warning,
     setButton,
-    setLaviTabTable,
     tr,
 )
 
@@ -93,6 +81,7 @@ from application.ui.widgets.real_robot_connection_card import (
     RealRobotConnectionCard,
 )
 from application.ui.widgets.run_source_selector import RunSourceSelector
+from application.ui.widgets.scripts_tool_buttons import ScriptsToolbarCluster
 from application.ui.widgets.tc_tool_buttons import TCToolButtonsCluster
 from application.ui.widgets.training_chart_panel import TrainingChartPanel
 from application.ui.widgets.training_config_card import (
@@ -105,11 +94,20 @@ from application.ui.widgets.training_config_card import (
 # ---------------------------------------------------------------------------
 MODE_MISSION_CONTROL = "mission_control"
 MODE_TRAINING_CANVA = "training_canva"
+MODE_SCRIPTS = "scripts"
 
+# The SliderSwitch options carry (i18n_key, default) pairs so the SDK
+# re-translates each segment on ``language_changed``. The mode-constant
+# string is recovered from the index via ``_MODE_KEYS``; the emitted
+# ``key`` field of ``current_changed`` is the i18n key, not the mode.
 _MODE_OPTIONS = [
-    (MODE_MISSION_CONTROL, "Mission Control"),
-    (MODE_TRAINING_CANVA, "Training Canva"),
+    ("missioncontrol.mode.mission_control", "Mission Control"),
+    ("missioncontrol.mode.training_canva",  "Training Canva"),
+    ("missioncontrol.mode.scripts",         "Scripts"),
 ]
+_MODE_KEYS = [MODE_MISSION_CONTROL, MODE_TRAINING_CANVA, MODE_SCRIPTS]
+
+_VALID_MODES = frozenset({MODE_MISSION_CONTROL, MODE_TRAINING_CANVA, MODE_SCRIPTS})
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +123,7 @@ class MissionControlPanel(QWidget):
     """
 
     # -- signals -------------------------------------------------------
-    tab_changed = pyqtSignal(str)              # "Canvas" | "Script"
-    selection_changed = pyqtSignal(str, str)   # (tab, file_id)
-    mode_changed = pyqtSignal(str)             # "mission_control" | "training_canva"
+    mode_changed = pyqtSignal(str)             # one of _VALID_MODES
     # Whenever the splitter visibility flips → host should re-apply
     # this overlay's geometry (full-cover vs top_row-only).
     overlay_compact_changed = pyqtSignal(bool)  # True = compact (top_row only)
@@ -139,8 +135,7 @@ class MissionControlPanel(QWidget):
     # flip the host _MainPanel from "picker" mode to "canvas" mode.
     canvas_loaded = pyqtSignal(str)
 
-    _FILES_LIST_MIN_W = 180
-    _MISSION_PANEL_DEFAULT_H = 450
+    _MISSION_PANEL_DEFAULT_H = 530
     _MISSION_PANEL_MIN_H = 80
     _MAIN_SCREEN_MIN_H = 120
     _HANDLE_W = 4
@@ -154,23 +149,16 @@ class MissionControlPanel(QWidget):
     _OPACITY_MAX = 100
     _OPACITY_DEFAULT = 95
 
-    # Tab ids.
-    _TAB_CANVAS_KEY = "missioncontrol.tab.canvas"
-    _TAB_SCRIPT_KEY = "missioncontrol.tab.script"
-    _TAB_KEY_TO_NAME = {
-        _TAB_CANVAS_KEY: "Canvas",
-        _TAB_SCRIPT_KEY: "Script",
-    }
-    _TAB_NAME_TO_KEY = {v: k for k, v in _TAB_KEY_TO_NAME.items()}
-
     # Inner Canvas-body stack indices.
     _CANVAS_BODY_NEW_FILE = 0
     _CANVAS_BODY_CHART = 1
 
+    # Outer content_stack indices.
+    _CONTENT_CANVAS = 0
+    _CONTENT_SCRIPT = 1
+
     _SCRIPT_PLACEHOLDER_KEY = "missioncontrol.script.placeholder"
     _SCRIPT_PLACEHOLDER_DEFAULT = "Select a script file to edit"
-    _SCRIPT_SAVE_KEY = "missioncontrol.btn.save_script"
-    _SCRIPT_SAVE_DEFAULT = "Save"
     _NEW_FILE_PLACEHOLDER_KEY = "missioncontrol.canvas.new_file_placeholder"
     _NEW_FILE_PLACEHOLDER_DEFAULT = "Select a canvas file to begin"
 
@@ -185,18 +173,28 @@ class MissionControlPanel(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         # ---- public state ------------------------------------------
-        self.current_tab: str = "Canvas"
         self.current_canvas: Optional[str] = None
+        # ``current_script`` carries the file_id form when loaded from
+        # disk (``project:<rel>`` / ``system:<rel>``) or a virtual id
+        # (``registry:<kind>:<key>``) when loaded from a TaskModuleItem.
         self.current_script: Optional[str] = None
-
-        # ---- data caches ------------------------------------------
-        self._canvas_groups: List[Dict] = []
-        self._script_groups: List[Dict] = []
 
         # ---- project context ----------------------------------------
         self._project_info: Optional[ProjectInfo] = None
         self._script_loaded_id: Optional[str] = None
         self._script_target_path: Optional[Path] = None
+        # True while the loaded script came from a registry virtual id
+        # (``registry:<kind>:<key>[:<variant>]``) — _save_script then
+        # routes through application.service.scripts.resolver for
+        # variant writes (preset writes are rejected).
+        self._script_is_virtual: bool = False
+        # When ``_script_is_virtual`` is True these record the resolver
+        # tuple. ``_script_variant=None`` means the editor is showing a
+        # preset (read-only conceptually); a non-None value names the
+        # user variant that Save will write back into.
+        self._script_kind: Optional[str] = None
+        self._script_key: Optional[str] = None
+        self._script_variant: Optional[str] = None
         # Mirrors current_canvas after a successful auto-load.
         self._canvas_loaded_id: Optional[str] = None
         # External canvas (set by host via set_canvas).
@@ -210,20 +208,22 @@ class MissionControlPanel(QWidget):
         # Cache of last splitter-visible state, so we only emit
         # overlay_compact_changed on actual flips.
         self._is_compact_state: bool = False
+        # Reentry guard for _apply_mode. ``_sync_canvas_view`` calls
+        # ``_apply_mode`` from inside its own body when the canvas-loaded
+        # state flips mid-sync, and ``_apply_mode`` itself calls
+        # ``_sync_canvas_view`` — without this flag the two recurse.
+        self._applying_mode: bool = False
         # Chart overlay opacity (percent in [_OPACITY_MIN, _OPACITY_MAX]).
         self._chart_opacity_pct: int = self._restore_opacity()
 
         # ---- widget slots ------------------------------------------
-        self._files_list: Optional[QWidget] = None
-        self._files_list_layout: Optional[QVBoxLayout] = None
-        self._files_table: Optional[LaviTabTable] = None
-
         self._top_row_host: Optional[QFrame] = None
         self._mode_switch: Optional[SliderSwitch] = None
         self._run_source_selector: Optional[RunSourceSelector] = None
         self._opacity_icon: Optional[QLabel] = None
         self._opacity_slider: Optional[QSlider] = None
         self._tc_tools: Optional[TCToolButtonsCluster] = None
+        self._scripts_tools: Optional[ScriptsToolbarCluster] = None
 
         self._v_splitter: Optional[QSplitter] = None
         self._main_screen: Optional[QWidget] = None
@@ -240,7 +240,6 @@ class MissionControlPanel(QWidget):
         self._script_stack: Optional[QStackedWidget] = None
         self._script_placeholder: Optional[I18nLabel] = None
         self._script_editor: Optional[CodeEditorWidget] = None
-        self._script_save_btn = None
         self._script_path_label: Optional[QLabel] = None
         self._script_status: Optional[QLabel] = None
         self._script_toolbar: Optional[QFrame] = None
@@ -257,10 +256,11 @@ class MissionControlPanel(QWidget):
 
         self._build_ui()
         self.apply_theme()
-        self._render_main_screen()
-        # Sync mode visibility on construction (no canvas yet → all
-        # mode-specific widgets hidden, splitter visible showing
-        # new_file_panel / script standby).
+        # Sync mode visibility on construction. With no canvas yet,
+        # _effective_mode falls back to MC, mode_switch + tools clusters
+        # are all hidden, and the splitter shows the new_file placeholder.
+        # _apply_mode also drives the content_stack to the right page and
+        # invokes _sync_canvas_view / _sync_script_view.
         self._apply_mode()
 
     # ------------------------------------------------------------------
@@ -273,9 +273,8 @@ class MissionControlPanel(QWidget):
             )
         except Exception:
             raw = MODE_MISSION_CONTROL
-        if str(raw) == MODE_TRAINING_CANVA:
-            return MODE_TRAINING_CANVA
-        return MODE_MISSION_CONTROL
+        s = str(raw)
+        return s if s in _VALID_MODES else MODE_MISSION_CONTROL
 
     def _restore_opacity(self) -> int:
         try:
@@ -342,8 +341,12 @@ class MissionControlPanel(QWidget):
 
         root.addWidget(self._v_splitter, 1)
 
-        # Files list — orphan widget; sidebar Project Files panel adopts it.
-        self._build_files_list_widget()
+        # Wire the scripts toolbar cluster to the editor now that both
+        # halves exist (the cluster is built inside _build_top_row before
+        # _build_main_screen creates the editor).
+        if self._scripts_tools is not None and self._script_editor is not None:
+            self._scripts_tools.bind_editor(self._script_editor)
+            self._scripts_tools.save_requested.connect(self._save_script)
 
     def _build_top_row(self, root: QVBoxLayout) -> None:
         self._top_row_host = QFrame(self)
@@ -414,28 +417,42 @@ class MissionControlPanel(QWidget):
             self._opacity_slider, 0, Qt.AlignmentFlag.AlignVCenter
         )
 
-        # TC mode left cluster — visible only in Training Canva + Canvas tab +
-        # canvas loaded. Hosts [Node Library | Undo | Redo | Save]. See
-        # ``_apply_mode`` and ``set_canvas`` for wiring.
+        # TC mode left cluster — visible only in Training Canva + canvas loaded.
+        # Hosts [Undo | Redo | Save]. See ``_apply_mode`` and ``set_canvas``
+        # for wiring.
         self._tc_tools = TCToolButtonsCluster(self._top_row_host)
         top_row.addWidget(
             self._tc_tools, 0, Qt.AlignmentFlag.AlignVCenter
+        )
+
+        # Scripts mode left cluster — same layout as TC tools but bound to
+        # the script CodeEditorWidget. Editor binding is deferred to
+        # _build_ui()'s tail once _build_main_screen has constructed the
+        # editor. Mutually exclusive with both _tc_tools and the MC middle
+        # widgets above.
+        self._scripts_tools = ScriptsToolbarCluster(self._top_row_host)
+        top_row.addWidget(
+            self._scripts_tools, 0, Qt.AlignmentFlag.AlignVCenter
         )
 
         # Stretch pushes the SliderSwitch to the right edge.
         top_row.addStretch(1)
 
         # Mode switch — right-aligned, hidden until a canvas file is loaded.
+        # 3-way (Mission Control | Training Canva | Scripts). min_segment_width
+        # dropped from 120→92 so three segments still fit the top row at
+        # reasonable window widths; drop further if clipping shows up.
         self._mode_switch = SliderSwitch(
             _MODE_OPTIONS,
             height=30,
-            min_segment_width=120,
+            min_segment_width=92,
             parent=self._top_row_host,
         )
-        if self._mode == MODE_TRAINING_CANVA:
-            self._mode_switch.setCurrentIndex(1, animated=False, emit=False)
-        else:
-            self._mode_switch.setCurrentIndex(0, animated=False, emit=False)
+        try:
+            initial_index = _MODE_KEYS.index(self._mode)
+        except ValueError:
+            initial_index = 0
+        self._mode_switch.setCurrentIndex(initial_index, animated=False, emit=False)
         self._mode_switch.current_changed.connect(self._on_mode_switch_changed)
         top_row.addWidget(
             self._mode_switch,
@@ -444,75 +461,6 @@ class MissionControlPanel(QWidget):
         )
 
         root.addWidget(self._top_row_host, 0)
-
-    def _build_files_list_widget(self) -> None:
-        self._files_list = QWidget()
-        self._files_list.setObjectName("filesList")
-        self._files_list.setMinimumWidth(self._FILES_LIST_MIN_W)
-        self._files_list.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-        self._files_list_layout = QVBoxLayout(self._files_list)
-        self._files_list_layout.setContentsMargins(0, 0, 0, 0)
-        self._files_list_layout.setSpacing(0)
-        self._rebuild_files_table()
-
-    def _build_table_spec(self) -> List[dict]:
-        return [
-            {
-                "id": self._TAB_CANVAS_KEY,
-                "default": "Canvas",
-                "groups": list(self._canvas_groups),
-            },
-            {
-                "id": self._TAB_SCRIPT_KEY,
-                "default": "Script",
-                "groups": list(self._script_groups),
-            },
-        ]
-
-    def _rebuild_files_table(self) -> None:
-        if self._files_list_layout is None:
-            return
-        if self._files_table is not None:
-            self._files_list_layout.removeWidget(self._files_table)
-            self._files_table.setParent(None)
-            self._files_table.deleteLater()
-            self._files_table = None
-
-        self._files_table = setLaviTabTable(
-            self._build_table_spec(),
-            kind="single",
-            parent=self._files_list,
-        )
-        self._files_table.setObjectName("filesListTable")
-        self._files_table.setTabEmptyHint(
-            self._TAB_CANVAS_KEY,
-            "missioncontrol.list.empty.canvas",
-            "(no canvas files)",
-        )
-        self._files_table.tabChanged.connect(self._on_table_tab_changed)
-        self._files_table.selectionChanged.connect(self._on_table_selection_changed)
-        self._files_list_layout.addWidget(self._files_table, 1)
-
-        active_key = self._TAB_NAME_TO_KEY.get(self.current_tab, self._TAB_CANVAS_KEY)
-        self._files_table.setCurrentTab(active_key)
-        if self.current_canvas:
-            self._files_table.setSelection(
-                self._TAB_CANVAS_KEY, [self.current_canvas]
-            )
-            survivors = self._files_table.selectionMap().get(
-                self._TAB_CANVAS_KEY, []
-            )
-            self.current_canvas = survivors[0] if survivors else None
-        if self.current_script:
-            self._files_table.setSelection(
-                self._TAB_SCRIPT_KEY, [self.current_script]
-            )
-            survivors = self._files_table.selectionMap().get(
-                self._TAB_SCRIPT_KEY, []
-            )
-            self.current_script = survivors[0] if survivors else None
 
     def _build_main_screen(self, host: QWidget) -> None:
         # main_screen background is transparent so the chart's opacity
@@ -581,8 +529,14 @@ class MissionControlPanel(QWidget):
 
         self._content_stack.addWidget(self._canvas_page_widget)
 
-        # Script tab page (unchanged structurally).
+        # Script page — opaque so it fully covers the canvas underneath
+        # (main_screen is transparent for MC mode's chart-opacity effect,
+        # so we have to paint our own fill here).
         self._script_page = QWidget(self._content_stack)
+        self._script_page.setObjectName("scriptPage")
+        self._script_page.setAttribute(
+            Qt.WidgetAttribute.WA_StyledBackground, True
+        )
         sp_layout = QVBoxLayout(self._script_page)
         sp_layout.setContentsMargins(0, 0, 0, 0)
         sp_layout.setSpacing(0)
@@ -614,6 +568,9 @@ class MissionControlPanel(QWidget):
         ep_layout.setContentsMargins(0, 0, 0, 0)
         ep_layout.setSpacing(0)
 
+        # Thin info row above the editor: file path on the left, status
+        # (loaded / saved / error) on the right. Save/Undo/Redo live in
+        # the top-row ScriptsToolbarCluster now, NOT here.
         self._script_toolbar = QFrame(editor_pane)
         self._script_toolbar.setObjectName("scriptCompilerToolbar")
         self._script_toolbar.setFrameShape(QFrame.Shape.NoFrame)
@@ -633,23 +590,10 @@ class MissionControlPanel(QWidget):
         self._script_status.setObjectName("scriptCompilerStatus")
         tb_layout.addWidget(self._script_status, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        self._script_save_btn = setButton(
-            self._SCRIPT_SAVE_KEY,
-            72,
-            28,
-            kind="normal",
-            spec="save",
-            default=self._SCRIPT_SAVE_DEFAULT,
-        )
-        self._script_save_btn.clicked.connect(self._save_script)
-        self._script_save_btn.setEnabled(False)
-        tb_layout.addWidget(self._script_save_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-
         ep_layout.addWidget(self._script_toolbar, 0)
 
         self._script_editor = CodeEditorWidget(editor_pane, mode="python")
         self._script_editor.setObjectName("scriptCompilerEditor")
-        self._script_editor.dirtyChanged.connect(self._script_save_btn.setEnabled)
         ep_layout.addWidget(self._script_editor, 1)
 
         self._script_stack.addWidget(editor_pane)
@@ -705,6 +649,10 @@ class MissionControlPanel(QWidget):
         self._btn_show_real_robot = _make_toggle_btn(
             "missioncontrol.toggle.ros2_connection", "ROS2 Connection",
         )
+        # ROS2 connection is a development-preview feature: ship the toggle
+        # off by default and warn the user on first manual enable.
+        self._btn_show_real_robot.setChecked(False)
+        self._ros2_dev_notice_shown = False
 
         toggle_layout.addWidget(self._btn_show_train_config, 0)
         toggle_layout.addWidget(self._btn_show_policy_sim, 0)
@@ -728,6 +676,8 @@ class MissionControlPanel(QWidget):
         cards_layout.addWidget(self._train_config_card, 2)
         cards_layout.addWidget(self._policy_sim_card, 1)
         cards_layout.addWidget(self._real_robot_card, 1)
+        # Keep the card hidden until the user opts in via the toggle above.
+        self._real_robot_card.setVisible(False)
         layout.addWidget(cards_row, 1)
 
         # Wire toggles → card visibility (Qt's layout drops hidden widgets
@@ -740,6 +690,9 @@ class MissionControlPanel(QWidget):
         )
         self._btn_show_real_robot.toggled.connect(
             self._real_robot_card.setVisible
+        )
+        self._btn_show_real_robot.toggled.connect(
+            self._maybe_show_ros2_dev_notice
         )
 
         # Robot Config → Policy Simulation: keep the simulation card's
@@ -758,42 +711,29 @@ class MissionControlPanel(QWidget):
             self._train_config_card.current_robot_sku()
         )
 
+    def _maybe_show_ros2_dev_notice(self, checked: bool) -> None:
+        # Fire once, only on a positive (user-initiated) toggle. The notice
+        # is informational and never blocks the toggle from taking effect.
+        if not checked or self._ros2_dev_notice_shown:
+            return
+        self._ros2_dev_notice_shown = True
+        QMessageBox.information(
+            self,
+            tr(
+                "missioncontrol.ros2_dev_notice.title",
+                "ROS2 Connection (Preview)",
+            ),
+            tr(
+                "missioncontrol.ros2_dev_notice.body",
+                "ROS2 connection is still under development. Basic "
+                "connection and control are available; the full feature "
+                "set will land in a later release.",
+            ),
+        )
+
     # ------------------------------------------------------------------
     # State transitions
     # ------------------------------------------------------------------
-    def _on_table_tab_changed(self, tab_key: str) -> None:
-        name = self._TAB_KEY_TO_NAME.get(tab_key)
-        if not name:
-            return
-        self.current_tab = name
-        self._render_main_screen()
-        self.tab_changed.emit(name)
-        cur = self._current_id_for_tab()
-        self.selection_changed.emit(name, cur or "")
-        # Tab change affects mode-conditional visibility (TC compactness
-        # only applies on Canvas tab).
-        self._apply_mode()
-
-    def _on_table_selection_changed(self, tab_key: str, items: list) -> None:
-        name = self._TAB_KEY_TO_NAME.get(tab_key)
-        if not name:
-            return
-        item_id = items[0] if items else ""
-        if name == "Canvas":
-            self.current_canvas = item_id or None
-        else:
-            self.current_script = item_id or None
-        if self.current_tab == name:
-            self._render_main_screen()
-            self.selection_changed.emit(name, item_id)
-
-    def _current_id_for_tab(self) -> Optional[str]:
-        return (
-            self.current_canvas
-            if self.current_tab == "Canvas"
-            else self.current_script
-        )
-
     @staticmethod
     def _basename_of(file_id: Optional[str]) -> str:
         if not file_id:
@@ -803,16 +743,6 @@ class MissionControlPanel(QWidget):
             if name.endswith(suffix):
                 return name[: -len(suffix)]
         return name
-
-    def _render_main_screen(self) -> None:
-        if self._content_stack is None:
-            return
-        if self.current_tab == "Canvas":
-            self._content_stack.setCurrentIndex(0)
-            self._sync_canvas_view()
-        else:
-            self._content_stack.setCurrentIndex(1)
-            self._sync_script_view()
 
     # ------------------------------------------------------------------
     # Canvas auto-load
@@ -937,10 +867,37 @@ class MissionControlPanel(QWidget):
             return MODE_MISSION_CONTROL
         return self._mode
 
-    def _on_mode_switch_changed(self, _index: int, key: str) -> None:
-        new_mode = (
-            MODE_TRAINING_CANVA if key == MODE_TRAINING_CANVA else MODE_MISSION_CONTROL
-        )
+    def cycle_mode(self, direction: int) -> bool:
+        """Advance the mode SliderSwitch by ``direction`` (+1 / -1) with wrap.
+
+        Bound to PageUp (prev, -1) / PageDown (next, +1) at the MainWindow
+        level. No-ops when the switch is hidden (canvas not loaded) or the
+        panel is mid-apply; returns False so callers can fall through to
+        the next handler if needed.
+        """
+        sw = self._mode_switch
+        if sw is None or not sw.isVisible():
+            return False
+        opts = [m for m, _ in _MODE_OPTIONS]
+        if not opts:
+            return False
+        cur = sw.currentIndex()
+        if cur < 0:
+            cur = 0
+        new_idx = (cur + int(direction)) % len(opts)
+        if new_idx == cur:
+            return False
+        sw.setCurrentIndex(new_idx, animated=True, emit=True)
+        return True
+
+    def _on_mode_switch_changed(self, index: int, _key: str) -> None:
+        # The SliderSwitch's emitted ``_key`` is the i18n key
+        # (``missioncontrol.mode.*``) since the segments are i18n-bound.
+        # Recover the mode constant by index lookup.
+        if 0 <= index < len(_MODE_KEYS):
+            new_mode = _MODE_KEYS[index]
+        else:
+            new_mode = MODE_MISSION_CONTROL
         if new_mode == self._mode:
             return
         self._mode = new_mode
@@ -949,71 +906,88 @@ class MissionControlPanel(QWidget):
         self.mode_changed.emit(new_mode)
 
     def _apply_mode(self) -> None:
-        """Apply visibility rules from current (mode, tab, canvas-loaded).
+        """Apply visibility rules from current (mode, canvas-loaded).
 
-        Drives:
-          - top_row mode-conditional widgets (run dropdown, opacity slider,
-            node lib button) per effective mode;
-          - SliderSwitch visibility (canvas-loaded gate);
-          - splitter visibility (TC + canvas-loaded + Canvas tab → hidden);
-          - external canvas minimap + interactive flag;
-          - emits ``overlay_compact_changed(True/False)`` only on actual flips
-            so the host can resize the panel between full-cover and top_row
-            strip.
+        Single source of truth for the 3-mode UI. Drives:
+          - top_row mode-conditional clusters (run-dropdown + opacity =
+            MC; tc_tools = TC; scripts_tools = Scripts);
+          - SliderSwitch visibility (canvas-loaded gate; no tab gate);
+          - outer content_stack (Canvas page idx 0 vs Scripts page idx 1);
+          - splitter visibility (visible in MC + Scripts; hidden in TC);
+          - mission_panel visibility (visible only in MC + canvas loaded);
+          - external canvas interactivity + minimap (only TC);
+          - emits ``overlay_compact_changed`` on actual flips so the host
+            resizes the panel between full-cover and top_row strip.
+
+        Loops at most twice: ``_sync_canvas_view`` can flip
+        ``_canvas_loaded_id`` mid-call (canvas load success/failure), and
+        the visibility we computed before the sync goes stale. The
+        ``_applying_mode`` guard prevents a true re-entry from within
+        ``_sync_canvas_view`` — we detect the flip after sync and just
+        loop once more inside the same outer call.
         """
-        eff_mode = self._effective_mode()
-        is_mc = (eff_mode == MODE_MISSION_CONTROL)
-        on_canvas_tab = (self.current_tab == "Canvas")
-        canvas_loaded = self._canvas_loaded_id is not None
+        if self._applying_mode:
+            return
+        self._applying_mode = True
+        try:
+            for _ in range(2):
+                eff_mode = self._effective_mode()
+                canvas_loaded = self._canvas_loaded_id is not None
+                is_mc = eff_mode == MODE_MISSION_CONTROL
+                is_tc = eff_mode == MODE_TRAINING_CANVA
+                is_scripts = eff_mode == MODE_SCRIPTS
 
-        # SliderSwitch — canvas-loaded gate. Hide on Script tab too: mode
-        # toggling has no visible effect there.
-        if self._mode_switch is not None:
-            self._mode_switch.setVisible(canvas_loaded and on_canvas_tab)
+                if self._mode_switch is not None:
+                    self._mode_switch.setVisible(canvas_loaded)
 
-        # Top row middle widgets.
-        # RunSourceSelector + opacity slider → MC mode (and only meaningful
-        # when chart can show: Canvas tab + canvas loaded).
-        show_mc_middle = is_mc and on_canvas_tab and canvas_loaded
-        if self._run_source_selector is not None:
-            self._run_source_selector.setVisible(show_mc_middle)
-        if self._opacity_icon is not None:
-            self._opacity_icon.setVisible(show_mc_middle)
-        if self._opacity_slider is not None:
-            self._opacity_slider.setVisible(show_mc_middle)
+                show_mc_middle = is_mc and canvas_loaded
+                if self._run_source_selector is not None:
+                    self._run_source_selector.setVisible(show_mc_middle)
+                if self._opacity_icon is not None:
+                    self._opacity_icon.setVisible(show_mc_middle)
+                if self._opacity_slider is not None:
+                    self._opacity_slider.setVisible(show_mc_middle)
 
-        # TC tools cluster — opposite gate: only in Training Canva + Canvas
-        # tab + canvas loaded. Mutually exclusive with the MC middle widgets.
-        show_tc_tools = (not is_mc) and on_canvas_tab and canvas_loaded
-        if self._tc_tools is not None:
-            self._tc_tools.setVisible(show_tc_tools)
+                if self._tc_tools is not None:
+                    # Save stays accessible in MC + TC; undo/redo only in TC.
+                    self._tc_tools.setVisible((is_tc or is_mc) and canvas_loaded)
+                    self._tc_tools.set_undo_redo_visible(is_tc and canvas_loaded)
+                if self._scripts_tools is not None:
+                    self._scripts_tools.setVisible(is_scripts and canvas_loaded)
 
-        # Splitter (main_screen + mission_panel) — visible only when a canvas
-        # is loaded; hidden in Training Canva + canvas-loaded + Canvas tab
-        # (compact mode covers full screen). Without a canvas the bottom
-        # mission_panel has nothing meaningful to show, so the entire
-        # splitter collapses. (Note: the empty-state picker is *not* hosted
-        # here — it's a sibling of canvas+mission_control in the host
-        # _MainPanel, mutually exclusive with the canvas mode.)
-        compact = (not is_mc) and canvas_loaded and on_canvas_tab
-        splitter_visible = canvas_loaded and not compact
-        if self._v_splitter is not None:
-            self._v_splitter.setVisible(splitter_visible)
+                if self._content_stack is not None:
+                    self._content_stack.setCurrentIndex(
+                        self._CONTENT_SCRIPT if is_scripts else self._CONTENT_CANVAS
+                    )
 
-        # External canvas state — non-interactive when MC mode
-        # (chart covers it); interactive only in TC + Canvas tab + loaded.
-        # Node Library 已迁移到 Sidebar 弹出面板：可见性由
-        # ``Sidebar.set_node_library_visible`` 控制（MainWindow 桥接
-        # ``tab_changed`` → sidebar），这里不再触碰 canvas overlay。
-        if self._external_canvas is not None:
-            in_tc_canvas = (not is_mc) and on_canvas_tab and canvas_loaded
-            self._external_canvas.set_interactive(in_tc_canvas)
-            self._external_canvas.set_minimap_visible(in_tc_canvas)
+                compact = is_tc and canvas_loaded
+                splitter_visible = canvas_loaded and not compact
+                if self._v_splitter is not None:
+                    self._v_splitter.setVisible(splitter_visible)
+                if self._mission_panel is not None:
+                    self._mission_panel.setVisible(is_mc and canvas_loaded)
 
-        # Notify host (MainWindow) of compact-state flips only.
-        if compact != self._is_compact_state:
-            self._is_compact_state = compact
-            self.overlay_compact_changed.emit(compact)
+                if self._external_canvas is not None:
+                    in_tc_canvas = is_tc and canvas_loaded
+                    self._external_canvas.set_interactive(in_tc_canvas)
+                    self._external_canvas.set_minimap_visible(in_tc_canvas)
+
+                pre_loaded = self._canvas_loaded_id
+                if is_scripts:
+                    self._sync_script_view()
+                else:
+                    self._sync_canvas_view()
+
+                if compact != self._is_compact_state:
+                    self._is_compact_state = compact
+                    self.overlay_compact_changed.emit(compact)
+
+                # If the sync flipped canvas-loaded state, run once more
+                # to refresh the stale visibility decisions above.
+                if self._canvas_loaded_id == pre_loaded:
+                    return
+        finally:
+            self._applying_mode = False
 
     def _on_opacity_slider_changed(self, value: int) -> None:
         v = max(self._OPACITY_MIN, min(self._OPACITY_MAX, int(value)))
@@ -1076,6 +1050,37 @@ class MissionControlPanel(QWidget):
     def current_view_mode(self) -> str:
         return self._mode
 
+    def effective_mode(self) -> str:
+        """Public accessor for :meth:`_effective_mode`.
+
+        Returns the mode actually in effect right now (forced to MC when
+        no canvas is loaded). Used by the app shell's Ctrl+S dispatcher
+        to decide between canvas save and script save.
+        """
+        return self._effective_mode()
+
+    def try_save_active_script(self) -> bool:
+        """Ctrl+S dispatch hook for Scripts mode.
+
+        Returns True when the call was *consumed* by the Scripts editor
+        (i.e. effective mode is Scripts and a script is currently loaded
+        in the editor). The caller (MainWindow Ctrl+S handler) must skip
+        the canvas-save path in that case. Returns False when there is
+        no script context to save against — the caller then falls through
+        to the canvas save.
+
+        Always rule §1.8 compliant: a real save failure surfaces to the
+        editor's status row via _save_script's _set_script_status calls
+        and still returns True (consumed), so Ctrl+S does NOT silently
+        fall through to save the canvas behind a failed script save.
+        """
+        if self._effective_mode() != MODE_SCRIPTS:
+            return False
+        if self._script_editor is None or not self.current_script:
+            return False
+        self._save_script()
+        return True
+
     def notify_canvas_loaded(self) -> None:
         """First canvas-load per session: force Training Canva mode.
 
@@ -1097,7 +1102,7 @@ class MissionControlPanel(QWidget):
     def notify_project_loaded(self) -> None:
         """Reset the per-session force-MC flag so the next canvas re-arms."""
         self._first_load_force_mc_done = False
-        self._render_main_screen()
+        self._apply_mode()
 
     def enter_mission_control_mode(self) -> None:
         """Programmatically flip into Mission Control mode.
@@ -1124,21 +1129,18 @@ class MissionControlPanel(QWidget):
 
         Used by the main_row "New" button so that flipping to the picker
         leaves no dangling references to the previously open canvas (file_id,
-        save_target, files_table selection, training-config card binding,
+        save_target, training-config card binding,
         and the loaded scene itself).
         """
-        # Drop the files_table selection (both tabs to be safe) so the
-        # sidebar list no longer highlights the closed canvas.
-        if self._files_table is not None:
-            try:
-                self._files_table.clearSelection()
-            except Exception:
-                pass
         self.current_canvas = None
         self.current_script = None
         self._canvas_loaded_id = None
         self._script_loaded_id = None
         self._script_target_path = None
+        self._script_is_virtual = False
+        self._script_kind = None
+        self._script_key = None
+        self._script_variant = None
         # Wipe the embedded canvas so the next bind starts from a blank slate.
         if self._external_canvas is not None:
             try:
@@ -1159,43 +1161,95 @@ class MissionControlPanel(QWidget):
         if self._canvas_body_stack is not None:
             self._canvas_body_stack.setCurrentIndex(self._CANVAS_BODY_NEW_FILE)
         self._apply_mode()
-        # canvas 卸载会让 _effective_mode 回到 mission_control（TC 在无 canvas
-        # 时不成立）。mode_changed 信号原本只覆盖用户主动切换的场景，这里补发
-        # 一次让 Sidebar 在卸载瞬间也重排导航按钮。
+        # canvas 卸载会让 _effective_mode 回到 mission_control（TC/Scripts 在无
+        # canvas 时不成立）。补发一次 mode_changed 让 Sidebar 在卸载瞬间重排导航。
         self.mode_changed.emit(self._effective_mode())
 
     def open_canvas(self, file_id: str) -> None:
         """Programmatically open ``file_id`` as if the user picked the row.
 
-        Drives the sidebar files list (kept by reference even after
-        :meth:`take_files_list_widget` reparents it) to the Canvas tab and
-        selects the row, then lets ``_on_table_selection_changed`` trigger
-        the existing auto-load path which terminates in
-        ``canvas_loaded.emit(file_id)`` (used by MainWindow to persist the
-        last-opened (project, canvas) pair).
-
-        Falls back to driving panel state directly if ``_files_list`` is
-        not yet built — supports the very early startup auto-open case.
+        Drives the canvas auto-load path. The sidebar Project Files panel
+        owns the canvas list now — selection there reaches MissionControl
+        via MainWindow's ``canvas_selected`` → ``open_canvas`` wire. The
+        return path is symmetric: ``canvas_loaded.emit`` lets MainWindow
+        re-highlight the row via ``ProjectsPanel.set_current_canvas``.
         """
         if not file_id:
             return
-        # Make sure the panel itself is on the Canvas tab so the
-        # selection-changed handler routes through canvas auto-load.
-        self.current_tab = "Canvas"
-        # _files_list is a wrapping QWidget; the actual LaviTabTable lives
-        # at _files_table (which keeps signal-slot wiring across the sidebar
-        # reparent done by take_files_list_widget).
-        if self._files_table is not None:
-            self._files_table.setCurrentTab(self._TAB_CANVAS_KEY)
-            self._files_table.setSelection(self._TAB_CANVAS_KEY, [file_id])
-            return
-        # Fallback path — drive state directly.
         self.current_canvas = file_id
-        self._render_main_screen()
-        self.selection_changed.emit("Canvas", file_id)
+        self._apply_mode()
 
-# ------------------------------------------------------------------
-    # Script tab plumbing (unchanged)
+    def load_script(self, file_id_or_virtual: str) -> None:
+        """Public entry point for the four Scripts-mode sidebar panels.
+
+        Accepts either a real-file id (``project:<rel>`` / ``system:<rel>``),
+        a registry virtual id (``registry:<kind>:<key>[:<variant>]``), or
+        the synthetic create-variant sentinel
+        ``registry:<kind>:<key>:__new__``. Auto-flips the panel into
+        Scripts mode so the editor is visible — clicking an item in any
+        Scripts-rail panel is an explicit intent to view it.
+        """
+        if not file_id_or_virtual:
+            return
+        # Intercept ``__new__`` sentinel — open the variant creation
+        # dialog and short-circuit the normal editor flow. The dialog's
+        # ``accepted_variant`` signal hands us back ``(kind, key, name)``
+        # so we can pivot to the new variant.
+        if file_id_or_virtual.endswith(":__new__"):
+            self._open_variant_create_dialog(file_id_or_virtual)
+            return
+        self.current_script = file_id_or_virtual
+        if self._canvas_loaded_id is not None and self._mode != MODE_SCRIPTS:
+            self._mode = MODE_SCRIPTS
+            self._save_mode(MODE_SCRIPTS)
+            if self._mode_switch is not None:
+                try:
+                    idx = [m for m, _ in _MODE_OPTIONS].index(MODE_SCRIPTS)
+                    self._mode_switch.setCurrentIndex(idx, animated=True, emit=False)
+                except ValueError:
+                    pass
+            self._apply_mode()
+            self.mode_changed.emit(MODE_SCRIPTS)
+        else:
+            # Already in Scripts (or no canvas yet → _effective_mode forces
+            # MC and the switch is hidden); still refresh the script view.
+            self._apply_mode()
+
+    # ------------------------------------------------------------------
+    # Variant create — opened via the synthetic ``:__new__`` sentinel
+    # ------------------------------------------------------------------
+    def _open_variant_create_dialog(self, virtual_id: str) -> None:
+        """Parse ``registry:<kind>:<key>:__new__`` and open the modal.
+
+        On accept the dialog already wrote the variant via the resolver
+        (so the sidebar will refresh automatically via
+        ``AppSignals.user_scripts_changed``); we then pivot the editor to
+        load the freshly-created variant.
+        """
+        parts = virtual_id.split(":", 3)
+        if len(parts) != 4 or parts[0] != "registry":
+            log_warning(
+                f"[mission] malformed __new__ virtual id: {virtual_id!r}"
+            )
+            return
+        kind, key = parts[1], parts[2]
+        try:
+            from application.ui.dialogs.variant_create_dialog import (
+                VariantCreateDialog,
+            )
+        except Exception as exc:                                  # noqa: BLE001
+            log_warning(f"[mission] variant create dialog import: {exc!r}")
+            return
+        dlg = VariantCreateDialog(kind=kind, key=key, parent=self)
+
+        def _on_accepted(k: str, ky: str, vname: str) -> None:
+            self.load_script(f"registry:{k}:{ky}:{vname}")
+
+        dlg.accepted_variant.connect(_on_accepted)
+        dlg.exec()
+
+    # ------------------------------------------------------------------
+    # Script page plumbing
     # ------------------------------------------------------------------
     def _sync_script_view(self) -> None:
         if self._script_stack is None:
@@ -1203,6 +1257,10 @@ class MissionControlPanel(QWidget):
         if self._project_info is None or not self.current_script:
             self._script_stack.setCurrentIndex(0)
             self._script_loaded_id = None
+            self._script_is_virtual = False
+            self._script_kind = None
+            self._script_key = None
+            self._script_variant = None
             return
         if self.current_script != self._script_loaded_id:
             self._load_current_script_into_editor()
@@ -1217,16 +1275,29 @@ class MissionControlPanel(QWidget):
                 f"[mission] script switch discards unsaved edits in "
                 f"{self._script_loaded_id!r}"
             )
+        if file_id.startswith("registry:"):
+            self._load_registry_virtual_into_editor(file_id)
+            return
+        # File id path — resolve to disk via the same routine ProjectsPanel
+        # uses for canvas resolution.
         try:
             path = resolve_file(self._project_info, file_id)
         except ValueError as exc:
             self._set_script_status(f"unresolved: {exc}", error=True)
             self._script_loaded_id = None
             self._script_target_path = None
+            self._script_is_virtual = False
+            self._script_kind = None
+            self._script_key = None
+            self._script_variant = None
             return
         if self._script_path_label is not None:
             self._script_path_label.setText(path.name)
         self._script_target_path = path
+        self._script_is_virtual = False
+        self._script_kind = None
+        self._script_key = None
+        self._script_variant = None
         if not path.exists():
             self._script_editor.set_text("")
             self._set_script_status(f"missing on disk: {path.name}", error=True)
@@ -1240,15 +1311,196 @@ class MissionControlPanel(QWidget):
             self._script_loaded_id = None
             self._set_script_status("load failed", error=True)
 
+    def _load_registry_virtual_into_editor(self, virtual_id: str) -> None:
+        """Resolve ``registry:<kind>:<key>[:<variant>]`` → editor buffer.
+
+        Routes every load through
+        :func:`application.service.scripts.resolver.resolve`. The fourth
+        segment of the virtual id is optional — missing or ``"preset"``
+        loads the factory preset (read-only, conceptually); anything else
+        is treated as a user variant under
+        ``Paths.USER_CONFIG_DIR / scripts / <kind> / <key> / <variant>.py``.
+
+        Editor state set on success:
+
+        * ``_script_kind`` / ``_script_key`` / ``_script_variant`` — drive
+          :meth:`_save_script` (variant=None ⇒ save rejected).
+        * ``_script_target_path`` — informational for the variant case;
+          unused for the preset case (preset writes never occur).
+        """
+        from application.service.scripts import resolver as _resolver
+        from application.service.signals import current_backend
+
+        parts = virtual_id.split(":", 3)
+        if len(parts) < 3 or parts[0] != "registry":
+            self._set_script_status(f"bad virtual id: {virtual_id}", error=True)
+            self._script_loaded_id = None
+            self._script_is_virtual = False
+            self._script_kind = None
+            self._script_key = None
+            self._script_variant = None
+            return
+        kind = parts[1]
+        key = parts[2]
+        variant_token = parts[3] if len(parts) == 4 else ""
+        variant = None if variant_token in ("", "preset") else variant_token
+
+        backend = current_backend()
+        resolved = _resolver.resolve(
+            kind, key, variant=variant, backend=backend
+        )
+        # If a specific variant was requested but missing, fall back to
+        # preset rather than blanking the editor — gives the user a
+        # readable source even when their variant file has been deleted
+        # behind the app's back.
+        fallback_used = False
+        if resolved is None and variant is not None:
+            resolved = _resolver.resolve(kind, key, variant=None, backend=backend)
+            fallback_used = True
+        if resolved is None:
+            self._set_script_status(
+                f"registry miss: {kind}/{key} (backend={backend or 'none'})",
+                error=True,
+            )
+            self._script_loaded_id = None
+            self._script_is_virtual = False
+            self._script_kind = None
+            self._script_key = None
+            self._script_variant = None
+            if self._script_editor is not None:
+                self._script_editor.set_text("")
+            return
+
+        # Drop into the editor; CodeEditorWidget.set_text re-baselines
+        # the dirty tracker so dirtyChanged starts at False.
+        self._script_editor.set_text(resolved.source)
+        self._script_loaded_id = virtual_id
+        self._script_is_virtual = True
+        self._script_kind = kind
+        self._script_key = key
+        # If we fell back to preset, the editor is showing preset source —
+        # mark the variant slot as None so Save can't accidentally write
+        # the preset source back as a fresh variant.
+        self._script_variant = None if (variant is None or fallback_used) else variant
+
+        # Path-label: ``[Rewards|Termins|Observs] <key> · <variant>``.
+        tag = {
+            "reward": "Rewards",
+            "termination": "Termins",
+            "observation": "Observs",
+            "discriminator": "Disc",
+        }.get(kind, kind.title())
+        label_suffix = f" · {self._script_variant}" if self._script_variant else " · preset"
+        if self._script_path_label is not None:
+            self._script_path_label.setText(f"[{tag}] {key}{label_suffix}")
+
+        # Informational target path (variant case only); presets never
+        # write so we leave this None to make the assertion in
+        # ``_save_script`` straightforward.
+        if self._script_variant:
+            try:
+                self._script_target_path = (
+                    Paths.USER_CONFIG_DIR
+                    / "scripts"
+                    / {
+                        "reward": "rewards",
+                        "termination": "terminations",
+                        "observation": "observations",
+                        "discriminator": "discriminator",
+                    }.get(kind, kind)
+                    / key
+                    / f"{self._script_variant}.py"
+                )
+            except Exception:                                     # noqa: BLE001
+                self._script_target_path = None
+        else:
+            self._script_target_path = None
+
+        if fallback_used:
+            self._set_script_status(
+                f"variant {variant!r} missing — showing preset", error=True
+            )
+        elif self._script_variant:
+            self._set_script_status(
+                f"variant: {self._script_variant}", error=False
+            )
+        else:
+            self._set_script_status("preset (clone to edit)", error=False)
+
     def _save_script(self) -> None:
         if self._script_editor is None:
             return
+
+        # Virtual-id (registry preset / user variant) save path.
+        if self._script_is_virtual:
+            if not self._script_kind or not self._script_key:
+                self._set_script_status("no script context", error=True)
+                return
+            if not self._script_variant:
+                # Preset rows are read-only — users create a variant via
+                # the sidebar "+ new variant" entrypoint (Stage 2).
+                self._set_script_status(
+                    "preset is read-only — clone as a variant first",
+                    error=True,
+                )
+                return
+            from application.service.scripts import resolver as _resolver
+            source = self._script_editor.text()
+            # Preserve existing meta so a Save doesn't wipe families /
+            # description silently. The sidebar's edit-meta dialog is
+            # the place to mutate those.
+            existing = next(
+                (
+                    m for m in _resolver.list_variants(
+                        self._script_kind, self._script_key
+                    )
+                    if m.name == self._script_variant
+                ),
+                None,
+            )
+            try:
+                _resolver.save_variant(
+                    self._script_kind,
+                    self._script_key,
+                    self._script_variant,
+                    source,
+                    families=(
+                        sorted(existing.families) if existing else None
+                    ),
+                    description=(existing.description if existing else ""),
+                    based_on=(existing.based_on if existing else "preset"),
+                )
+            except ValueError as exc:
+                self._set_script_status(f"save rejected: {exc}", error=True)
+                return
+            except OSError as exc:
+                self._set_script_status(f"save failed: {exc}", error=True)
+                return
+            # Rebaseline the editor's dirty tracker so subsequent script
+            # switches don't fire the "discards unsaved edits" warning.
+            # ``_refresh_baseline`` is the SDK-internal hook used by
+            # ``save_file`` after a successful write — we have to call it
+            # ourselves because we wrote through resolver, not save_file.
+            try:
+                self._script_editor._refresh_baseline()           # noqa: SLF001
+            except Exception:                                     # noqa: BLE001
+                pass
+            self._set_script_status(
+                f"variant saved: {self._script_variant}", error=False
+            )
+            return
+
+        # Real-file save path (project: / system:) — unchanged from
+        # legacy behaviour.
         target = self._script_target_path
         if target is None:
             self._set_script_status("no path", error=True)
             return
         ok = self._script_editor.save_file(target)
-        self._set_script_status("saved" if ok else "save failed", error=not ok)
+        if not ok:
+            self._set_script_status("save failed", error=True)
+            return
+        self._set_script_status("saved", error=False)
 
     def _set_script_status(self, text: str, *, error: bool = False) -> None:
         if self._script_status is None:
@@ -1273,44 +1525,24 @@ class MissionControlPanel(QWidget):
         if info is None:
             self._script_loaded_id = None
             self._script_target_path = None
+            self._script_is_virtual = False
+            self.current_script = None
             if self._script_editor is not None:
                 self._script_editor.set_text("")
             if self._script_path_label is not None:
                 self._script_path_label.setText("")
             if self._script_status is not None:
                 self._script_status.setText("")
-        if self.current_tab == "Script":
-            self._render_main_screen()
+        self._apply_mode()
         # 解除 project 绑定时 _canvas_loaded_id 已置 None，effective_mode 会
         # 强制回到 mission_control；补发 mode_changed 让 Sidebar 重排——否则
         # 登出/账号切换走到这里时 Sidebar 仍然停留在 training_canva 样式。
         if info is None:
             self.mode_changed.emit(self._effective_mode())
 
-    def set_canvas_groups(self, groups: List[Dict]) -> None:
-        self._canvas_groups = list(groups)
-        self._rebuild_files_table()
-        if self.current_tab == "Canvas":
-            self._render_main_screen()
-
-    def set_script_groups(self, groups: List[Dict]) -> None:
-        self._script_groups = list(groups)
-        self._rebuild_files_table()
-        if self.current_tab == "Script":
-            self._render_main_screen()
-
     # ------------------------------------------------------------------
     # Public accessors
     # ------------------------------------------------------------------
-    @property
-    def files_list(self) -> QWidget:
-        assert self._files_list is not None
-        return self._files_list
-
-    def take_files_list_widget(self) -> QWidget:
-        assert self._files_list is not None
-        return self._files_list
-
     @property
     def main_screen(self) -> QWidget:
         assert self._main_screen is not None
@@ -1355,6 +1587,10 @@ class MissionControlPanel(QWidget):
             f"QWidget#mainScreen {{ background: transparent; }}"
             f"QWidget#missionPanel {{ background-color: {bg_alt}; "
             f"border-top: 1px solid {border}; }}"
+            # Scripts page is opaque — it fully covers the canvas in
+            # Scripts mode, so its standby placeholder and editor sit on
+            # ``bg_1`` rather than a transparent main_screen.
+            f"QWidget#scriptPage {{ background-color: {bg_main}; }}"
             f"QLabel#scriptCompilerPlaceholder, QLabel#newFilePanelPlaceholder {{ "
             f"color: {sub}; font-size: {font_normal}px; background: transparent; }}"
             f"QFrame#scriptCompilerToolbar {{ background-color: {bg_alt}; "
@@ -1387,15 +1623,6 @@ class MissionControlPanel(QWidget):
             f"background-color: {toggle_checked_bg}; "
             f"color: {toggle_checked_fg}; font-weight: bold; }}"
         )
-        if self._files_list is not None:
-            # No backing fill — the host (MissionControlPanel left column or
-            # ProjectsPanel files host) provides its own background, and the
-            # inner LaviTabTable owns its own theming.
-            self._files_list.setStyleSheet(
-                "QWidget#filesList { background: transparent; }"
-            )
-        if self._files_table is not None:
-            self._files_table.refresh_style()
         if self._script_editor is not None:
             self._script_editor.refresh_style()
         if self._mode_switch is not None:
@@ -1412,6 +1639,8 @@ class MissionControlPanel(QWidget):
             self._real_robot_card.apply_theme()
         if self._tc_tools is not None:
             self._tc_tools.apply_theme()
+        if self._scripts_tools is not None:
+            self._scripts_tools.apply_theme()
 
 
 __all__ = ["MissionControlPanel"]

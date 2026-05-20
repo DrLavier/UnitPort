@@ -199,6 +199,22 @@ class PDController:
             On any length mismatch between contract fields and joint_names,
             or if joint_ids_map is malformed.
         """
+        # Bundle finalize sets ``mujoco_deploy_unsupported`` (carrying a
+        # reason string) when the registered MJCF couldn't cover the
+        # trained joint set — the bundle still ships for IsaacSim / cloud
+        # deploy, but the MuJoCo PD path can't honor it. Refuse at load
+        # time with the carried reason rather than crashing later inside
+        # the scalar fallback path with a less informative error.
+        unsupported = getattr(contract, "mujoco_deploy_unsupported", None)
+        if unsupported:
+            raise ValueError(
+                f"PDController.from_deploy_contract: bundle is marked as "
+                f"MuJoCo-deploy-unsupported by the finalizer. Reason: "
+                f"{unsupported}. Use IsaacSim / cloud deploy target, or "
+                f"re-export this bundle against a robot whose MJCF "
+                f"covers the trained joint set."
+            )
+
         n = len(joint_names)
         length_check = {
             "stiffness": len(contract.stiffness),
@@ -207,6 +223,14 @@ class PDController:
             "joint_ids_map": len(contract.joint_ids_map),
             "default_joint_pos": len(contract.default_joint_pos),
         }
+        # Belt-and-suspenders: DeployContract.from_dict already enforces that
+        # mujoco_pd_gains / mujoco_pd_damping are length-n_joints when present
+        # (schema v2 with pd_param). We re-check here so any caller that
+        # constructs DeployContract directly (bypassing from_dict) still gets
+        # caught before we silently mis-broadcast a wrong-length kp array.
+        if contract.mujoco_pd_gains is not None:
+            length_check["mujoco_pd_gains"] = len(contract.mujoco_pd_gains)
+            length_check["mujoco_pd_damping"] = len(contract.mujoco_pd_damping or [])
         mismatched = {k: v for k, v in length_check.items() if v != n}
         if mismatched:
             raise ValueError(
@@ -221,20 +245,54 @@ class PDController:
         # sdk index joint_ids_map[i], so:
         jmap = list(contract.joint_ids_map)
 
+        # ----- Gain source selection (sim2sim PD framework, CLAUDE.md §1.10).
+        #
+        # MuJoCo runtime MUST use the mass-weighted gains the bundle finalizer
+        # pre-derived via ``mujoco_gain_solver`` (kp = M_diag(q₀) · ωn²). The
+        # legacy ``contract.stiffness`` / ``contract.damping`` are PhysX's
+        # unit-mass form (kp = ωn²) and only happen to be in the right
+        # ballpark for very light robots — heavier robots (Spot ~32 kg) get
+        # under-damped 10–50×, leading to the "robot flies away" failure mode
+        # in MuJoCo review. See the DeployContract docstring at
+        # deploy_contract.py L327–335 for the cross-engine contract.
+        if contract.mujoco_pd_gains is not None:
+            # Schema v2 with ActuatorPDNode wired: prefer derived MuJoCo
+            # gains. ``from_dict`` guarantees length(mujoco_pd_gains) == n.
+            kp_sdk = np.asarray(contract.mujoco_pd_gains, dtype=np.float32)
+            kd_sdk = np.asarray(contract.mujoco_pd_damping, dtype=np.float32)
+            gain_source = "mujoco_derived"
+        else:
+            # WHY KEPT: legacy v1 bundle compat (CLAUDE.md §1.8 c) +
+            # schema v2 passthrough for bundles compiled before an
+            # ActuatorPDNode was wired (pd_param=None). ``from_dict``
+            # already ensures mujoco_pd_gains / pd_param are consistent.
+            log.warning(
+                "PDController: bundle has no mujoco_pd_gains — falling back "
+                "to legacy stiffness/damping (PhysX unit-mass form, kp=ωn²). "
+                "This diverges from training dynamics for heavier robots. "
+                "Re-export the bundle through the Stage F pipeline (wire an "
+                "ActuatorPDNode in the canvas) to populate mujoco_pd_gains."
+            )
+            kp_sdk = np.asarray(contract.stiffness, dtype=np.float32)
+            kd_sdk = np.asarray(contract.damping, dtype=np.float32)
+            gain_source = "scalar_fallback"
+
+        effort_sdk = np.asarray(contract.effort_limit, dtype=np.float32)
+
         if contract.is_identity_joint_map():
             # Fast path: no permutation needed.
-            kp = np.asarray(contract.stiffness, dtype=np.float32)
-            kd = np.asarray(contract.damping, dtype=np.float32)
-            effort = np.asarray(contract.effort_limit, dtype=np.float32)
+            kp = kp_sdk
+            kd = kd_sdk
+            effort = effort_sdk
         else:
             kp = np.array(
-                [contract.stiffness[jmap[i]] for i in range(n)], dtype=np.float32
+                [kp_sdk[jmap[i]] for i in range(n)], dtype=np.float32
             )
             kd = np.array(
-                [contract.damping[jmap[i]] for i in range(n)], dtype=np.float32
+                [kd_sdk[jmap[i]] for i in range(n)], dtype=np.float32
             )
             effort = np.array(
-                [contract.effort_limit[jmap[i]] for i in range(n)], dtype=np.float32
+                [effort_sdk[jmap[i]] for i in range(n)], dtype=np.float32
             )
 
         # default_joint_pos is ALREADY in isaac/bundle order — no permute.
@@ -270,9 +328,10 @@ class PDController:
             else ""
         )
         log.info(
-            "PDController: built from deploy_contract — "
+            "PDController: built from deploy_contract (source=%s) — "
             "n=%d Kp[%.1f..%.1f] Kd[%.2f..%.2f] effort[%.1f..%.1f] "
             "identity_map=%s%s",
+            gain_source,
             n,
             float(kp.min()),
             float(kp.max()),
@@ -310,9 +369,10 @@ class PDController:
                         f"default_pos={float(default_bundle[i]):+.3f}"
                     )
                 log.info(
-                    "PDController per-joint dump (labels=contract."
-                    "joint_sdk_names after normalize, joint_ids_map=%s, "
-                    "identity=%s):\n%s",
+                    "PDController per-joint dump (source=%s, "
+                    "labels=contract.joint_sdk_names after normalize, "
+                    "joint_ids_map=%s, identity=%s):\n%s",
+                    gain_source,
                     jmap,
                     contract.is_identity_joint_map(),
                     "\n".join(rows),

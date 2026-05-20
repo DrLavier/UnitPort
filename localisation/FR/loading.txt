@@ -1,0 +1,3 @@
+[install]
+in_progress = Installation en cours
+

@@ -36,9 +36,9 @@ from typing import Optional
 
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QStackedLayout, QTextEdit, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QStackedLayout, QTextEdit, QVBoxLayout, QWidget
 
-from unitport_sdk import Assets, Config, LogSignal
+from unitport_sdk import Assets, Config, LogSignal, i18n_bind
 
 from .logo_pulse import LogoPulse
 
@@ -74,6 +74,7 @@ class LoadingScreen(QWidget):
         self._log_view: Optional[QTextEdit] = None
         self._dim: Optional[QWidget] = None
         self._logo: Optional[LogoPulse] = None
+        self._install_label: Optional[QLabel] = None
         self._log_signal_connected: bool = False
 
     def build_ui(self) -> None:
@@ -125,12 +126,32 @@ class LoadingScreen(QWidget):
 
         front_layout = QVBoxLayout(front)
         front_layout.setContentsMargins(0, 0, 0, 0)
+        front_layout.setSpacing(8)
         front_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         logo_path = self._resolve_logo_path()
         if logo_path:
             self._logo = LogoPulse(logo_path, self._LOGO_SIZE, parent=front)
             front_layout.addWidget(self._logo, 0, Qt.AlignmentFlag.AlignCenter)
+
+        # Installation message — hidden by default, shown via
+        # ``set_install_message_visible(True)`` from UnitPortMain when the
+        # current launch is a first-time install (setup_state.json absent).
+        # Bound through i18n_bind so language picks made BEFORE the install
+        # wizard opens immediately retranslate this label too.
+        self._install_label = QLabel(front)
+        self._install_label.setObjectName("loadingInstallLabel")
+        self._install_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        i18n_bind(
+            self._install_label,
+            "setText",
+            "loading.install.in_progress",
+            default="Installation in progress",
+        )
+        self._install_label.hide()
+        front_layout.addWidget(
+            self._install_label, 0, Qt.AlignmentFlag.AlignCenter
+        )
 
         stack.addWidget(front)
 
@@ -153,6 +174,8 @@ class LoadingScreen(QWidget):
         bg = Config.get_color("bg_1", "#1E1E1E")
         dim_color = Config.get_color("bg_overlay", "rgba(0, 0, 0, 140)")
         font_size = Config.get_font_size("size_small", 12)
+        install_size = Config.get_font_size("size_normal", 16)
+        install_color = Config.get_color("main_t2", "#FFFFFF")
         # The log_view is intentionally transparent so the page background
         # color shows through; dim layer painted ON TOP of the log to mute it.
         self.setStyleSheet(
@@ -163,7 +186,22 @@ class LoadingScreen(QWidget):
             f"color: #FFFFFF; font-family: Consolas, 'Courier New', monospace; "
             f"font-size: {font_size}px; padding: 8px 12px; "
             f"}}"
+            f"QLabel#loadingInstallLabel {{ "
+            f"background: transparent; color: {install_color}; "
+            f"font-size: {install_size}px; "
+            f"}}"
         )
+
+    def set_install_message_visible(self, visible: bool) -> None:
+        """Show / hide the "Installation in progress" tag below the logo.
+
+        Called from ``UnitPortMain`` on first-launch (visible=True) when
+        the install wizard opens, and again on PostSetupTask completion
+        (visible=False) once the heavy installs have finished.
+        """
+        if self._install_label is None:
+            return
+        self._install_label.setVisible(bool(visible))
 
     # ------------------------------------------------------------------
     # Animation control + log teardown (owner-invoked)

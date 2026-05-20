@@ -96,6 +96,49 @@ hw.battery = 电量
 hw.no_selection = 未选择机器人
 hw.temperature = 温度
 hw.uptime = 运行时长
+btn.connecting = 连接中…
+controller.arm_pending = Arm teleop arrives in Phase 6.
+controller.no_teleop = This adapter does not declare teleop capability.
+controller.pid_pending = PID tuning UI arrives in Phase 6.
+controller.release_control = Release Control
+controller.take_control = Take Control
+dialog.section.domain = ROS2 Domain ID
+dialog.section.ssh = SSH Credentials
+dialog.ssh.server = Server: {server}
+dialog.title = Connection Settings
+middleware.auto_detected = ↳ Auto: {rmw}
+result.fix_tag.invasive = invasive
+result.fix_tag.safe = safe
+result.head.fail = Connection could not complete.
+result.head.ok_clean = Connection ready. No issues found.
+result.head.ok_fixed = Connection ready. Auto-fixed {n} issue(s).
+result.head.partial = Connection is up, but {n} issue(s) need attention.
+result.invasive.confirm = About to run {n} invasive repair(s) on the robot. These may install packages or modify persistent configuration files.
+	
+	Actions:
+	{summary}
+	
+	Proceed?
+result.invasive.confirm.title = Confirm Invasive Repair
+result.meta = Auto-repair attempts: {a}   Applied: {ap}   Failed: {fl}   Duration: {d:.1f}s
+result.section.applied = Applied (auto-fixed)
+result.section.failed = Failed during auto-repair
+result.section.unresolved_invasive = Unresolved (invasive fix available — needs your consent)
+result.section.unresolved_manual = Unresolved (no auto fix — manual action required)
+result.section.unresolved_safe = Unresolved (safe-fixable; consider Retry)
+result.title.fail = Connection Failed
+result.title.ok = Connection Ready
+result.title.partial = Connection Partial — Action Suggested
+robot.none = —
+section.controller = Controller
+ssh.has_password = pw✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (no creds)
+ssh.password = Password
+ssh.password.placeholder = (enter password and press Save)
+ssh.sudo = Sudo password
+ssh.sudo.placeholder = (needed for invasive repairs)
+ssh.user = SSH user
 
 [sim]
 title = Policy Simulation
@@ -123,4 +166,23 @@ dialog.save_pose.prompt = Preset name:
 init_pose.editor.title = Init Pose Editor
 init_pose.empty = Select a policy with a known robot SKU to edit init pose.
 init_pose.custom = Custom (unsaved)
+
+[diag]
+repair_invasive = Invasive fix
+repair_safe = Safe fix
+ssh.context = Server: {server}
+	Reason: {reason}
+ssh.err_empty_pw = SSH password is required.
+ssh.err_save = Could not save credentials: {err}
+ssh.headline = Auto-repair needs SSH access to the robot.
+ssh.pw = SSH password
+ssh.pw_placeholder = required
+ssh.sudo = Sudo password
+ssh.sudo_placeholder = optional — defaults to SSH password if blank
+ssh.title = SSH Credentials Required
+ssh.user = SSH user
+summary.error = Errors detected.
+summary.pass = All checks passed.
+summary.warn = Warnings detected.
+title = Connection Diagnostics
 

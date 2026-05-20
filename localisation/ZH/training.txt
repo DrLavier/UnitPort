@@ -3,3 +3,11 @@ already_running = 已有训练任务正在运行
 no_canvas = 未加载画布
 started = 训练已开始：run={run} backend={backend} algo={algo}
 
+[coverage]
+blocked.body = 奖励覆盖存在严重问题——当受影响阶段激活时，策略很可能学到非预期行为。
+blocked.cancel = 取消
+blocked.header = 无法开始训练：奖励覆盖检查失败。
+blocked.hint = 双击 Rewards 节点上的标记，可打开覆盖检查器查看修复建议。
+blocked.proceed = 仍然继续
+blocked.title = 奖励覆盖问题
+

@@ -21,9 +21,10 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -71,8 +72,14 @@ def _read_bundle_sku(bundle_dir) -> str:
 
     Returns an empty string when the file is missing, unparseable, or has no
     ``robot.sku`` field — callers treat empty as "abort with warning".
-    The SKU-only contract (CLAUDE.md §1.6) makes manifest the single source
-    of truth for the robot identity bound to a policy.
+
+    ``manifest.robot.sku`` is the **frozen canvas Robot Node value at
+    training time** — the only valid robot for replaying this policy.
+    Replay code paths must source SKU from here (or refuse the run),
+    NOT from the *current* canvas Robot Node (which the user may have
+    moved to a different robot since training). The single definition
+    source is the canvas Robot Node; the bundle just preserves its
+    training-time snapshot.
     """
     manifest_path = bundle_dir / "manifest.yaml"
     if not manifest_path.exists():
@@ -88,6 +95,26 @@ def _read_bundle_sku(bundle_dir) -> str:
     if not isinstance(robot, dict):
         return ""
     return str(robot.get("sku") or "").strip()
+
+
+def _robot_display_name(sku: str) -> str:
+    """Best-effort human label for a SKU, for error messages.
+
+    Returns the registered display name when ``sku`` is known, or the SKU
+    itself (suffixed with ``[unregistered]``) when not. Never raises — we
+    use this purely to make the SoT-mismatch error message readable.
+    """
+    sku = (sku or "").strip()
+    if not sku:
+        return "<empty>"
+    try:
+        from registers.robots import get_robot_spec
+        spec = get_robot_spec(sku)
+        if spec is not None and getattr(spec, "name", None):
+            return f"{spec.name} [{sku}]"
+    except Exception:
+        pass
+    return f"{sku} [unregistered]"
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +137,12 @@ class _SimConfigSection(SectionFrame):
         super().__init__(
             "mission.sim.section.simconfig", "Sim Config", parent
         )
+
+        # 训练完成后被高亮的 policy ((policy_id, backend_id))。
+        # _refresh_policies() 会在重建条目时给匹配项设 ForegroundRole=safe_zone,
+        # popup 行 + 闭合态显示文本一起变色(配套 SDK LaviComboBox 的 delegate
+        # 与 _build_qss override)。project_changed 时清空。
+        self._highlighted_policy_key: Optional[Tuple[str, str]] = None
 
         # Three empty combos; populate via _refresh_* helpers below.
         self._cb_policy: LaviComboBox = setComboBox(
@@ -259,6 +292,9 @@ class _SimConfigSection(SectionFrame):
             self._cb_policy.setCurrentIndex(idx if idx >= 0 else 0)
         self._cb_policy.blockSignals(False)
 
+        # 重建后重新涂高亮 —— combo.clear() 会丢掉 ForegroundRole。
+        self._apply_policy_highlight()
+
         self._refresh_run_enabled()
 
     def _refresh_scenes(self) -> None:
@@ -361,11 +397,74 @@ class _SimConfigSection(SectionFrame):
         # TrainingAssetsCache is already subscribed to project_changed and will
         # have rebuilt by the time this slot fires (singleton is connected
         # before us at first get_training_assets() call). Just re-pull.
+        # 切项目 → 上一项目的"最新训练 policy"高亮在新项目里无意义,清空。
+        self._highlighted_policy_key = None
         self._refresh_policies()
 
-    def _on_training_run_finished(self, _run_id: str, _success: bool) -> None:
+    def _on_training_run_finished(self, _run_id: str, success: bool) -> None:
+        # 训练成功完成 → 把 combo 切到刚刚导出的 policy(按 mtime 排序后的头部),
+        # 并把它标记为高亮项,_refresh_policies() 重建 items 时会自动涂色。
+        # 失败的 run 不动选择 / 高亮 —— 没有新 bundle 产出,任何切换都是噪声。
+        # mtime 比对:如果本次成功但没真的导出新 bundle(例如 Export Node 未配),
+        # 头部 mtime 不会前进,这种情况下也保持原状,避免把陈旧条目当成"新训练"。
+        switched = False
+        if success:
+            prev_max_mtime = 0.0
+            for i in range(self._cb_policy.count()):
+                data = self._cb_policy.itemData(i)
+                if isinstance(data, PolicyAsset) and data.mtime > prev_max_mtime:
+                    prev_max_mtime = data.mtime
+            assets = get_training_assets().policies()
+            if assets and assets[0].mtime > prev_max_mtime:
+                latest = assets[0]
+                self._highlighted_policy_key = (
+                    latest.policy_id, latest.backend_id,
+                )
+                switched = True
         self._refresh_policies()
+        if switched and self._highlighted_policy_key is not None:
+            idx = self._find_policy_index(
+                self._highlighted_policy_key[0],
+                self._highlighted_policy_key[1],
+            )
+            if idx >= 0:
+                self._cb_policy.setCurrentIndex(idx)
         self._refresh_run_enabled()
+
+    def _apply_policy_highlight(self) -> None:
+        """Paint the highlighted policy row's foreground with ``safe_zone``.
+
+        Driven by ``_highlighted_policy_key``; clears any prior coloring on
+        every call so a stale highlight cannot linger after the key changes.
+        Both popup row and closed-combo display text pick up the override
+        via the SDK delegate / ``LaviComboBox._build_qss`` integration.
+        """
+        model = self._cb_policy.model()
+        # 先把所有项的 ForegroundRole 重置为 NoBrush —— SDK delegate / _build_qss
+        # 都以 brush.style() == NoBrush 作为"无 override"的判定,显式 reset 避免
+        # 上一次的高亮在 key 变化后残留。
+        empty_brush = QBrush()
+        for i in range(self._cb_policy.count()):
+            item = model.item(i) if hasattr(model, "item") else None
+            if item is None:
+                continue
+            item.setForeground(empty_brush)
+        key = self._highlighted_policy_key
+        if key is None:
+            self._cb_policy.refresh_style()
+            return
+        idx = self._find_policy_index(key[0], key[1])
+        if idx < 0:
+            self._cb_policy.refresh_style()
+            return
+        item = model.item(idx) if hasattr(model, "item") else None
+        if item is None:
+            self._cb_policy.refresh_style()
+            return
+        item.setForeground(QBrush(QColor(Config.get_color("safe_zone"))))
+        # _build_qss 读 currentIndex 的 ForegroundRole,若高亮项正好是当前
+        # committed 项,闭合态文本颜色立即生效。
+        self._cb_policy.refresh_style()
 
     def _on_policy_changed(self, _idx: int) -> None:
         data = self._cb_policy.currentData()
@@ -601,16 +700,42 @@ class PolicySimulationCard(QFrame):
     def _dispatch_run(
         self, asset: PolicyAsset, scene_id: str, engine_id: str,
     ) -> None:
-        # Robot Config is the single source of truth for which robot
-        # to simulate; the bundle manifest is only a fallback for the
-        # no-canvas-loaded case.
-        sku = self._robot_sku or _read_bundle_sku(asset.path)
-        if not sku:
-            log_warning(
-                f"[mission.sim] aborted — no robot selected in Robot Config "
-                f"and bundle {asset.policy_id!r} has no robot.sku in manifest.yaml"
-            )
-            return
+        # SKU SoT for replay: ``bundle.manifest.robot.sku`` is the frozen
+        # canvas-Robot-Node value from training time, and the policy
+        # weights are bound to THAT robot's joint topology. The current
+        # canvas Robot Node may have moved on (user is now working on a
+        # different robot); using it would silently mis-map joints and
+        # corrupt sim2sim. We use the bundle SKU and refuse the run
+        # when the current canvas is bound to a different robot, so the
+        # mismatch surfaces loudly rather than as a twitching simulation.
+        bundle_sku = _read_bundle_sku(asset.path)
+        if not bundle_sku:
+            # No canvas + no bundle SKU = nothing to do.
+            if not self._robot_sku:
+                log_warning(
+                    f"[mission.sim] aborted — bundle {asset.policy_id!r} "
+                    f"has no robot.sku in manifest.yaml and no Robot "
+                    f"Config is bound. Re-export the bundle from a "
+                    f"project where the canvas Robot Node was configured."
+                )
+                return
+            # Legacy bundle without manifest SKU: fall back to canvas SKU
+            # as a last resort (PolicyRunner will validate compatibility).
+            sku = self._robot_sku
+        else:
+            canvas_sku = (self._robot_sku or "").strip()
+            if canvas_sku and canvas_sku != bundle_sku:
+                log_warning(
+                    f"[mission.sim] aborted — policy {asset.policy_id!r} "
+                    f"was trained for robot {_robot_display_name(bundle_sku)}; "
+                    f"the canvas Robot Config is currently bound to "
+                    f"{_robot_display_name(canvas_sku)}. Bundles are "
+                    f"SKU-locked: switch the canvas Robot Node back to "
+                    f"the training robot to replay this policy, or pick "
+                    f"a policy trained for the current robot."
+                )
+                return
+            sku = bundle_sku
         if engine_id == "mujoco":
             override = self._sec_sim.current_init_pose_override()
             task: Task = MujocoReviewTask(
@@ -641,22 +766,38 @@ class PolicySimulationCard(QFrame):
     ) -> None:
         """Review-Robot dispatcher — robot-only viewer at the asset keyframe.
 
-        SKU resolution mirrors :meth:`_dispatch_run`: Robot Config is the
-        primary source of truth (plumbed in via :meth:`set_robot_sku`),
-        with the policy bundle's manifest as a fallback for the
-        no-canvas-loaded case. Submits a :class:`RobotReviewTask` that
-        opens a passive MuJoCo viewer posed at the MJCF's keyframe.
+        SKU resolution mirrors :meth:`_dispatch_run`: ``manifest.robot.sku``
+        is the frozen canvas-Robot-Node value at training time, and the
+        only valid robot for this asset. We refuse when the current
+        canvas Robot Config is bound to a different robot, rather than
+        silently displaying the wrong robot.
         ``live_physics`` controls whether physics is stepped during the
         preview (gravity-only, ``ctrl=0``).
         """
-        sku = self._robot_sku or _read_bundle_sku(asset.path)
-        if not sku:
-            log_warning(
-                f"[mission.sim] review aborted — no robot selected in Robot "
-                f"Config and bundle {asset.policy_id!r} has no robot.sku "
-                f"in manifest.yaml"
-            )
-            return
+        bundle_sku = _read_bundle_sku(asset.path)
+        if not bundle_sku:
+            if not self._robot_sku:
+                log_warning(
+                    f"[mission.sim] review aborted — bundle "
+                    f"{asset.policy_id!r} has no robot.sku in "
+                    f"manifest.yaml and no Robot Config is bound."
+                )
+                return
+            sku = self._robot_sku
+        else:
+            canvas_sku = (self._robot_sku or "").strip()
+            if canvas_sku and canvas_sku != bundle_sku:
+                log_warning(
+                    f"[mission.sim] review aborted — asset "
+                    f"{asset.policy_id!r} ships robot "
+                    f"{_robot_display_name(bundle_sku)}; the canvas "
+                    f"Robot Config is currently bound to "
+                    f"{_robot_display_name(canvas_sku)}. Switch the "
+                    f"canvas Robot Node back to match the asset, or "
+                    f"pick a different asset."
+                )
+                return
+            sku = bundle_sku
         if engine_id == "mujoco":
             override = self._sec_sim.current_init_pose_override()
             task: Task = RobotReviewTask(

@@ -287,8 +287,18 @@ parser.add_argument("--unitport_rsi_sample_mode", type=str, default="frame_0",
                     help="RSI frame selection: frame_0 | uniform_phase.")
 parser.add_argument("--unitport_body_mapping", type=str, default="",
                     help="Base64-encoded JSON of the Robot node's body_mapping "
-                         "(body_names + IR roles). Routes clip joint order → "
-                         "IR roles → robot joint names for RSI.")
+                         "(body_names + IR roles). Legacy RSI fallback for "
+                         "robots whose joint table isn't declared per-format "
+                         "yet — superseded by --unitport_joint_names_by_ir.")
+parser.add_argument("--unitport_active_format", type=str, default="",
+                    help="Active asset format the spec compiled against "
+                         "(MJCF / USD / URDF). Stage 4: required for "
+                         "deterministic clip→robot joint name lookup.")
+parser.add_argument("--unitport_joint_names_by_ir", type=str, default="",
+                    help="Base64-encoded JSON {ir_role: joint_name} for the "
+                         "robot in --unitport_active_format. RSI uses this "
+                         "to map clip IR roles → physical joint names "
+                         "directly (no body+suffix heuristic).")
 parser.add_argument("--unitport_init_pose_keyframe_name", type=str, default="home",
                     help="MJCF keyframe name (when --unitport_init_pose_mode=keyframe). "
                          "Resolved against the robot asset's MJCF (looked up via "
@@ -432,6 +442,91 @@ _unitport_env_cfg = None
 _unitport_ppo_cfg = None
 
 if args_cli.unitport_config and os.path.isfile(args_cli.unitport_config):
+    # Path-traversal boundary (Plan finding P2-2). The launcher will
+    # ``exec_module`` whatever Python file ``--unitport_config`` points
+    # at, so the path must be inside PROJECTS_DIR (where the canvas
+    # compiler emits compiled @configclass files). A path outside that
+    # tree is either a developer typo or a hostile launcher invocation —
+    # fail fast either way.
+    #
+    # Why we don't ``from unitport_sdk import Paths`` here (CLAUDE.md §1.8):
+    # the SDK pulls PyQt6 at module-import time (``unitport_sdk.logger``),
+    # which is NOT installed in Isaac Sim's bundled Python. The previous
+    # code swallowed the ImportError and silently used
+    # ``<RELEASE>/projects`` as PROJECTS_DIR — that path is the SOURCE
+    # tree default, NOT the user's actual workspace. When the user
+    # configured USER_CONFIG_DIR to an external drive (e.g. A:\UnitPort\
+    # <workspace_uuid>\), every emitted config file lived under there,
+    # but this boundary check compared against the source-tree default
+    # and rejected EVERY file. Resolve PROJECTS_DIR with stdlib only,
+    # mirroring ``unitport_sdk.sys.Paths._resolve_dynamic`` exactly so
+    # the subprocess sees the same workspace the main app does.
+    def _resolve_projects_dir() -> _Path:
+        import configparser
+
+        project_root = _SRC_ROOT.parent  # <RELEASE>/
+
+        def _read_resource(ini_path: _Path, key: str) -> str:
+            try:
+                cp = configparser.ConfigParser(strict=False)
+                if ini_path.exists():
+                    cp.read(ini_path, encoding="utf-8")
+                return cp.get("Resources", key, fallback="").strip()
+            except Exception:
+                return ""
+
+        # 1) USER_CONFIG_DIR — bootstrap shim first, then system.ini.
+        #    user.ini cannot determine its own location (chicken-egg),
+        #    so user_config_dir is read from system.ini ONLY.
+        shim_path = _Path.home() / ".unitport_paths.ini"
+        user_cfg_raw = _read_resource(shim_path, "user_config_dir")
+        if not user_cfg_raw:
+            system_ini = _SRC_ROOT / "config" / "system.ini"
+            user_cfg_raw = _read_resource(system_ini, "user_config_dir")
+        if not user_cfg_raw:
+            # CLAUDE.md §1.8: no silent fallback to a source-tree default.
+            # USER_CONFIG_DIR has no factory default (parent CLAUDE.md §1.4).
+            # If we reach here, the install wizard never ran — which means
+            # the subprocess was launched from an unconfigured app state,
+            # a real bug worth surfacing.
+            raise RuntimeError(
+                "[UnitPort] USER_CONFIG_DIR not configured — neither "
+                f"{shim_path} nor system.ini[Resources].user_config_dir "
+                "is set. The install wizard's DataDirectoryPage must run "
+                "before any training subprocess is launched."
+            )
+        user_cfg = _Path(user_cfg_raw).expanduser()
+        if not user_cfg.is_absolute():
+            user_cfg = project_root / user_cfg
+        # USER_INI overlay for projects_dir (user.ini wins over system.ini
+        # for Tier-B paths, matching Paths._read_resource).
+        user_ini = user_cfg / "user.ini"
+        projects_raw = _read_resource(user_ini, "projects_dir") or _read_resource(
+            _SRC_ROOT / "config" / "system.ini", "projects_dir"
+        )
+        if projects_raw:
+            p = _Path(projects_raw).expanduser()
+            return (p if p.is_absolute() else (project_root / p)).resolve()
+        return (user_cfg / "projects").resolve()
+
+    _cfg_resolved = _Path(args_cli.unitport_config).resolve()
+    try:
+        _projects_root = _resolve_projects_dir()
+    except Exception as exc:
+        # Loud failure — never substitute a wrong default (CLAUDE.md §1.8).
+        print(
+            f"[UnitPort] Failed to resolve PROJECTS_DIR in subprocess: {exc}",
+            flush=True,
+        )
+        sys.exit(2)
+    if not _cfg_resolved.is_relative_to(_projects_root):
+        print(
+            f"[UnitPort] Refusing to load unitport_config outside PROJECTS_DIR: "
+            f"{_cfg_resolved} (root: {_projects_root})",
+            flush=True,
+        )
+        sys.exit(2)
+
     print(f"[UnitPort] Loading compiled config: {args_cli.unitport_config}")
     spec = importlib.util.spec_from_file_location("unitport_env_cfg", args_cli.unitport_config)
     _cfg_mod = importlib.util.module_from_spec(spec)
@@ -792,6 +887,29 @@ def main():
     _rsi_prob = float(getattr(args_cli, "unitport_rsi_prob", 1.0))
     _rsi_sample_mode = str(getattr(args_cli, "unitport_rsi_sample_mode", "frame_0")).strip().lower()
     _body_mapping_b64 = str(getattr(args_cli, "unitport_body_mapping", "") or "")
+    _active_format = str(getattr(args_cli, "unitport_active_format", "") or "").upper()
+    _joint_names_by_ir_b64 = str(getattr(args_cli, "unitport_joint_names_by_ir", "") or "")
+
+    # Stage 4: register the per-format IR→joint-name table with the AMP
+    # obs/RSI permutation resolver so robots whose USD naming diverges
+    # from Unitree convention (Spot fl_hy/fl_kn, ...) build the canonical
+    # permutation correctly. Safe no-op when the table is absent: the
+    # resolver falls back to the legacy {leg}_{slot}_joint pattern.
+    if _joint_names_by_ir_b64:
+        try:
+            import base64, json as _json
+            from application.training.amp.obs_terms import (
+                set_canonical_joint_perm_override,
+            )
+            _joint_names_by_ir_for_perm = _json.loads(
+                base64.b64decode(_joint_names_by_ir_b64).decode("utf-8")
+            )
+            set_canonical_joint_perm_override(_joint_names_by_ir_for_perm)
+            print(f"[UnitPort] canonical joint perm override registered "
+                  f"({len(_joint_names_by_ir_for_perm)} IR roles, "
+                  f"active_format={_active_format or '(none)'})")
+        except Exception as exc:
+            print(f"[UnitPort] failed to register joint perm override: {exc}")
 
     # RSI also benefits PPO-from-scratch runs whose canvas wires a
     # training_motion node with motion clips — used to be AMP_PPO-only,
@@ -805,8 +923,8 @@ def main():
         _applied = False
         if not _motion_paths:
             print("[UnitPort] RSI: no motion files — skipped.")
-        elif not _body_mapping_b64:
-            print("[UnitPort] RSI: no --unitport_body_mapping — cannot route "
+        elif not _joint_names_by_ir_b64 and not _body_mapping_b64:
+            print("[UnitPort] RSI: no IR-role joint table — cannot route "
                   "clip joints through IR layer. Skipped.")
         else:
             try:
@@ -816,9 +934,31 @@ def main():
                     build_joint_pos_dict, RSIMappingError,
                 )
 
-                body_mapping_dict = _json.loads(
-                    base64.b64decode(_body_mapping_b64).decode("utf-8")
-                )
+                # Stage 4: prefer the per-format IR-role → joint name
+                # table from --unitport_joint_names_by_ir. Legacy
+                # --unitport_body_mapping is kept for backwards-compat
+                # with subprocess invocations still pinned to the old
+                # body+suffix path (mid-rollout safety).
+                joint_names_by_ir = None
+                if _joint_names_by_ir_b64:
+                    joint_names_by_ir = _json.loads(
+                        base64.b64decode(_joint_names_by_ir_b64).decode("utf-8")
+                    )
+                elif _body_mapping_b64:
+                    # Legacy: derive {ir_role: joint_name} by body+"_joint"
+                    # suffix from the old body_mapping payload.
+                    from application.training.body_ir import BodyIRMapper
+                    body_mapping_dict = _json.loads(
+                        base64.b64decode(_body_mapping_b64).decode("utf-8")
+                    )
+                    mapper = BodyIRMapper.from_dict(body_mapping_dict)
+                    joint_names_by_ir = {}
+                    for role in mapper.roles:
+                        if role.body:
+                            joint_names_by_ir[role.role_id] = f"{role.body}_joint"
+                    print("[UnitPort] RSI: using legacy body+suffix joint-name "
+                          "derivation (no --unitport_joint_names_by_ir provided)")
+
                 _loader = get_loader("amp_legged_gym")
                 _first_clip = _loader.load(_motion_paths[0])
 
@@ -827,13 +967,20 @@ def main():
                     print("[UnitPort] RSI: clip has no joint_pos, skipped.")
                 else:
                     _frame = _jp[0]  # (num_joints,)
-                    joint_pos_dict = build_joint_pos_dict(body_mapping_dict, _frame)
+                    # Clip's own ir_roles take precedence over the global
+                    # default (lets a non-quadruped clip carry its own
+                    # layout in metadata['ir_roles']).
+                    clip_roles = getattr(_first_clip, "ir_roles", None)
+                    joint_pos_dict = build_joint_pos_dict(
+                        _frame, joint_names_by_ir, clip_ir_roles=clip_roles,
+                    )
                     # Replace the regex-keyed default with a per-joint dict.
                     # Specific joint names take precedence over Isaac Lab's
                     # built-in regex patterns at articulation init.
                     env_cfg.scene.robot.init_state.joint_pos = joint_pos_dict
-                    print(f"[UnitPort] RSI via IR: {len(joint_pos_dict)} joints set "
-                          f"from clip frame 0 (prob={_rsi_prob}, sample={_rsi_sample_mode})")
+                    print(f"[UnitPort] RSI via IR (format={_active_format or 'auto'}): "
+                          f"{len(joint_pos_dict)} joints set from clip frame 0 "
+                          f"(prob={_rsi_prob}, sample={_rsi_sample_mode})")
                     for jn, val in list(joint_pos_dict.items())[:6]:
                         print(f"[UnitPort] RSI:   {jn} = {val:.4f}")
                     if len(joint_pos_dict) > 6:
@@ -1454,8 +1601,11 @@ def main():
             # actor-only load for the non-AMP path.
             _is_amp_run = args_cli.unitport_algorithm == "AMP_PPO"
             if warm and not _is_amp_run:
-                import torch as _torch
-                loaded = _torch.load(resume_path)
+                # resume_path is user-selected via the GUI's checkpoint picker
+                # → untrusted-possible pickle. Funnel through the SHA-256 /
+                # consent gate. Plan P1-1.
+                from application.training._ckpt_safety import load_checkpoint_safely
+                loaded = load_checkpoint_safely(resume_path)
                 sd = loaded.get("model_state_dict", loaded)
                 runner.alg.actor_critic.load_state_dict(sd, strict=False)
                 runner.current_learning_iteration = 0
@@ -1514,10 +1664,34 @@ def main():
         for _i, _stage in enumerate(_ppo_stages):
             if not isinstance(_stage, dict):
                 continue
-            _iters = int(_stage.get("iterations", 0) or 0)
-            if _iters <= 0:
+            # CLAUDE.md §1.8: distinguish "iterations field missing" (config
+            # bug, raise) from "iterations explicitly 0" (intentional disable
+            # sentinel, skip with WARN). The previous chained `get(..., 0)
+            # or 0` collapsed both into "skip silently", masking
+            # curriculum_schedule_json wiring bugs that produced 0-iter
+            # stages by accident.
+            if "iterations" not in _stage:
+                raise ValueError(
+                    f"[UnitPort][STAGE/PPO] stage[{_i}] is missing the "
+                    f"'iterations' field — refusing to skip silently. Fix "
+                    f"the curriculum_schedule_json on the canvas."
+                )
+            try:
+                _iters = int(_stage["iterations"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"[UnitPort][STAGE/PPO] stage[{_i}].iterations="
+                    f"{_stage['iterations']!r} is not an integer."
+                ) from exc
+            if _iters < 0:
+                raise ValueError(
+                    f"[UnitPort][STAGE/PPO] stage[{_i}].iterations={_iters} "
+                    f"is negative — invalid."
+                )
+            if _iters == 0:
                 print(
-                    f"[UnitPort][STAGE/PPO] stage[{_i}] iterations=0, skipped",
+                    f"[UnitPort][STAGE/PPO] stage[{_i}] iterations=0 "
+                    f"(explicit disable sentinel), skipped",
                     flush=True,
                 )
                 continue
@@ -1612,11 +1786,22 @@ def main():
             f"deterministic={not args_cli.unitport_eval_stochastic}",
             flush=True,
         )
+        # Sentinel — runner shape mismatch (newer rsl_rl, SB3 wrappers,
+        # custom AMP runner without an ``.alg.actor_critic`` attr) should
+        # silently skip eval instead of surfacing as a "(non-fatal) failed"
+        # noise line. Training output (checkpoints + save_best_model) is
+        # unaffected, so this is genuinely a routing decision, not a fault.
+        class _EvalSkipped(RuntimeError):
+            pass
+
         try:
             _actor_critic = getattr(runner, "alg", None)
             _actor_critic = getattr(_actor_critic, "actor_critic", None) if _actor_critic is not None else None
             if _actor_critic is None:
-                raise RuntimeError("runner.alg.actor_critic not found; cannot run eval")
+                raise _EvalSkipped(
+                    f"runner does not expose .alg.actor_critic "
+                    f"(runner type={type(runner).__name__})"
+                )
             _actor_critic.eval()
             _obs, _ = env.get_observations()
             _n_envs = _obs.shape[0]
@@ -1678,6 +1863,12 @@ def main():
                     f"{_max_eval_steps} steps; eval_results.json not written.",
                     flush=True,
                 )
+        except _EvalSkipped as _skip_exc:
+            print(
+                f"[UnitPort][EVAL] skipped: {_skip_exc}; training output "
+                f"is still valid.",
+                flush=True,
+            )
         except Exception as _eval_exc:
             print(f"[UnitPort][EVAL] failed (non-fatal): {_eval_exc}", flush=True)
 

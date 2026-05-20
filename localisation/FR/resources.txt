@@ -1,0 +1,53 @@
+[default]
+section = Ressources tierces
+add = Télécharger en ligne
+add_tip = Télécharger un jeu de données de mouvements ou un bundle de politique
+refresh_tip = Réanalyser custom_mods/
+remove = Supprimer
+remove_tip = Supprimer cette entrée (et l'arborescence sur disque)
+open_folder = Ouvrir le dossier
+open_folder_tip = Révéler le dossier de la ressource dans le gestionnaire de fichiers
+retry = Réessayer
+empty_motion = Aucun jeu de données de mouvement pour le moment — cliquez sur « Ajouter une ressource… » pour en télécharger un
+empty_policy = Aucun bundle de politique pour le moment — cliquez sur « Ajouter une ressource… » pour en télécharger un
+unindexed = importé
+
+[kind]
+motion = Mouvement
+policy = Politique
+
+[transport]
+github_clone = GitHub
+github_release = Release
+huggingface = HuggingFace
+
+[status]
+local = local
+downloading = téléchargement
+missing = manquant
+error = erreur
+
+[card]
+source = Source
+revision = Révision
+subpath = Sous-chemin
+downloaded_at = Date de téléchargement
+size = Taille
+
+[dialog]
+title = Ajouter une ressource
+kind_label = Type de ressource
+transport_label = Source
+url_label = URL ou identifiant du dépôt
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+url_placeholder_huggingface = owner/name (ou URL HF complète)
+revision_label = Révision (optionnel)
+revision_placeholder = branche / tag / commit / révision HF
+subpath_label = Sous-chemin (optionnel)
+subpath_placeholder_github = ex. datasets/mocap_motions
+subpath_placeholder_huggingface = motifs autorisés, ex. *.json,*.txt
+name_label = Nom d'affichage (optionnel)
+ok = Télécharger
+cancel = Annuler
+

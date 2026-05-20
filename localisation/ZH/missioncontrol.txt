@@ -4,6 +4,11 @@ redo.tip = 重做 (Ctrl+Shift+Z)
 save.tip = 保存画布
 undo.tip = 撤销 (Ctrl+Z)
 
+[mode]
+mission_control = 任务控制台
+training_canva = 训练画布
+scripts = 脚本
+
 [tooltip]
 chart_opacity = 图表叠加层透明度
 
@@ -13,4 +18,13 @@ picker.title = 选择颜色
 hex_input.placeholder = #RRGGBB
 btn.confirm.tip = 确认
 btn.cancel.tip = 取消
+
+[script]
+btn.redo.tip = 重做（Ctrl+Shift+Z）
+btn.save.tip = 保存脚本
+btn.undo.tip = 撤销（Ctrl+Z）
+
+[ros2_dev_notice]
+title = ROS2 连接（预览版）
+body = ROS2 连接功能目前仍在开发中，可以进行简单的连接和操控，完整的功能将在以后版本中交付。
 

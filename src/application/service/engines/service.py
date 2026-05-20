@@ -9,7 +9,7 @@ This split honours the registers/ contract: ``data/backends_installed.json``
 is the only runtime-writable file inside the registers tree, and even that
 only carries detection results — never user choices like SSH server lists.
 
-Per-engine user state schema (one file per engine_id under ~/UnitPort/engines/):
+Per-engine user state schema (one file per engine_id under <USER_CONFIG_DIR>/engines/):
 
     {
       "local": {
@@ -130,12 +130,23 @@ class EngineService(QObject):
         self._save_state(engine_id, state)
         self.changed.emit(engine_id)
 
-    def register_isaac_local(self, root: str) -> bool:
+    def register_isaac_local(
+        self,
+        root: str,
+        *,
+        source: str = "manual",
+    ) -> bool:
         """Validate + register an Isaac Lab installation root.
 
         Markers (mirrors DEMO EngineRegistry.register_isaac_local logic):
         - isaaclab.sh OR isaaclab.bat present at the root
         - source/ subdirectory present
+
+        ``source`` records *how* the path was registered so downstream
+        audit / repair tools can tell apart user-located vs in-app-installed
+        registrations. Recognised values: ``"manual"`` (locate flow from
+        the wizard or sidebar), ``"install"`` (in-app installer succeeded),
+        ``"import_from_demo"`` (one-shot DEMO→RELEASE bridge).
 
         Returns True if validation passed and state was written; False otherwise.
         """
@@ -149,8 +160,16 @@ class EngineService(QObject):
                 f"(missing isaaclab.sh|isaaclab.bat and/or source/)"
             )
             return False
-        self.set_local("isaac_lab", root=str(p), registered=True, enabled=True)
-        log_info(f"[engines] Isaac Lab local registered: {p}")
+        self.set_local(
+            "isaac_lab",
+            root=str(p),
+            registered=True,
+            enabled=True,
+            source=str(source),
+        )
+        log_info(
+            f"[engines] Isaac Lab local registered: {p} (source={source})"
+        )
         return True
 
     def import_isaac_lab_path_from_demo(
@@ -161,7 +180,7 @@ class EngineService(QObject):
         DEMO persists the path the user located during install at
         ``DEMO/src/config/setup_state.json`` under
         ``selections.backend.isaaclab_path``. RELEASE's user state lives in
-        ``~/UnitPort/engines/isaac_lab.json`` (`local.root`). This method
+        ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` (`local.root`). This method
         bridges the two so a user who already ran DEMO install does not have
         to re-locate Isaac Lab in RELEASE.
 
@@ -201,7 +220,7 @@ class EngineService(QObject):
             )
             return False
         log_info(f"[engines] importing Isaac Lab path from DEMO: {root}")
-        return self.register_isaac_local(root)
+        return self.register_isaac_local(root, source="import_from_demo")
 
     # cloud block
 

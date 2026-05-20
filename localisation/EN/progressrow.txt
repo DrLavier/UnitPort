@@ -4,6 +4,7 @@ new = New
 [menu]
 empty = (empty)
 no_project = (no project)
+no_canvas = (no canvas)
 
 [target]
 cloud = Cloud

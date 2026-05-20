@@ -1,0 +1,14 @@
+[engine]
+unavailable = indisponible
+
+[error]
+create_failed = Impossible de créer le projet '{name}' (voir le journal pour les détails)
+exists = Le canevas existe déjà : {path}
+invalid_name = Le nom du canevas ne peut pas être vide (lettres, chiffres, _ et - uniquement)
+invalid_project_name = Le nom du projet ne peut pas être vide (lettres, chiffres, _ et - uniquement)
+no_engine = Choisissez un moteur d'entraînement
+no_project_name = Saisissez un nom de projet à sélectionner ou à créer
+
+[placeholder]
+canvas = ex. main
+project = Tapez pour rechercher des projets

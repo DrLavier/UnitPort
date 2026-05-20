@@ -151,10 +151,10 @@ def compile_training_spec(
     prev_ctx, _active_issues = _active_issues, issues
     try:
         spec = TrainingSpec()
-        _populate_robot(spec, by_id)
+        _populate_robot(spec, by_id, canvas_backend_kind)
         _populate_algorithm(spec, by_id, family)
         _populate_actor(spec, by_id)
-        _populate_obs_action(spec, by_id)
+        _populate_obs_action(spec, by_id, canvas_backend_kind)
         _populate_physics(spec, by_id)
         _populate_scene(spec, by_id)
         _populate_task(spec, by_id)
@@ -399,7 +399,51 @@ def _resolve_latest_checkpoint(run_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _populate_robot(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
+def _resolve_active_format(
+    rs: Any, active_override: str, canvas_backend_kind: str,
+) -> str:
+    """Mirror of RobotNode.execute()'s active_format derivation.
+
+    Priority:
+      1. ``active_override`` ∈ {mjcf, usd, urdf} — explicit user choice
+      2. Backend-mandated format:
+           - isaac_lab → USD (mandatory; raises if joints_per_format["USD"]
+             is null — see below)
+           - else      → first available among ("MJCF", "USD", "URDF")
+
+    CLAUDE.md §1.8: previously this walked ("USD", "URDF", "MJCF") for
+    Isaac Lab and silently picked the first format with a populated joint
+    table. That allowed IL training to proceed against MJCF joints when
+    joints_per_format["USD"] was null, while Isaac Lab actually spawned
+    the USD asset and reported its own articulation joint order to the
+    policy. The trained bundle then shipped MJCF-ordered joint names →
+    deploy ObsBuilder slotted obs/action through the wrong joints → user
+    saw "electric-shock twitching". Refuse this substitution: for IL,
+    USD is the contract.
+    """
+    override = str(active_override or "").strip().lower()
+    if override in ("mjcf", "usd", "urdf"):
+        return override.upper()
+    bk = str(canvas_backend_kind or "").strip().lower()
+    available = set(rs.available_formats)
+    if bk == "isaac_lab":
+        # Hard requirement: USD must be populated for the IL pipeline.
+        # The caller (``_populate_robot``) checks ``active_format in
+        # rs.available_formats`` after this returns; returning "USD" here
+        # lets that gate emit a clean ValidationIssue pointing at "Dump
+        # USD" when the table is missing, instead of a stale fallback.
+        return "USD"
+    for fmt in ("MJCF", "USD", "URDF"):
+        if fmt in available:
+            return fmt
+    return getattr(rs, "preferred_format", "MJCF")
+
+
+def _populate_robot(
+    spec: TrainingSpec,
+    by_id: Dict[str, "IRNode"],
+    canvas_backend_kind: Optional[str] = None,
+) -> None:
     n = by_id.get("robot")
     if n is None:
         # Topology check (R1) already flags missing required nodes per family;
@@ -407,6 +451,7 @@ def _populate_robot(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
         return
     asset_id = _as_str(_p(n, "asset_id"), "")
     target_height = _as_float(_p(n, "target_height", 0.0), 0.0)
+    active_override = _as_str(_p(n, "active_override", "auto"), "auto")
     if not asset_id:
         _emit_issue(ValidationIssue(
             code=IssueCode.UNRESOLVED_ROBOT_ASSET,
@@ -443,7 +488,47 @@ def _populate_robot(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
             ),
         ))
         return
-    spec.robot = RobotSpecRef.from_registry(rs, target_height=target_height)
+
+    # Per-format schema (Stage 2): pin the format the rest of the pipeline
+    # will resolve against. Mirrors RobotNode.execute()'s logic so canvas
+    # display (Robot Asset card, BodyMappingTable) and spec compile agree.
+    active_format = _resolve_active_format(rs, active_override, canvas_backend_kind or "")
+    if not active_format or active_format not in rs.available_formats:
+        # CLAUDE.md §1.8: surface as a hard error rather than silently
+        # producing a spec with no joints/bodies (or silently substituting
+        # a different format — see _resolve_active_format docstring).
+        bk = str(canvas_backend_kind or "").strip().lower()
+        if bk == "isaac_lab" and active_format == "USD":
+            # IL-specific message: the backend mandates USD, but the
+            # robot's USD joint table is empty.
+            msg = (
+                f"robot {asset_id!r} has no USD joint table populated "
+                f"(joints_per_format[\"USD\"] is null); Isaac Lab training "
+                f"requires the USD articulation order. Open the Robot Asset "
+                f"card and run \"Dump USD\" so the registry records the "
+                f"joint names Isaac Lab will report at runtime. Available "
+                f"formats for this robot: "
+                f"{sorted(rs.available_formats) or '[]'}."
+            )
+        else:
+            msg = (
+                f"robot {asset_id!r} has no joints/bodies declared for "
+                f"format {active_format!r} (available={rs.available_formats}); "
+                f"open the Robot Asset card and run Dump MJCF / Dump USD "
+                f"before training"
+            )
+        _emit_issue(ValidationIssue(
+            code=IssueCode.UNRESOLVED_ROBOT_ASSET,
+            severity=Severity.ERROR,
+            node_id=n.id,
+            field="asset_id",
+            message=msg,
+        ))
+        return
+
+    spec.robot = RobotSpecRef.from_registry(
+        rs, target_height=target_height, active_format=active_format,
+    )
 
 
 def _populate_algorithm(
@@ -588,6 +673,132 @@ def _populate_algorithm(
     spec.algorithm = a
 
 
+def _compile_pd_param(
+    spec: TrainingSpec,
+    by_id: Dict[str, "IRNode"],
+) -> Tuple[Optional[Any], Optional[float], Optional[float], Optional[bool], Optional[bool], Optional[bool]]:
+    """Build the canonical PDParam from the ActuatorPDNode + family defaults.
+
+    Returns ``(pd_param, effort_limit, velocity_limit, resolve_at_reset,
+    calibration_blocking, skip_calibration)``; every field is ``None``
+    when no ActuatorPDNode is present (engine compilers then fall back
+    to the legacy ``ActuatorConfig.stiffness/damping`` scalar path).
+
+    Validation that fails fast here:
+      * ``robot`` node missing — falls back silently (older canvases).
+      * ``spec.robot.families`` is empty — emits ``UNKNOWN_PARAM_VALUE``.
+      * ``pd_groups`` JSON references a group that doesn't exist for
+        the robot's primary family — ``UNKNOWN_PARAM_VALUE``.
+    """
+    # PD config now lives on RobotNode (merged from the short-lived
+    # ActuatorPDNode in May 2026). Falls back to None when the canvas
+    # is older than the merge and has no PD knobs on the robot node.
+    pd_node = by_id.get("robot")
+    if pd_node is None:
+        return None, None, None, None, None, None
+    # When RobotNode predates the PD merge it won't carry any pd_*
+    # params; treat that as "no PD configured" and let legacy scalars
+    # take over via the ActorSetting.actuator path.
+    if not any(_p(pd_node, k, None) is not None for k in (
+        "pd_groups", "pd_param_mode", "pd_effort_limit",
+    )):
+        return None, None, None, None, None, None
+
+    families = list(getattr(spec.robot, "families", []) or [])
+    if not families:
+        _emit_issue(ValidationIssue(
+            code=IssueCode.UNKNOWN_PARAM_VALUE,
+            severity=Severity.ERROR,
+            node_id=pd_node.id,
+            field="pd_param",
+            message=(
+                "actuator_pd is wired but the bound robot has no declared "
+                "families; cannot resolve (omega_n, zeta) defaults. Fix "
+                "by completing the Robot Asset card's family selection."
+            ),
+        ))
+        return None, None, None, None, None, None
+
+    primary_family = families[0]
+
+    try:
+        from application.physics.pd_param import PDParam
+        from registers import pd_groups as _pd_groups
+    except Exception as exc:  # noqa: BLE001
+        _emit_issue(ValidationIssue(
+            code=IssueCode.UNKNOWN_PARAM_VALUE,
+            severity=Severity.ERROR,
+            node_id=pd_node.id,
+            field="pd_param",
+            message=(
+                f"application.physics / registers.pd_groups failed to "
+                f"import: {exc}"
+            ),
+        ))
+        return None, None, None, None, None, None
+
+    try:
+        base = PDParam.from_family_defaults(primary_family)
+    except Exception as exc:  # noqa: BLE001
+        _emit_issue(ValidationIssue(
+            code=IssueCode.UNKNOWN_PARAM_VALUE,
+            severity=Severity.ERROR,
+            node_id=pd_node.id,
+            field="pd_param",
+            message=(
+                f"family={primary_family!r} has no PD groups registered "
+                f"in pd_groups_definitions.json: {exc}"
+            ),
+        ))
+        return None, None, None, None, None, None
+
+    overrides_raw = _as_json(_p(pd_node, "pd_groups", "{}"), {})
+    if not isinstance(overrides_raw, dict):
+        overrides_raw = {}
+    # Drop unknown groups loudly — silently dropping would mask a typo
+    # the user explicitly typed into the canvas (rule §1.8).
+    known_groups = set(base.groups.keys())
+    clean_overrides: Dict[str, Dict[str, float]] = {}
+    for gid, vals in overrides_raw.items():
+        if gid not in known_groups:
+            _emit_issue(ValidationIssue(
+                code=IssueCode.UNKNOWN_PARAM_VALUE,
+                severity=Severity.ERROR,
+                node_id=pd_node.id,
+                field="pd_groups",
+                message=(
+                    f"pd_groups[{gid!r}] is not a group defined for "
+                    f"family={primary_family!r} (known groups: "
+                    f"{sorted(known_groups)}). Either correct the group "
+                    f"name or add it to pd_groups_definitions.json."
+                ),
+            ))
+            continue
+        if isinstance(vals, dict):
+            clean_overrides[gid] = vals
+
+    try:
+        pd_param = base.with_overrides(clean_overrides) if clean_overrides else base
+    except Exception as exc:  # noqa: BLE001
+        _emit_issue(ValidationIssue(
+            code=IssueCode.PARAM_OUT_OF_RANGE,
+            severity=Severity.ERROR,
+            node_id=pd_node.id,
+            field="pd_groups",
+            message=f"pd_groups override rejected: {exc}",
+        ))
+        return None, None, None, None, None, None
+
+    return (
+        pd_param,
+        _as_float(_p(pd_node, "pd_effort_limit", 30.0), 30.0),
+        _as_float(_p(pd_node, "pd_velocity_limit", 30.0), 30.0),
+        _as_bool(_p(pd_node, "pd_resolve_at_reset", True), True),
+        _as_bool(_p(pd_node, "pd_calibration_blocking", True), True),
+        _as_bool(_p(pd_node, "pd_skip_calibration", False), False),
+    )
+
+
 def _populate_actor(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
     n = by_id.get("actor_setting")
     if n is None:
@@ -637,10 +848,28 @@ def _populate_actor(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
         rsi_sample_mode=_as_str(_p(n, "init_pose_rsi_sample_mode"), "frame_0"),
     )
 
+    # Stage C: canonical PD parameterization from the ActuatorPDNode.
+    # Falls back to None (legacy scalar path) when no actuator_pd node
+    # is wired; engine compilers handle both forks.
+    (
+        pd_param, pd_eff, pd_vel,
+        pd_resolve_at_reset, pd_cal_blocking, pd_cal_skip,
+    ) = _compile_pd_param(spec, by_id)
+    actor.pd_param = pd_param
+    actor.effort_limit = pd_eff
+    actor.velocity_limit = pd_vel
+    actor.resolve_at_reset = pd_resolve_at_reset
+    actor.calibration_blocking = pd_cal_blocking
+    actor.skip_calibration = pd_cal_skip
+
     spec.actor = actor
 
 
-def _populate_obs_action(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
+def _populate_obs_action(
+    spec: TrainingSpec,
+    by_id: Dict[str, "IRNode"],
+    canvas_backend_kind: str = "",
+) -> None:
     oa = ObsActionContract()
     n = by_id.get("obs_action_config")
     if n is not None:
@@ -666,6 +895,18 @@ def _populate_obs_action(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None
         oa.corruption_curriculum_start = _as_float(_p(il, "obs_noise_curriculum_start"), 0.25)
         oa.corruption_curriculum_end = _as_float(_p(il, "obs_noise_curriculum_end"), 1.0)
         oa.corruption_curriculum_ramp_iters = _as_int(_p(il, "obs_noise_curriculum_ramp_iters"), 500)
+        # Variant tags on obs terms (Stage 4 architecture, biped/humanoid
+        # special-casing). Source ends up in
+        # ``oa.inline_source_overrides``; env_cfg_compiler IL emit path
+        # (_custom_observation_funcs) reads it.
+        _collect_variant_sources(
+            oa.il_terms,
+            kind="observation",
+            backend=canvas_backend_kind,
+            overrides=oa.inline_source_overrides,
+            il_params_overrides=oa.il_params_overrides,
+            robot_sku=getattr(spec.robot, "sku", "") or None,
+        )
     spec.obs_action = oa
 
 
@@ -730,6 +971,74 @@ def _populate_task(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
     )
 
 
+def _collect_variant_sources(
+    terms: Dict[str, Any],
+    *,
+    kind: str,
+    backend: str,
+    overrides: Dict[str, str],
+    il_params_overrides: Optional[Dict[str, str]] = None,
+    robot_sku: Optional[str] = None,
+) -> None:
+    """Walk a ``{key: payload}`` term dict; resolve variant tags into source.
+
+    Mutates ``overrides`` (Python source) and ``il_params_overrides``
+    (``il_params`` template per variant) in place. ``payload`` may be a
+    legacy scalar weight (always preset, no-op here) or a structured
+    dict with an optional ``"variant"`` field per
+    :func:`application.compiler.term_payload.parse_term_payload`.
+
+    ``robot_sku`` is forwarded to :func:`resolver.resolve` so the
+    family filter rejects variants whose ``families`` list doesn't
+    intersect the bound robot's families. A rejection falls back to
+    preset (logged warning, not an error) — the canvas keeps training.
+
+    Both user variants (USER_CONFIG_DIR overlay) and system variants
+    (SDK factory under ``src/scripts``) are accepted; the resolver
+    handles user-first ordering internally.
+
+    Conflict policy: if the same ``key`` appears twice with different
+    variants (e.g. two items pin different variants of
+    ``action_rate_penalty``), the *last* iteration wins and a warning
+    is logged. The Isaac Lab env_cfg can only emit one function per
+    key, so collisions need user-side resolution; the warning surfaces
+    in the training log.
+    """
+    try:
+        from application.compiler.term_payload import parse_term_payload
+        from application.service.scripts import resolver
+    except Exception as exc:                                      # noqa: BLE001
+        log_warning(
+            f"[spec_compiler] variant resolver unavailable: {exc!r}"
+        )
+        return
+    for key, val in (terms or {}).items():
+        _, variant, _applies = parse_term_payload(val)
+        if not variant:
+            continue
+        resolved = resolver.resolve(
+            kind, key, variant=variant, backend=backend,
+            robot_sku=robot_sku,
+        )
+        if resolved is None or resolved.origin not in ("user_variant", "system_variant"):
+            log_warning(
+                f"[spec_compiler] variant {variant!r} for {kind}/{key} "
+                f"not resolvable for backend={backend!r} "
+                f"robot_sku={robot_sku!r} — falling back to preset "
+                f"(family filter or missing source)"
+            )
+            continue
+        if key in overrides and overrides[key] != resolved.source:
+            log_warning(
+                f"[spec_compiler] variant conflict for {kind}/{key}: "
+                f"two terms request different variants of the same "
+                f"function; last write wins"
+            )
+        overrides[key] = resolved.source
+        if il_params_overrides is not None and resolved.il_params_override:
+            il_params_overrides[key] = resolved.il_params_override
+
+
 def _populate_rewards(
     spec: TrainingSpec,
     by_id: Dict[str, "IRNode"],
@@ -768,36 +1077,6 @@ def _populate_rewards(
     # v2: collect per-item reward terms by walking each rewards node's
     # reward_pipe outbound edges. Target ports follow the
     # ``reward_in__<item_id>`` convention (see nodes.training_motion.node).
-    # AMP reward overrides now live on the ``training_motion`` node itself
-    # (parameter ``reward_analysis.applied_overrides``); the amp_helper
-    # pass-through node was deleted in the node-library cleanup. When a
-    # per-item edge lands on a training_motion node, that node's overrides
-    # are applied to the resulting terms — single source of truth, no BFS.
-
-    def _normalize_overrides(raw: Any) -> Dict[str, Any]:
-        """Accept dict-form or list-of-records form, return {key: weight}."""
-        out: Dict[str, Any] = {}
-        if isinstance(raw, dict):
-            return dict(raw)
-        if isinstance(raw, list):
-            for entry in raw:
-                if not isinstance(entry, dict):
-                    continue
-                k = entry.get("key")
-                if k is None:
-                    continue
-                v = entry.get("new", entry.get("weight", entry.get("value")))
-                if v is not None:
-                    out[str(k)] = v
-        return out
-
-    overrides_by_tm: Dict[str, Dict[str, Any]] = {}
-    for tm in (n for n in ir.nodes if n.schema_id == "training_motion"):
-        raw_blob = _as_json(_p(tm, "reward_analysis"), {}) or {}
-        if isinstance(raw_blob, dict):
-            overrides_by_tm[tm.id] = _normalize_overrides(raw_blob.get("applied_overrides", {}))
-        else:
-            overrides_by_tm[tm.id] = {}
 
     def _follow_reward_pipe(src_id: str, src_port: str):
         """Yield (item_id, target_tm_id) for reachable training_motion.reward_in__<id>."""
@@ -811,22 +1090,6 @@ def _populate_rewards(
                 if item_id:
                     yield item_id, tgt_id
 
-    def _apply_overrides(terms: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
-        """Replace term weights per ``overrides``.
-
-        ``reward_terms`` schema is either ``{key: weight_float}`` or
-        ``{key: {"weight": weight_float, ...}}``; both handled.
-        """
-        for k, v in overrides.items():
-            if k not in terms:
-                continue
-            cur = terms[k]
-            if isinstance(cur, dict):
-                terms[k] = {**cur, "weight": v}
-            else:
-                terms[k] = v
-        return terms
-
     # ``reward_in__<item_id>`` is now multi=True (see nodes.training_motion):
     # an item may be fed by ≥2 rewards nodes. The spec_validator's
     # _check_reward_term_conflicts has already rejected any same-key /
@@ -836,13 +1099,23 @@ def _populate_rewards(
         rn_terms = dict(_as_json(_p(rn, "reward_terms"), {}))
         if not rn_terms:
             continue
+        # Resolve any variant tags carried in the term payloads
+        # (Stage 4). Source is staged in ``rc.inline_source_overrides``;
+        # the IL env_cfg compiler reads this map and emits the variant
+        # body in place of the registry preset's ``il_inline`` block.
+        # ``robot_sku`` activates the family filter in resolver.resolve()
+        # so a quadruped canvas can't accidentally pin a biped variant.
+        _collect_variant_sources(
+            rn_terms,
+            kind="reward",
+            backend=canvas_backend_kind,
+            overrides=rc.inline_source_overrides,
+            il_params_overrides=rc.il_params_overrides,
+            robot_sku=getattr(spec.robot, "sku", "") or None,
+        )
         for item_id, tm_id in _follow_reward_pipe(rn.id, "reward_pipe"):
-            terms = dict(rn_terms)
-            tm_overrides = overrides_by_tm.get(tm_id, {})
-            if tm_overrides:
-                terms = _apply_overrides(terms, tm_overrides)
             existing = rc.terms_by_item.get(item_id, {})
-            rc.terms_by_item[item_id] = {**existing, **terms}
+            rc.terms_by_item[item_id] = {**existing, **rn_terms}
 
     if multi is not None and rewards_nodes:
         # Index reward nodes by IR-id.
@@ -858,7 +1131,16 @@ def _populate_rewards(
             r = stage_inputs.get(port_name)
             if r is None:
                 continue
-            stages.append(dict(_as_json(_p(r, "reward_terms"), {})))
+            stage_terms = dict(_as_json(_p(r, "reward_terms"), {}))
+            _collect_variant_sources(
+                stage_terms,
+                kind="reward",
+                backend=canvas_backend_kind,
+                overrides=rc.inline_source_overrides,
+                il_params_overrides=rc.il_params_overrides,
+                robot_sku=getattr(spec.robot, "sku", "") or None,
+            )
+            stages.append(stage_terms)
         rc.stages = stages
         # Active stage on training start is stage 0.
         rc.terms = dict(stages[0]) if stages else {}
@@ -869,18 +1151,18 @@ def _populate_rewards(
             rc.threshold = _as_float(_p(head, "threshold"), 0.5)
     elif rewards_nodes:
         n = rewards_nodes[0]
-        rc.terms = dict(_as_json(_p(n, "reward_terms"), {}))
+        lone_terms = dict(_as_json(_p(n, "reward_terms"), {}))
+        _collect_variant_sources(
+            lone_terms,
+            kind="reward",
+            backend=canvas_backend_kind,
+            overrides=rc.inline_source_overrides,
+            il_params_overrides=rc.il_params_overrides,
+            robot_sku=getattr(spec.robot, "sku", "") or None,
+        )
+        rc.terms = lone_terms
         rc.std = _as_float(_p(n, "std"), 0.25)
         rc.threshold = _as_float(_p(n, "threshold"), 0.5)
-
-    # Lone-rewards / multigated fallback override path: use overrides from
-    # the first training_motion node on the canvas (typically there is only
-    # one). Per-item path was already overridden inline above. Field name
-    # ``rc.amp_helper_overrides`` preserved for downstream callers.
-    first_tm_overrides = next(iter(overrides_by_tm.values()), {})
-    if first_tm_overrides:
-        rc.amp_helper_overrides = dict(first_tm_overrides)
-        rc.terms = _apply_overrides(rc.terms, first_tm_overrides)
 
     spec.rewards = rc
 
@@ -893,14 +1175,24 @@ def _populate_terminations(
     n = by_id.get("terminations")
     if n is None:
         return
-    spec.terminations = TerminationConfig(
+    conditions = dict(_as_json(_p(n, "termination_conditions"), {}))
+    tc = TerminationConfig(
         backend=canvas_backend_kind,
-        conditions=dict(_as_json(_p(n, "termination_conditions"), {})),
+        conditions=conditions,
         curriculum_enabled=_as_bool(_p(n, "termination_curriculum_enabled"), False),
         curriculum_start=_as_float(_p(n, "termination_curriculum_start"), 0.18),
         curriculum_end=_as_float(_p(n, "termination_curriculum_end"), 0.22),
         curriculum_ramp_iters=_as_int(_p(n, "termination_curriculum_ramp_iters"), 500),
     )
+    _collect_variant_sources(
+        conditions,
+        kind="termination",
+        backend=canvas_backend_kind,
+        overrides=tc.inline_source_overrides,
+        il_params_overrides=tc.il_params_overrides,
+        robot_sku=getattr(spec.robot, "sku", "") or None,
+    )
+    spec.terminations = tc
 
 
 def _resolve_training_items(
@@ -1148,15 +1440,6 @@ def _populate_il(
             reward_clamp_per_step=_as_float(_p(disc, "reward_clamp_per_step"), 50.0),
             policy_std_clamp_max=_as_float(_p(disc, "policy_std_clamp_max"), 1.5),
         )
-    # AMP helper data moved onto the training_motion node's ``reward_analysis``
-    # JSON blob (amp_helper pass-through node deleted). Pick the first
-    # training_motion node — single-canvas convention is one motion node.
-    tm_node = next((n for n in by_id.values() if n.schema_id == "training_motion"), None)
-    if tm_node is not None:
-        blob = _as_json(_p(tm_node, "reward_analysis"), {}) or {}
-        if isinstance(blob, dict):
-            il.amp.helper_analysis_result = blob.get("analysis_result", [])
-            il.amp.helper_applied_overrides = blob.get("applied_overrides", {})
     spec.il = il
 
 
@@ -1184,8 +1467,11 @@ def _populate_domain_rand(
             enabled=_as_bool(_p(n, "enabled"), True),
             mass_range=_as_pair(_p(n, "mass_range"), (0.8, 1.2)),
             friction_range=_as_pair(_p(n, "friction_range"), (0.5, 1.5)),
-            motor_strength_range=_as_pair(_p(n, "motor_strength_range"), (0.9, 1.1)),
-            joint_damping_range=_as_pair(_p(n, "joint_damping_range"), (0.95, 1.05)),
+            # Stage H — read the new fields. Legacy canvases with
+            # motor_strength_range / joint_damping_range raise via the
+            # R_DR1 check in spec_validator (fail-loud per §1.8).
+            omega_n_log_uniform=_as_pair(_p(n, "omega_n_log_uniform"), (0.8, 1.25)),
+            zeta_log_uniform=_as_pair(_p(n, "zeta_log_uniform"), (0.9, 1.11)),
             obs_noise_std=_as_float(_p(n, "obs_noise_std"), 0.01),
             push_robot=_as_bool(_p(n, "push_robot"), False),
             push_interval_steps=_as_int(_p(n, "push_interval_steps"), 200),

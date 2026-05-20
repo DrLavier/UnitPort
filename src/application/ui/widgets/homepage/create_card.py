@@ -185,6 +185,11 @@ def _template_icon_spec(template: "Template") -> tuple:
         if "PPO" in title:
             return (icon, "misc_4")
         return (icon, "misc_3")
+    if title.startswith("H1"):
+        # H1_PPO inherits the (humanoid, misc_3) tint G1_AMP used before it
+        # was retired — keeps the homepage grid visually anchored to a
+        # warm-humanoid slot in the row G1_AMP previously occupied.
+        return ("icon_humanoid", "misc_3")
     return ("", None)
 
 
@@ -374,6 +379,15 @@ class HomepageCreateCanvas(HomepageCard):
         # construction time — see _build_canvas_inputs — so no separate
         # populator runs here).
         self._populate_existing_projects()
+        # Default the mode to "To Project" whenever the user already has at
+        # least one project on disk — the common path for return visits is
+        # adding a canvas to an existing project, not spinning up a brand
+        # new one. Only fall back to "New Project" when the store is empty.
+        if self._store.snapshot():
+            self._mode_switch.setCurrentKey(
+                "homepage.create.mode_existing", animated=False, emit=False,
+            )
+            self._set_mode(_MODE_EXISTING)
         self._populate_templates(self._current_backend())
         self._apply_create_theme()
 
@@ -437,7 +451,7 @@ class HomepageCreateCanvas(HomepageCard):
         self._name_edit.setFixedHeight(35)
         self._name_edit.setPlaceholderText(tr(
             "homepage.create.placeholder_name",
-            "e.g. quadruped_demo (letters, digits, _ and -)",
+            "New Project Name",
         ))
         self._name_edit.textEdited.connect(self._on_name_edited)
         self._project_stack.addWidget(self._name_edit)
@@ -703,10 +717,17 @@ class HomepageCreateCanvas(HomepageCard):
         used_rows = preset_rows + (1 if blank is not None else 0)
         self._grid_layout.setRowStretch(used_rows, 1)
 
-        first = self._template_cards[0] if self._template_cards else None
-        if first is not None:
-            self._selected_key = first.key()
-            first.set_selected(True)
+        # Default to Go2_PPO when present (the canonical quadruped PPO
+        # quickstart), otherwise fall back to the first card so the
+        # picker always has something selected.
+        default_card = next(
+            (c for c in self._template_cards
+             if c.template().title == "Go2_PPO"),
+            self._template_cards[0] if self._template_cards else None,
+        )
+        if default_card is not None:
+            self._selected_key = default_card.key()
+            default_card.set_selected(True)
         else:
             self._selected_key = ""
         self._apply_create_theme()
@@ -873,7 +894,7 @@ class HomepageCreateCanvas(HomepageCard):
     def _retranslate(self) -> None:
         self._name_edit.setPlaceholderText(tr(
             "homepage.create.placeholder_name",
-            "e.g. quadruped_demo (letters, digits, _ and -)",
+            "New Project Name",
         ))
         self._canvas_name_edit.setPlaceholderText(tr(
             "homepage.create.placeholder_canvas", "e.g. main"

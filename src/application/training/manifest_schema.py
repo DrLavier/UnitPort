@@ -187,11 +187,45 @@ def validate_manifest(raw: Dict[str, Any], bundle_path: Optional[Path] = None) -
                     f"{canonical!r}). Use registers.robots.list_skus() to "
                     f"enumerate available robots."
                 )
-            elif isinstance(num_joints, int) and rs.num_joints != num_joints:
-                invalid["robot.num_joints"] = (
-                    f"manifest declares num_joints={num_joints} but registry "
-                    f"says robot {canonical!r} has {rs.num_joints} joints"
-                )
+            else:
+                # Cross-format-aware joint-count check.
+                # ``rs.num_joints`` uses ``preferred_format`` which is
+                # ambiguous for robots with both MJCF and USD declared
+                # (e.g. G1: MJCF=29-DOF stock variant, USD=43-DOF with
+                # hands). The bundle's manifest.robot.num_joints reflects
+                # whatever format the bundle was trained against; the
+                # registry value to compare against is the matching
+                # format, not preferred_format.
+                #
+                # Resolution: the bundle's num_joints must equal AT LEAST
+                # ONE of the robot's per-format counts. Falling back to
+                # ``rs.num_joints`` (preferred_format) would re-introduce
+                # the bug where a USD-trained bundle gets rejected because
+                # MJCF happens to be the preferred fallback.
+                if isinstance(num_joints, int):
+                    candidates: list[int] = []
+                    joints_pf = (
+                        getattr(rs, "joints_per_format", {}) or {}
+                    )
+                    for fmt in ("MJCF", "USD", "URDF"):
+                        block = joints_pf.get(fmt)
+                        if isinstance(block, dict) and block:
+                            candidates.append(len(block))
+                    # Legacy path: rs.num_joints from preferred_format.
+                    # Only kept as a candidate so single-format robots
+                    # still match the historical check.
+                    if rs.num_joints:
+                        candidates.append(int(rs.num_joints))
+                    if candidates and num_joints not in candidates:
+                        invalid["robot.num_joints"] = (
+                            f"manifest declares num_joints={num_joints} "
+                            f"but registered robot {canonical!r} has no "
+                            f"per-format table with that joint count "
+                            f"(available: {sorted(set(candidates))}). "
+                            f"The bundle's trained joint set does not "
+                            f"correspond to any declared asset variant "
+                            f"of this SKU."
+                        )
         except ImportError as exc:
             # ``registers.robots`` is part of the deployable RELEASE; its
             # absence at validate time is a deployment bug, not a test-stub

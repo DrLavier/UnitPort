@@ -1,0 +1,25 @@
+[default]
+invert_vy = Inverser vy
+invert_vyaw = Inverser vyaw
+reset = Réinitialiser
+off_hint = Entrée désactivée. Choisissez Clavier ou Manette ci-dessus.
+
+[mode]
+off = Désactivé
+keyboard = Clavier
+gamepad = Manette
+
+[mode_btn]
+off = Désactivé
+keyboard = Clavier
+gamepad = Manette
+
+[kb]
+forward = Avancer
+backward = Reculer
+strafe_left = Déplacement gauche
+strafe_right = Déplacement droite
+yaw_left = Lacet gauche
+yaw_right = Lacet droit
+estop = Arrêt d'urgence
+boost = Boost

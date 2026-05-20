@@ -16,7 +16,7 @@ get ``task_tag = ""`` (untagged).
 
 I/O note: this module reads ``motion_labels.yaml`` files that may live
 either in factory packs (``registers/data/motions/``) or in user-supplied
-directories (``~/UnitPort/motions/``). Both are explicit user-handed
+directories (``<USER_CONFIG_DIR>/motions/``). Both are explicit user-handed
 paths, so reading them directly via ``open()`` here stays consistent
 with the SDK contract (DataManager handles in-process project I/O; this
 is plain text-file inspection of arbitrary user paths).

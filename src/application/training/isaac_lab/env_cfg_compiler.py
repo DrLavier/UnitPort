@@ -730,6 +730,12 @@ class UnitportWeightedVelocityCommandCfg(_UnitportWVCommandTermCfg):
     class_type: type = UnitportWeightedVelocityCommand
 
     asset_name: str = "robot"
+    # Articulation root body name — recorded in env.yaml so the deploy
+    # manifest_parser can resolve the base link without a silent fallback
+    # (CLAUDE.md §1.8). Compiler emits this from
+    # RobotSpec.bodies_role_map_for(active_format) by finding the body
+    # whose ir_role == "base".
+    body_name: str = ""
     # items / initial_weights are emitted by the compiler — None defaults
     # exist only so a stand-alone Python import of this generated file
     # doesn't blow up on dataclass evaluation order.
@@ -1009,11 +1015,31 @@ class IsaacLabConfigCompiler:
         # any per-item ``reward_in__<item_id>`` edge — drives ``compile()``
         # to emit the item-mask helper preamble.
         self._needs_item_mask_helper: bool = False
+        # Stashed by ``_compile_pd_payload_for_emit`` when an ActuatorPDNode
+        # is wired; surfaced into deploy_meta.json so the bundle finalizer
+        # can stamp pd_param + derived PhysX gains into deploy_contract
+        # without re-deriving from env.yaml. Shape:
+        #     {"pd_param": {...}, "physx_gains": {...}}  (see Stage D)
+        self._stashed_pd_meta: Optional[Dict[str, Any]] = None
         self._parse()
 
     @property
+    def _active_format(self) -> str:
+        """The asset format this compile run targets (MJCF / USD / URDF).
+
+        Comes from ``RobotSpecRef.active_format`` (set by
+        ``spec_compiler._populate_robot`` from the canvas Robot node's
+        ``active_override`` + canvas backend preference). Empty string
+        when no spec is bound — emit sites fall back to the registry's
+        preferred_format via BodyIRMapper's auto-pick.
+        """
+        if self._robot is None:
+            return ""
+        return str(getattr(self._robot, "active_format", "") or "")
+
+    @property
     def _joint_ir_resolver(self):
-        """Lazy :class:`JointIRResolver` for the bound robot.
+        """Lazy :class:`JointIRResolver` for the bound robot + active format.
 
         Returns None when ``self._robot`` is None — emit sites detect this
         and either raise (if user-set joint dict needs translation) or fall
@@ -1024,9 +1050,51 @@ class IsaacLabConfigCompiler:
         cache = getattr(self, "_joint_ir_resolver_cache", None)
         if cache is None:
             from application.training.joint_ir import JointIRResolver
-            cache = JointIRResolver(self._robot)
+            cache = JointIRResolver(self._robot, active_format=self._active_format or None)
             self._joint_ir_resolver_cache = cache
         return cache
+
+    def _resolve_base_body_name(self) -> str:
+        """Look up the articulation root link name for the bound robot.
+
+        Reads :class:`RobotSpec`'s ``bodies_role_map_for(active_format)``
+        and returns the body whose ``ir_role`` matches an articulation-root
+        alias. Tries ``base`` first (the conventional quadruped/wheeled
+        slot), then falls back through the biped/humanoid root aliases
+        ``pelvis`` / ``torso`` / ``trunk`` / ``body`` — same set the
+        compiler already treats as canonical articulation roots in
+        ``_canonical_roles`` (§3193). The auto-suggester
+        (``body_ir._suggest_role_id``) deliberately routes biped pelvis
+        links to ``ir_role='pelvis'`` rather than collapsing them to
+        ``'base'``, so this method must understand the per-family
+        articulation-root vocabulary instead of demanding the literal
+        ``'base'`` string. Raises when no candidate matches.
+        """
+        if self._robot is None:
+            raise RuntimeError(
+                "[env_cfg_compiler] cannot resolve base body name — no "
+                "RobotSpec bound. Pass robot=spec.robot to "
+                "compile_env_cfg_to_file (CLAUDE.md §1.8)."
+            )
+        fmt = self._active_format or "MJCF"
+        bodies = self._robot.bodies_role_map_for(fmt)
+        # Quadruped / wheeled: literal 'base'. Biped/humanoid: 'pelvis'
+        # is the natural articulation root (G1, H1). Other community
+        # robots use 'torso' (trunk-rooted humanoids) or 'body' (Spot).
+        root_aliases = ("base", "pelvis", "torso", "trunk", "body")
+        by_role: Dict[str, str] = {}
+        for body_name, ir_role in bodies.items():
+            by_role.setdefault(str(ir_role), str(body_name))
+        for alias in root_aliases:
+            if alias in by_role:
+                return by_role[alias]
+        raise RuntimeError(
+            f"[env_cfg_compiler] robot {self._robot.sku!r} has no body "
+            f"mapped to any articulation-root ir_role "
+            f"({', '.join(root_aliases)}) in format {fmt!r}. Fix the "
+            f"robot entry in registers/data/robots_canonical.json — "
+            f"exactly one body must declare an articulation-root ir_role."
+        )
 
     def _parse(self) -> None:
         # RELEASE canvas dict shape (CanvasPage.to_workflow_dict / canvas .json):
@@ -1204,7 +1272,7 @@ class IsaacLabConfigCompiler:
                 reason=(
                     f"training_item {item_id!r} not found in registers.commands. "
                     f"Either fix the id, or add a custom item to "
-                    f"~/UnitPort/registers/commands_custom.json."
+                    f"<USER_CONFIG_DIR>/registers/commands_custom.json."
                 ),
             )
 
@@ -1357,7 +1425,11 @@ class IsaacLabConfigCompiler:
         """Read a string param. Canvas → manifest default → raise.
 
         Coerces native int/float/bool to str so callers that ``.strip()`` /
-        ``.lower()`` etc. don't blow up on a numeric.
+        ``.lower()`` etc. don't blow up on a numeric. JSON-typed params
+        (dict / list values that canvas widgets wrote as native Python
+        objects, e.g. ``joint_pose_table`` widget writes a dict) serialise
+        through ``json.dumps`` so downstream ``json.loads`` callers get
+        valid JSON — never Python repr with single quotes.
 
         - Canvas omits ``key`` → falls back to manifest schema default
           (via :meth:`_schema_default`).
@@ -1398,6 +1470,15 @@ class IsaacLabConfigCompiler:
                     reason="value is empty string — canvas wrote a blank",
                 )
             return v
+        if isinstance(v, (dict, list, tuple)):
+            # JSON-typed canvas param (joint_pose_table writes dict,
+            # range_list writes list of [lo, hi] pairs, etc.). The previous
+            # ``str(v)`` path produced Python repr ('single quotes') which
+            # broke every downstream ``json.loads`` — surfaced as
+            # JSONDecodeError on Spot's init_joint_angles dict written by
+            # the new JointPoseEditorDialog. Fixed 2026-05-19.
+            import json as _json
+            return _json.dumps(v)
         return str(v)
 
     def _pf(self, nid: str, key: str) -> float:
@@ -1434,6 +1515,76 @@ class IsaacLabConfigCompiler:
                 schema_id=self._types.get(nid, ""),
                 reason=f"value {raw!r} is not a valid int",
             ) from exc
+
+    def _resolve_play_ground_dt(self) -> tuple[float, float, int]:
+        """Resolve (sim_dt, control_dt, decimation) from canvas play_ground_setting.
+
+        Single source of truth for the IL timing triple — replaces two
+        callsites that previously each had:
+
+            sim_dt = 0.005
+            if pg_ids:
+                sim_dt = self._pf(pg_ids[0], "sim_dt") or 0.005
+            control_dt = 0.02
+            decimation = max(1, int(round(control_dt/sim_dt))) if sim_dt>0 else 4
+
+        That pattern silently substituted 5 ms + decimation 4 whenever the
+        canvas had no play_ground_setting node OR the user set sim_dt to
+        exactly 0 (CLAUDE.md §1.8 — a wrong sim_dt in env.yaml means the
+        exported bundle declares a control frequency the trained policy
+        never saw, producing twitching at deploy time).
+
+        Raises ``CanvasConfigError`` when:
+          * No play_ground_setting node on the canvas.
+          * Its sim_dt parameter is missing / non-positive.
+          * control_dt / sim_dt doesn't yield a positive integer
+            decimation (control_dt is the hardcoded IL 50 Hz target;
+            unusual sim_dt values like 0.025 produce decimation < 1).
+
+        Returns ``(sim_dt, control_dt, decimation)`` as ``(float, float, int)``.
+        ``control_dt`` is 0.02 (50 Hz) — pinned here, not canvas-configurable
+        yet; downstream emitters can override if a future canvas knob lands.
+        """
+        pg_ids = self._find_by_type("play_ground_setting")
+        if not pg_ids:
+            raise CanvasConfigError(
+                nid="",
+                key="sim_dt",
+                schema_id="play_ground_setting",
+                reason=(
+                    "play_ground_setting node is required on the canvas "
+                    "but is missing. The IL training pipeline needs its "
+                    "sim_dt to compute the env.yaml decimation; refusing "
+                    "to substitute 5 ms + decimation 4 defaults "
+                    "(CLAUDE.md §1.8)."
+                ),
+            )
+        sim_dt = self._pf(pg_ids[0], "sim_dt")
+        if sim_dt <= 0:
+            raise CanvasConfigError(
+                nid=pg_ids[0],
+                key="sim_dt",
+                schema_id="play_ground_setting",
+                reason=(
+                    f"sim_dt={sim_dt} must be > 0. The simulation timestep "
+                    f"drives env.yaml decimation; non-positive values would "
+                    f"silently substitute the 5 ms default."
+                ),
+            )
+        control_dt = 0.02  # IL pipeline-wide 50 Hz target (CLAUDE.md §1.10)
+        decimation = max(1, int(round(control_dt / sim_dt)))
+        if decimation < 1:
+            raise CanvasConfigError(
+                nid=pg_ids[0],
+                key="sim_dt",
+                schema_id="play_ground_setting",
+                reason=(
+                    f"sim_dt={sim_dt} too coarse: control_dt/sim_dt = "
+                    f"{control_dt / sim_dt} rounds to decimation < 1. "
+                    f"Pick sim_dt ≤ {control_dt}."
+                ),
+            )
+        return sim_dt, control_dt, decimation
 
     def _fan_in_order(self, dst_nid: str, dst_slot: str) -> List[str]:
         """Return source node IDs connected to a fan-in port, in edge order."""
@@ -1573,6 +1724,16 @@ class IsaacLabConfigCompiler:
 
         lines = self._header()
         lines += self._custom_reward_funcs()
+        # Stage 4: variant-aware termination + observation inline funcs.
+        # No-op when the canvas's termination / observation terms use
+        # only preset behaviour (the resolver returns no source). When a
+        # term carries a ``variant`` tag, the variant Python body is
+        # emitted here in place of the preset's il_inline, exactly
+        # parallel to the reward path. Family filter rejection
+        # (e.g. biped variant on quadruped robot) silently falls back
+        # to preset via _collect_variant_sources.
+        lines += self._custom_termination_funcs()
+        lines += self._custom_observation_funcs()
         # Reward × MotionPhase isolation — emit unitport_phase_mask helper
         # when at least one reward term declared applies_to. Wrapping a
         # reward func in unitport_phase_mask(base, phases) zeroes its
@@ -1702,8 +1863,15 @@ class IsaacLabConfigCompiler:
               }
             }
 
-        Only obs metadata lives here today. Actuator / sim / action data
-        is faithfully preserved by Isaac Lab's ``dump_yaml`` already
+        v2: also carries the canonical ``pd_param`` (omega_n, zeta per
+        group) and the compile-time-derived PhysX gains, when an
+        ActuatorPDNode is wired. The bundle finalizer (Stage F) reads
+        this to stamp ``pd_param`` + ``mujoco_pd_gains`` into
+        deploy_contract WITHOUT re-deriving from env.yaml (env.yaml
+        carries the PhysX dict only — its provenance source is here).
+
+        Otherwise: obs metadata. Actuator / sim / action data is
+        faithfully preserved by Isaac Lab's ``dump_yaml`` already
         (those fields aren't dropped to null), so the sidecar's purpose
         is strictly: recover what ``dump_yaml`` cannot.
 
@@ -1755,13 +1923,20 @@ class IsaacLabConfigCompiler:
                         if cfg.history_length is not None else None
                     ),
                 }
-        return {
+        out: Dict[str, Any] = {
             "schema_version": DEPLOY_META_SCHEMA_VERSION,
             "generated_by": "IsaacLabConfigCompiler",
             "generated_utc": datetime.now(timezone.utc).isoformat(),
             "num_joints": num_joints,
             "obs_groups": groups,
         }
+        # Stage D: pd_param + PhysX-derived gains for the bundle finalizer.
+        # The bundle finalizer (Stage F) reads ``unitport_pd_param`` from
+        # this sidecar and stamps the canonical (omega_n, zeta) source +
+        # both engines' derived arrays into deploy_contract.
+        if self._stashed_pd_meta is not None:
+            out["unitport_pd_param"] = self._stashed_pd_meta
+        return out
 
     # ------------------------------------------------------------------
     # Code generation sections
@@ -1893,6 +2068,20 @@ class IsaacLabConfigCompiler:
         # lookup — the old flat UNIFIED_REGISTRY was removed because
         # cross-kind key collisions (e.g. reward and termination both
         # naming "base_height") silently dropped inline blocks.
+        #
+        # Variant injection (Stage 4): when a term payload carries a
+        # ``variant`` tag (see application.compiler.term_payload) the
+        # resolver's user variant source replaces the registry preset's
+        # ``il_inline``. The function name inside the variant must match
+        # the preset's ``il_func`` — otherwise the RewTerm references in
+        # the generated env_cfg still point at the preset name and would
+        # call the wrong (or missing) function.
+        try:
+            from application.compiler.term_payload import parse_term_payload
+            from application.service.scripts import resolver as _resolver
+        except Exception:                                         # noqa: BLE001
+            parse_term_payload = None                              # type: ignore[assignment]
+            _resolver = None                                       # type: ignore[assignment]
         emitted_funcs: set = set()
         inline_blocks: list = []
         for rid in rew_ids:
@@ -1902,14 +2091,33 @@ class IsaacLabConfigCompiler:
                 continue
             if not isinstance(reward_terms, dict):
                 continue
-            for func_key in reward_terms:
+            for func_key, payload in reward_terms.items():
                 item = lookup(func_key, kind="reward", backend=BACKEND_ISAAC)
                 if item is None or not item.il_inline:
                     continue
                 if item.il_func in emitted_funcs:
                     continue
+                # Pull variant source when one is selected; else preset.
+                source = item.il_inline
+                if parse_term_payload is not None and _resolver is not None:
+                    try:
+                        _, variant, _ = parse_term_payload(payload)
+                    except Exception:                             # noqa: BLE001
+                        variant = None
+                    if variant:
+                        resolved = _resolver.resolve(
+                            "reward", func_key,
+                            variant=variant, backend=BACKEND_ISAAC,
+                            robot_sku=(self._robot.sku if self._robot is not None else None),
+                        )
+                        if (
+                            resolved is not None
+                            and resolved.origin in ("user_variant", "system_variant")
+                            and resolved.source
+                        ):
+                            source = resolved.source
                 emitted_funcs.add(item.il_func)
-                inline_blocks.append(item.il_inline)
+                inline_blocks.append(source)
 
         if not inline_blocks:
             return []
@@ -1923,6 +2131,101 @@ class IsaacLabConfigCompiler:
             lines.append(block)
         lines.append("")
         return lines
+
+    def _custom_funcs_for_kind(
+        self, *, kind: str, node_type: str, terms_param_key: str,
+        section_title: str,
+    ) -> List[str]:
+        """Generic emit pass shared by termination + observation variants.
+
+        Mirrors :meth:`_custom_reward_funcs` but for an arbitrary kind.
+        Walks every node of ``node_type`` on the canvas; for each entry
+        in its ``terms_param_key`` dict, looks up the preset's
+        ``il_inline`` and (if a variant tag is present) swaps in the
+        variant source. Deduplicates by ``item.il_func`` so multiple
+        canvas nodes referencing the same key don't double-emit.
+
+        ``kind`` is the resolver kind tag ("termination" / "observation"
+        — never "reward"; reward has its own method to keep its hot
+        path inlined). Returns empty list when no node carries inline
+        funcs (preset-only canvas).
+        """
+        from application.training.isaac_lab.task_module_registry import lookup, BACKEND_ISAAC
+
+        node_ids = self._find_by_type(node_type)
+        if not node_ids:
+            return []
+        try:
+            from application.compiler.term_payload import parse_term_payload
+            from application.service.scripts import resolver as _resolver
+        except Exception:                                         # noqa: BLE001
+            parse_term_payload = None                              # type: ignore[assignment]
+            _resolver = None                                       # type: ignore[assignment]
+        emitted_funcs: set = set()
+        inline_blocks: list = []
+        for nid in node_ids:
+            try:
+                terms = self._parse_json_param(nid, terms_param_key)
+            except Exception:
+                continue
+            if not isinstance(terms, dict):
+                continue
+            for func_key, payload in terms.items():
+                item = lookup(func_key, kind=kind, backend=BACKEND_ISAAC)
+                if item is None or not item.il_inline:
+                    continue
+                if item.il_func in emitted_funcs:
+                    continue
+                source = item.il_inline
+                if parse_term_payload is not None and _resolver is not None:
+                    try:
+                        _, variant, _ = parse_term_payload(payload)
+                    except Exception:                             # noqa: BLE001
+                        variant = None
+                    if variant:
+                        resolved = _resolver.resolve(
+                            kind, func_key,
+                            variant=variant, backend=BACKEND_ISAAC,
+                            robot_sku=(self._robot.sku if self._robot is not None else None),
+                        )
+                        if (
+                            resolved is not None
+                            and resolved.origin in ("user_variant", "system_variant")
+                            and resolved.source
+                        ):
+                            source = resolved.source
+                emitted_funcs.add(item.il_func)
+                inline_blocks.append(source)
+
+        if not inline_blocks:
+            return []
+        lines = [
+            "# " + "=" * 70,
+            f"# UnitPort inline {section_title} (not in standard Isaac Lab)",
+            "# " + "=" * 70,
+        ]
+        for block in sorted(inline_blocks):
+            lines.append(block)
+        lines.append("")
+        return lines
+
+    def _custom_termination_funcs(self) -> List[str]:
+        """Variant-aware termination function emit pass (Stage 4)."""
+        return self._custom_funcs_for_kind(
+            kind="termination",
+            node_type="terminations",
+            terms_param_key="termination_conditions",
+            section_title="termination functions",
+        )
+
+    def _custom_observation_funcs(self) -> List[str]:
+        """Variant-aware observation function emit pass (Stage 4)."""
+        return self._custom_funcs_for_kind(
+            kind="observation",
+            node_type="il_observation",
+            terms_param_key="obs_terms",
+            section_title="observation functions",
+        )
 
     def _simulation_cfg_literal(self) -> str:
         """Return a one-line ``SimulationCfg(...)`` literal for *root* env_cfg.
@@ -1942,13 +2245,14 @@ class IsaacLabConfigCompiler:
         about this mismatch; fixing it at emit time is the right answer.
         """
         # Sim globals (dt / gpu_*) live on the Play Ground Setting node
-        # since the ILSimulationConfigNode merge. One source of truth.
+        # since the ILSimulationConfigNode merge. One source of truth —
+        # missing / non-positive sim_dt is a hard error (see
+        # ``_resolve_play_ground_dt`` for the rationale + ban on 5 ms +
+        # decimation 4 silent defaults). The helper guarantees
+        # ``play_ground_setting`` exists, so the rest of this function
+        # can safely index ``pg_ids[0]``.
+        sim_dt, control_dt, decimation = self._resolve_play_ground_dt()
         pg_ids = self._find_by_type("play_ground_setting")
-        sim_dt = 0.005
-        if pg_ids:
-            sim_dt = self._pf(pg_ids[0], "sim_dt") or 0.005
-        control_dt = 0.02
-        decimation = max(1, int(round(control_dt / sim_dt))) if sim_dt > 0 else 4
 
         # Build the RenderCfg literal: keep Isaac Lab's "balanced" default
         # quality (shadows, AA, ambient occlusion, direct lighting), but
@@ -1969,11 +2273,6 @@ class IsaacLabConfigCompiler:
             ")"
         )
 
-        if not pg_ids:
-            return (
-                f"SimulationCfg(dt={sim_dt}, render_interval={decimation}, "
-                f"render={render_literal})"
-            )
         pid = pg_ids[0]
         dt = self._pf(pid, "sim_dt")
         gz = self._pf(pid, "gravity_z")
@@ -2092,27 +2391,57 @@ class IsaacLabConfigCompiler:
             lines.append(f"    )")
 
         # Robot
-        # Actuator config now flows from ActorSettingNode — the old
-        # ILActuatorConfigNode was a duplicate data source and has
-        # been deleted. ActorSetting carries stiffness / damping /
-        # effort_limit / velocity_limit as scalar defaults for ALL
-        # joints; per-joint-group overrides can be added later via a
-        # dedicated "Actuator Override" node if the product needs it.
+        # Actuator config — canonical (omega_n, zeta) PD parameterization
+        # via the ActuatorPDNode, with PhysX-side gains derived at compile
+        # time (kp = omega_n^2, kd = 2*zeta*omega_n; PhysX renormalizes by
+        # articulation inertia internally). Falls back to the legacy
+        # ActorSettingNode scalar path when no actuator_pd node is wired.
+        # The fallback is a one-release back-compat bridge — RELEASE/CLAUDE.md
+        # §1.8 (c) on-disk legacy compat — and emits a WARN at compile time.
         actuator_lines = []
         actor_ids_for_actuators = self._find_by_type("actor_setting")
+        # PD config now lives on RobotNode (merged from the short-lived
+        # ActuatorPDNode in May 2026 — the pd_groups / pd_param_mode /
+        # pd_effort_limit / ... fields all live on robot now).
+        robot_ids_for_pd = self._find_by_type("robot")
         if actor_ids_for_actuators:
             aid = actor_ids_for_actuators[0]
-            kp = self._pf(aid, "stiffness")
-            kd = self._pf(aid, "damping")
-            eff = self._pf(aid, "effort_limit")
-            vel = self._pf(aid, "velocity_limit")
             cfg_cls = self._actuator_cfg_class("implicit_pd")
-            actuator_lines.append(
-                f'            "legs": {cfg_cls}('
-                f'joint_names_expr=[".*"], '
-                f'stiffness={kp}, damping={kd}, '
-                f'effort_limit={eff}, velocity_limit={vel}),'
+
+            pd_payload = self._compile_pd_payload_for_emit(
+                actor_setting_node_id=aid,
+                actuator_pd_node_id=(robot_ids_for_pd[0] if robot_ids_for_pd else None),
             )
+            if pd_payload is not None:
+                kp_dict_repr, kd_dict_repr, eff, vel = pd_payload
+                actuator_lines.append(
+                    f'            "legs": {cfg_cls}('
+                    f'joint_names_expr=[".*"], '
+                    f'stiffness={kp_dict_repr}, damping={kd_dict_repr}, '
+                    f'effort_limit={eff}, velocity_limit={vel}),'
+                )
+            else:
+                # Legacy scalar path. WHY KEPT: one-release back-compat
+                # for canvases saved before the ActuatorPDNode landed
+                # (§1.8 c). Re-saving the canvas with an ActuatorPDNode
+                # graduates it onto the canonical path.
+                kp = self._pf(aid, "stiffness")
+                kd = self._pf(aid, "damping")
+                eff = self._pf(aid, "effort_limit")
+                vel = self._pf(aid, "velocity_limit")
+                log.warning(
+                    "[env_cfg_compiler] no ActuatorPDNode wired; emitting "
+                    "legacy scalar PD (kp=%s, kd=%s). Add an ActuatorPDNode "
+                    "and re-save the canvas to graduate onto the canonical "
+                    "(omega_n, zeta) parameterization.",
+                    kp, kd,
+                )
+                actuator_lines.append(
+                    f'            "legs": {cfg_cls}('
+                    f'joint_names_expr=[".*"], '
+                    f'stiffness={kp}, damping={kd}, '
+                    f'effort_limit={eff}, velocity_limit={vel}),'
+                )
 
         robot_ids = self._find_by_type("robot")
         if robot_ids:
@@ -2209,15 +2538,13 @@ class IsaacLabConfigCompiler:
                 px, py, pz = 0.0, 0.0, 0.4
                 contact = True
 
-            # Initial joint pose: user-supplied JSON from ActorSetting,
-            # else fall back to the canonical quadruped standing pose.
-            init_joint_pos = (
-                '{'
-                '".*_hip_joint": 0.0, '
-                '".*_thigh_joint": 0.9, '
-                '".*_calf_joint": -1.8'
-                '}'
-            )
+            # Initial joint pose: user-supplied JSON from ActorSetting or
+            # JointInitNode. CLAUDE.md §1.8: NO silent Go2-shaped fallback —
+            # an unspecified standing pose silently produces a buggy bundle
+            # the moment the robot isn't a 12-DoF hip/thigh/calf quadruped
+            # (Spot's 16-DoF ank-equipped legs being the canonical failure).
+            # Either the canvas explicitly declares angles for every IR
+            # role the robot exposes, or compile raises here.
             import json as _json
             # Priority: JointInitNode (delegate) > actor_setting fallback
             ji_ids = self._find_by_type("joint_init")
@@ -2229,46 +2556,132 @@ class IsaacLabConfigCompiler:
             if (not raw_angles or raw_angles == "{}") and actor_ids:
                 raw_angles = self._p(actor_ids[0], "init_joint_angles").strip()
                 source_node = "actor_setting.init_joint_angles"
-            if raw_angles and raw_angles != "{}":
-                try:
-                    parsed = _json.loads(raw_angles)
-                except Exception as exc:
-                    raise ValueError(
-                        f"\n[UnitPort][Compiler] Failed to parse {source_node} "
-                        f"as JSON: {exc!r}\n  Raw value: {raw_angles[:200]!r}"
-                    )
-                if isinstance(parsed, dict) and parsed:
-                    # Substrate-emit boundary (Phase 5 §IR-only contract):
-                    # canvas dict carries IR roles; Isaac Lab Articulation
-                    # ._process_cfg matches keys against the USD's actual joint
-                    # names (physical) → translate IR → physical here, at the
-                    # last mile, via the bound JointIRResolver. Validation
-                    # raises with a self-documenting error if any key is not
-                    # an IR role.
-                    resolver = self._joint_ir_resolver
-                    if resolver is None:
-                        raise ValueError(
-                            f"\n[UnitPort][Compiler] {source_node} has joint "
-                            f"entries but no robot is bound on the compiler. "
-                            f"This means IsaacLabConfigCompiler was constructed "
-                            f"without a RobotSpecRef — the IR→physical "
-                            f"translation cannot run. Pass robot=spec.robot to "
-                            f"IsaacLabConfigCompiler / compile_env_cfg_to_file."
+
+            if not raw_angles or raw_angles == "{}":
+                raise ValueError(
+                    "\n[UnitPort][Compiler] No initial joint angles declared on "
+                    "the canvas — add a JointInit node (preferred) or fill "
+                    "ActorSetting.init_joint_angles with one entry per IR role "
+                    "the selected robot exposes. The previous Go2-shaped "
+                    "regex default (`.*_hip_joint`/`.*_thigh_joint`/`.*_calf_joint`) "
+                    "was removed (CLAUDE.md §1.8) because it silently produced "
+                    "broken env.yaml for any non-Go2 morphology."
+                )
+
+            try:
+                parsed = _json.loads(raw_angles)
+            except Exception as exc:
+                raise ValueError(
+                    f"\n[UnitPort][Compiler] Failed to parse {source_node} "
+                    f"as JSON: {exc!r}\n  Raw value: {raw_angles[:200]!r}"
+                )
+            if not isinstance(parsed, dict) or not parsed:
+                raise ValueError(
+                    f"\n[UnitPort][Compiler] {source_node} must be a non-empty "
+                    f"JSON object mapping IR roles to angles (radians). Got: "
+                    f"{type(parsed).__name__!r}"
+                )
+
+            # Substrate-emit boundary (Phase 5 §IR-only contract):
+            # canvas dict carries IR roles; Isaac Lab Articulation
+            # ._process_cfg matches keys against the USD's actual joint
+            # names (physical) → translate IR → physical here, at the
+            # last mile, via the bound JointIRResolver. Validation
+            # raises with a self-documenting error if any key is not
+            # an IR role.
+            resolver = self._joint_ir_resolver
+            if resolver is None:
+                raise ValueError(
+                    f"\n[UnitPort][Compiler] {source_node} has joint "
+                    f"entries but no robot is bound on the compiler. "
+                    f"This means IsaacLabConfigCompiler was constructed "
+                    f"without a RobotSpecRef — the IR→physical "
+                    f"translation cannot run. Pass robot=spec.robot to "
+                    f"IsaacLabConfigCompiler / compile_env_cfg_to_file."
+                )
+            # CLAUDE.md §1.8 + canvas-derived-keys: validate that the
+            # canvas dict's IR-role keys match the authoritative set
+            # declared by the upstream Robot Node's SKU for the active
+            # format. Mismatch here means the canvas-side reconcile hooks
+            # (NodeItem.on_param_changed("asset_id") /
+            # page._connect_raw / page._disconnect_edge_by_id_raw) all
+            # failed to fire for this canvas. As a last-resort training
+            # gate we RECONCILE here (drop extra + fill missing with 0.0)
+            # with a WARN so the user sees what happened — better to let
+            # training run with a correct joint set than to block them
+            # on a canvas sync glitch.
+            # Exclude bucket roles (``misc`` / ``sensor*``) from init-pose
+            # reconcile: these are catch-all categories for cosmetic /
+            # not-actuated joints (Head_upper, base_white, IMU mounts,
+            # lidar mounts, ...) which (a) don't have a single canonical
+            # IR target for ``to_physical`` and (b) aren't part of the
+            # policy's action space. Including them here would force a
+            # bogus 0.0 entry that ``to_physical_dict`` then rightly
+            # rejects as a non-IR key.
+            required_ir_roles = [
+                r for r in self._robot.joint_ir_roles_for(self._active_format or "USD")
+                if r != "misc" and not str(r).startswith("sensor")
+            ]
+            required_set = set(required_ir_roles)
+            provided_set = set(str(k) for k in parsed.keys())
+            missing_ir = sorted(required_set - provided_set)
+            extra_ir = sorted(provided_set - required_set)
+            if missing_ir or extra_ir:
+                log.warning(
+                    "[env_cfg_compiler] %s out-of-sync with upstream "
+                    "Robot Node SKU=%r (format=%r): missing=%s extra=%s. "
+                    "Reconciling at compile time (extra keys dropped, "
+                    "missing keys filled with 0.0) so training can "
+                    "proceed. The canvas-side reconcile hooks should "
+                    "have fired earlier — re-open + save the ActorSetting "
+                    "init_joint_angles editor to bake the reconcile into "
+                    "the canvas file.",
+                    source_node,
+                    self._robot.sku,
+                    self._active_format or "USD",
+                    missing_ir,
+                    extra_ir,
+                )
+                reconciled_parsed: Dict[str, float] = {}
+                for role in required_ir_roles:
+                    try:
+                        reconciled_parsed[role] = float(
+                            parsed.get(role, 0.0)
                         )
-                    physical = resolver.to_physical_dict(
-                        {str(k): float(v) for k, v in parsed.items()},
-                        where=source_node,
-                    )
-                    log.info(
-                        "[env_cfg_compiler] %s: IR→physical translation = %s",
-                        source_node,
-                        {ir: (resolver.to_physical(ir), physical[resolver.to_physical(ir)])
-                         for ir in parsed.keys()},
-                    )
-                    pairs = ", ".join(
-                        f'"{k}": {v}' for k, v in physical.items()
-                    )
-                    init_joint_pos = "{" + pairs + "}"
+                    except (TypeError, ValueError):
+                        reconciled_parsed[role] = 0.0
+                parsed = reconciled_parsed
+            physical = resolver.to_physical_dict(
+                {str(k): float(v) for k, v in parsed.items()},
+                where=source_node,
+            )
+            log.info(
+                "[env_cfg_compiler] %s: IR→physical translation = %s",
+                source_node,
+                {ir: (resolver.to_physical(ir), physical[resolver.to_physical(ir)])
+                 for ir in parsed.keys()},
+            )
+
+            # Validate every init joint angle is within the robot's
+            # physical joint limits. Isaac Lab's Articulation._validate_cfg
+            # also runs this check at launch and raises with the bare
+            # physical name, but by then the user has waited for sim
+            # bring-up. Catching it here lets us surface a Spot-specific
+            # actionable message ("knee range is [-2.793, -0.247], you
+            # have 0.0 — open ActorSetting.init_joint_angles") and avoids
+            # paying for an env reset that's doomed to fail.
+            # CLAUDE.md §1.8: skip silently only when MJCF is unavailable
+            # (no source-of-truth for ranges); otherwise FAIL LOUD.
+            self._validate_joint_pose_against_mjcf(
+                ir_to_physical={ir: resolver.to_physical(ir) for ir in parsed.keys()},
+                ir_to_angle={ir: float(v) for ir, v in parsed.items()},
+                source_node=source_node,
+            )
+
+            pairs = ", ".join(
+                f'"{k}": {v}' for k, v in physical.items()
+            )
+            init_joint_pos = "{" + pairs + "}"
 
             lines.append(f"    num_envs = {n_envs}")
             lines.append(f"    env_spacing = {spacing}")
@@ -2613,8 +3026,16 @@ class IsaacLabConfigCompiler:
             resample = self._p(cid, "resampling_time_range")
             rel_standing = self._pf(cid, "zero_command_probability")
             cmd_step_change_prob = self._pf(cid, "cmd_step_change_prob")
+            # CLAUDE.md §1.8: emit body_name so env.yaml records the
+            # articulation root link. Without this the deploy manifest_parser
+            # used to silently default to "base", which is wrong for any
+            # robot whose root body isn't literally named "base" (Spot uses
+            # "body"). Resolved from the bound RobotSpec's
+            # bodies_role_map_for(active_format) by finding ir_role == "base".
+            base_body = self._resolve_base_body_name()
             lines.append("    base_velocity = UnitportWeightedVelocityCommandCfg(")
             lines.append('        asset_name="robot",')
+            lines.append(f"        body_name={base_body!r},")
             lines.append(f"        items={items!r},")
             lines.append(f"        initial_weights={initial_weights!r},")
             lines.append(f"        rel_standing_envs={rel_standing},")
@@ -2935,19 +3356,41 @@ class IsaacLabConfigCompiler:
             #      add_base_mass in _events_cfg.
             lines.append(f"    illegal_contact = DoneTerm(")
             lines.append(f"        func=mdp.illegal_contact,")
-            # Resolve via joints_mapping IR — base + thigh + calf bodies are
-            # the canonical "illegal contact" set for quadrupeds.  Calf is
-            # included so the "elbow drop" failure mode (lower leg used as a
-            # ground crutch to fake stability reward) terminates the episode
-            # instead of just incurring a small undesired_contacts penalty.
-            # If the mapper returns nothing (no Robot node body_mapping and
-            # no asset_id), fall back to a permissive regex covering both
-            # A1-style ("trunk") and Go2-style ("base") root naming.
-            ic_bodies = self._resolve_bodies("base", "thighs", "calves")
+            # Family-aware illegal-contact body set. The IR-role categories
+            # available differ per morphology, so we can't share a single
+            # tuple:
+            #   * quadruped / wheeled: base + thighs + calves. Calf is
+            #     included so the "elbow drop" failure mode (lower leg used
+            #     as a ground crutch to fake stability reward) terminates
+            #     the episode instead of just incurring a small
+            #     undesired_contacts penalty.
+            #   * biped / humanoid: upper body should never touch ground.
+            #     IL G1/H1 stock uses torso_link only (a tight signal); we
+            #     broaden slightly to torso + pelvis + waist + shoulders
+            #     so an arm-plant failure also terminates. Hips/knees/
+            #     ankles/feet are excluded — feet are designed to contact,
+            #     and knee/hip braced kneels are a recoverable state we
+            #     don't want to hard-terminate.
+            #   * generic: just the articulation root.
+            # Fallback regex when no robot is bound is intentionally narrow
+            # — favours base/torso/pelvis names that work across the
+            # families we ship; quadruped-specific thigh/calf wildcards
+            # were a Go2-only assumption that silently broke G1 (#2026-05).
+            families = set(getattr(self._robot, "families", []) or []) if self._robot is not None else set()
+            if families & {"biped", "humanoid"}:
+                ic_categories: Tuple[str, ...] = ("base", "torso", "pelvis", "waist", "shoulders")
+                fallback_re = '["torso.*", "pelvis", ".*shoulder.*"]'
+            elif families & {"quadruped", "wheeled"}:
+                ic_categories = ("base", "thighs", "calves")
+                fallback_re = '["(base|trunk)", ".*thigh", ".*calf"]'
+            else:
+                ic_categories = ("base",)
+                fallback_re = '["(base|trunk|torso|pelvis|body)"]'
+            ic_bodies = self._resolve_bodies(*ic_categories)
             if ic_bodies:
                 ic_expr = "[" + ", ".join(f'"{b}"' for b in ic_bodies) + "]"
             else:
-                ic_expr = '["(base|trunk)", ".*thigh", ".*calf"]'
+                ic_expr = fallback_re
             lines.append(
                 f"        params={{\"sensor_cfg\": SceneEntityCfg("
                 f"\"contact_forces\", body_names={ic_expr}), "
@@ -3163,13 +3606,10 @@ class IsaacLabConfigCompiler:
         #   episode_length  : terminations.termination_conditions["time_out"]
         #                     when present, else 20.0s default
 
-        # Sim dt → decimation
-        sim_dt = 0.005
-        pg_ids = self._find_by_type("play_ground_setting")
-        if pg_ids:
-            sim_dt = self._pf(pg_ids[0], "sim_dt") or 0.005
-        control_dt = 0.02   # 50 Hz — matches Isaac Lab Go2 default
-        decimation = max(1, int(round(control_dt / sim_dt))) if sim_dt > 0 else 4
+        # Sim dt → decimation. Single source of truth via
+        # ``_resolve_play_ground_dt`` — refuses silently substituting
+        # 5 ms + decimation 4 when sim_dt is missing / non-positive.
+        sim_dt, control_dt, decimation = self._resolve_play_ground_dt()
 
         # Episode length → from the time_out termination value. Strict:
         # ``terminations`` node is mandatory (enforced upstream in
@@ -3427,6 +3867,284 @@ class IsaacLabConfigCompiler:
     # Helpers
     # ------------------------------------------------------------------
 
+    def _validate_joint_pose_against_mjcf(
+        self,
+        *,
+        ir_to_physical: Dict[str, str],
+        ir_to_angle: Dict[str, float],
+        source_node: str,
+    ) -> None:
+        """Raise if any IR-role init angle is outside the MJCF joint range.
+
+        Only fires when the bound robot has an on-disk MJCF (the
+        canonical source of physical joint limits today; the registry
+        doesn't carry ranges yet). For USD-only robots, validation is
+        skipped with a WARN — Isaac Lab's _validate_cfg still catches
+        the violation at launch, just with a less actionable error.
+
+        CLAUDE.md §1.8 conformance: this is fail-loud, not warn-and-fill.
+        The "0.0 fallback for missing IR roles" upstream produces the
+        most common violation (Spot's knee range [-2.793, -0.247] doesn't
+        contain 0); this validator turns the silent corruption into an
+        actionable compile-time error pointing at ActorSetting.
+        """
+        robot = self._robot
+        if robot is None:
+            return
+        sku = getattr(robot, "sku", "") or ""
+        if not sku:
+            return
+
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            asset = get_robot_asset_service().resolve(sku)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[env_cfg_compiler] joint-range validator: failed to "
+                "resolve RobotAsset for sku=%r (%s); skipping. Isaac "
+                "Lab's _validate_cfg will catch violations at launch.",
+                sku, exc,
+            )
+            return
+
+        mjcf = getattr(asset, "mjcf_path", None) if asset else None
+        if mjcf is None or not mjcf.is_file():
+            log.warning(
+                "[env_cfg_compiler] joint-range validator: robot sku=%r "
+                "has no on-disk MJCF (mjcf_path=%r); skipping init-pose "
+                "range check. Isaac Lab's _validate_cfg will surface any "
+                "limit violation at launch with the bare physical joint "
+                "name. Run 'Dump MJCF' from the Robot Asset card to "
+                "enable the compile-time check.",
+                sku, str(mjcf) if mjcf else None,
+            )
+            return
+
+        try:
+            import mujoco  # type: ignore
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[env_cfg_compiler] joint-range validator: mujoco import "
+                "failed (%s); skipping init-pose check.", exc,
+            )
+            return
+
+        try:
+            m = mujoco.MjModel.from_xml_path(str(mjcf))
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[env_cfg_compiler] joint-range validator: MJCF parse "
+                "failed for sku=%r at %r (%s); skipping check.",
+                sku, str(mjcf), exc,
+            )
+            return
+
+        # Index MJCF joints by name with their limits (only joints with
+        # limited=True carry a meaningful range; the rest accept any qpos).
+        mj_ranges: Dict[str, Tuple[float, float]] = {}
+        for ji in range(m.njnt):
+            jname = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, ji)
+            if not jname:
+                continue
+            if not bool(m.jnt_limited[ji]):
+                continue
+            lo, hi = float(m.jnt_range[ji][0]), float(m.jnt_range[ji][1])
+            mj_ranges[jname] = (lo, hi)
+
+        violations: List[str] = []
+        for ir, phys in ir_to_physical.items():
+            limits = mj_ranges.get(phys)
+            if limits is None:
+                continue  # joint is unlimited in MJCF, any qpos is legal
+            lo, hi = limits
+            angle = float(ir_to_angle.get(ir, 0.0))
+            if angle < lo or angle > hi:
+                violations.append(
+                    f"  • IR role {ir!r} (physical {phys!r}): "
+                    f"angle={angle:.4f} rad is outside MJCF range "
+                    f"[{lo:.4f}, {hi:.4f}]"
+                )
+
+        if violations:
+            raise ValueError(
+                "\n[UnitPort][Compiler] " + source_node + " has joint "
+                "angles outside the robot's MJCF limits:\n"
+                + "\n".join(violations) + "\n"
+                "\n"
+                "This usually means the canvas's ActorSetting.init_joint_angles "
+                "was auto-reconciled with the value 0.0 for IR roles the "
+                "previous robot didn't expose, and the current robot's "
+                "joint range doesn't include 0 (Spot's knee bends only "
+                "backward in [-2.793, -0.247] — 0.0 is out of range).\n"
+                "\n"
+                "Open ActorSetting.init_joint_angles in the canvas and set "
+                "a pose inside every joint's physical range, then re-launch. "
+                "Reference Spot pose: hip_x=±0.1, hip_y=0.9, knee=-1.55."
+            )
+
+    def _compile_pd_payload_for_emit(
+        self,
+        *,
+        actor_setting_node_id: str,
+        actuator_pd_node_id: Optional[str],   # historical kwarg name — now refers to robot node (PD merged there)
+    ) -> Optional[Tuple[str, str, float, float]]:
+        """Build the per-joint PhysX stiffness/damping dicts for emit.
+
+        Returns ``(stiffness_dict_python_literal, damping_dict_python_literal,
+        effort_limit, velocity_limit)`` when the robot node carries PD
+        params AND the robot is bound with joint info; ``None`` when the
+        caller should fall back to the legacy scalar emit path.
+
+        The ``actuator_pd_node_id`` kwarg name is kept for back-compat
+        but now points at the RobotNode (where the PD params live after
+        the May-2026 consolidation).
+
+        Side-effect: stashes pd_param + per-joint physx gains into
+        :attr:`_stashed_pd_meta` for the deploy_meta.json sidecar.
+        """
+        if actuator_pd_node_id is None:
+            return None
+        # When the RobotNode predates the PD merge, none of the pd_*
+        # params exist — fall back to legacy scalar emit.
+        if not any(self._p(actuator_pd_node_id, k) for k in (
+            "pd_groups", "pd_param_mode", "pd_effort_limit",
+        )):
+            return None
+        if self._robot is None:
+            log.warning(
+                "[env_cfg_compiler] ActuatorPDNode wired but no RobotSpecRef "
+                "is bound; cannot resolve joint physical names. Falling back "
+                "to legacy scalar emit."
+            )
+            return None
+        families = list(getattr(self._robot, "families", []) or [])
+        if not families:
+            log.warning(
+                "[env_cfg_compiler] ActuatorPDNode wired but robot has no "
+                "declared families; cannot pick PD group defaults. Falling "
+                "back to legacy scalar emit."
+            )
+            return None
+
+        try:
+            from application.physics.pd_param import PDParam
+            from application.physics.physx_gain_solver import solve as solve_physx
+            from application.training.joint_ir import JointIRResolver
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[env_cfg_compiler] failed to import physics helpers (%s); "
+                "falling back to legacy scalar emit.",
+                exc,
+            )
+            return None
+
+        primary_family = families[0]
+        try:
+            base = PDParam.from_family_defaults(primary_family)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[env_cfg_compiler] family=%r has no PD group defaults "
+                "(%s); falling back to legacy scalar emit.",
+                primary_family, exc,
+            )
+            return None
+
+        # Apply canvas overrides.
+        overrides_raw = self._p(actuator_pd_node_id, "pd_groups").strip()
+        overrides: Dict[str, Dict[str, float]] = {}
+        if overrides_raw and overrides_raw not in ("{}", ""):
+            try:
+                import json as _json
+                parsed = _json.loads(overrides_raw)
+                if isinstance(parsed, dict):
+                    overrides = {
+                        str(gid): dict(vals)
+                        for gid, vals in parsed.items()
+                        if isinstance(vals, dict)
+                    }
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "[env_cfg_compiler] actuator_pd.pd_groups JSON parse "
+                    "failed (%s); using family defaults only.", exc,
+                )
+        try:
+            pd_param = base.with_overrides(overrides) if overrides else base
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"[env_cfg_compiler] ActuatorPDNode pd_groups override "
+                f"rejected: {exc}"
+            ) from exc
+
+        # Resolve IR roles → physical names via the bound robot.
+        resolver = self._joint_ir_resolver
+        if resolver is None:
+            log.warning(
+                "[env_cfg_compiler] JointIRResolver unavailable; falling "
+                "back to legacy scalar emit."
+            )
+            return None
+        ir_roles = list(resolver._ir_to_physical.keys())   # public-ish: see joint_ir.py:115
+        if not ir_roles:
+            log.warning(
+                "[env_cfg_compiler] resolver carries no IR roles; falling "
+                "back to legacy scalar emit."
+            )
+            return None
+        physical = [resolver.to_physical(r) for r in ir_roles]
+
+        try:
+            gains = solve_physx(
+                joint_order_physical=physical,
+                joint_ir_roles=ir_roles,
+                pd_param=pd_param,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"[env_cfg_compiler] physx_gain_solver failed: {exc}"
+            ) from exc
+
+        # Per-joint dicts, emitted as Python literal for ImplicitActuatorCfg.
+        # Sort by physical name so the emit is deterministic across runs.
+        kp_pairs = sorted(zip(physical, gains.kp))
+        kd_pairs = sorted(zip(physical, gains.kd))
+        kp_dict_repr = "{" + ", ".join(
+            f'"{name}": {float(v):.6g}' for name, v in kp_pairs
+        ) + "}"
+        kd_dict_repr = "{" + ", ".join(
+            f'"{name}": {float(v):.6g}' for name, v in kd_pairs
+        ) + "}"
+
+        eff = self._pf(actuator_pd_node_id, "pd_effort_limit")
+        vel = self._pf(actuator_pd_node_id, "pd_velocity_limit")
+
+        # Stash for deploy_meta sidecar.
+        self._stashed_pd_meta = {
+            "pd_param": pd_param.to_dict(),
+            "physx_gains": gains.to_dict(),
+            "primary_family": primary_family,
+            "resolve_at_reset": self._pi_bool(actuator_pd_node_id, "pd_resolve_at_reset", True),
+            "calibration_blocking": self._pi_bool(actuator_pd_node_id, "pd_calibration_blocking", True),
+            "skip_calibration": self._pi_bool(actuator_pd_node_id, "pd_skip_calibration", False),
+            "effort_limit": float(eff),
+            "velocity_limit": float(vel),
+        }
+
+        return kp_dict_repr, kd_dict_repr, float(eff), float(vel)
+
+    def _pi_bool(self, nid: str, key: str, default: bool) -> bool:
+        """Read a bool parameter; tolerant of "true"/"false"/"True" strings."""
+        raw = self._p(nid, key)
+        if isinstance(raw, bool):
+            return raw
+        s = str(raw).strip().lower()
+        if s in ("true", "1", "yes"):
+            return True
+        if s in ("false", "0", "no", ""):
+            return False
+        return default
+
     @staticmethod
     def _actuator_cfg_class(model: str) -> str:
         _map = {
@@ -3478,6 +4196,55 @@ class IsaacLabConfigCompiler:
         item = lookup(func_key, kind="reward", backend=BACKEND_ISAAC)
         return item.il_func if (item and item.il_func) else func_key
 
+    def _lookup_variant_il_params(
+        self,
+        nid: str,
+        terms_param_key: str,
+        kind: str,
+        func_key: str,
+    ) -> Optional[str]:
+        """Return the variant's ``il_params`` template, or None.
+
+        Reads the canvas node's ``terms_param_key`` dict, finds the
+        payload for ``func_key``, extracts the ``variant`` tag, and
+        consults the resolver. Returns ``meta.il_params_override`` when
+        a user/system variant is resolved AND declared one; otherwise
+        None (caller falls back to preset il_params).
+
+        Family filter is enforced via ``robot_sku`` — a variant pinned
+        to a family that doesn't match the bound robot returns None
+        and the caller uses preset, exactly like
+        ``_collect_variant_sources`` in spec_compiler.
+        """
+        try:
+            from application.compiler.term_payload import parse_term_payload
+            from application.service.scripts import resolver as _resolver
+        except Exception:                                         # noqa: BLE001
+            return None
+        try:
+            terms = self._parse_json_param(nid, terms_param_key)
+        except Exception:                                         # noqa: BLE001
+            return None
+        if not isinstance(terms, dict):
+            return None
+        payload = terms.get(func_key)
+        if payload is None:
+            return None
+        try:
+            _, variant, _ = parse_term_payload(payload)
+        except Exception:                                         # noqa: BLE001
+            return None
+        if not variant:
+            return None
+        resolved = _resolver.resolve(
+            kind, func_key, variant=variant,
+            backend="isaac_lab",
+            robot_sku=(self._robot.sku if self._robot is not None else None),
+        )
+        if resolved is None:
+            return None
+        return resolved.il_params_override or None
+
     def _reward_extra_params(self, nid: str, func_key: str) -> str:
         """Build the ``params={...}`` kwarg string for a RewTerm.
 
@@ -3487,16 +4254,34 @@ class IsaacLabConfigCompiler:
 
         Uses reward-scoped registries explicitly — see ``_reward_func_ref``
         for the collision rationale (same key, reward vs termination).
+
+        Stage 4 variant override: if the canvas's reward_terms payload
+        for this ``func_key`` carries a ``variant`` tag whose
+        ``VariantMeta.il_params_override`` is set, that template
+        REPLACES the preset's ``item.il_params`` entirely. The variant
+        author owns the body / sensor / threshold params; remaining
+        ``{ir:role}``, ``{node_std}``, etc. placeholders are still
+        resolved by the same two-phase pipeline below.
         """
         from application.training.isaac_lab.task_module_registry import (
             REWARD_REGISTRY, IL_REWARD_REGISTRY,
         )
         item = IL_REWARD_REGISTRY.get(func_key) or REWARD_REGISTRY.get(func_key)
-        if item is None or not item.il_params:
+        if item is None:
+            return ""
+        params_str = item.il_params or ""
+        # Variant-supplied il_params_override (Stage 4): replace the
+        # preset template entirely when the canvas-side variant tag
+        # declares one in its variants.toml.
+        variant_il_params = self._lookup_variant_il_params(
+            nid, "reward_terms", "reward", func_key,
+        )
+        if variant_il_params is not None:
+            params_str = variant_il_params
+        if not params_str:
             return ""
         # Phase 1: resolve {ir:role} body-name placeholders FIRST
         # (before .format(), because {ir:feet} is not a valid format key)
-        params_str = item.il_params
         if "{ir:" in params_str:
             mapper = self._get_body_ir_mapper()
             from application.training.body_ir import resolve_body_params
@@ -3609,117 +4394,90 @@ class IsaacLabConfigCompiler:
             )
 
     def _get_body_ir_mapper(self):
-        """Build a BodyIRMapper from the canvas's Joints Mapping node.
+        """Build the body IR mapper for the bound robot + active format.
 
-        The ``joints_mapping`` node is the authoritative IR layer: it
-        owns the USD→IR-role mapping that the user has visually
-        validated on the canvas.  **Every** body-name / link-path the
-        compiler emits must trace back to it.
+        Stage 3 simplification: every site that needs a body name resolves
+        through one lookup-based path:
 
-        Priority:
-          1. Robot node ``body_mapping`` param — AUTHORITATIVE when set
-          2. Robot asset registry auto-resolve — when the body_mapping
-             param is empty, fall back to the asset's structural
-             metadata (base_link, foot_link_names, etc.)
-          3. Empty mapper — last resort (unusable canvas)
+          1. Resolve ``asset_id`` from the canvas Robot node → registry SKU
+          2. Resolve the SKU via ``RobotAssetService`` → :class:`RobotAsset`
+          3. ``BodyIRMapper.from_robot_asset(asset, active_format=fmt)``
+             reads ``bodies_per_format[fmt]`` deterministically — no
+             runtime MJCF parsing, no joint-name suffix-strip heuristics
+          4. Replay per-format user overrides on top
+                (``RobotAssetService.get_body_ir_overrides(sku, fmt=fmt)``)
+
+        Empty mapper is returned when ``asset_id`` is missing or the
+        robot has no body table for the active format — emit sites
+        either raise (when they need a name) or fall back to a permissive
+        regex (legacy default for illegal_contact).
         """
         if hasattr(self, "_body_ir_mapper_cache"):
             return self._body_ir_mapper_cache
 
-        from application.training.body_ir import BodyIRMapper
+        from application.training.body_ir import BodyIRMapper, apply_user_overrides
 
         _log = logging.getLogger(__name__)
+        fmt = self._active_format or None
 
-        # 1. Robot node body_mapping param — AUTHORITATIVE SOURCE
-        #    (absorbed from the deprecated JointsMappingNode in the 6-section refactor)
-        mapping_ids = self._find_by_type("robot")
-        if mapping_ids:
-            import json
-            raw = self._p(mapping_ids[0], "body_mapping")
-            if raw:
-                try:
-                    d = json.loads(raw)
-                    mapper = BodyIRMapper.from_dict(d)
-                    # Use the user's mapping unconditionally.  If it's
-                    # partially resolved, warn so the user can see
-                    # which roles still need attention — but never
-                    # silently bypass the mapping to fall back to
-                    # asset metadata (previous behaviour, which hid
-                    # the user's intent behind opaque regex defaults).
-                    if not mapper.all_resolved(required_only=True):
-                        # ``unresolved_roles()`` returns ``List[str]``
-                        # (role ids only), not IRRole objects.
-                        unresolved = mapper.unresolved_roles(required_only=True)
-                        _log.warning(
-                            "[IR] Robot node body_mapping has unresolved roles: "
-                            "%s — compiler will use the partial mapping as-is. "
-                            "Open the Joints Mapping node on the canvas to "
-                            "resolve these.",
-                            unresolved,
-                        )
-                    base_body = None
-                    base_role = mapper.get("base")
-                    if base_role and base_role.body:
-                        base_body = base_role.body
-                    # ``roles`` is a @property on BodyIRMapper, NOT a
-                    # method.  Calling it raises "'list' object is not
-                    # callable" — accessing it as an attribute is the
-                    # correct usage.
-                    _log.info(
-                        "[IR] body mapper source = Robot node body_mapping "
-                        "(base=%s, %d roles resolved)",
-                        base_body,
-                        sum(1 for r in mapper.roles if r.resolved),
-                    )
-                    self._body_ir_mapper_cache = mapper
-                    return mapper
-                except Exception as exc:
-                    _log.error(
-                        "[IR] failed to parse joints_mapping body_mapping "
-                        "JSON: %s — falling back to robot asset auto-resolve",
-                        exc,
-                    )
-
-        # 2. Auto-resolve from the Robot node's asset_id (when its
-        #    body_mapping param was empty / failed to parse)
         robot_ids = self._find_by_type("robot")
-        if robot_ids:
-            asset_id = self._p(robot_ids[0], "asset_id").strip()
-            if asset_id:
-                try:
-                    from application.service.robot_assets import (
-                        get_robot_asset_service,
-                    )
-                    from registers.robots import resolve_id as _resolve_robot_id
-                    sku = _resolve_robot_id(asset_id) or asset_id
-                    asset = get_robot_asset_service().resolve(sku)
-                    if asset is None:
-                        raise RuntimeError(
-                            f"asset_id={asset_id!r} did not resolve "
-                            f"(sku={sku!r})"
-                        )
-                    mapper = BodyIRMapper.from_robot_asset(asset)
-                    _log.info(
-                        "[IR] body mapper source = robot_asset "
-                        "auto-resolve (asset_id=%s, sku=%s) — no "
-                        "joints_mapping node on the canvas",
-                        asset_id, sku,
-                    )
-                    self._body_ir_mapper_cache = mapper
-                    return mapper
-                except Exception as exc:
-                    _log.error(
-                        "[IR] robot asset auto-resolve failed for "
-                        "asset_id=%s: %s",
-                        asset_id, exc,
-                    )
+        if not robot_ids:
+            _log.warning(
+                "[IR] body mapper source = EMPTY — no Robot node on canvas; "
+                "compiler will emit fallback regexes"
+            )
+            mapper = BodyIRMapper([])
+            self._body_ir_mapper_cache = mapper
+            return mapper
 
-        # 3. Last resort: empty mapper
-        _log.warning(
-            "[IR] body mapper source = EMPTY — no Robot node body_mapping "
-            "and no resolvable robot asset. Compiler will emit fallback "
-            "regexes that may not match the active robot family."
-        )
+        asset_id = self._p(robot_ids[0], "asset_id").strip()
+        if not asset_id:
+            _log.warning(
+                "[IR] body mapper source = EMPTY — Robot node asset_id is empty"
+            )
+            mapper = BodyIRMapper([])
+            self._body_ir_mapper_cache = mapper
+            return mapper
+
+        try:
+            from application.service.robot_assets import (
+                get_robot_asset_service,
+            )
+            from registers.robots import resolve_id as _resolve_robot_id
+            sku = _resolve_robot_id(asset_id) or asset_id
+            svc = get_robot_asset_service()
+            asset = svc.resolve(sku)
+            if asset is None:
+                raise RuntimeError(
+                    f"asset_id={asset_id!r} did not resolve (sku={sku!r})"
+                )
+            mapper = BodyIRMapper.from_robot_asset(asset, active_format=fmt)
+
+            # Replay per-format user overrides (canvas Body Mapping table
+            # writes through RobotAssetService.set_body_ir_overrides(sku, _, fmt)).
+            overrides = svc.get_body_ir_overrides(sku, fmt=fmt) if fmt else svc.get_body_ir_overrides(sku)
+            if overrides:
+                apply_user_overrides(mapper, overrides)
+
+            base_body = None
+            base_role = mapper.get("base")
+            if base_role and base_role.body:
+                base_body = base_role.body
+            _log.info(
+                "[IR] body mapper: asset_id=%s sku=%s format=%s base=%s "
+                "%d roles resolved",
+                asset_id, sku, fmt or "(auto)", base_body,
+                sum(1 for r in mapper.roles if r.resolved),
+            )
+            self._body_ir_mapper_cache = mapper
+            return mapper
+        except Exception as exc:
+            _log.error(
+                "[IR] body mapper resolve failed for asset_id=%s format=%s: %s",
+                asset_id, fmt or "(auto)", exc,
+            )
+
+        # Last resort: empty mapper
         mapper = BodyIRMapper([])
         self._body_ir_mapper_cache = mapper
         return mapper

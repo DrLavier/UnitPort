@@ -1,0 +1,10 @@
+[default]
+clear_all = Tout effacer
+
+[row]
+delete.tip = Supprimer cette exécution
+
+[confirm]
+clear_title = Effacer tout l'historique d'entraînement ?
+clear_body = Cela supprime chaque répertoire d'exécution sous <project>/training/runs/ ainsi que chaque instantané de canevas dans _runs_/. Cette action est irréversible.
+

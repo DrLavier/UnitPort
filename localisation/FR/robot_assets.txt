@@ -1,0 +1,47 @@
+[default]
+add_path = Ajouter un chemin personnalisé
+add_robot_tip = Enregistrer un nouveau robot
+coming_soon = Bientôt disponible
+delete = Supprimer
+edit = Modifier
+edit_canonical_disabled = Les robots canoniques sont en lecture seule. Ajoutez plutôt une nouvelle entrée utilisateur.
+no_path = (aucun)
+pick_file = Choisir un fichier {kind}
+refresh_tip = Réanalyser le registre des ressources
+tag_placeholder = Ajouter un tag...
+add_robot = Nouveau modèle
+add_tip = Enregistrer un nouveau robot ou une variante
+add_variant = Nouvelle variante de …
+add_variant_empty = Aucun robot de base enregistré pour le moment. Ajoutez d'abord un modèle.
+cascade_body = Ce robot possède des variantes utilisateur qui en dépendent. Supprimez ou détachez d'abord ces variantes.
+	
+	{detail}
+cascade_title = Suppression impossible
+dump_done_title = Dump terminé
+dump_error_no_asset = Impossible de résoudre la ressource robot pour le SKU {sku}
+dump_error_persist = Échec de la persistance des corps découverts pour {fmt}
+dump_error_title = Échec du dump
+dump_error_validation = Échec de validation après écriture du mappage {fmt} :
+	
+	{exc}
+	
+	Ouvrez le nœud Robot du canevas et corrigez les rôles IR joint/body signalés, puis relancez le dump.
+dump_mjcf = Dumper les bodies / joints MJCF
+dump_mjcf_disabled = Ressource MJCF indisponible localement
+dump_usd = Dumper les bodies / joints USD
+dump_usd_disabled = Ressource USD non déclarée (aucun chemin local et aucune URL Nucleus)
+menagerie = Menagerie…
+menagerie_tip = Parcourir et télécharger les paquets MuJoCo Menagerie
+pick_parent = Choisir le modèle de base dont cette variante hérite :
+
+[status]
+cloud = cloud
+local = local
+missing = manquant
+remote = distant
+
+[tag]
+canonical = canonique
+cloud = cloud
+custom = personnalisé
+

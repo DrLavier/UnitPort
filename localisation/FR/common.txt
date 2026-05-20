@@ -1,0 +1,4 @@
+[default]
+current_canvas = canevas actuel
+empty = (aucun)
+

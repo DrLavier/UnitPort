@@ -1,0 +1,80 @@
+[language]
+title = Select Language
+hint = Choose your preferred language for UnitPort. You can change it later from the sidebar.
+ok = Continue
+
+[wizard]
+window_title = UnitPort — Custom Setup
+header_title = UnitPort Setup
+header_subtitle = Choose which components to install. You can change these later in Settings.
+btn_skip = Skip Setup
+btn_back = Back
+btn_next = Next
+btn_finish = Finish
+
+[data_dir]
+title = Data Directory
+hint = Choose where UnitPort stores all per-user data: projects, exported policies, login tokens, telemetry caches, downloaded engines, and the user.ini overlay. The application install folder is never written to at runtime, so this directory is what survives across redeploys / git pulls.
+label_dir = UserConfig Dir:
+btn_browse = Browse ...
+btn_reset = Reset to default
+note = Default: ~/UnitPort (resolves to your user home). Pick a different drive if your C: drive is low on space.
+status_invalid = Invalid path
+status_default = Using default location.
+status_custom_exists = Custom location — already exists at {path}
+status_custom_create = Custom location — will be created at {path}
+placeholder = Pick an absolute path (e.g. D:\UnitPort)
+status_relative = Path must be absolute (got: {path}).
+status_required = Required — pick an absolute path for the workspace root.
+
+[menagerie]
+title = MuJoCo Menagerie Models
+hint = Select the robot models you need from mujoco_menagerie. UnitPort-supported models are pre-selected. Others are optional.
+btn_select_all = Select All
+btn_deselect_all = Deselect All
+btn_refresh = Refresh from GitHub
+loading = Loading model list from GitHub …
+
+[sdk]
+title = SDK Packages
+hint = Select the robot SDK packages to download. Only checked items will be cloned. You can install more later from Settings.
+
+[backend]
+title = Backend Environment
+hint = Configure simulation backends for training and execution. Uncheck items you don't need to speed up setup.
+group_mujoco = MuJoCo
+cb_mujoco = Install MuJoCo (pip package)
+cb_mujoco_tip = Required for MuJoCo-based simulation and training.
+cb_loco = Download loco-mujoco reference motion library
+cb_loco_tip = Community reference motion library for locomotion training. Cloned from github.com/robfiras/loco-mujoco.
+group_ros2 = ROS2
+cb_ros2 = Install ROS2 support
+cb_ros2_tip = Enables ROS2-based brands (Unitree Go2, Mangdang Mini Pupper, …). A native ROS2 Humble install is reused when available; otherwise the Docker bridge image is built.
+ros2_note = Auto-detects a native ROS2 install (Humble preferred). When none is present, the UnitPort Docker bridge image is built instead — Docker Desktop / Docker Engine must be running.
+group_isaac = Isaac Lab (NVIDIA)
+cb_isaac = Enable Isaac Lab integration
+cb_isaac_tip = Isaac Lab provides GPU-accelerated simulation via NVIDIA Isaac Sim. You can install it now or point to an existing installation.
+rb_isaac_install = Install Isaac Lab + Isaac Sim (from scratch)
+rb_isaac_locate = Locate existing Isaac Lab installation
+rb_isaac_cloud = Deploy Isaac Lab to remote Linux server (SSH)
+install_hint = Choose the installation directory. Isaac Lab + Isaac Sim will be installed with a dedicated venv inside this directory.
+isaac_install_dir_ph = Installation directory ...
+isaac_locate_dir_ph = Isaac Lab root directory ...
+install_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128\nDisk: ~30 GB | Requires: NVIDIA GPU with CUDA 12.x driver
+isaac_valid = Valid Isaac Lab installation detected
+isaac_invalid = Could not verify Isaac Lab at this path -- expected isaaclab.sh/bat or source/ directory
+cloud_hint = Enter SSH connection details for the remote GPU server. Isaac Lab will be installed via SSH + SFTP.
+cloud_server_name = Server name:
+cloud_host = Host:
+cloud_port = Port:
+cloud_user = Username:
+cloud_auth = Auth:
+cloud_auth_key = SSH Key
+cloud_auth_pwd = Password
+cloud_key_file = Key file:
+cloud_password = Password:
+cloud_remote_path = Remote path:
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128\nRequires: Ubuntu 22.04+, NVIDIA GPU, CUDA 12.x, ~30 GB disk
+custom_mods_hint = Optional third-party motion / AMP reference repos. Each is shallow-cloned into custom_mods/motions/. Leave unchecked to skip — you can install later by editing custom_mods/installs.txt.
+group_custom_mods = Reference Motion Libraries (optional)
+

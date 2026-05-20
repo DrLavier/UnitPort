@@ -38,7 +38,6 @@ Per-file ``.bak_v1`` backups are written alongside the original.
 
 Usage::
 
-    cd D:/Unitport/EXE/RELEASE
     .venv311/Scripts/python.exe bootstrap/migrate_canvas_rewards_v2.py `
         custom_mods/canvas/IsaacLab_Go2_PPO.canvas.json
     # Recursive sweep:

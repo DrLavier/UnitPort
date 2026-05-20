@@ -18,4 +18,6 @@ model_ph = e.g. go2
 name_ph = Display name
 path_placeholder = Relative or absolute path
 save = Save
+error_variant_label = Variant label is required.
+variant_label_ph = e.g. Air, Pro, X, Field-Test
 

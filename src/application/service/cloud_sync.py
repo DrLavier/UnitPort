@@ -62,6 +62,12 @@ _INCLUDE_GLOBS: Tuple[str, ...] = (
     "engines/*.json",
     "registers/*.json",
     "robot_presets/*.json",
+    # robot_assets/state.json carries per-SKU user state: body_ir_overrides
+    # (manual body→IR-role corrections) and mjcf_base_height_offset (auto-
+    # calibrated USD↔MJCF spawn-z compensation). Both follow the user
+    # profile across machines; SHA-based freshness in the offset record
+    # self-heals when the local MJCF differs from the calibration source.
+    "robot_assets/*.json",
     "projects/*/project.yaml",
     "projects/*/README.md",
     "projects/*/canvas/**/*.canvas.json",
@@ -85,6 +91,14 @@ _EXCLUDE_GLOBS: Tuple[str, ...] = (
     "**/*.pyc",
     "projects/*/training/runs/*/*/git/**",
     "projects/*/training/runs/*/*/events.out.tfevents.*",
+    # Canvas snapshot cache (canvas_snapshots.py):
+    # ``<project>/canvas/_runs_/<sha256>.canvas.json`` is a local-only,
+    # digest-keyed snapshot of every canvas state that produced a run.
+    # These .canvas.json files DO match the include glob
+    # ``projects/*/canvas/**/*.canvas.json`` so without this explicit
+    # exclude they get uploaded; they're recomputable from the live
+    # canvas + run history and have no cross-machine meaning.
+    "projects/*/canvas/_runs_/**",
 )
 
 _USER_INI_UPLOAD_SECTIONS: Tuple[str, ...] = (
@@ -157,6 +171,11 @@ class SyncPlan:
     skipped_oversize: List[str] = field(default_factory=list)
     skipped_excluded: int = 0
     skipped_runs_topn: int = 0
+    # Push-only: files whose mtime predates the caller-supplied
+    # ``since_mtime`` cutoff (e.g. process start) and were therefore
+    # filtered out as "unchanged this session". 0 when ``plan_push`` is
+    # called without a cutoff (manual full push).
+    skipped_unchanged: int = 0
 
 
 @dataclass
@@ -293,12 +312,16 @@ class CloudSyncService(QObject):
         self.fetch_storage_usage()
         return rows
 
-    def plan_push(self) -> SyncPlan:
+    def plan_push(self, *, since_mtime: Optional[float] = None) -> SyncPlan:
         """Walk USER_CONFIG_DIR, apply include/exclude/transforms.
 
-        Does NOT consult cloud state — Phase 1 push uploads everything
-        the plan covers with ``upsert=true``. (Diff-based push is a Phase
-        2 optimisation; for first cut we trade bandwidth for simplicity.)
+        Does NOT consult cloud state. When ``since_mtime`` is provided
+        (typically the process start wall-clock), files whose ``st_mtime``
+        predates it are skipped and counted in ``plan.skipped_unchanged``.
+        This is the contract used by the exit auto-push hook so a quit
+        only uploads what the current session actually touched. Manual
+        Push (UserPanel button → CloudSyncTask) leaves ``since_mtime``
+        unset to keep its "force full sync" semantics.
         """
         plan = SyncPlan(phase="push")
         base = self._base_dir()
@@ -326,6 +349,11 @@ class CloudSyncService(QObject):
             try:
                 st = absolute.stat()
             except OSError:
+                continue
+            # mtime cutoff — skip anything untouched since the cutoff
+            # before we burn cycles on transforms / size checks.
+            if since_mtime is not None and st.st_mtime < since_mtime:
+                plan.skipped_unchanged += 1
                 continue
             size = int(st.st_size)
             ext = absolute.suffix.lower()

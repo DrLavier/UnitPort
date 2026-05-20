@@ -18,7 +18,7 @@ API:
     list_families() / get_version()
     get_intent(intent_id) / list_intents()
     get_action(intent_id) / list_actions()      # ir_actions（阶段 C 填）
-    merge_user_extensions(extensions)            # 来自 ~/UnitPort/registers/ir_custom.json
+    merge_user_extensions(extensions)            # 来自 <USER_CONFIG_DIR>/registers/ir_custom.json
 """
 
 from __future__ import annotations

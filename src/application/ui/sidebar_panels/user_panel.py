@@ -132,9 +132,15 @@ class _EngineRow(QWidget):
         muted = Config.get_color("main_c2")
         sz = int(Config.get_font_size("size_small"))
 
-        # Local status
+        # Local status. Three families:
+        #   1. Built-in (pip-installed Python deps that ship with the SDK
+        #      requirements.txt: ``sb3`` / ``sb3_mujoco`` / ``mujoco``) —
+        #      no user registration; show version only.
+        #   2. Externally-installed (``isaac_lab``) — user picks a root via
+        #      the gear button; show path AND version.
+        #   3. Generic / unknown — fall back to the registered-root pattern.
         local_root = str(local.get("root", "")) if local else ""
-        if self._engine_id == "sb3":
+        if self._engine_id in ("sb3", "sb3_mujoco", "mujoco"):
             if status["available"]:
                 local_text = tr(
                     "engines.local_builtin",
@@ -146,6 +152,27 @@ class _EngineRow(QWidget):
                     "engines.local_missing", "Not installed",
                 )
                 color = warn_color
+        elif self._engine_id == "isaac_lab":
+            if local.get("registered") and local_root:
+                if status["available"]:
+                    ver = status["version"] or "?"
+                    local_text = tr(
+                        "engines.local_registered_with_ver",
+                        "{root} (v{ver})",
+                    ).format(root=local_root, ver=ver)
+                    color = ok_color
+                else:
+                    local_text = tr(
+                        "engines.local_registered_no_module",
+                        "{root} (module not importable)",
+                    ).format(root=local_root)
+                    color = warn_color
+            else:
+                local_text = tr(
+                    "engines.local_isaac_unregistered",
+                    "Not registered — pick install root via the gear",
+                )
+                color = muted
         else:
             if local.get("registered") and local_root:
                 if status["available"]:
@@ -189,7 +216,7 @@ class _EngineRow(QWidget):
         self.refresh()
 
     def _on_local_clicked(self) -> None:
-        if self._engine_id == "sb3":
+        if self._engine_id in ("sb3", "sb3_mujoco", "mujoco"):
             # No directory needed — just refresh availability detection.
             self._svc.refresh()
             return
@@ -220,9 +247,23 @@ class _EngineRow(QWidget):
 def _pretty_engine_name(engine_id: str) -> str:
     if engine_id == "sb3":
         return "Stable-Baselines3"
+    if engine_id == "sb3_mujoco":
+        return "Stable-Baselines3 + MuJoCo"
+    if engine_id == "mujoco":
+        return "MuJoCo"
     if engine_id == "isaac_lab":
         return "NVIDIA Isaac Lab"
     return engine_id.replace("_", " ").title()
+
+
+# User-facing engines surfaced in the sidebar Engines section, in the
+# order they should appear. ``mujoco`` is the SDK's hard requirement (it
+# powers the in-process review viewer), ``sb3_mujoco`` is the SB3 training
+# canvas owner, ``isaac_lab`` is the high-fidelity training + review path.
+# Probe-only rows like raw ``sb3`` / ``gymnasium`` are intentionally
+# omitted — they live inside the composite engines and surface there as
+# version info, not as separate user-managed engines.
+_USER_FACING_ENGINES = ("mujoco", "sb3_mujoco", "isaac_lab")
 
 
 class UserPanel(QWidget):
@@ -461,11 +502,15 @@ class UserPanel(QWidget):
             if w is not None:
                 w.deleteLater()
         svc = get_engine_service()
-        engines = svc.list_known_engines()
-        if not engines:
-            # Force one detection pass so sb3/isaac_lab show up on first launch.
+        known = svc.list_known_engines()
+        if not known:
+            # Force one detection pass so the rows show up on first launch.
             svc.refresh()
-            engines = svc.list_known_engines()
+            known = svc.list_known_engines()
+        # Surface only the user-facing engines (mujoco / sb3_mujoco /
+        # isaac_lab) in the panel's preferred order, but never invent
+        # rows for engines registers.backends has not detected yet.
+        engines = [eid for eid in _USER_FACING_ENGINES if eid in known]
         if not engines:
             placeholder = setText(
                 "user.engines_empty",

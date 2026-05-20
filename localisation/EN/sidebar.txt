@@ -1,5 +1,6 @@
 [language]
 tip = Language
+short = Language
 
 [update]
 tip = Update
@@ -7,4 +8,62 @@ tip_latest = You are on the latest version
 tip_needed = New version available — click to apply
 short_latest = Latest
 short_needed = Update
+
+[settings]
+tip = Settings
+short = Settings
+
+[fullscreen]
+tip = Fullscreen
+short = Fullscreen
+
+[user]
+tip = User
+short = User
+title = User
+
+[node_library]
+tip = Node Library
+short = Nodes
+title = Node Library
+
+[projects]
+tip = Project Files
+short = Projects
+title = Project Files
+
+[robot_assets]
+tip = Robot Asset
+short = Robots
+title = Robot Asset
+
+[controller]
+tip = Controller
+short = Controller
+title = Controller
+
+[resources]
+tip = Third-party motion datasets & policy bundles
+short = Resources
+title = Resources
+
+[rewards]
+tip = Reward preset modules
+short = Rewards
+title = Rewards
+
+[terminations]
+tip = Termination preset modules
+short = Termins
+title = Terminations
+
+[observations]
+tip = Observation preset modules
+short = Observs
+title = Observations
+
+[training]
+tip = Project + Global scripts
+short = Training
+title = Training Scripts
 

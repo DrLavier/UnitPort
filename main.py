@@ -43,8 +43,16 @@ import os
 import platform
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
+
+# Process wall-clock at module import. Used by the exit auto-push hook to
+# limit the upload set to files modified during THIS launch — pushing every
+# file in USER_CONFIG_DIR on every quit was the documented "Phase 1 trade
+# bandwidth for simplicity" path and is now a strict bug: it wastes cloud
+# quota and shutdown time on bytes that are byte-for-byte already remote.
+_SESSION_START_TS: float = time.time()
 
 # ---- Project root + sys.path injection ---------------------------------------
 # Only ``src/`` goes on sys.path -- it owns the ``application``, ``unitport_sdk``,
@@ -132,6 +140,7 @@ from application.tools.startup_tasks import FuncTask, PostSetupTask, Provisionin
 from application.ui.wizard import (
     InstallConfigWizard,
     load_setup_state,
+    save_setup_state,
     setup_completed,
 )
 
@@ -242,6 +251,11 @@ class UnitPortMain:
         # When set + non-empty, ``_finalize`` auto-opens this canvas after
         # ``open_project`` so the user lands directly back where they left off.
         self._loaded_canvas_file_id: str = ""
+        # Populated by ``_data_load_body`` via RobotAssetSelfCheckTask; if
+        # non-empty, _finalize opens IRRoleAssignmentDialog after
+        # finish_loading. List[PendingAssignment]; default empty so _finalize
+        # never NoneType-faceplants if data_load raised before populating it.
+        self._pending_ir_assignments: list = []
         self._fatal: bool = False
 
         # Parallel wizard + provisioning gating. Both must finish before
@@ -333,14 +347,27 @@ class UnitPortMain:
             install_single_instance_guard,
             find_deeplink_url,
         )
-        self._deeplink_handler = install_single_instance_guard(sys.argv)
-        if self._deeplink_handler is None:
-            # Primary already running — URL forwarded by the guard. Exit
-            # before any window is constructed.
-            log_info("[auth:startup] secondary instance — forwarded deep-link and exiting")
+        # The guard returns (handler, should_exit). should_exit is True
+        # ONLY when this process was launched with a unitport:// URL and
+        # a primary was already running to receive the forwarded URL —
+        # i.e. the OS-level OAuth callback case. A parallel start.bat
+        # launch (no URL in argv) gets (None, False) and proceeds as a
+        # standalone window; the previous behaviour of unconditionally
+        # exiting was a bug that broke side-by-side install testing.
+        self._deeplink_handler, should_exit = install_single_instance_guard(sys.argv)
+        if should_exit:
+            log_info(
+                "[auth:startup] secondary instance — forwarded deep-link and exiting"
+            )
             return 0
         self._pending_deeplink_url = find_deeplink_url(sys.argv)
-        log_info("[auth:startup] single-instance guard installed")
+        if self._deeplink_handler is not None:
+            log_info("[auth:startup] single-instance guard installed (primary)")
+        else:
+            log_info(
+                "[auth:startup] running as parallel secondary — "
+                "OAuth callbacks will route to the primary"
+            )
 
         # Stage 1 -- show the loading screen NOW.
         # MainWindow.__init__ only constructs the loading page (logo +
@@ -351,6 +378,17 @@ class UnitPortMain:
         from application.ui.main_window import MainWindow
         self._main_window = MainWindow()
         self._main_window.show()
+
+        # Isaac Lab installer signal wiring. MUST happen before
+        # PostSetupTask is submitted (Stage 2), because that's when
+        # IsaacLabInstallTask gets queued — and the install task's
+        # worker thread can start emitting ``isaac_install_phase``
+        # before the main thread reaches _finalize. If we connected in
+        # _finalize, the preflight signal (and possibly a fast
+        # preflight-failure complete signal) would be lost, leaving the
+        # progress dialog forever unopened and the install silently
+        # failing.
+        self._wire_isaac_install_handlers()
 
         # Stage 2 -- parallel: ProvisioningTask runs on a worker, the
         # InstallConfigWizard opens (non-blocking) on the main thread.
@@ -389,6 +427,18 @@ class UnitPortMain:
             self._wizard_done = True
             log_info("[boot] setup already completed; skipping wizard")
         else:
+            # First-launch: blocking language picker BEFORE the wizard
+            # opens, so all wizard widgets (and the "Installation in
+            # progress" tag on the LoadingScreen) render in the user's
+            # preferred language from the first frame. exec() blocks the
+            # bootstrap thread but the LoadingScreen behind the picker
+            # is already painted and keeps streaming logs.
+            self._prompt_initial_language()
+            # Show the "Installation in progress" tag below the logo for
+            # the entire install phase; cleared in _on_task_finished once
+            # PostSetupTask completes (the last heavy step driven by the
+            # wizard's selections).
+            self._main_window.set_install_message_visible(True)
             log_info("[boot] first launch -- opening InstallConfigWizard")
             self._wizard = InstallConfigWizard(self._main_window)
             self._wizard.completed.connect(self._on_wizard_completed)
@@ -407,23 +457,56 @@ class UnitPortMain:
 
         return self._app.exec()
 
+    def _prompt_initial_language(self) -> None:
+        """Show the modal language picker on the very first launch.
+
+        Called only when ``setup_completed()`` is False, i.e. there is no
+        ``setup_state.json`` on disk yet. The picker enumerates every
+        sub-directory under ``localisation/`` and persists the user's
+        pick to both ``user.ini[Localisation].lang`` (via
+        ``I18n.set_language``) and the machine-level ``locale.ini``.
+        After it closes, ``I18n.language_changed`` has already fired so
+        every ``i18n_bind``-attached widget on the LoadingScreen has
+        retranslated. Failures (no localisation dirs, picker dismissed)
+        fall back to whatever the SDK already loaded — boot is never
+        blocked on this dialog.
+        """
+        try:
+            from application.ui.dialogs.language_picker_dialog import (
+                LanguagePickerDialog,
+            )
+            dlg = LanguagePickerDialog(self._main_window)
+            dlg.exec()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[boot] language picker failed: {exc}")
+
     def _submit_provisioning(self) -> None:
         """Submit ProvisioningTask after the wizard's show event has been
         processed. Deferred via QTimer.singleShot(0, ...) from ``run`` so
         the InstallConfigWizard dialog paints before pip subprocesses begin
-        flooding the LoadingScreen log."""
+        flooding the LoadingScreen log.
+
+        NOTE: CheckUpdateTask is intentionally NOT submitted here. Importing
+        ``application.service.updater`` pulls in ``release_api`` -> ``httpx``,
+        which is part of ``requirements.txt`` and therefore not yet present on
+        a first launch (only the install.bat bootstrap minimum — PyQt6,
+        loguru, cyclonedds — is guaranteed at this point). Submission is
+        deferred to ``_submit_update_check`` after ProvisioningTask completes.
+        """
         if self._fatal:
             return
         log_info("[boot] starting provisioning on background worker")
         self._provision_task_id = self._task_master.submit(ProvisioningTask())
-        # Fire a non-gating update check in parallel. Its result lands in
-        # UpdateService's cache + user.ini[App] and is broadcast via
-        # AppSignals.update_check_complete; the Sidebar Update button
-        # subscribes to that signal on construction. Submitted here (not
-        # in Stage 3) so the check happens while ProvisioningTask runs,
-        # not in series with it. Failure is purely a log_warning — the
-        # task id is intentionally NOT added to ``boot_ids`` so a network
-        # outage does not abort startup.
+
+    def _submit_update_check(self) -> None:
+        """Submit CheckUpdateTask once ProvisioningTask has installed httpx.
+
+        Its result lands in UpdateService's cache + user.ini[App] and is
+        broadcast via AppSignals.update_check_complete; the Sidebar Update
+        button subscribes to that signal on construction. Failure is purely
+        a log_warning — the task id is intentionally NOT added to
+        ``boot_ids`` so a network outage does not abort startup.
+        """
         try:
             from application.service.updater import CheckUpdateTask
             self._task_master.submit(CheckUpdateTask())
@@ -446,10 +529,12 @@ class UnitPortMain:
         # Cloud-sync auto-push on shutdown. Runs only when both
         #   (a) the user is signed in, AND
         #   (b) the auto-push toggle in user.ini[Cloud] auto_push is on.
-        # The exit self-check (list-only round-trip) was removed in
-        # favour of this opt-in upload — users who never flip the
-        # toggle pay no shutdown cost. Synchronous: the TasksManager is
-        # about to be cancelled so we cannot submit a CloudSyncTask.
+        # Scope: ONLY files whose mtime is at-or-after ``_SESSION_START_TS``
+        # (process module-import wall clock). The manual Push button still
+        # uploads the full include set; this hook is the "save my deltas
+        # before I quit" path and must never re-upload bytes that haven't
+        # changed since this launch began. Synchronous: the TasksManager
+        # is about to be cancelled so we cannot submit a CloudSyncTask.
         # plan_push catches IO errors internally and execute() reports
         # per-file failures in its summary rather than raising. Guest
         # sessions skip both checks.
@@ -464,18 +549,36 @@ class UnitPortMain:
                         get_cloud_sync_service,
                     )
                     svc = get_cloud_sync_service()
-                    plan = svc.plan_push()
+                    plan = svc.plan_push(since_mtime=_SESSION_START_TS)
                     n = len(plan.entries)
                     if n == 0:
                         log_info(
-                            "[cloud-sync] exit auto-push: nothing to upload"
+                            f"[cloud-sync] exit auto-push: no files changed "
+                            f"this session "
+                            f"(skipped {plan.skipped_unchanged} unchanged)"
                         )
                     else:
                         log_info(
                             f"[cloud-sync] exit auto-push: uploading "
-                            f"{n} file(s)"
+                            f"{n} changed file(s) "
+                            f"(skipped {plan.skipped_unchanged} unchanged) — "
+                            f"please do NOT close the window"
                         )
-                        summary = svc.execute(plan)
+
+                        def _on_progress(done: int, total: int, key: str) -> None:
+                            ratio = (done / total) if total else 1.0
+                            bar_w = 30
+                            filled = int(ratio * bar_w)
+                            bar = "#" * filled + "-" * (bar_w - filled)
+                            short = key if len(key) <= 40 else "..." + key[-37:]
+                            line = (
+                                f"[cloud-sync] exit auto-push: "
+                                f"[{bar}] {ratio * 100:5.1f}% "
+                                f"({done}/{total}) {short}"
+                            )
+                            log_info(line, wrap=(done >= total))
+
+                        summary = svc.execute(plan, progress_cb=_on_progress)
                         log_info(
                             f"[cloud-sync] exit auto-push: "
                             f"ok={int(summary.get('ok', 0) or 0)}/{n} "
@@ -559,10 +662,22 @@ class UnitPortMain:
 
         if task_id == self._provision_task_id:
             self._provision_done = True
+            # ProvisioningTask just finished installing requirements.txt,
+            # so httpx (transitive dep of the updater package) is now
+            # importable. Fire the non-gating update check here.
+            self._submit_update_check()
             self._maybe_submit_postsetup()
             return
 
         if task_id == self._postsetup_task_id:
+            # Install phase is done — hide the "Installation in progress"
+            # tag on the LoadingScreen. Subsequent stages (init_verify /
+            # data_load / project_load) are sub-second and don't need
+            # a marker.
+            try:
+                self._main_window.set_install_message_visible(False)
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"[boot] could not hide install label: {exc}")
             self._init_task_id = self._task_master.submit(
                 FuncTask("init_verification", self._init_verification_body)
             )
@@ -608,9 +723,27 @@ class UnitPortMain:
         app would stay on the LoadingScreen indefinitely. ``rejected``
         fires AFTER ``accepted`` (which we trigger on Finish/Skip), so
         the ``_wizard_done`` guard prevents a double-fire.
+
+        Edge case: if the user closes the dialog BEFORE picking a data
+        directory, ``USER_CONFIG_DIR`` is still unset and no boot
+        progress is possible — there is no fallback location. Log a
+        loud error and refuse to advance; the user can re-open the
+        wizard by killing and re-launching the app.
         """
         if self._wizard_done:
             return
+        try:
+            from unitport_sdk import Paths
+            if not Paths.is_user_config_dir_set():
+                log_error(
+                    "[boot] wizard closed without picking a workspace "
+                    "data directory. UnitPort cannot run without one — "
+                    "USER_CONFIG_DIR has no built-in default. Close this "
+                    "window and re-launch UnitPort to retry the wizard."
+                )
+                return
+        except Exception as exc:                                      # noqa: BLE001
+            log_warning(f"[boot] post-wizard sanity check failed: {exc}")
         log_warning("[boot] wizard closed without finishing -- treating as skipped")
         self._on_wizard_completed({"skipped": True})
 
@@ -661,6 +794,11 @@ class UnitPortMain:
         # prefix; no files are transferred. Guest accounts no-op.
         QTimer.singleShot(1200, self._cloud_self_check_on_startup)
 
+        # Isaac Lab installer signal wiring is already done at Stage 1
+        # (right after MainWindow). The progress dialog now uses
+        # self._main_window as parent if the wire fired before MainWindow
+        # was visible.
+
         if self._loaded_project_path:
             self._main_window.open_project(self._loaded_project_path)
             # Auto-open last_canvas (if any) so the user lands directly in
@@ -674,6 +812,289 @@ class UnitPortMain:
         # Fade the loading page out and swap the central stack to the
         # main content page (Sidebar | main_row + work_zone).
         self._main_window.finish_loading()
+
+        # IR-role assignment pop-up — opens iff RobotAssetSelfCheckTask
+        # (in _data_load_body) found entries whose tokeniser couldn't
+        # auto-resolve and that the user must pick a role for. Modal,
+        # blocks training until resolved (or cancelled — next launch
+        # will re-detect and re-open).
+        self._maybe_open_ir_assignment_dialog()
+
+    def _wire_isaac_install_handlers(self) -> None:
+        """Wire the in-app Isaac Lab installer's signals to UI/backend refresh.
+
+        Two responsibilities:
+
+        1. Open :class:`IsaacInstallProgressDialog` the first time
+           ``isaac_install_phase`` fires (= the installer task has
+           reached its preflight stage on the worker thread). We don't
+           pre-open the dialog because most launches do NOT trigger an
+           install — only first-launches where the user picked "fresh
+           install" + accepted the EULA. Opening on first phase signal
+           keeps the dialog out of the path of every other launch.
+
+        2. On a successful ``isaac_install_complete``, force the
+           backends registry to re-detect Isaac Lab so the sidebar /
+           project picker can immediately show it as available. The
+           progress dialog handles its own UI close on success.
+
+        Both connections are single-shot per process — re-installs in
+        the same session (retry path) re-use the same connections.
+        """
+        from application.service.signals import get_app_signals
+
+        signals = get_app_signals()
+        # Lazy reference; populated by _open_isaac_install_dialog on
+        # first phase signal so a re-install retry can re-open after
+        # the prior dialog's accept().
+        self._isaac_install_dialog: Optional[Any] = None
+        signals.isaac_install_phase.connect(self._on_isaac_install_phase)
+        signals.isaac_install_complete.connect(self._on_isaac_install_complete)
+
+    def _on_isaac_install_phase(self, phase: str, label: str) -> None:
+        """Open the progress dialog on the first phase signal we see.
+
+        Opens for EVERY phase value including ``"error"`` and EVEN when
+        ``self._fatal`` is set. Rationale: the Isaac install failure is
+        usually the REASON the boot was marked fatal, so suppressing the
+        dialog there would hide the actual cause from the user. They
+        deserve to see the error view regardless of what else the boot
+        pipeline did.
+        """
+        if self._isaac_install_dialog is None:
+            self._open_isaac_install_dialog(initial_phase=phase, initial_label=label)
+
+    def _open_isaac_install_dialog(
+        self, *, initial_phase: str = "", initial_label: str = "",
+    ) -> None:
+        try:
+            from application.ui.dialogs.isaac_install_progress_dialog import (
+                IsaacInstallProgressDialog,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                f"[isaac-install] could not open progress dialog: {exc!r}"
+            )
+            return
+        try:
+            install_dir = self._isaac_install_dir_hint()
+        except Exception:  # noqa: BLE001
+            install_dir = ""
+        dlg = IsaacInstallProgressDialog(
+            install_dir=install_dir, parent=self._main_window,
+        )
+        dlg.finished.connect(self._on_isaac_install_dialog_closed)
+        # Plumb the Retry / Locate buttons to actionable handlers.
+        dlg.retry_requested.connect(self._on_isaac_install_retry)
+        dlg.locate_mode_requested.connect(self._on_isaac_install_switch_locate)
+        self._isaac_install_dialog = dlg
+        # Forward the phase that triggered the open so the dialog
+        # doesn't start with the stale "Waiting for installer to
+        # start..." status. Qt does not re-deliver the signal we are
+        # currently handling to the slot the dialog just connected, so
+        # we have to push it explicitly.
+        if initial_phase:
+            try:
+                dlg._on_phase(initial_phase, initial_label)
+            except Exception:                                       # noqa: BLE001
+                pass
+        dlg.show()
+
+    def _on_isaac_install_dialog_closed(self, _result: int) -> None:
+        self._isaac_install_dialog = None
+
+    def _on_isaac_install_complete(self, ok: bool, message: str) -> None:
+        """Refresh backends on success; ensure error visibility on failure.
+
+        The ``_fatal`` flag is NOT checked: an Isaac install failure
+        usually IS what triggered the fatal flag (via PostSetupTask
+        raising), and suppressing the error dialog in that case would
+        hide the cause from the user.
+        """
+        # If a fast preflight failure raced ahead of the phase signal
+        # (or no phase signal was emitted at all — e.g. PostSetupTask's
+        # _fail_isaac_install path that fires complete(False) directly),
+        # open the dialog now so the user sees what happened. The
+        # dialog's own complete handler then transitions to the error
+        # view; we back-fill since it missed the signal that just fired.
+        if not ok and self._isaac_install_dialog is None:
+            log_warning(
+                "[isaac-install] complete(False) arrived before any phase "
+                "signal opened the dialog — opening it now for visibility"
+            )
+            self._open_isaac_install_dialog()
+            try:
+                if self._isaac_install_dialog is not None:
+                    self._isaac_install_dialog._on_complete(False, message)
+            except Exception as exc:  # noqa: BLE001
+                log_warning(
+                    f"[isaac-install] could not back-fill error view: {exc}"
+                )
+
+        if not ok:
+            return
+
+        # State-machine closure: transition setup_state.json's recorded
+        # selection from "install" to "locate" now that the install has
+        # actually finished. Without this flip the wizard's intent
+        # ("please install") keeps firing on every subsequent boot's
+        # PostSetupTask._step_isaac_lab, which then re-dispatches the
+        # 30 GB installer over a perfectly good install. Pair with the
+        # idempotency precheck in PostSetupTask._isaac_lab_already_usable:
+        # the precheck is the belt that catches stale states regardless
+        # of how they arose, this flip is the suspenders that prevents
+        # the state from going stale in the first place.
+        try:
+            persisted = load_setup_state()
+            selections = persisted.get("selections") or {}
+            backend = selections.get("backend") or {}
+            if backend.get("isaaclab_install"):
+                backend["isaaclab_install"] = False
+                backend["isaaclab_locate"] = True
+                # isaaclab_path was set by the wizard and is still the
+                # install root — do NOT clobber it. Keeping it lets the
+                # locate branch on next boot re-validate the same path.
+                selections["backend"] = backend
+                persisted["selections"] = selections
+                save_setup_state(persisted)
+                log_info(
+                    "[isaac-install] setup_state.json updated: "
+                    "install → locate (path preserved)"
+                )
+        except Exception as exc:  # noqa: BLE001
+            # Best-effort: if the flip fails, the precheck in
+            # _step_isaac_lab still catches the duplicate install on
+            # next boot. Log and continue so we do not mask the
+            # successful install with a bookkeeping warning.
+            log_warning(
+                f"[isaac-install] could not flip setup_state.json to "
+                f"locate mode after successful install: {exc!r}"
+            )
+
+        try:
+            from registers.backends import refresh_engine_availability
+            refresh_engine_availability()
+            log_success(
+                "[isaac-install] backends registry refreshed after install"
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                f"[isaac-install] backends refresh after install failed: {exc}"
+            )
+
+        # Now that Isaac Lab is registered and the dedicated ``.venv``
+        # has a working ``import isaacsim``, re-run the robot asset
+        # self-check so any USD-side joint table that the boot-time
+        # self-check skipped (because no Isaac was available then) gets
+        # dumped now. If the re-check surfaces unmapped roles, open the
+        # IR-role assignment dialog so the user can resolve them — same
+        # flow as the boot-time path through ``_maybe_open_ir_assignment_dialog``.
+        try:
+            from application.tools.robot_asset_selfcheck import (
+                RobotAssetSelfCheckTask,
+            )
+            pending = RobotAssetSelfCheckTask().run()
+            self._pending_ir_assignments = pending or []
+            if self._pending_ir_assignments:
+                log_info(
+                    f"[isaac-install] post-install self-check produced "
+                    f"{len(self._pending_ir_assignments)} pending IR "
+                    f"assignment(s); opening dialog"
+                )
+                self._maybe_open_ir_assignment_dialog()
+            else:
+                log_info(
+                    "[isaac-install] post-install self-check found no "
+                    "unmapped joints — IR tables are complete"
+                )
+        except Exception as exc:                                      # noqa: BLE001
+            log_warning(
+                f"[isaac-install] post-install self-check failed: {exc}"
+            )
+
+    def _on_isaac_install_retry(self) -> None:
+        """Re-submit the Isaac Lab install task using the wizard's selections.
+
+        The IsaacLabInstaller's partial-state marker lets the retry skip
+        already-completed stages, so this can be safely called after a
+        download / extract / clone failure.
+        """
+        if self._fatal or self._task_master is None:
+            return
+        try:
+            persisted = load_setup_state()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[isaac-install] retry: could not read setup_state: {exc}")
+            return
+        selections = persisted.get("selections") or {}
+        backend = selections.get("backend") or {}
+        if not backend.get("isaaclab_install"):
+            log_warning(
+                "[isaac-install] retry pressed but wizard selections no longer "
+                "indicate fresh install — ignoring"
+            )
+            return
+        install_path = str(backend.get("isaaclab_path", "")).strip()
+        eula_ids = list(backend.get("eula_accepted_ids") or [])
+        if not install_path or not eula_ids:
+            log_warning(
+                "[isaac-install] retry pressed but install_path or eula_ids "
+                "missing in setup_state — ignoring"
+            )
+            return
+        try:
+            from application.tools.isaac_lab_install_task import IsaacLabInstallTask
+            task = IsaacLabInstallTask(
+                install_dir=Path(install_path),
+                eula_ids=eula_ids,
+            )
+            self._task_master.submit(task)
+            log_info("[isaac-install] retry: install task re-submitted")
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[isaac-install] retry submission failed: {exc!r}")
+
+    def _on_isaac_install_switch_locate(self) -> None:
+        """Stub — opens the legacy locate path. Surfaced for the user
+        as the "Switch to Locate mode" button on the install-failed view.
+
+        The full UX (a focused mini-wizard reopening the BackendPage with
+        the locate radio pre-selected) is deferred; for now we log a
+        clear instruction so the user knows the path forward.
+        """
+        log_info(
+            "[isaac-install] switch-to-locate requested. The wizard's "
+            "Locate option is available on next launch — close UnitPort, "
+            "delete <USER_CONFIG_DIR>/setup_state.json (or its [App] entry), "
+            "and relaunch to re-run the wizard with Locate selected."
+        )
+
+    def _isaac_install_dir_hint(self) -> str:
+        """Read the install dir from the persisted wizard state (best-effort)."""
+        try:
+            persisted = load_setup_state()
+        except Exception:  # noqa: BLE001
+            return ""
+        selections = persisted.get("selections") or {}
+        backend = selections.get("backend") or {}
+        return str(backend.get("isaaclab_path", "") or "").strip()
+
+    def _maybe_open_ir_assignment_dialog(self) -> None:
+        pending = list(getattr(self, "_pending_ir_assignments", []) or [])
+        if not pending:
+            return
+        try:
+            from application.ui.dialogs.ir_role_assignment_dialog import (
+                IRRoleAssignmentDialog,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[boot] ir_role assignment dialog import failed: {exc}")
+            return
+        log_info(
+            f"[boot] opening IR-role assignment dialog for {len(pending)} "
+            f"pending entr{'ies' if len(pending) != 1 else 'y'}"
+        )
+        dlg = IRRoleAssignmentDialog(pending, parent=self._main_window)
+        dlg.exec()
 
     def _cloud_self_check_on_startup(self) -> None:
         """Submit a CloudSyncTask("self_check") if the user is signed in.
@@ -754,7 +1175,7 @@ class UnitPortMain:
 
         # Auto-discover local USD/URDF/XACRO from custom_mods/models/ (incl.
         # menagerie sparse-checkout) and merge into registers.robots via the
-        # ~/UnitPort/registers/robots_custom.json overlay. Must run *after*
+        # <USER_CONFIG_DIR>/registers/robots_custom.json overlay. Must run *after*
         # RegistryHub.load_all so SKU resolution works; results are merged
         # back into the hub by scan_and_merge_assets's RegistryHub.reload().
         # Single source of truth: discovery writes only into the registry
@@ -785,6 +1206,40 @@ class UnitPortMain:
         from application.training.backend import ensure_default_backends
         ensure_default_backends()
 
+        # Robot Asset Self-Check — auto-dump any robot whose enabled MJCF/USD
+        # per-format table is empty, then collect entries where the tokeniser
+        # left ir_role=""; main.py opens the IRRoleAssignmentDialog from
+        # _finalize() if this list is non-empty. Runs synchronously on the
+        # data_load worker thread; log lines stream through LogSignal like
+        # every other startup step.
+        #
+        # CLAUDE.md §1.8: the previous `except Exception → log_warning +
+        # _pending_ir_assignments = []` was a silent degradation — when the
+        # self-check crashed (bad overlay, Isaac kit missing, registry
+        # validation raising mid-sweep), the user saw zero indication and
+        # the IR-role assignment dialog never opened, even though any of
+        # those failure modes leave the registry in a state where
+        # subsequent training is likely broken. Replace with log_error
+        # carrying the full traceback so the LogSignal pane surfaces it
+        # loudly; still keep _data_load_body proceeding because the rest
+        # of startup (project load, canvas open) can succeed even when
+        # self-check is broken, but the failure is now visible.
+        from application.tools.robot_asset_selfcheck import (
+            RobotAssetSelfCheckTask,
+        )
+        try:
+            self._pending_ir_assignments = RobotAssetSelfCheckTask().run()
+        except Exception as exc:  # noqa: BLE001
+            import traceback as _tb
+            log_error(
+                f"[data] robot_asset self-check crashed — IR-role "
+                f"assignment dialog will NOT open this session, and any "
+                f"empty per-format tables remain undumped. Investigate "
+                f"before training. Exception: {type(exc).__name__}: {exc}\n"
+                f"{_tb.format_exc()}"
+            )
+            self._pending_ir_assignments = []
+
         log_success("[data] data_load complete")
 
     # -------------------------------------------------------------------
@@ -811,7 +1266,7 @@ class UnitPortMain:
 
         # ``last_path`` must resolve to a *registered* project in the snapshot
         # primed by ``_data_load_body`` — not just any existing directory on
-        # disk. After the projects/ → ~/UnitPort/projects/ migration, the
+        # disk. After the projects/ → <USER_CONFIG_DIR>/projects/ migration, the
         # old D:\Unitport\EXE\RELEASE\projects\new_test\ may still be on disk
         # while the registered copy lives at the new location; in that case
         # Path(last).exists() would lie and we'd boot into an unbound project

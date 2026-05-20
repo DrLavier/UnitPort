@@ -1,0 +1,9 @@
+[default]
+ir_role_picker_unavailable = 无法打开 IR 角色选单
+joint_pose_editor_unavailable = 无法打开关节角度编辑器
+replace_canvas_text = Loading template '{tpl}' will replace all nodes and edges in '{name}'. Continue?
+replace_canvas_title = Replace canvas content
+review_pose_unavailable = 无法启动 Review Pose
+unsaved_text = {name} has unsaved changes. Save before continuing?
+unsaved_title = Unsaved changes
+

@@ -266,6 +266,41 @@ _CANONICAL_LEGS = CANONICAL_QUAD_LEGS
 _CANONICAL_SLOTS = CANONICAL_QUAD_JOINT_SLOTS
 
 
+# Stage 4: per-format IR-role → joint-name override registered by the
+# launcher before training starts. When set, ``resolve_canonical_joint_perm``
+# uses this table instead of the hardcoded ``{leg}_{slot}_joint`` suffix
+# pattern. Lets Spot (joint ``fl_hy``, no `_joint` suffix) and other
+# robots whose USD naming diverges from Unitree convention build the
+# canonical permutation correctly.
+_JOINT_NAMES_BY_IR_OVERRIDE: Optional[Dict[str, str]] = None
+
+
+def set_canonical_joint_perm_override(
+    joint_names_by_ir: Optional[Dict[str, str]],
+) -> None:
+    """Register an ``{ir_role: joint_name}`` table used by
+    :func:`resolve_canonical_joint_perm` to look up which articulation
+    joint each canonical IR role maps to.
+
+    Pass ``None`` to clear. Set once at launcher startup from the
+    spec's ``joints_role_map_for(active_format)`` (inverted).
+    """
+    global _JOINT_NAMES_BY_IR_OVERRIDE
+    if joint_names_by_ir:
+        _JOINT_NAMES_BY_IR_OVERRIDE = dict(joint_names_by_ir)
+    else:
+        _JOINT_NAMES_BY_IR_OVERRIDE = None
+
+
+# Canonical IR role order, parallel to ``CANONICAL_QUAD_LEGS × CANONICAL_QUAD_JOINT_SLOTS``.
+_CANONICAL_QUAD_IR_ROLES: tuple = (
+    "hip_FL",   "thigh_FL", "calf_FL",
+    "hip_FR",   "thigh_FR", "calf_FR",
+    "hip_RL",   "thigh_RL", "calf_RL",
+    "hip_RR",   "thigh_RR", "calf_RR",
+)
+
+
 def resolve_canonical_joint_perm(articulation: Any) -> List[int]:
     """Return the permutation from articulation-native joint order to
     canonical ``FL/FR/RL/RR × hip/thigh/calf`` order.
@@ -275,24 +310,45 @@ def resolve_canonical_joint_perm(articulation: Any) -> List[int]:
     caching) and the RSI reset event in
     :mod:`application.training.amp.mdp_events`. Keeping one source
     avoids leg-order drift between obs computation and reset writes.
+
+    Resolution priority (Stage 4):
+      1. If :func:`set_canonical_joint_perm_override` registered a
+         per-format ``{ir_role: joint_name}`` table — look up each
+         canonical IR role directly in that table. Works for any joint
+         naming convention (Spot, Anymal, custom rigs).
+      2. Otherwise — fall back to the Unitree-style ``{leg}_{slot}_joint``
+         suffix pattern (legacy default; works for Go2/A1/H1/G1).
     """
     joint_names = list(articulation.joint_names)
     name_to_idx = {n: i for i, n in enumerate(joint_names)}
     perm: List[int] = []
     missing: List[str] = []
-    for leg in _CANONICAL_LEGS:
-        for slot in _CANONICAL_SLOTS:
-            target = f"{leg}_{slot}_joint"
-            if target in name_to_idx:
+
+    if _JOINT_NAMES_BY_IR_OVERRIDE:
+        for ir_role in _CANONICAL_QUAD_IR_ROLES:
+            target = _JOINT_NAMES_BY_IR_OVERRIDE.get(ir_role, "")
+            if target and target in name_to_idx:
                 perm.append(name_to_idx[target])
             else:
-                missing.append(target)
+                missing.append(f"{ir_role}->{target!r}")
+    else:
+        for leg in _CANONICAL_LEGS:
+            for slot in _CANONICAL_SLOTS:
+                target = f"{leg}_{slot}_joint"
+                if target in name_to_idx:
+                    perm.append(name_to_idx[target])
+                else:
+                    missing.append(target)
+
     if missing or len(perm) != 12:
         raise RuntimeError(
-            "amp_obs_terms: cannot build canonical FL/FR/RL/RR × "
+            "amp_obs_terms: cannot build canonical FL/FR/RL/RR x "
             "hip/thigh/calf joint permutation. Missing joint names: "
             f"{missing}. Articulation joint_names = {joint_names}. "
-            "Add a custom hook if your robot uses non-standard joint naming."
+            "If your robot uses non-standard joint naming (e.g. BD Spot "
+            "fl_hy/fl_kn), make sure the launcher calls "
+            "set_canonical_joint_perm_override() with the per-format "
+            "{ir_role: joint_name} table before training starts."
         )
     return perm
 
@@ -427,9 +483,49 @@ def _root_height_env(wrapper: Any):
 # Future asset families (bipeds, humanoids) can register additional
 # terms without touching the core lerp logic.
 
+def _required_ctx(ctx: Dict[str, Any], key: str, term_name: str) -> int:
+    """Read a positive-int field from the AMP obs ctx, raise on missing.
+
+    CLAUDE.md §1.8: the previous ``ctx.get("num_dofs", 12)`` /
+    ``ctx.get("num_feet", 4)`` patterns substituted Go2 morphology
+    defaults for ANY robot whose ctx didn't carry the field — silently
+    producing 12-DoF expert observations against a 43-joint humanoid
+    policy. AMP discriminator then separated the distributions on
+    pure index drift instead of motion plausibility, and the user
+    saw "expert reward stuck near 0" with no diagnostic.
+
+    Caller (motion loader / env builder) MUST populate ctx with the
+    real morphology counts. Refusing to substitute defaults catches
+    the wiring bug at the term registration boundary, not deep inside
+    the discriminator loss.
+    """
+    val = ctx.get(key)
+    if val is None:
+        raise ValueError(
+            f"[amp.obs_terms.{term_name}] required context field {key!r} "
+            f"is missing. AMP obs term dimensions MUST be plumbed from "
+            f"the actual robot morphology (num_dofs / num_feet) — refusing "
+            f"to substitute Go2-class default. Fix the AMP env builder "
+            f"to populate ctx[{key!r}] before resolving term dims "
+            f"(CLAUDE.md §1.8)."
+        )
+    try:
+        n = int(val)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"[amp.obs_terms.{term_name}] ctx[{key!r}]={val!r} is not "
+            f"a valid integer count."
+        ) from exc
+    if n <= 0:
+        raise ValueError(
+            f"[amp.obs_terms.{term_name}] ctx[{key!r}]={n} must be > 0."
+        )
+    return n
+
+
 register(AmpObsTerm(
     name="joint_pos",
-    dim_fn=lambda ctx: int(ctx.get("num_dofs", 12)),
+    dim_fn=lambda ctx: _required_ctx(ctx, "num_dofs", "joint_pos"),
     motion_slice_fn=_joint_pos_slice,
     env_fn=_joint_pos_env,
     doc="Per-DoF joint positions in the canonical joint order.",
@@ -437,7 +533,7 @@ register(AmpObsTerm(
 
 register(AmpObsTerm(
     name="joint_vel",
-    dim_fn=lambda ctx: int(ctx.get("num_dofs", 12)),
+    dim_fn=lambda ctx: _required_ctx(ctx, "num_dofs", "joint_vel"),
     motion_slice_fn=_joint_vel_slice,
     env_fn=_joint_vel_env,
     doc="Per-DoF joint velocities in the canonical joint order.",
@@ -445,10 +541,10 @@ register(AmpObsTerm(
 
 register(AmpObsTerm(
     name="toe_pos_local",
-    dim_fn=lambda ctx: 3 * int(ctx.get("num_feet", 4)),
+    dim_fn=lambda ctx: 3 * _required_ctx(ctx, "num_feet", "toe_pos_local"),
     motion_slice_fn=_toe_pos_local_slice,
     env_fn=_toe_pos_local_env,
-    doc="Per-foot toe position in body frame (4 feet × 3 axes).",
+    doc="Per-foot toe position in body frame (N feet × 3 axes).",
 ))
 
 register(AmpObsTerm(

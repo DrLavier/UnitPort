@@ -1,0 +1,45 @@
+[default]
+add_server = Ajouter...
+cloud_none = Aucun serveur
+cloud_summary = {n} serveur(s) ; défaut : {d}
+confirm_remove_text = Supprimer le serveur {name} ?
+confirm_remove_title = Supprimer le serveur
+edit_server = Modifier...
+error_title = Erreur
+local_builtin = Intégré (pip), v{ver}
+local_missing = Non installé
+local_registered_no_module = {root} (module non importable)
+local_unregistered = Non enregistré
+pick_generic = Sélectionner la racine d'installation du moteur
+pick_isaac = Sélectionner la racine d'installation Isaac Lab
+remove_server = Supprimer
+set_default = Définir par défaut
+settings_hint = Serveurs d'entraînement de type SSH pour {engine}. Les mots de passe sont stockés dans le trousseau de l'OS ; rien n'est persisté ici en clair.
+settings_title = Serveurs cloud — {engine}
+local_isaac_unregistered = Non enregistré — choisissez la racine d'installation via l'engrenage
+local_registered_with_ver = {root} (v{ver})
+
+[server_editor]
+add = Ajouter un serveur
+edit = Modifier le serveur
+host = Hôte
+host_required = L'hôte est requis.
+invalid_title = Invalide
+name = Nom d'affichage
+name_required = Le nom d'affichage est requis.
+name_taken = Un serveur nommé {name} existe déjà.
+port = Port
+user = Utilisateur
+auth = Authentification
+auth_key = Clé SSH
+auth_password = Mot de passe
+browse = Parcourir...
+conda_env = Environnement Conda
+conda_env_ph = isaaclab (optionnel)
+key_file = Fichier de clé
+key_required = Le chemin de la clé privée est requis pour l'authentification par clé.
+password_hint = Les mots de passe ne sont jamais stockés ici — fournissez-les au moment de la connexion (conservés dans le trousseau de l'OS).
+pick_key = Sélectionner une clé privée SSH
+remote_install_dir = Répertoire d'installation distant
+remote_work_dir = Répertoire de travail distant
+

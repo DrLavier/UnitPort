@@ -60,3 +60,4 @@ busy_self_check = Checking cloud state...
 done_push = Pushed {ok}/{total} files. Skipped {skipped}.
 done_pull = Pulled {ok}/{total} files. Skipped {skipped}.
 never_synced = never
+

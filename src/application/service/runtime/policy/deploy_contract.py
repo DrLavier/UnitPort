@@ -21,10 +21,21 @@ Design notes:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Union
 
-CURRENT_SCHEMA_VERSION = 1
+log = logging.getLogger(__name__)
+
+CURRENT_SCHEMA_VERSION = 2
+# Legacy schema version that the v2 loader still accepts (with WARN) for
+# bundles produced before the (omega_n, zeta) mass-matrix-adaptive PD
+# framework landed. See Stage F of the mjcf-usd-pd plan for the migration.
+# A v1 bundle has no ``pd_param`` / ``mujoco_pd_gains`` / ``mujoco_pd_damping``
+# fields; deploy stacks that consume those (MuJoCo runtime) fall back to
+# treating the v1 ``stiffness`` / ``damping`` arrays as both engines' gains
+# and emit a one-time WARN directing the user to re-export the bundle.
+LEGACY_SCHEMA_VERSION_V1 = 1
 
 
 # ---------------------------------------------------------------------------
@@ -276,13 +287,17 @@ class DeployContract:
     Phase 5 — IR-only joint contract:
       * ``joint_sdk_names`` carries **IR role names** (e.g. ``"hip_FL"``,
         ``"thigh_FL"``) in policy execution order — NOT physical joint
-        names.  The deploy stack resolves each IR role to a physical name
-        at MJCF/URDF/SDK binding time via ``robot_sku``.
-      * ``robot_sku`` identifies which robot the IR roles refer to.  It is
-        looked up via ``registers.robots.get_robot_spec(robot_sku)`` to
-        get the parallel ``joint_order`` (physical) ↔ ``joint_ir_roles``
-        (IR) arrays for translation.  Empty string falls back to legacy
-        physical-name treatment of ``joint_sdk_names`` (with a warning).
+        names. The deploy stack resolves each IR role to a physical name
+        at MJCF/URDF/SDK binding time via the robot SKU.
+
+    SKU is **not** stored on the contract. ``manifest.robot.sku`` is the
+    single source of truth for the bundle's robot identity, and callers
+    (PolicyRunner, CompatibilityChecker, joint_space helpers) plumb that
+    SKU in explicitly. Storing a second copy here used to allow the two
+    to silently diverge, breaking IR→physical translation in subtle ways.
+    Legacy bundles that still carry ``robot_sku`` in their on-disk
+    contract are accepted at load time — ``from_dict`` discards the field
+    silently with a debug log.
     """
 
     schema_version: int
@@ -301,7 +316,6 @@ class DeployContract:
     base_body_name: str = ""
     velocity_limit: Optional[List[float]] = None
     saturation_effort: Optional[List[float]] = None
-    robot_sku: str = ""                                  # Phase 5 — IR resolution lookup
     # IL training init root position [x, y, z] in meters. Bundle exporter
     # persists ``spec.actor.init_pos_*`` here so MuJoCo deploy spawns the
     # robot at the same base z the policy was trained on. Without this
@@ -310,6 +324,22 @@ class DeployContract:
     # default_joint_pos differs from the MJCF keyframe leg geometry
     # (which it almost always does for IL-trained quadrupeds).
     init_base_pos: Optional[List[float]] = None
+    # Stage F: canonical (omega_n, zeta) PD parameterization + per-engine
+    # derived gains. ``pd_param`` is the source of truth; the engine
+    # arrays are pre-derived so runtime loaders don't need to re-solve.
+    # v1 bundles carry all three as None — the MuJoCo runtime then
+    # treats the v1 ``stiffness``/``damping`` lists as both engines'
+    # gains and WARNs. See LEGACY_SCHEMA_VERSION_V1 above.
+    pd_param: Optional[Dict[str, Any]] = None
+    mujoco_pd_gains: Optional[List[float]] = None       # per-joint kp for MuJoCo
+    mujoco_pd_damping: Optional[List[float]] = None     # per-joint kd for MuJoCo
+    # Set when bundle finalize could not derive MuJoCo gains because the
+    # registered MJCF asset doesn't cover the trained joint set (e.g. IL
+    # G1 trained on 43-DOF USD while assets.MJCF is 29-DOF stock). The
+    # bundle still ships for IsaacSim / cloud deploy targets; MuJoCo
+    # runtime loader checks this field and refuses to load with the
+    # carried reason text. Empty / None = MuJoCo deploy supported.
+    mujoco_deploy_unsupported: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -339,10 +369,24 @@ class DeployContract:
             )
 
         schema_version = int(raw.get("schema_version", 0))
-        if schema_version != CURRENT_SCHEMA_VERSION:
+        if schema_version not in (CURRENT_SCHEMA_VERSION, LEGACY_SCHEMA_VERSION_V1):
             raise ValueError(
                 f"deploy_contract.schema_version: expected "
-                f"{CURRENT_SCHEMA_VERSION}, got {schema_version}"
+                f"{CURRENT_SCHEMA_VERSION} (or legacy "
+                f"{LEGACY_SCHEMA_VERSION_V1} with WARN), got {schema_version}"
+            )
+        if schema_version == LEGACY_SCHEMA_VERSION_V1:
+            # WHY KEPT: on-disk legacy compat for bundles produced before
+            # the sim2sim PD framework landed (RELEASE/CLAUDE.md §1.8 c).
+            # v1 bundles have no pd_param + no mujoco_pd_gains; the MuJoCo
+            # deploy stack falls back to treating the v1 stiffness/damping
+            # as both engines' gains. WARN directs the user to re-export.
+            log.warning(
+                "deploy_contract: loading legacy schema v1 bundle — "
+                "pd_param + mujoco_pd_gains are absent. The MuJoCo runtime "
+                "will fall back to scalar gains; re-export through the "
+                "current pipeline to graduate onto the (omega_n, zeta) "
+                "mass-matrix-adaptive PD path."
             )
 
         joint_sdk_names = _as_str_list(raw.get("joint_sdk_names"), "joint_sdk_names")
@@ -491,6 +535,79 @@ class DeployContract:
                 )
             init_base_pos = ibp
 
+        # Legacy ``robot_sku`` field — older bundles persisted a copy of
+        # the bundle SKU here. Silently drop it; manifest.robot.sku is
+        # the single source of truth now (see class docstring).
+        if "robot_sku" in raw:
+            log.debug(
+                "DeployContract.from_dict: legacy 'robot_sku' field "
+                "ignored; manifest.robot.sku is the single source of truth"
+            )
+
+        # Stage F: v2 fields. Strict-parsed when schema_version == 2;
+        # accepted-as-None when v1 (the WARN above directed re-export).
+        pd_param_raw: Optional[Dict[str, Any]] = None
+        mujoco_pd_gains: Optional[List[float]] = None
+        mujoco_pd_damping: Optional[List[float]] = None
+        mujoco_deploy_unsupported_raw = raw.get("mujoco_deploy_unsupported")
+        mujoco_unsupported = bool(mujoco_deploy_unsupported_raw)
+        if schema_version == CURRENT_SCHEMA_VERSION:
+            pd_param_obj = raw.get("pd_param")
+            if pd_param_obj is not None:
+                if not isinstance(pd_param_obj, dict):
+                    raise ValueError(
+                        f"deploy_contract.pd_param: expected dict, got "
+                        f"{type(pd_param_obj).__name__}"
+                    )
+                pd_param_raw = dict(pd_param_obj)
+            mj_gains_raw = raw.get("mujoco_pd_gains")
+            mj_damp_raw = raw.get("mujoco_pd_damping")
+            if pd_param_raw is not None and not mujoco_unsupported:
+                # When pd_param is present AND MuJoCo deploy isn't opted
+                # out, the engine arrays MUST be present and length-
+                # matched. Missing them = corrupt bundle (the finalizer's
+                # job is to derive them).
+                if mj_gains_raw is None or mj_damp_raw is None:
+                    raise ValueError(
+                        "deploy_contract: pd_param is present but "
+                        "mujoco_pd_gains / mujoco_pd_damping are missing — "
+                        "bundle is incomplete (Stage F finalizer must "
+                        "derive these). Re-export the bundle."
+                    )
+                mujoco_pd_gains = _as_float_list(mj_gains_raw, "mujoco_pd_gains")
+                mujoco_pd_damping = _as_float_list(mj_damp_raw, "mujoco_pd_damping")
+                if len(mujoco_pd_gains) != n:
+                    raise ValueError(
+                        f"deploy_contract.mujoco_pd_gains: length "
+                        f"{len(mujoco_pd_gains)} != n_joints {n}"
+                    )
+                if len(mujoco_pd_damping) != n:
+                    raise ValueError(
+                        f"deploy_contract.mujoco_pd_damping: length "
+                        f"{len(mujoco_pd_damping)} != n_joints {n}"
+                    )
+            elif pd_param_raw is None and (
+                mj_gains_raw is not None or mj_damp_raw is not None
+            ):
+                # pd_param missing but engine arrays present → inconsistent.
+                raise ValueError(
+                    "deploy_contract: mujoco_pd_gains / mujoco_pd_damping "
+                    "are present but pd_param (provenance source) is "
+                    "missing. Either populate pd_param or drop the "
+                    "derived arrays."
+                )
+            # When mujoco_unsupported is set, engine arrays MUST be None
+            # (or absent). Present-but-non-null arrays + unsupported flag
+            # is contradictory.
+            if mujoco_unsupported and (
+                mj_gains_raw is not None or mj_damp_raw is not None
+            ):
+                raise ValueError(
+                    "deploy_contract: mujoco_deploy_unsupported is set but "
+                    "mujoco_pd_gains / mujoco_pd_damping are non-null. "
+                    "Drop the arrays when opting out of MuJoCo deploy."
+                )
+
         return cls(
             schema_version=schema_version,
             joint_sdk_names=joint_sdk_names,
@@ -508,8 +625,14 @@ class DeployContract:
             base_body_name=base_body_name,
             velocity_limit=velocity_limit,
             saturation_effort=saturation_effort,
-            robot_sku=str(raw.get("robot_sku", "") or ""),
             init_base_pos=init_base_pos,
+            pd_param=pd_param_raw,
+            mujoco_pd_gains=mujoco_pd_gains,
+            mujoco_pd_damping=mujoco_pd_damping,
+            mujoco_deploy_unsupported=(
+                str(mujoco_deploy_unsupported_raw)
+                if mujoco_unsupported else None
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -544,10 +667,18 @@ class DeployContract:
             out["velocity_limit"] = list(self.velocity_limit)
         if self.saturation_effort is not None:
             out["saturation_effort"] = list(self.saturation_effort)
-        if self.robot_sku:
-            out["robot_sku"] = str(self.robot_sku)
         if self.init_base_pos is not None:
             out["init_base_pos"] = [float(v) for v in self.init_base_pos]
+        # Stage F v2 fields. Only emit when populated — keeps v2 bundles
+        # whose canvas had no ActuatorPDNode (legacy scalar path) lean.
+        if self.pd_param is not None:
+            out["pd_param"] = dict(self.pd_param)
+        if self.mujoco_pd_gains is not None:
+            out["mujoco_pd_gains"] = [float(v) for v in self.mujoco_pd_gains]
+        if self.mujoco_pd_damping is not None:
+            out["mujoco_pd_damping"] = [float(v) for v in self.mujoco_pd_damping]
+        if self.mujoco_deploy_unsupported:
+            out["mujoco_deploy_unsupported"] = str(self.mujoco_deploy_unsupported)
         return out
 
     # ------------------------------------------------------------------

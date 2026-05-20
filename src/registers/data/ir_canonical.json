@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
+  "version": "1.4.0",
   "schema": "ir_catalog/canonical",
-  "_doc": "Brand-neutral IR role catalog. Robots map ONTO this; never auto-extended from URDF/USDA. Source: DEMO/src/system/training/ir_role_catalog.py.",
+  "_doc": "Brand-neutral IR role catalog. Robots map ONTO this; never auto-extended from URDF/USDA. Source: DEMO/src/system/training/ir_role_catalog.py. v1.1.0: biped/humanoid expanded with multi-DOF joint roles (hip/ankle/shoulder/wrist axis-split + waist/neck/fingers) to cover Unitree G1 (29 DOF) / H1 (19 DOF) / G1 with_hands fingers. v1.2.0: family-agnostic `sensor` role family (sensor / sensor_imu / sensor_lidar / sensor_camera / sensor_radar / sensor_gps / sensor_sonar / sensor_depth) for non-actuated mount links (replaces ad-hoc Out-of-Scope for IMU/camera mounts). v1.3.0: added family-agnostic `misc` role (category `misc`) for physical-but-non-actuated cosmetic links (Go2's base_black / base_white / *_protector / *_calflower); both `misc` and `sensor_*` are dedupe-exempt because they legitimately cover many entries per robot. Three-tier semantics: limb role (actuated) > sensor_* (perception) > misc (physical decoration) > __out_of_scope__ (virtual helpers like USD AssemblerFixedJoint). v1.4.0: removed the bogus quadruped `ankle_FL/FR/RL/RR` roles added in v1.2.0. They were introduced under the false premise that BD Spot has a 4th-DOF ankle per leg; in fact Spot has 3 actuated DOFs per leg (hip_AA / hip_FE / knee) and the `*_ank` prim in Spot's USD is a FixedJoint attaching the foot rigid body to the lower leg — zero DOF, not an articulation joint. discover_usd_bodies.py now filters to RevoluteJoint/PrismaticJoint only, so phantom ankle joints no longer reach the registry.",
   "families": {
     "quadruped": {
       "_doc": "Each leg has 3 DOF in series: hip (HAA, lateral) → thigh (HFE, fore/aft) → calf (KFE, knee). foot is the contact link (kinematic).",
@@ -22,29 +22,128 @@
         {"id": "foot_FL",  "category": "feet",   "label": "Foot FL",   "position": "FL", "required": false},
         {"id": "foot_FR",  "category": "feet",   "label": "Foot FR",   "position": "FR", "required": false},
         {"id": "foot_RL",  "category": "feet",   "label": "Foot RL",   "position": "RL", "required": false},
-        {"id": "foot_RR",  "category": "feet",   "label": "Foot RR",   "position": "RR", "required": false}
+        {"id": "foot_RR",  "category": "feet",   "label": "Foot RR",   "position": "RR", "required": false},
+
+        {"id": "sensor",        "category": "sensors", "label": "Sensor (generic)", "position": "", "required": false},
+        {"id": "sensor_imu",    "category": "sensors", "label": "Sensor IMU",       "position": "", "required": false},
+        {"id": "sensor_lidar",  "category": "sensors", "label": "Sensor LIDAR",     "position": "", "required": false},
+        {"id": "sensor_camera", "category": "sensors", "label": "Sensor Camera",    "position": "", "required": false},
+        {"id": "sensor_radar",  "category": "sensors", "label": "Sensor Radar",     "position": "", "required": false},
+        {"id": "sensor_gps",    "category": "sensors", "label": "Sensor GPS",       "position": "", "required": false},
+        {"id": "sensor_sonar",  "category": "sensors", "label": "Sensor Sonar",     "position": "", "required": false},
+        {"id": "sensor_depth",  "category": "sensors", "label": "Sensor Depth",     "position": "", "required": false},
+
+        {"id": "misc",          "category": "misc",    "label": "Misc / Decorative", "position": "", "required": false}
       ]
     },
     "biped": {
-      "_doc": "Bilateral lower-body + optional upper-body chain. humanoid is treated as an alias.",
+      "_doc": "Bilateral lower-body + optional upper-body chain. humanoid is treated as an alias. v1.1.0 added multi-DOF axis-split joints (hip_pitch/roll/yaw, ankle_pitch/roll, shoulder_pitch/roll/yaw, wrist_roll/pitch/yaw), waist (yaw/roll/pitch), neck/head reserved slots, and finger roles (thumb 0..2, index/middle/ring/little 0..1) + fingertip body roles. Single-DOF aggregate roles (hip_L/R, ankle_L/R, shoulder_L/R, wrist_L/R, hand_L/R) are retained for backward compatibility and for robots whose joints don't axis-split.",
       "roles": [
-        {"id": "base",       "category": "base",      "label": "Base",       "position": "",  "required": true},
-        {"id": "waist",      "category": "waist",     "label": "Waist",      "position": "",  "required": false},
-        {"id": "head",       "category": "head",      "label": "Head",       "position": "",  "required": false},
-        {"id": "hip_L",      "category": "hips",      "label": "Hip L",      "position": "L", "required": true},
-        {"id": "hip_R",      "category": "hips",      "label": "Hip R",      "position": "R", "required": true},
-        {"id": "knee_L",     "category": "knees",     "label": "Knee L",     "position": "L", "required": true},
-        {"id": "knee_R",     "category": "knees",     "label": "Knee R",     "position": "R", "required": true},
-        {"id": "foot_L",     "category": "feet",      "label": "Foot L",     "position": "L", "required": false},
-        {"id": "foot_R",     "category": "feet",      "label": "Foot R",     "position": "R", "required": false},
-        {"id": "shoulder_L", "category": "shoulders", "label": "Shoulder L", "position": "L", "required": false},
-        {"id": "shoulder_R", "category": "shoulders", "label": "Shoulder R", "position": "R", "required": false},
-        {"id": "elbow_L",    "category": "elbows",    "label": "Elbow L",    "position": "L", "required": false},
-        {"id": "elbow_R",    "category": "elbows",    "label": "Elbow R",    "position": "R", "required": false},
-        {"id": "wrist_L",    "category": "wrists",    "label": "Wrist L",    "position": "L", "required": false},
-        {"id": "wrist_R",    "category": "wrists",    "label": "Wrist R",    "position": "R", "required": false},
-        {"id": "hand_L",     "category": "hands",     "label": "Hand L",     "position": "L", "required": false},
-        {"id": "hand_R",     "category": "hands",     "label": "Hand R",     "position": "R", "required": false}
+        {"id": "base",                "category": "base",      "label": "Base",                "position": "",  "required": true},
+        {"id": "pelvis",              "category": "pelvis",    "label": "Pelvis",              "position": "",  "required": false},
+        {"id": "torso",               "category": "torso",     "label": "Torso",               "position": "",  "required": false},
+        {"id": "waist",               "category": "waist",     "label": "Waist",               "position": "",  "required": false},
+        {"id": "head",                "category": "head",      "label": "Head",                "position": "",  "required": false},
+        {"id": "neck",                "category": "neck",      "label": "Neck",                "position": "",  "required": false},
+
+        {"id": "waist_yaw",           "category": "waist",     "label": "Waist Yaw",           "position": "",  "required": false},
+        {"id": "waist_roll",          "category": "waist",     "label": "Waist Roll",          "position": "",  "required": false},
+        {"id": "waist_pitch",         "category": "waist",     "label": "Waist Pitch",         "position": "",  "required": false},
+
+        {"id": "neck_yaw",            "category": "neck",      "label": "Neck Yaw",            "position": "",  "required": false},
+        {"id": "neck_pitch",          "category": "neck",      "label": "Neck Pitch",          "position": "",  "required": false},
+        {"id": "head_pitch",          "category": "head",      "label": "Head Pitch",          "position": "",  "required": false},
+
+        {"id": "hip_L",               "category": "hips",      "label": "Hip L",               "position": "L", "required": false},
+        {"id": "hip_R",               "category": "hips",      "label": "Hip R",               "position": "R", "required": false},
+        {"id": "hip_pitch_L",         "category": "hips",      "label": "Hip Pitch L",         "position": "L", "required": false},
+        {"id": "hip_pitch_R",         "category": "hips",      "label": "Hip Pitch R",         "position": "R", "required": false},
+        {"id": "hip_roll_L",          "category": "hips",      "label": "Hip Roll L",          "position": "L", "required": false},
+        {"id": "hip_roll_R",          "category": "hips",      "label": "Hip Roll R",          "position": "R", "required": false},
+        {"id": "hip_yaw_L",           "category": "hips",      "label": "Hip Yaw L",           "position": "L", "required": false},
+        {"id": "hip_yaw_R",           "category": "hips",      "label": "Hip Yaw R",           "position": "R", "required": false},
+
+        {"id": "knee_L",              "category": "knees",     "label": "Knee L",              "position": "L", "required": false},
+        {"id": "knee_R",              "category": "knees",     "label": "Knee R",              "position": "R", "required": false},
+
+        {"id": "ankle_L",             "category": "ankles",    "label": "Ankle L",             "position": "L", "required": false},
+        {"id": "ankle_R",             "category": "ankles",    "label": "Ankle R",             "position": "R", "required": false},
+        {"id": "ankle_pitch_L",       "category": "ankles",    "label": "Ankle Pitch L",       "position": "L", "required": false},
+        {"id": "ankle_pitch_R",       "category": "ankles",    "label": "Ankle Pitch R",       "position": "R", "required": false},
+        {"id": "ankle_roll_L",        "category": "ankles",    "label": "Ankle Roll L",        "position": "L", "required": false},
+        {"id": "ankle_roll_R",        "category": "ankles",    "label": "Ankle Roll R",        "position": "R", "required": false},
+
+        {"id": "foot_L",              "category": "feet",      "label": "Foot L",              "position": "L", "required": false},
+        {"id": "foot_R",              "category": "feet",      "label": "Foot R",              "position": "R", "required": false},
+
+        {"id": "shoulder_L",          "category": "shoulders", "label": "Shoulder L",          "position": "L", "required": false},
+        {"id": "shoulder_R",          "category": "shoulders", "label": "Shoulder R",          "position": "R", "required": false},
+        {"id": "shoulder_pitch_L",    "category": "shoulders", "label": "Shoulder Pitch L",    "position": "L", "required": false},
+        {"id": "shoulder_pitch_R",    "category": "shoulders", "label": "Shoulder Pitch R",    "position": "R", "required": false},
+        {"id": "shoulder_roll_L",     "category": "shoulders", "label": "Shoulder Roll L",     "position": "L", "required": false},
+        {"id": "shoulder_roll_R",     "category": "shoulders", "label": "Shoulder Roll R",     "position": "R", "required": false},
+        {"id": "shoulder_yaw_L",      "category": "shoulders", "label": "Shoulder Yaw L",      "position": "L", "required": false},
+        {"id": "shoulder_yaw_R",      "category": "shoulders", "label": "Shoulder Yaw R",      "position": "R", "required": false},
+
+        {"id": "elbow_L",             "category": "elbows",    "label": "Elbow L",             "position": "L", "required": false},
+        {"id": "elbow_R",             "category": "elbows",    "label": "Elbow R",             "position": "R", "required": false},
+
+        {"id": "wrist_L",             "category": "wrists",    "label": "Wrist L",             "position": "L", "required": false},
+        {"id": "wrist_R",             "category": "wrists",    "label": "Wrist R",             "position": "R", "required": false},
+        {"id": "wrist_roll_L",        "category": "wrists",    "label": "Wrist Roll L",        "position": "L", "required": false},
+        {"id": "wrist_roll_R",        "category": "wrists",    "label": "Wrist Roll R",        "position": "R", "required": false},
+        {"id": "wrist_pitch_L",       "category": "wrists",    "label": "Wrist Pitch L",       "position": "L", "required": false},
+        {"id": "wrist_pitch_R",       "category": "wrists",    "label": "Wrist Pitch R",       "position": "R", "required": false},
+        {"id": "wrist_yaw_L",         "category": "wrists",    "label": "Wrist Yaw L",         "position": "L", "required": false},
+        {"id": "wrist_yaw_R",         "category": "wrists",    "label": "Wrist Yaw R",         "position": "R", "required": false},
+
+        {"id": "hand_L",              "category": "hands",     "label": "Hand L",              "position": "L", "required": false},
+        {"id": "hand_R",              "category": "hands",     "label": "Hand R",              "position": "R", "required": false},
+
+        {"id": "thumb_0_L",           "category": "fingers",   "label": "Thumb 0 L",           "position": "L", "required": false},
+        {"id": "thumb_0_R",           "category": "fingers",   "label": "Thumb 0 R",           "position": "R", "required": false},
+        {"id": "thumb_1_L",           "category": "fingers",   "label": "Thumb 1 L",           "position": "L", "required": false},
+        {"id": "thumb_1_R",           "category": "fingers",   "label": "Thumb 1 R",           "position": "R", "required": false},
+        {"id": "thumb_2_L",           "category": "fingers",   "label": "Thumb 2 L",           "position": "L", "required": false},
+        {"id": "thumb_2_R",           "category": "fingers",   "label": "Thumb 2 R",           "position": "R", "required": false},
+        {"id": "index_0_L",           "category": "fingers",   "label": "Index 0 L",           "position": "L", "required": false},
+        {"id": "index_0_R",           "category": "fingers",   "label": "Index 0 R",           "position": "R", "required": false},
+        {"id": "index_1_L",           "category": "fingers",   "label": "Index 1 L",           "position": "L", "required": false},
+        {"id": "index_1_R",           "category": "fingers",   "label": "Index 1 R",           "position": "R", "required": false},
+        {"id": "middle_0_L",          "category": "fingers",   "label": "Middle 0 L",          "position": "L", "required": false},
+        {"id": "middle_0_R",          "category": "fingers",   "label": "Middle 0 R",          "position": "R", "required": false},
+        {"id": "middle_1_L",          "category": "fingers",   "label": "Middle 1 L",          "position": "L", "required": false},
+        {"id": "middle_1_R",          "category": "fingers",   "label": "Middle 1 R",          "position": "R", "required": false},
+        {"id": "ring_0_L",            "category": "fingers",   "label": "Ring 0 L",            "position": "L", "required": false},
+        {"id": "ring_0_R",            "category": "fingers",   "label": "Ring 0 R",            "position": "R", "required": false},
+        {"id": "ring_1_L",            "category": "fingers",   "label": "Ring 1 L",            "position": "L", "required": false},
+        {"id": "ring_1_R",            "category": "fingers",   "label": "Ring 1 R",            "position": "R", "required": false},
+        {"id": "little_0_L",          "category": "fingers",   "label": "Little 0 L",          "position": "L", "required": false},
+        {"id": "little_0_R",          "category": "fingers",   "label": "Little 0 R",          "position": "R", "required": false},
+        {"id": "little_1_L",          "category": "fingers",   "label": "Little 1 L",          "position": "L", "required": false},
+        {"id": "little_1_R",          "category": "fingers",   "label": "Little 1 R",          "position": "R", "required": false},
+
+        {"id": "thumb_tip_L",         "category": "fingers",   "label": "Thumb Tip L",         "position": "L", "required": false},
+        {"id": "thumb_tip_R",         "category": "fingers",   "label": "Thumb Tip R",         "position": "R", "required": false},
+        {"id": "index_tip_L",         "category": "fingers",   "label": "Index Tip L",         "position": "L", "required": false},
+        {"id": "index_tip_R",         "category": "fingers",   "label": "Index Tip R",         "position": "R", "required": false},
+        {"id": "middle_tip_L",        "category": "fingers",   "label": "Middle Tip L",        "position": "L", "required": false},
+        {"id": "middle_tip_R",        "category": "fingers",   "label": "Middle Tip R",        "position": "R", "required": false},
+        {"id": "ring_tip_L",          "category": "fingers",   "label": "Ring Tip L",          "position": "L", "required": false},
+        {"id": "ring_tip_R",          "category": "fingers",   "label": "Ring Tip R",          "position": "R", "required": false},
+        {"id": "little_tip_L",        "category": "fingers",   "label": "Little Tip L",        "position": "L", "required": false},
+        {"id": "little_tip_R",        "category": "fingers",   "label": "Little Tip R",        "position": "R", "required": false},
+
+        {"id": "sensor",        "category": "sensors", "label": "Sensor (generic)", "position": "", "required": false},
+        {"id": "sensor_imu",    "category": "sensors", "label": "Sensor IMU",       "position": "", "required": false},
+        {"id": "sensor_lidar",  "category": "sensors", "label": "Sensor LIDAR",     "position": "", "required": false},
+        {"id": "sensor_camera", "category": "sensors", "label": "Sensor Camera",    "position": "", "required": false},
+        {"id": "sensor_radar",  "category": "sensors", "label": "Sensor Radar",     "position": "", "required": false},
+        {"id": "sensor_gps",    "category": "sensors", "label": "Sensor GPS",       "position": "", "required": false},
+        {"id": "sensor_sonar",  "category": "sensors", "label": "Sensor Sonar",     "position": "", "required": false},
+        {"id": "sensor_depth",  "category": "sensors", "label": "Sensor Depth",     "position": "", "required": false},
+
+        {"id": "misc",          "category": "misc",    "label": "Misc / Decorative", "position": "", "required": false}
       ]
     },
     "humanoid": {
@@ -58,7 +157,18 @@
         {"id": "shoulder", "category": "shoulders", "label": "Shoulder", "position": "", "required": true},
         {"id": "elbow",    "category": "elbows",    "label": "Elbow",    "position": "", "required": true},
         {"id": "wrist",    "category": "wrists",    "label": "Wrist",    "position": "", "required": true},
-        {"id": "hand",     "category": "hands",     "label": "Hand",     "position": "", "required": false}
+        {"id": "hand",     "category": "hands",     "label": "Hand",     "position": "", "required": false},
+
+        {"id": "sensor",        "category": "sensors", "label": "Sensor (generic)", "position": "", "required": false},
+        {"id": "sensor_imu",    "category": "sensors", "label": "Sensor IMU",       "position": "", "required": false},
+        {"id": "sensor_lidar",  "category": "sensors", "label": "Sensor LIDAR",     "position": "", "required": false},
+        {"id": "sensor_camera", "category": "sensors", "label": "Sensor Camera",    "position": "", "required": false},
+        {"id": "sensor_radar",  "category": "sensors", "label": "Sensor Radar",     "position": "", "required": false},
+        {"id": "sensor_gps",    "category": "sensors", "label": "Sensor GPS",       "position": "", "required": false},
+        {"id": "sensor_sonar",  "category": "sensors", "label": "Sensor Sonar",     "position": "", "required": false},
+        {"id": "sensor_depth",  "category": "sensors", "label": "Sensor Depth",     "position": "", "required": false},
+
+        {"id": "misc",          "category": "misc",    "label": "Misc / Decorative", "position": "", "required": false}
       ]
     },
     "wheeled": {
@@ -68,13 +178,35 @@
         {"id": "wheel_FL", "category": "feet", "label": "Wheel FL", "position": "FL", "required": false},
         {"id": "wheel_FR", "category": "feet", "label": "Wheel FR", "position": "FR", "required": false},
         {"id": "wheel_RL", "category": "feet", "label": "Wheel RL", "position": "RL", "required": false},
-        {"id": "wheel_RR", "category": "feet", "label": "Wheel RR", "position": "RR", "required": false}
+        {"id": "wheel_RR", "category": "feet", "label": "Wheel RR", "position": "RR", "required": false},
+
+        {"id": "sensor",        "category": "sensors", "label": "Sensor (generic)", "position": "", "required": false},
+        {"id": "sensor_imu",    "category": "sensors", "label": "Sensor IMU",       "position": "", "required": false},
+        {"id": "sensor_lidar",  "category": "sensors", "label": "Sensor LIDAR",     "position": "", "required": false},
+        {"id": "sensor_camera", "category": "sensors", "label": "Sensor Camera",    "position": "", "required": false},
+        {"id": "sensor_radar",  "category": "sensors", "label": "Sensor Radar",     "position": "", "required": false},
+        {"id": "sensor_gps",    "category": "sensors", "label": "Sensor GPS",       "position": "", "required": false},
+        {"id": "sensor_sonar",  "category": "sensors", "label": "Sensor Sonar",     "position": "", "required": false},
+        {"id": "sensor_depth",  "category": "sensors", "label": "Sensor Depth",     "position": "", "required": false},
+
+        {"id": "misc",          "category": "misc",    "label": "Misc / Decorative", "position": "", "required": false}
       ]
     },
     "generic": {
       "_doc": "Conservative fallback when family inference fails.",
       "roles": [
-        {"id": "base", "category": "base", "label": "Base", "position": "", "required": true}
+        {"id": "base", "category": "base", "label": "Base", "position": "", "required": true},
+
+        {"id": "sensor",        "category": "sensors", "label": "Sensor (generic)", "position": "", "required": false},
+        {"id": "sensor_imu",    "category": "sensors", "label": "Sensor IMU",       "position": "", "required": false},
+        {"id": "sensor_lidar",  "category": "sensors", "label": "Sensor LIDAR",     "position": "", "required": false},
+        {"id": "sensor_camera", "category": "sensors", "label": "Sensor Camera",    "position": "", "required": false},
+        {"id": "sensor_radar",  "category": "sensors", "label": "Sensor Radar",     "position": "", "required": false},
+        {"id": "sensor_gps",    "category": "sensors", "label": "Sensor GPS",       "position": "", "required": false},
+        {"id": "sensor_sonar",  "category": "sensors", "label": "Sensor Sonar",     "position": "", "required": false},
+        {"id": "sensor_depth",  "category": "sensors", "label": "Sensor Depth",     "position": "", "required": false},
+
+        {"id": "misc",          "category": "misc",    "label": "Misc / Decorative", "position": "", "required": false}
       ]
     }
   }

@@ -4,4 +4,13 @@ latest_export = Latest Export
 latest_export_desc = Resume from the newest export bundle in the workspace.
 new = New (random init)
 new_desc = Start training from scratch with random initialization.
+latest = Latest
+latest_desc = Continue cumulative training from this canvas's most recent checkpoint.
+load = Load
+load_desc = Pick any checkpoint or exported policy in the current project.
+
+[checkpoint]
+empty = — pick checkpoint
+export_desc = Exported policy (.onnx). load_mode auto-snaps to 'warm_start_actor'.
+run_desc = Run-dir checkpoint (.pt). load_mode auto-snaps to 'resume'.
 

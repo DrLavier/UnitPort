@@ -109,7 +109,7 @@ def list_checkpoints() -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Runtime routes（来自原 runtime_routes/{ros2_idl,ros2_topics,motors}.py）
 # controller 硬件 profile 属 per-machine 用户级数据，**实例数据走 USER_CONFIG_DIR**
-# （~/UnitPort/robots/profile/controllers.json），此处仅保留 schema/loader 模板。
+# （<USER_CONFIG_DIR>/robots/profile/controllers.json），此处仅保留 schema/loader 模板。
 # ---------------------------------------------------------------------------
 
 def register_ros2_idl(msg_type: str, type_obj: Any) -> None:
@@ -166,7 +166,7 @@ CHANNELS: Dict[str, Dict[str, Any]] = {
         "label": "Local prefs",
         "medium": "filesystem",
         "root_path_constant": "Paths.USER_CONFIG_DIR",
-        "default_root": "~/UnitPort/",
+        "default_root": "<USER_CONFIG_DIR>/",
         "secret_safe": False,
         "_doc": (
             "用户档案级文件存储。非敏感设置（主题、最近项目、controller 绑定、"

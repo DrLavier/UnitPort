@@ -96,6 +96,49 @@ hw.battery = 电量
 hw.no_selection = 未选择机器人
 hw.temperature = 温度
 hw.uptime = 运行时长
+btn.connecting = 连接中…
+controller.arm_pending = 机械臂遥操作将在第 6 阶段提供。
+controller.no_teleop = 此适配器未声明遥操作能力。
+controller.pid_pending = PID 调参界面将在第 6 阶段提供。
+controller.release_control = 释放控制
+controller.take_control = 取得控制
+dialog.section.domain = ROS2 域 ID
+dialog.section.ssh = SSH 凭据
+dialog.ssh.server = 服务器：{server}
+dialog.title = 连接设置
+middleware.auto_detected = ↳ 自动：{rmw}
+result.fix_tag.invasive = 高侵入
+result.fix_tag.safe = 安全
+result.head.fail = 连接未能完成。
+result.head.ok_clean = 连接就绪。未发现问题。
+result.head.ok_fixed = 连接就绪。已自动修复 {n} 个问题。
+result.head.partial = 连接已建立，但仍有 {n} 个问题需要处理。
+result.invasive.confirm = 即将在机器人上执行 {n} 项高侵入修复。这些修复可能会安装软件包或修改持久配置文件。
+	
+	Actions:
+	{summary}
+	
+	是否继续？
+result.invasive.confirm.title = 确认高侵入修复
+result.meta = 自动修复尝试：{a}   已应用：{ap}   失败：{fl}   耗时：{d:.1f}s
+result.section.applied = 已应用（自动修复）
+result.section.failed = 自动修复过程中失败
+result.section.unresolved_invasive = 未解决（有高侵入修复可用——需要你的同意）
+result.section.unresolved_manual = 未解决（无自动修复——需要手动处理）
+result.section.unresolved_safe = 未解决（可安全修复；建议重试）
+result.title.fail = 连接失败
+result.title.ok = 连接就绪
+result.title.partial = 连接部分完成——建议处理
+robot.none = —
+section.controller = 控制器
+ssh.has_password = pw✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = （无凭据）
+ssh.password = 密码
+ssh.password.placeholder = （输入密码后点击保存）
+ssh.sudo = Sudo 密码
+ssh.sudo.placeholder = （高侵入修复需要）
+ssh.user = SSH 用户
 
 [sim]
 title = 策略仿真
@@ -123,4 +166,23 @@ dialog.save_pose.prompt = 预设名称：
 init_pose.editor.title = 初始姿态编辑器
 init_pose.empty = 请先选择已知 SKU 的策略以编辑初始姿态。
 init_pose.custom = 自定义 (未保存)
+
+[diag]
+repair_invasive = 高侵入修复
+repair_safe = 安全修复
+ssh.context = 服务器：{server}
+	原因：{reason}
+ssh.err_empty_pw = 需要填写 SSH 密码。
+ssh.err_save = 无法保存凭据：{err}
+ssh.headline = 自动修复需要通过 SSH 访问机器人。
+ssh.pw = SSH 密码
+ssh.pw_placeholder = 必填
+ssh.sudo = Sudo 密码
+ssh.sudo_placeholder = 可选——留空时默认使用 SSH 密码
+ssh.title = 需要 SSH 凭据
+ssh.user = SSH 用户
+summary.error = 检测到错误。
+summary.pass = 所有检查均已通过。
+summary.warn = 检测到警告。
+title = 连接诊断
 

@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
   "backend": "isaac_lab",
-  "robot_id": "daade5b5dcf4",
+  "robot_id": "b1f3e435aabe",
   "metadata": {
     "view": {
-      "zoom": 1.156238409217442,
-      "center_x": -2350.7262674655303,
-      "center_y": 245.6240838705705
+      "zoom": 0.4998737717575792,
+      "center_x": -1064.2686815302661,
+      "center_y": 342.0863619204427
     }
   },
   "nodes": [
@@ -37,8 +37,8 @@
         }
       },
       "ui": {
-        "x": -3072.8797226451957,
-        "y": -189.93661157939746,
+        "x": -3030.7880574557134,
+        "y": -109.69937481194717,
         "width": 324.0,
         "height": 88.0,
         "collapsed": false
@@ -139,8 +139,8 @@
         }
       },
       "ui": {
-        "x": 673.2800595281188,
-        "y": 77.78017418798638,
+        "x": 450.6151506757586,
+        "y": 53.426199782259474,
         "width": 324.0,
         "height": 537.0,
         "collapsed": false
@@ -176,8 +176,8 @@
         }
       },
       "ui": {
-        "x": 92.92806423959894,
-        "y": -137.0156031613185,
+        "x": -16.664820586172254,
+        "y": -170.06742556909077,
         "width": 324.0,
         "height": 194.0,
         "collapsed": false
@@ -268,14 +268,14 @@
           "value": "[0.5, 1.5]",
           "param_type": "list"
         },
-        "motor_strength_range": {
-          "name": "motor_strength_range",
-          "value": "[0.9, 1.1]",
+        "omega_n_log_uniform": {
+          "name": "omega_n_log_uniform",
+          "value": "[0.8, 1.25]",
           "param_type": "list"
         },
-        "joint_damping_range": {
-          "name": "joint_damping_range",
-          "value": "[0.95, 1.05]",
+        "zeta_log_uniform": {
+          "name": "zeta_log_uniform",
+          "value": "[0.9, 1.11]",
           "param_type": "list"
         },
         "obs_noise_std": {
@@ -937,11 +937,6 @@
           "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"forward_fast\": {\"enabled\": true, \"speed\": [1.0, 1.5], \"clip\": null, \"advanced\": {}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": true, \"speed\": [0.5, 1.2], \"clip\": null, \"advanced\": {}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": null, \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"turn\": {\"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.5, 1.5]}}, \"clip\": null, \"enabled\": true, \"speed\": [0.3, 1.0]}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.0, 1.5], \"clip\": null, \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.2, 1.2], \"lin_vel_x\": [-1.5, 1.5], \"lin_vel_y\": [-1.2, 1.2]}}}}",
           "param_type": "json"
         },
-        "reward_analysis": {
-          "name": "reward_analysis",
-          "value": "{\"analysis_result\": [], \"applied_overrides\": {}}",
-          "param_type": "json"
-        },
         "mapping_mode": {
           "name": "mapping_mode",
           "value": "linear",
@@ -1099,7 +1094,7 @@
       "params": {
         "asset_id": {
           "name": "asset_id",
-          "value": "daade5b5dcf4",
+          "value": "b1f3e435aabe",
           "param_type": "string"
         },
         "active_override": {
@@ -1109,18 +1104,53 @@
         },
         "body_mapping": {
           "name": "body_mapping",
-          "value": "{\"body_names\": [\"fl_hx\", \"fl_hy\", \"fl_kn\", \"fr_hx\", \"fr_hy\", \"fr_kn\", \"hl_hx\", \"hl_hy\", \"hl_kn\", \"hr_hx\", \"hr_hy\", \"hr_kn\"], \"family\": \"quadruped\", \"roles\": {\"base\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_FL\": {\"body\": \"fl_hx\", \"manual\": false, \"auto_from_asset\": false}, \"hip_FR\": {\"body\": \"fr_hx\", \"manual\": false, \"auto_from_asset\": false}, \"hip_RL\": {\"body\": \"hl_hx\", \"manual\": false, \"auto_from_asset\": false}, \"hip_RR\": {\"body\": \"hr_hx\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_FL\": {\"body\": \"fl_hy\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_FR\": {\"body\": \"fr_hy\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_RL\": {\"body\": \"hl_hy\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_RR\": {\"body\": \"hr_hy\", \"manual\": false, \"auto_from_asset\": false}, \"calf_FL\": {\"body\": \"fl_kn\", \"manual\": false, \"auto_from_asset\": false}, \"calf_FR\": {\"body\": \"fr_kn\", \"manual\": false, \"auto_from_asset\": false}, \"calf_RL\": {\"body\": \"hl_kn\", \"manual\": false, \"auto_from_asset\": false}, \"calf_RR\": {\"body\": \"hr_kn\", \"manual\": false, \"auto_from_asset\": false}, \"foot_FL\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"foot_FR\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"foot_RL\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"foot_RR\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}}, \"unmapped_bodies\": [], \"out_of_scope_bodies\": []}",
+          "value": "{\"body_names\": [\"base\", \"FL_hip\", \"FL_hip_protector\", \"FL_thigh\", \"FL_calf\", \"FL_calflower\", \"FL_calflower1\", \"FL_foot\", \"FL_thigh_protector\", \"FR_hip\", \"FR_hip_protector\", \"FR_thigh\", \"FR_calf\", \"FR_calflower\", \"FR_calflower1\", \"FR_foot\", \"FR_thigh_protector\", \"Head_upper\", \"Head_lower\", \"RL_hip\", \"RL_hip_protector\", \"RL_thigh\", \"RL_calf\", \"RL_calflower\", \"RL_calflower1\", \"RL_foot\", \"RL_thigh_protector\", \"RR_hip\", \"RR_hip_protector\", \"RR_thigh\", \"RR_calf\", \"RR_calflower\", \"RR_calflower1\", \"RR_foot\", \"RR_thigh_protector\", \"base_black\", \"base_white\", \"imu\", \"radar\"], \"family\": \"quadruped\", \"roles\": {\"base\": {\"body\": \"base\", \"manual\": false, \"auto_from_asset\": true}, \"hip_FL\": {\"body\": \"FL_hip\", \"manual\": false, \"auto_from_asset\": false}, \"hip_FR\": {\"body\": \"FR_hip\", \"manual\": false, \"auto_from_asset\": false}, \"hip_RL\": {\"body\": \"RL_hip\", \"manual\": false, \"auto_from_asset\": false}, \"hip_RR\": {\"body\": \"RR_hip\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_FL\": {\"body\": \"FL_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_FR\": {\"body\": \"FR_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_RL\": {\"body\": \"RL_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"thigh_RR\": {\"body\": \"RR_thigh\", \"manual\": false, \"auto_from_asset\": false}, \"calf_FL\": {\"body\": \"FL_calf\", \"manual\": false, \"auto_from_asset\": false}, \"calf_FR\": {\"body\": \"FR_calf\", \"manual\": false, \"auto_from_asset\": false}, \"calf_RL\": {\"body\": \"RL_calf\", \"manual\": false, \"auto_from_asset\": false}, \"calf_RR\": {\"body\": \"RR_calf\", \"manual\": false, \"auto_from_asset\": false}, \"foot_FL\": {\"body\": \"FL_foot\", \"manual\": false, \"auto_from_asset\": true}, \"foot_FR\": {\"body\": \"FR_foot\", \"manual\": false, \"auto_from_asset\": true}, \"foot_RL\": {\"body\": \"RL_foot\", \"manual\": false, \"auto_from_asset\": true}, \"foot_RR\": {\"body\": \"RR_foot\", \"manual\": false, \"auto_from_asset\": true}, \"ankle_FL\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_FR\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_RL\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_RR\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_imu\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_lidar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_camera\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_radar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_gps\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_sonar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_depth\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"misc\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}}, \"unmapped_bodies\": [], \"out_of_scope_bodies\": []}",
           "param_type": "json"
         },
         "target_height": {
           "name": "target_height",
           "value": 0.4,
           "param_type": "float"
+        },
+        "pd_param_mode": {
+          "name": "pd_param_mode",
+          "value": "natural_freq",
+          "param_type": "enum"
+        },
+        "pd_groups": {
+          "name": "pd_groups",
+          "value": "{}",
+          "param_type": "json"
+        },
+        "pd_effort_limit": {
+          "name": "pd_effort_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_velocity_limit": {
+          "name": "pd_velocity_limit",
+          "value": 30.0,
+          "param_type": "float"
+        },
+        "pd_resolve_at_reset": {
+          "name": "pd_resolve_at_reset",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_calibration_blocking": {
+          "name": "pd_calibration_blocking",
+          "value": true,
+          "param_type": "bool"
+        },
+        "pd_skip_calibration": {
+          "name": "pd_skip_calibration",
+          "value": false,
+          "param_type": "bool"
         }
       },
       "ui": {
-        "x": -3070.3546725022525,
-        "y": -75.33727313093895,
+        "x": -3028.2630073127702,
+        "y": 4.899963636511345,
         "width": 324.0,
         "height": 488.0,
         "collapsed": false
@@ -1428,8 +1458,8 @@
         }
       },
       "ui": {
-        "x": 95.075331187166,
-        "y": 70.35263687809315,
+        "x": -14.517553638605193,
+        "y": 37.30081447032087,
         "width": 324.0,
         "height": 808.0,
         "collapsed": false
@@ -1666,8 +1696,8 @@
         "1011"
       ],
       "rect": {
-        "x": -3119.569964058838,
-        "y": -232.93661157939746,
+        "x": -3077.478298869356,
+        "y": -152.69937481194717,
         "w": 403.80991216085295,
         "h": 712.1673828600128
       },
@@ -1714,8 +1744,8 @@
         "1003"
       ],
       "rect": {
-        "x": 64.92806423959894,
-        "y": -180.0156031613185,
+        "x": -44.664820586172254,
+        "y": -213.06742556909077,
         "w": 383.14187151253594,
         "h": 1079.6685398819168
       },

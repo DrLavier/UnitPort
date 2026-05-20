@@ -10,13 +10,15 @@ Scene metadata is read-only at run time — user overrides (gravity,
 friction, roughness, …) live on the canvas node, while identity /
 file path / capability flags come from this module.
 
-Process-local dict, loaded at import time from an in-code default
-table. A future pass will add ``rescan()`` that walks project scene
-directories.
+Process-local dict, loaded at import time from ``builtin/`` (one file
+per built-in scene). A future pass will add filesystem rescan that
+walks user-installed scene directories.
 """
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
@@ -189,11 +191,14 @@ def clear_registry() -> None:
 
 
 def rescan() -> None:
-    """Re-apply the in-code default scene table.
+    """Re-apply the built-in default scene table.
 
-    Placeholder for future filesystem discovery. Idempotent — safe to
+    Clears the in-memory ``_REGISTRY`` first and then re-imports every
+    file under ``builtin/`` to repopulate it. Placeholder for future
+    filesystem discovery of user-installed scenes. Idempotent — safe to
     call from UI widget render callbacks.
     """
+    _REGISTRY.clear()
     _install_defaults()
 
 
@@ -203,80 +208,17 @@ def rescan() -> None:
 
 
 def _install_defaults() -> None:
-    register_scene(Scene(
-        scene_id="flat_ground",
-        name="Flat Ground",
-        description=(
-            "Infinite flat plane. Works with every backend and family — "
-            "baseline arena for locomotion, standing, and pose tracking tasks."
-        ),
-        scene_type="flat",
-        supported_backends={"sb3", "isaac_lab"},
-        supported_families=set(),  # empty ⇒ all families
-        review_backends={"mujoco", "isaac_sim"},
-        defaults={
-            "gravity_z": -9.81,
-            "arena_extent_x": 10.0,
-            "arena_extent_y": 10.0,
-            "friction_static": 1.0,
-            "friction_dynamic": 0.8,
-            "height_scan_enabled": "false",
-        },
-    ))
-
-    register_scene(Scene(
-        scene_id="rough_terrain",
-        name="Rough Terrain",
-        description=(
-            "Procedural heightfield with configurable amplitude and slope. "
-            "Pairs with a curriculum schedule so the policy ramps from easy "
-            "to hard over training. Isaac Lab only — MJ side lacks "
-            "heightfield randomisation today."
-        ),
-        scene_type="rough",
-        supported_backends={"isaac_lab"},
-        supported_families=set(),
-        review_backends={"isaac_sim"},
-        defaults={
-            "gravity_z": -9.81,
-            "arena_extent_x": 100.0,
-            "arena_extent_y": 100.0,
-            "friction_static": 1.0,
-            "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.08,
-            "slope_max": 20.0,
-            "curriculum_enabled": "true",
-            "difficulty_levels": 10,
-            "height_scan_enabled": "true",
-            "scan_resolution": 0.1,
-            "scan_size_x": 1.6,
-            "scan_size_y": 1.0,
-        },
-    ))
-
-    register_scene(Scene(
-        scene_id="stairs",
-        name="Stairs",
-        description=(
-            "Stair-case arena for biped locomotion. Fixed step geometry — "
-            "not curriculum-controlled. Isaac Lab + biped family only."
-        ),
-        scene_type="stairs",
-        supported_backends={"isaac_lab"},
-        supported_families={"biped"},
-        review_backends={"isaac_sim"},
-        defaults={
-            "gravity_z": -9.81,
-            "arena_extent_x": 20.0,
-            "arena_extent_y": 20.0,
-            "friction_static": 1.0,
-            "friction_dynamic": 0.8,
-            "height_scan_enabled": "true",
-            "scan_resolution": 0.05,
-            "scan_size_x": 1.2,
-            "scan_size_y": 0.8,
-        },
-    ))
+    """Import every non-underscore file under ``scripts.scenes.builtin``
+    and call :func:`register_scene` with its ``ENTRY`` constant."""
+    pkg = importlib.import_module("scripts.scenes.builtin")
+    for m in pkgutil.iter_modules(pkg.__path__):
+        if m.name.startswith("_"):
+            continue
+        mod = importlib.import_module(f"scripts.scenes.builtin.{m.name}")
+        entry = getattr(mod, "ENTRY", None)
+        if entry is None:
+            continue
+        register_scene(entry)
 
 
 _install_defaults()

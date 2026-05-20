@@ -41,7 +41,7 @@ class UpdateChannel(ABC):
 
     @abstractmethod
     def describe(self) -> str:
-        """One-line human description, e.g. ``git checkout v0.9.0``.
+        """One-line human description, e.g. ``git checkout v1.0.0``.
 
         Used in the apply-update dialog so the user sees what's about
         to happen before clicking Apply.

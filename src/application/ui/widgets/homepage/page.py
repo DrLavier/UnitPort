@@ -3,14 +3,14 @@
 Hosted by ``_MainPanel.MODE_PICKER`` in place of the legacy
 ``NewCanvasForm``. Four cards under a ``QGridLayout``:
 
-    +-----------+-----------+
-    | UserCard  | NewsCard  |
-    +-----------+-----------+
-    | Create    | LocalFiles|   (Create has fixed width; LocalFiles
-    | (fixed)   |  (stretch)|    absorbs the remaining horizontal room)
-    +-----------+-----------+
+    +-----------+----------------+
+    | UserCard  | CommunityCard  |
+    +-----------+----------------+
+    | Create    | LocalFiles     |   (Create has fixed width; LocalFiles
+    | (fixed)   |  (stretch)     |    absorbs the remaining horizontal room)
+    +-----------+----------------+
 
-Two signals are forwarded to ``MainWindow``:
+Three signals are forwarded to ``MainWindow``:
 
 * :attr:`submitted` — ``(project_path, canvas_name, engine_id,
   template_path)``. Connected to ``MainWindow._create_and_open_canvas``
@@ -20,6 +20,11 @@ Two signals are forwarded to ``MainWindow``:
   Connected to a thin MainWindow handler that does
   ``open_project(project_path)`` + ``open_canvas(canvas_file_id)`` so a
   workspace-row Load button jumps directly into a specific canvas.
+* :attr:`community_apply_requested` — ``(ReleaseInfo)``. The Community
+  card's Download button surfaces a user-selected release here;
+  ``MainWindow`` routes it into the existing ``ApplyUpdateTask`` flow
+  (the user has already seen release notes inline on the card, so the
+  intermediate ``UpdateAvailableDialog`` is skipped).
 
 The class itself does no I/O or auth work — every card owns its own
 manager singleton and signal wiring.
@@ -39,9 +44,9 @@ from PyQt6.QtWidgets import (
 
 from unitport_sdk import Config, log_debug
 
+from .community_card import HomepageCommunityCard
 from .create_card import HomepageCreateCanvas
 from .home_account_card import HomeAccountCard
-from .news_card import NewsCard
 from .projects_card import HomepageLocalFiles
 
 
@@ -54,6 +59,10 @@ class HomepagePage(QWidget):
     # the workspaces table. The host (MainWindow) is expected to drive
     # open_project + open_canvas in sequence.
     canvas_open_requested = pyqtSignal(str, str)
+    # (ReleaseInfo) — Community card's Download button. MainWindow plumbs
+    # this into the existing ApplyUpdateTask + UpdateProgressDialog flow,
+    # bypassing UpdateAvailableDialog (release notes were shown inline).
+    community_apply_requested = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -93,7 +102,7 @@ class HomepagePage(QWidget):
         layout.setRowStretch(1, 5)
 
         self._user_card = HomeAccountCard(parent=self)
-        self._news_card = NewsCard(parent=self)
+        self._community_card = HomepageCommunityCard(parent=self)
         # Bottom row holds two independent cards: the Create form
         # (fixed-width) on the left and the Local Files browser on the
         # right (absorbs all remaining width).
@@ -104,7 +113,7 @@ class HomepagePage(QWidget):
         # rule (Ignored H-policy + min-width floor).
         for card in (
             self._user_card,
-            self._news_card,
+            self._community_card,
         ):
             card.setSizePolicy(
                 QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding
@@ -125,7 +134,7 @@ class HomepagePage(QWidget):
         self._local_files_card.setMinimumWidth(420)
 
         layout.addWidget(self._user_card, 0, 0)
-        layout.addWidget(self._news_card, 0, 1)
+        layout.addWidget(self._community_card, 0, 1)
         # Bottom row: nest the two cards in a QHBoxLayout host so the
         # grid's equal column stretch (used by the top row) doesn't
         # force them to share width 50/50 — the create card stays at
@@ -147,6 +156,10 @@ class HomepagePage(QWidget):
         self._local_files_card.canvas_open_requested.connect(
             self.canvas_open_requested.emit
         )
+        # Community card → MainWindow apply flow.
+        self._community_card.apply_requested.connect(
+            self.community_apply_requested.emit
+        )
 
     # ------------------------------------------------------------------
     # Theme (re-applied by MainWindow.apply_theme if it dispatches)
@@ -157,7 +170,7 @@ class HomepagePage(QWidget):
         # Cards are independent — let them re-style too.
         for card in (
             self._user_card,
-            self._news_card,
+            self._community_card,
             self._create_card,
             self._local_files_card,
         ):

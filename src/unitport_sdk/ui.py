@@ -547,6 +547,16 @@ class _LaviComboItemDelegate(QStyledItemDelegate):
         else:
             bg, fg = bg_normal, fg_normal
 
+        # Per-item foreground override —— 任何通过 QStandardItem.setForeground(...) 或
+        # 模型 setData(idx, brush, ForegroundRole) 给行设置了显式前景色的项,
+        # 优先于上面按状态计算出的 fg。配合 LaviComboBox._build_qss() 一起,
+        # 让外部可以独立于"committed/hover/normal"状态给某一行做标记色。
+        fg_override = index.data(Qt.ItemDataRole.ForegroundRole)
+        if isinstance(fg_override, QBrush):
+            fg = fg_override.color().name()
+        elif isinstance(fg_override, QColor):
+            fg = fg_override.name()
+
         painter.fillRect(option.rect, QColor(bg))
         painter.setPen(QColor(fg))
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
@@ -607,6 +617,10 @@ class LaviComboBox(QComboBox):
         # i18n 重译；i18n=False 时跳过订阅，items 文本始终原样显示
         if self._i18n_enabled:
             I18n.instance().language_changed.connect(self._retranslate_items)
+
+        # 当 committed 行变化时,如果该行设了 ForegroundRole, 闭合态显示文本
+        # 颜色要随之更新(_build_qss 会读 _current_item_fg_color)。
+        self.currentIndexChanged.connect(lambda _i: self.refresh_style())
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_style()
@@ -712,11 +726,33 @@ class LaviComboBox(QComboBox):
         if self._highlight:
             border = highlight
             text = highlight
+        # 闭合态显示文本如果当前 committed 项设了 ForegroundRole(配套 delegate),
+        # 用该颜色作为 QComboBox 的 color,这样 popup 与闭合态显示保持一致。
+        override = self._current_item_fg_color()
+        if override is not None:
+            text = override
         return {
             "bg": bg, "hover": hover, "border": border,
             "text": text, "popup_bg": popup_bg,
             "popup_border": Config.get_color("border_1", "#444444"),
         }
+
+    def _current_item_fg_color(self) -> Optional[str]:
+        """Return the current item's ForegroundRole color (hex), else None.
+
+        Default `QStandardItem.foreground()` returns a `QBrush` with
+        `Qt.BrushStyle.NoBrush` —— treat that as "no override".
+        """
+        idx = self.currentIndex()
+        if idx < 0:
+            return None
+        item = self._src_model.item(idx)
+        if item is None:
+            return None
+        brush = item.foreground()
+        if brush.style() == Qt.BrushStyle.NoBrush:
+            return None
+        return brush.color().name()
 
     def _build_qss(self) -> str:
         p = self._resolve_palette()

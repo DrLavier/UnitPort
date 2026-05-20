@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QWidgetAction,
 )
 
-from unitport_sdk import Config, I18n, tr
+from unitport_sdk import Config, I18n, i18n_bind, tr
 
 from application.service.metrics_cache import RunSummary, get_metrics_cache
 from application.service.signals import get_app_signals
@@ -93,20 +93,27 @@ class RunSourceSelector(QToolButton):
         action.setDefaultWidget(self._list)
         self._menu.addAction(action)
 
-        # Quick-action footer — "Select all" / "Clear".
+        # Quick-action footer — "Select all" / "Clear". Bound via i18n
+        # so language switches re-translate the items without having to
+        # rebuild the menu (the menu is shared by all calls and lives as
+        # long as the selector).
         self._menu.addSeparator()
-        act_all = QAction(tr("chart.runs.select_all", "Select all"), self._menu)
+        act_all = QAction(self._menu)
+        i18n_bind(act_all, "setText", "chart.runs.select_all", "Select all")
         act_all.triggered.connect(self._select_all)
         self._menu.addAction(act_all)
-        act_none = QAction(tr("chart.runs.clear", "Clear"), self._menu)
+        act_none = QAction(self._menu)
+        i18n_bind(act_none, "setText", "chart.runs.clear", "Clear")
         act_none.triggered.connect(self._clear_all)
         self._menu.addAction(act_none)
         self.setMenu(self._menu)
 
         # Refresh on training lifecycle so newly-spawned runs auto-appear.
+        # 训练开始 → 强制切到新 on-going run(否则图表会卡在之前选中的 run 上);
+        # 训练结束 → 仅刷新列表让状态标签翻为 [finished]/[failed],不动选择。
         sigs = get_app_signals()
-        sigs.training_run_started.connect(self._on_run_lifecycle)
-        sigs.training_run_finished.connect(self._on_run_lifecycle)
+        sigs.training_run_started.connect(self._on_run_started)
+        sigs.training_run_finished.connect(self._on_run_finished)
 
         self.apply_theme()
         self.refresh(auto_select_latest=True)
@@ -114,8 +121,11 @@ class RunSourceSelector(QToolButton):
         # 按钮文本由 _update_button_label() 按选择态动态生成（"No runs" /
         # "Select runs" / "{n} runs" / 单 run 标签），不能 i18n_bind setText。
         # 语种切换后重跑一次该方法即可重译；菜单里的 "Select all" / "Clear"
-        # action 是构造时一次性 tr()，会保持旧语种 —— 重建菜单成本高，先接受。
+        # action 已通过 i18n_bind 自挂槽。run 列表里嵌入了 ``[ON-GOING]`` /
+        # ``[finished]`` / ``[failed]`` 翻译标签的 item label —— 需要在语种
+        # 切换时重跑 refresh() 才能让条目文本跟着翻译。
         I18n.instance().language_changed.connect(self._update_button_label)
+        I18n.instance().language_changed.connect(self._on_language_changed)
 
     # ------------------------------------------------------------------
     # Public API
@@ -327,11 +337,26 @@ class RunSourceSelector(QToolButton):
         )
         item.setCheckState(new)
 
-    def _on_run_lifecycle(self, *_args) -> None:
-        # Train start/finish: rebuild list (auto-select the new run if
-        # nothing is checked yet, mirroring DEMO's "force_default" path).
-        had_selection = bool(self._selected)
-        self.refresh(auto_select_latest=not had_selection)
+    def _on_language_changed(self, *_args) -> None:
+        # Re-refresh so each item label re-applies _format_label with the
+        # newly-translated status suffix. Selection / scroll position are
+        # preserved by refresh() (it re-uses the same run_id set).
+        self.refresh()
+
+    def _on_run_started(self, run_id: str, _label: str) -> None:
+        # 训练开始:确保新 run 在列表里,然后把选择强制切换到该 run。
+        # 这样图表立刻显示 ON-GOING 数据,而不是卡在用户之前选中的旧 run 上。
+        # sb3_task / isaac_lab task 在 emit 该信号前已调用过
+        # metrics_cache.mark_started(run_id, label),所以 _build_runs() 里
+        # 必能找到 run_id —— 这里不需要再防御性 fallback。
+        self.refresh()
+        if run_id:
+            self.set_selected([run_id])
+
+    def _on_run_finished(self, *_args) -> None:
+        # 训练结束:刷新列表让状态标签 [ON-GOING] → [finished]/[failed],
+        # 但保留当前选择,避免用户正在看的曲线被突然切走。
+        self.refresh()
 
     def _sync_checkmarks(self) -> None:
         self._list.blockSignals(True)

@@ -166,7 +166,7 @@ class Node_AnchoredPopup(QFrame):
 class Node_DataInput(QFrame):
     """DEMO ``DataInput`` 直接移植 / Direct port of DEMO ``DataInput``.
 
-    DEMO 源：``D:/Unitport/EXE/DEMO/bin/nodes/training_node_items.py:932-1076``。
+    DEMO 源：``bin/nodes/training_node_items.py:932-1076``（历史原型，已剥离）。
     结构：``[QLineEdit][QPushButton ✓][QPushButton ✗] addStretch(1)`` 左对齐。
     popup 自身 ``#dataInputPopup { background: transparent; border: none; }``，
     所有可见样式都画在子 widget 上（QLineEdit 自己的 border、按钮自己的 border）；

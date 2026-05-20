@@ -52,6 +52,7 @@ from PyQt6.QtGui import (
     QPolygonF,
     QResizeEvent,
 )
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -65,7 +66,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from unitport_sdk import Config, tr
+from unitport_sdk import Assets, Config, tr
 
 from application.service.metrics_cache import get_metrics_cache
 from application.service.signals import get_app_signals
@@ -695,41 +696,37 @@ class _ElidingLabel(QLabel):
 
 
 class _PaletteSwatchButton(QToolButton):
-    """16x16 rounded colour chip rendered with the live series colour.
+    """Color-picker affordance rendered with ``icon_color.svg``.
 
-    The button does not own the colour — it queries the chart panel's
-    resolver every paint so changes (live preview, user.ini overlay) take
-    effect without explicit refresh calls. Click is routed to the chart
-    panel which opens :class:`ColorPickerPopup` anchored to this button.
+    A colored fill chip would visually collide with the row's checkbox
+    indicator (both are small squares). The series color is already
+    conveyed by the checkbox tint and label text — this button is a
+    pure affordance, so a fixed multi-dot palette icon reads cleanly.
     """
 
-    def __init__(self, resolver, parent: Optional[QWidget] = None) -> None:
+    _renderer: Optional[QSvgRenderer] = None
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._resolver = resolver  # callable() -> "#RRGGBB"
         self.setFixedSize(20, 20)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tr("missioncontrol.color.palette.tip"))
         self.setAutoRaise(True)
+        if _PaletteSwatchButton._renderer is None:
+            icon_path = Assets.find_icon("icon_color")
+            if icon_path is not None:
+                _PaletteSwatchButton._renderer = QSvgRenderer(str(icon_path))
 
     def refresh(self) -> None:
         self.update()
 
     def paintEvent(self, _e: QPaintEvent) -> None:
+        r = _PaletteSwatchButton._renderer
+        if r is None or not r.isValid():
+            return
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        try:
-            hex_ = self._resolver()
-        except Exception:
-            hex_ = Config.get_color("chart_line_default")
-        fill = QColor(hex_)
-        border_slot = (
-            "checked_1" if self.underMouse() else "palette_btn_border"
-        )
-        border = QColor(Config.get_color(border_slot))
-        rect = QRectF(2.0, 2.0, 16.0, 16.0)
-        p.setPen(QPen(border, 1.0))
-        p.setBrush(fill)
-        p.drawRoundedRect(rect, 4.0, 4.0)
+        r.render(p, QRectF(2.0, 2.0, 16.0, 16.0))
 
 
 # ---------------------------------------------------------------------------
@@ -1067,9 +1064,7 @@ class TrainingChartPanel(QWidget):
             lambda _e, c=cb: c.setChecked(not c.isChecked())
         )
 
-        swatch = _PaletteSwatchButton(
-            lambda k=key: self._resolve_color(k), row
-        )
+        swatch = _PaletteSwatchButton(row)
         swatch.clicked.connect(lambda _=False, k=key: self._open_color_picker(k))
 
         h.addWidget(cb, 0)

@@ -1,6 +1,6 @@
 """Quadruped gait presets — Walk These Ways style parameterised gaits.
 
-Each preset is a named 7-tuple of continuous parameters that together
+Each preset is a named bundle of continuous parameters that together
 describe one gait:
 
   * ``frequency``    — foot stepping frequency in Hz
@@ -26,13 +26,16 @@ smooth command trajectory instead of hard mode switches (this matches
 Walk These Ways §3 — "multiplicity of behavior through parameter
 interpolation").
 
-No Qt imports. The presets are loaded at module import time and
-re-exported as a plain list; the canvas gait_preset_table widget
-uses this list as its seed on new Training Commands nodes.
+Each preset lives in its own file under ``presets_data/`` and exports
+``ENTRY: GaitPreset`` plus ``ORDER: int`` for stable list ordering. The
+aggregator scans the sub-package at module load and materialises
+``DEFAULT_PRESETS`` as a sorted list.
 """
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
@@ -99,47 +102,27 @@ class GaitPreset:
 
 
 # ---------------------------------------------------------------------------
-# Bundled default presets
+# Bundled default presets — aggregated from presets_data/<name>.py
 # ---------------------------------------------------------------------------
 
 
-DEFAULT_PRESETS: List[GaitPreset] = [
-    GaitPreset(
-        name="trot",
-        frequency=2.5,
-        phase=(0.0, 0.5, 0.5, 0.0),
-        body_height=0.35,
-        step_height=0.08,
-    ),
-    GaitPreset(
-        name="walk",
-        frequency=1.5,
-        phase=(0.0, 0.25, 0.5, 0.75),
-        body_height=0.30,
-        step_height=0.05,
-    ),
-    GaitPreset(
-        name="bound",
-        frequency=3.0,
-        phase=(0.0, 0.0, 0.5, 0.5),
-        body_height=0.32,
-        step_height=0.10,
-    ),
-    GaitPreset(
-        name="pace",
-        frequency=2.5,
-        phase=(0.0, 0.5, 0.0, 0.5),
-        body_height=0.33,
-        step_height=0.07,
-    ),
-    GaitPreset(
-        name="pronk",
-        frequency=3.5,
-        phase=(0.0, 0.0, 0.0, 0.0),
-        body_height=0.35,
-        step_height=0.15,
-    ),
-]
+def _collect_presets() -> List[GaitPreset]:
+    pkg = importlib.import_module("scripts.gait.presets_data")
+    items: List[Tuple[int, GaitPreset]] = []
+    for m in pkgutil.iter_modules(pkg.__path__):
+        if m.name.startswith("_"):
+            continue
+        mod = importlib.import_module(f"scripts.gait.presets_data.{m.name}")
+        entry = getattr(mod, "ENTRY", None)
+        if entry is None:
+            continue
+        order = int(getattr(mod, "ORDER", 1_000_000))
+        items.append((order, entry))
+    items.sort(key=lambda io: (io[0], io[1].name))
+    return [e for _, e in items]
+
+
+DEFAULT_PRESETS: List[GaitPreset] = _collect_presets()
 
 
 def default_presets() -> List[GaitPreset]:

@@ -19,7 +19,7 @@
           "type": "robot_pipe",
           "multi": false,
           "optional": false,
-          "description": "Structural body list / joint names from the paired Robot node",
+          "description": "Structural body list / joint names / PD parameterization from the paired Robot node",
           "meta": null
         }
       ],
@@ -69,7 +69,7 @@
           "widget": "range",
           "meta": {
             "min": 0.0,
-            "max": 5.0,
+            "max": 2.4,
             "step": 0.01
           }
         },
@@ -167,9 +167,11 @@
           "type": "json",
           "default": "[]",
           "choices": null,
-          "description": "接触 body 名 (JSON list) / Contact-sensor body names",
-          "widget": "code",
+          "description": "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node)",
+          "widget": "ir_body_picker",
           "meta": {
+            "source": "body",
+            "default_select_all": false,
             "language": "json"
           }
         },
@@ -251,9 +253,11 @@
           "type": "json",
           "default": "[]",
           "choices": null,
-          "description": "动作关节名表达 (JSON list / regex) / Action joint names expr",
-          "widget": "code",
+          "description": "动作关节 IR 角色 / Action joint IR roles (multi-select; empty = all, deselect to suspend)",
+          "widget": "ir_joint_picker",
           "meta": {
+            "source": "joint",
+            "default_select_all": true,
             "language": "json"
           }
         },
@@ -327,11 +331,23 @@
           }
         },
         {
+          "key": "review_pose_engine",
+          "type": "enum",
+          "default": "mujoco",
+          "choices": [
+            "mujoco",
+            "isaac_sim"
+          ],
+          "description": "Review 引擎 / Review engine (mujoco = MJCF, isaac_sim = USD)",
+          "widget": null,
+          "meta": null
+        },
+        {
           "key": "_review_pose",
           "type": "string",
           "default": "",
           "choices": null,
-          "description": "▶ Review init pose in MuJoCo viewer",
+          "description": "▶ Review init pose in selected engine",
           "widget": "actor_review_pose_button",
           "meta": {
             "full_width_widget": true
@@ -1862,11 +1878,11 @@
           }
         },
         {
-          "key": "motor_strength_range",
+          "key": "omega_n_log_uniform",
           "type": "list",
-          "default": "[0.9, 1.1]",
+          "default": "[0.8, 1.25]",
           "choices": null,
-          "description": "[SB3] 电机扭矩缩放范围",
+          "description": "[SB3] ωn 对数均匀缩放范围 (×nominal) / Natural-frequency DR factor",
           "widget": "range_list",
           "meta": {
             "conditional_on": {
@@ -1874,17 +1890,17 @@
               "op": "==",
               "value": "sb3"
             },
-            "min": 0.0,
-            "max": 5.0,
+            "min": 0.5,
+            "max": 2.0,
             "step": 0.01
           }
         },
         {
-          "key": "joint_damping_range",
+          "key": "zeta_log_uniform",
           "type": "list",
-          "default": "[0.95, 1.05]",
+          "default": "[0.9, 1.11]",
           "choices": null,
-          "description": "[SB3] 关节阻尼缩放范围",
+          "description": "[SB3] ζ 对数均匀缩放范围 (×nominal) / Damping-ratio DR factor",
           "widget": "range_list",
           "meta": {
             "conditional_on": {
@@ -1892,8 +1908,8 @@
               "op": "==",
               "value": "sb3"
             },
-            "min": 0.0,
-            "max": 2.0,
+            "min": 0.7,
+            "max": 1.5,
             "step": 0.01
           }
         },
@@ -4496,6 +4512,15 @@
           "meta": null
         },
         {
+          "key": "_mjcf_base_offset_status",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "MJCF 落地偏移 / MJCF base spawn-Z offset (auto-calibrated; read-only status)",
+          "widget": "mjcf_offset_badge",
+          "meta": null
+        },
+        {
           "key": "target_height",
           "type": "float",
           "default": 0.0,
@@ -4507,6 +4532,81 @@
             "max": 5.0,
             "step": 0.01
           }
+        },
+        {
+          "key": "pd_param_mode",
+          "type": "enum",
+          "default": "natural_freq",
+          "choices": [
+            "natural_freq"
+          ],
+          "description": "PD 参数化模式 / PD parameterization mode",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "pd_groups",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "按关节组覆盖 (omega_n, zeta)；空 {} 表示全部使用 family 默认 / Per-group (omega_n, zeta) overrides; empty {} = family defaults for all groups",
+          "widget": "pd_param_table",
+          "meta": {
+            "language": "json"
+          }
+        },
+        {
+          "key": "pd_effort_limit",
+          "type": "float",
+          "default": 30.0,
+          "choices": null,
+          "description": "扭矩上限 / Effort (torque) limit (N·m)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 200.0,
+            "step": 1.0
+          }
+        },
+        {
+          "key": "pd_velocity_limit",
+          "type": "float",
+          "default": 30.0,
+          "choices": null,
+          "description": "速度上限 / Joint velocity limit (rad/s)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 100.0,
+            "step": 0.5
+          }
+        },
+        {
+          "key": "pd_resolve_at_reset",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "每次 reset 重算 PD (跟随 DR 的 ωn/ζ/质量扰动) / Re-solve gains after each DR reset",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "pd_calibration_blocking",
+          "type": "bool",
+          "default": true,
+          "choices": null,
+          "description": "校准失败阻断 bundle 导出 / Block bundle export on calibration fail",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "pd_skip_calibration",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "跳过 step-response 校准 (跳过会被记入 provenance) / Skip calibration",
+          "widget": null,
+          "meta": null
         }
       ],
       "is_trainer": false
@@ -4969,22 +5069,6 @@
           "widget": "training_items",
           "meta": {
             "pin_on_collapse": true
-          }
-        },
-        {
-          "key": "reward_analysis",
-          "type": "json",
-          "default": "{\"analysis_result\": [], \"applied_overrides\": {}}",
-          "choices": null,
-          "description": "AMP 奖励冲突分析（[项, 当前值, 推荐值] 表 + Analyze/Apply）/ AMP reward-conflict table",
-          "widget": "reward_conflict_table",
-          "meta": {
-            "language": "json",
-            "conditional_on": {
-              "key": "consumer_mode",
-              "op": "==",
-              "value": "amp"
-            }
           }
         },
         {

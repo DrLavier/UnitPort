@@ -1,0 +1,29 @@
+[btn]
+node_lib.tip = Basculer le panneau de la bibliothèque de nœuds
+redo.tip = Rétablir (Ctrl+Shift+Z)
+save.tip = Enregistrer le canevas
+undo.tip = Annuler (Ctrl+Z)
+
+[mode]
+mission_control = Contrôle de mission
+training_canva = Canevas d'entraînement
+scripts = Scripts
+
+[tooltip]
+chart_opacity = Opacité de la superposition du graphique
+
+[color]
+palette.tip = Personnaliser la couleur de cette ligne
+picker.title = Choisir une couleur
+hex_input.placeholder = #RRGGBB
+btn.confirm.tip = Confirmer
+btn.cancel.tip = Annuler
+
+[script]
+btn.redo.tip = Rétablir (Ctrl+Shift+Z)
+btn.save.tip = Enregistrer le script
+btn.undo.tip = Annuler (Ctrl+Z)
+
+[ros2_dev_notice]
+title = Connexion ROS2 (aperçu)
+body = La connexion ROS2 est encore en cours de développement. La connexion et le contrôle de base sont disponibles ; l'ensemble complet des fonctionnalités arrivera dans une version ultérieure.

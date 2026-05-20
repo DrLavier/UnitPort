@@ -15,7 +15,12 @@ from __future__ import annotations
 
 from .apply_task import ApplyUpdateTask
 from .check_task import CheckUpdateTask
-from .release_api import UpdateNetworkError, UpdateParseError, fetch_latest_release
+from .release_api import (
+    UpdateNetworkError,
+    UpdateParseError,
+    fetch_latest_release,
+    fetch_releases,
+)
 from .release_info import ApplyResult, ReleaseAsset, ReleaseInfo
 from .service import UpdateService, get_update_service
 
@@ -29,5 +34,6 @@ __all__ = [
     "UpdateParseError",
     "UpdateService",
     "fetch_latest_release",
+    "fetch_releases",
     "get_update_service",
 ]

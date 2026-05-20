@@ -46,7 +46,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from PyQt6.QtCore import Qt, QSize, QTimer, pyqtSignal
-from PyQt6.QtGui import QCursor, QMouseEvent
+from PyQt6.QtGui import QCursor, QFontMetrics, QMouseEvent
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -69,6 +69,7 @@ from unitport_sdk import (
     DataManager,
     I18n,
     Paths,
+    SwitchButton,
     i18n_bind,
     log_info,
     log_warning,
@@ -91,15 +92,26 @@ from registers import robots as robots_registry
 from .card_base import HomepageCard
 
 
-# Column widths — User/Project/Canvas/Robot/Engine are fixed-ish so the
-# header lines up nicely; Last Modified + Action sit at the right edge.
+# Column widths — User/Engine/Last Modified/Action are fixed at the
+# constants below. Project / Canvas / Robot use ``_COL_*_MIN`` as a
+# floor; the actual width is recomputed each refresh to fit the widest
+# cell content (header text included), capped at ``_COL_FIT_CAP``.
 _COL_USER_W = 96
-_COL_PROJECT_W = 130
-_COL_CANVAS_W = 150
-_COL_ROBOT_W = 110
 _COL_ENGINE_W = 90
 _COL_TIME_W = 120
 _COL_ACTION_W = 96
+# Fit-content floors for Project / Canvas / Robot. The starting values
+# match the old fixed widths so a freshly-launched empty workspace still
+# renders with familiar column proportions.
+_COL_PROJECT_MIN = 130
+_COL_CANVAS_MIN = 150
+_COL_ROBOT_MIN = 110
+# Hard ceiling so a pathologically long project / canvas / robot name
+# does not push the Action column off the visible area.
+_COL_FIT_CAP = 280
+# Horizontal padding added to each cell's natural text width so the
+# content does not sit flush against the next column.
+_COL_FIT_PADDING = 16
 
 # Reserved directory names at the workspace root that are NOT per-user
 # workspaces — machine-level state shared by all accounts.
@@ -373,6 +385,7 @@ class _LocalFilesRow(QFrame):
     def __init__(
         self,
         row: _Row,
+        widths: dict,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -399,24 +412,26 @@ class _LocalFilesRow(QFrame):
             ),
             elide=True,
         ))
-        # Project — primary tone, elided.
+        # Project — primary tone. Width is fit-to-content per refresh
+        # (computed by the host card and passed via ``widths``); no
+        # elide needed since the column is sized to its widest entry.
         layout.addWidget(self._make_cell(
-            row.project_name, _COL_PROJECT_W,
+            row.project_name, widths["project"],
             object_name="homepageLfCellName",
-            elide=True,
+            elide=False,
         ))
-        # Canvas — primary tone, elided. This is the column the search
-        # box filters against.
+        # Canvas — primary tone, fit-to-content. This is the column the
+        # search box filters against.
         layout.addWidget(self._make_cell(
-            row.canvas_name, _COL_CANVAS_W,
+            row.canvas_name, widths["canvas"],
             object_name="homepageLfCellCanvas",
-            elide=True,
+            elide=False,
         ))
-        # Robot — muted tone.
+        # Robot — muted tone, fit-to-content.
         layout.addWidget(self._make_cell(
-            row.robot_label, _COL_ROBOT_W,
+            row.robot_label, widths["robot"],
             object_name="homepageLfCell",
-            elide=True,
+            elide=False,
         ))
         # Engine — coloured per-backend via the registry's theme slot
         # mapping; inline stylesheet because the colour is per-row.
@@ -546,6 +561,11 @@ class _LocalFilesRow(QFrame):
     def canvas_name(self) -> str:
         return self._row.canvas_name
 
+    @property
+    def is_snapshot(self) -> bool:
+        """True when this row belongs to a project's ``_runs_`` snapshot dir."""
+        return self._row.engine_subdir == "_runs_"
+
     def mouseDoubleClickEvent(self, ev: QMouseEvent) -> None:  # noqa: D401
         if ev.button() == Qt.MouseButton.LeftButton:
             self.load_clicked.emit(
@@ -643,6 +663,36 @@ class HomepageLocalFiles(HomepageCard):
         refresh_at = max(0, self.title_row.count() - 2)
         self.title_row.insertWidget(
             refresh_at, self._refresh_btn,
+            0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+
+        # Snapshot toggle — "Snapshot: [SwitchButton]" sits to the left of
+        # the refresh button with a leading spacer so the cluster reads as
+        # a distinct control rather than crowding the refresh / search
+        # pair. Off (default) hides rows whose canvas lives under the
+        # per-project ``_runs_/`` snapshot directory; on reveals them.
+        self._show_snapshots = False
+        self._snapshot_label = QLabel(
+            tr("homepage.projects.snapshot_label", "Snapshot:")
+        )
+        self._snapshot_label.setObjectName("homepageLfSnapshotLabel")
+        self._snapshot_label.setProperty(
+            "i18n_key", "homepage.projects.snapshot_label"
+        )
+        self._snapshot_label.setProperty("i18n_default", "Snapshot:")
+        self._snapshot_switch = SwitchButton(checked=self._show_snapshots)
+        self._snapshot_switch.toggled.connect(self._on_snapshot_toggled)
+
+        ref_idx = self.title_row.indexOf(self._refresh_btn)
+        # Insert in reverse so the visible order ends up as
+        #   [stretch] [Snapshot:] [Switch] [gap] [refresh] [search] …
+        self.title_row.insertSpacing(ref_idx, 16)
+        self.title_row.insertWidget(
+            ref_idx, self._snapshot_switch,
+            0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
+        self.title_row.insertWidget(
+            ref_idx, self._snapshot_label,
             0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
         )
 
@@ -745,9 +795,17 @@ class HomepageLocalFiles(HomepageCard):
             return lbl
 
         self._h_user = _make("homepage.projects.col_user", "User", _COL_USER_W)
-        self._h_project = _make("homepage.projects.col_project", "Project", _COL_PROJECT_W)
-        self._h_canvas = _make("homepage.projects.col_canvas", "Canvas", _COL_CANVAS_W)
-        self._h_robot = _make("homepage.projects.col_robot", "Robot", _COL_ROBOT_W)
+        # Project / Canvas / Robot start at their floor widths; the
+        # refresh path recomputes them to fit the widest cell content.
+        self._h_project = _make(
+            "homepage.projects.col_project", "Project", _COL_PROJECT_MIN,
+        )
+        self._h_canvas = _make(
+            "homepage.projects.col_canvas", "Canvas", _COL_CANVAS_MIN,
+        )
+        self._h_robot = _make(
+            "homepage.projects.col_robot", "Robot", _COL_ROBOT_MIN,
+        )
         self._h_engine = _make("homepage.projects.col_engine", "Engine", _COL_ENGINE_W)
         self._h_time = _make("homepage.projects.col_time", "Last Modified", _COL_TIME_W)
         self._h_action = _make("homepage.projects.col_action", "Action", _COL_ACTION_W)
@@ -939,6 +997,10 @@ class HomepageLocalFiles(HomepageCard):
         # of keyboard silence elapses (see ``_apply_filter``).
         self._search_timer.start()
 
+    def _on_snapshot_toggled(self, checked: bool) -> None:
+        self._show_snapshots = bool(checked)
+        self._update_row_visibility()
+
     def _apply_filter(self) -> None:
         self._filter_text = self._search_edit.text().strip().lower()
         self._update_row_visibility()
@@ -946,6 +1008,7 @@ class HomepageLocalFiles(HomepageCard):
     def _update_row_visibility(self) -> None:
         """Show/hide each row based on the current canvas-name filter."""
         needle = self._filter_text
+        show_snaps = self._show_snapshots
         any_visible = False
         # _rows_layout's last entry is the trailing stretch; skip it.
         for i in range(self._rows_layout.count() - 1):
@@ -954,6 +1017,8 @@ class HomepageLocalFiles(HomepageCard):
             if not isinstance(w, _LocalFilesRow):
                 continue
             visible = (not needle) or (needle in w.canvas_name.lower())
+            if visible and w.is_snapshot and not show_snaps:
+                visible = False
             w.setVisible(visible)
             if visible:
                 any_visible = True
@@ -989,6 +1054,9 @@ class HomepageLocalFiles(HomepageCard):
         self._search_edit.setPlaceholderText(tr(
             "homepage.projects.search_placeholder", "Search canvases…"
         ))
+        self._snapshot_label.setText(tr(
+            "homepage.projects.snapshot_label", "Snapshot:"
+        ))
         self._open_ws_btn.setText(tr(
             "homepage.projects.btn_open_workspace",
             "Open Local Workspace →",
@@ -1010,8 +1078,16 @@ class HomepageLocalFiles(HomepageCard):
         self._scroll.setVisible(True)
         self._empty_label.setVisible(False)
 
+        # Resize Project / Canvas / Robot columns to fit the widest
+        # entry in this batch (plus the localised header text). Headers
+        # and rows are kept in lockstep so the column boundaries align.
+        widths = self._compute_fit_widths(rows)
+        self._h_project.setFixedWidth(widths["project"])
+        self._h_canvas.setFixedWidth(widths["canvas"])
+        self._h_robot.setFixedWidth(widths["robot"])
+
         for row in rows:
-            widget = _LocalFilesRow(row, parent=self._rows_host)
+            widget = _LocalFilesRow(row, widths, parent=self._rows_host)
             widget.load_clicked.connect(self.canvas_open_requested.emit)
             widget.reveal_clicked.connect(self._on_reveal_clicked)
             widget.delete_clicked.connect(self._on_delete_clicked)
@@ -1023,6 +1099,46 @@ class HomepageLocalFiles(HomepageCard):
         self._update_row_visibility()
 
         self._apply_table_theme()
+
+    # ------------------------------------------------------------------
+    # Column width fitting
+    # ------------------------------------------------------------------
+    def _compute_fit_widths(self, rows: List[_Row]) -> dict:
+        """Return per-column pixel widths sized to the widest cell.
+
+        Walks the row dataset + the localised header strings, measuring
+        each candidate text via the body font's :class:`QFontMetrics`.
+        Each column's width is ``max(floor, widest_natural + padding)``
+        clamped at :data:`_COL_FIT_CAP` so a pathologically long entry
+        cannot push the Action column out of view.
+        """
+        fm = QFontMetrics(self._h_project.font())
+
+        def fit(values, floor):
+            widest = max((fm.horizontalAdvance(v or "") for v in values),
+                         default=0)
+            return max(floor, min(widest + _COL_FIT_PADDING, _COL_FIT_CAP))
+
+        project_w = fit(
+            [tr("homepage.projects.col_project", "Project")]
+            + [r.project_name for r in rows],
+            _COL_PROJECT_MIN,
+        )
+        canvas_w = fit(
+            [tr("homepage.projects.col_canvas", "Canvas")]
+            + [r.canvas_name for r in rows],
+            _COL_CANVAS_MIN,
+        )
+        robot_w = fit(
+            [tr("homepage.projects.col_robot", "Robot")]
+            + [r.robot_label for r in rows],
+            _COL_ROBOT_MIN,
+        )
+        return {
+            "project": project_w,
+            "canvas": canvas_w,
+            "robot": robot_w,
+        }
 
     # ------------------------------------------------------------------
     # Reveal flow
@@ -1191,6 +1307,14 @@ class HomepageLocalFiles(HomepageCard):
             f"}}"
             f"QLineEdit#homepageLfSearch:focus {{"
             f"  border: 1px solid {search_focus};"
+            f"}}"
+            # Snapshot toggle label — small muted caption next to the
+            # switch ("Snapshot: [○]"). Same tier as the search input.
+            f"QLabel#homepageLfSnapshotLabel {{"
+            f"  color: {sub};"
+            f"  background: transparent;"
+            f"  font-size: {size_small}px;"
+            f"  border: none;"
             f"}}"
             # Headers — size_small, no background, main_t1.
             f"QFrame#homepageLfHeader {{"

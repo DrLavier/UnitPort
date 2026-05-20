@@ -14,7 +14,7 @@
 - training_items.py     → 占位（阶段 C 随 application/training/ 一并填）
 - training_assets.py    → 占位（阶段 C 随 application/training/ 一并填）
 
-用户级配置：``~/UnitPort/engines/<engine>.json`` ← 各引擎 API 密钥/调参，
+用户级配置：``<USER_CONFIG_DIR>/engines/<engine>.json`` ← 各引擎 API 密钥/调参，
 通过 SDK ``Storage.push_data`` 写入 USER_CONFIG_DIR。
 
 API:
@@ -384,6 +384,26 @@ def get_engine_info(engine_id: str) -> Optional[BackendInfo]:
     return _row_to_info(engine_id, row) if row else None
 
 
+def is_available(engine_id: str) -> bool:
+    """Cheap boolean query: is ``engine_id`` marked available in the installed table?
+
+    Reads ``backends_installed.json::engines.<engine_id>.available`` — the
+    per-installation truth maintained by :func:`refresh_engine_availability`.
+    Returns ``False`` when the engine has no row, or its row lacks the
+    ``available`` field, or the value is falsey.
+
+    Used by :mod:`registers.review_backends` to keep the review picker's
+    ``available`` flag in sync with the actual install state of the
+    underlying engine (e.g. ``isaac_sim`` review backend → ``isaac_lab``
+    engine row). Avoid duplicating ``get_installed(...).get('available')``
+    everywhere — one helper, one source of truth.
+    """
+    row = get_installed(engine_id)
+    if not isinstance(row, dict):
+        return False
+    return bool(row.get("available", False))
+
+
 def list_available() -> List[BackendInfo]:
     """Return engines with ``available == True`` from the installed table.
 
@@ -501,7 +521,7 @@ def _detect_module(module_name: str) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 # Match the on-disk schema used by application.service.engines.EngineService:
-#   ~/UnitPort/engines/isaac_lab.json  →  { "local": { "root": "...", ... }, ... }
+#   <USER_CONFIG_DIR>/engines/isaac_lab.json  →  { "local": { "root": "...", ... }, ... }
 def _isaac_lab_state_path() -> Path:
     """Lazy resolve of Isaac Lab's engine-state path inside the LIVE
     USER_CONFIG_DIR. Resolved at call time so workspace hot-switches are
@@ -537,7 +557,7 @@ def _find_isaac_python(root: Path) -> Optional[str]:
 def _detect_isaac_lab() -> Dict[str, Any]:
     """Probe Isaac Lab via subprocess against the registered installation.
 
-    Reads root from ``~/UnitPort/engines/isaac_lab.json`` (`local.root`),
+    Reads root from ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` (`local.root`),
     locates the Isaac Python via :func:`_find_isaac_python`, then runs
     ``python -c "import isaaclab; print(isaaclab.__version__)"``.
 
@@ -592,7 +612,7 @@ def refresh_engine_availability() -> Dict[str, Dict[str, Any]]:
     """扫描本机引擎可用性并写入 backends_installed.json.
 
     sb3 走主进程 importlib 探针（与主进程同栈）；isaac_lab 走独立 venv
-    子进程探针（依赖 ``~/UnitPort/engines/isaac_lab.json`` 中 ``local.root``，
+    子进程探针（依赖 ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` 中 ``local.root``，
     由 ``EngineService.import_isaac_lab_path_from_demo`` 或
     ``EngineService.register_isaac_local`` 写入）。registers/ 内**唯一**
     允许运行时写入。
@@ -658,6 +678,7 @@ __all__ = [
     "refresh_engine_availability",
     "BackendInfo",
     "get_engine_info",
+    "is_available",
     "list_available",
     "get_display_name",
     "set_display_name",

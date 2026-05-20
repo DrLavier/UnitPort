@@ -1,0 +1,6 @@
+[variant.biped]
+families = ["biped", "humanoid"]
+description = "IL stock feet_air_time_positive_biped — per-foot clamp + command gate; 2-foot summed signal that doesn't spike negative on touchdown."
+based_on = "preset"
+created_at = "2026-05-19T05:50:00Z"
+last_modified_at = "2026-05-19T05:50:00Z"

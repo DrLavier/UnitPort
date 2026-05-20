@@ -1,0 +1,25 @@
+[default]
+canvas_saved = Canevas enregistré : {path}
+feature_pending = 
+history_cleared = Historique d'entraînement effacé
+history_delete_failed = Impossible de supprimer l'exécution {}
+history_deleted = Exécution {} supprimée
+history_loaded = Canevas restauré depuis l'exécution {} — Ctrl+S pour le conserver
+history_missing = L'exécution [{}] {} n'existe plus sur le disque
+history_no_chart = Exécution sélectionnée : {} (graphique non prêt)
+history_selected = Exécution sélectionnée :
+history_snapshot_missing = L'instantané du canevas pour l'exécution [{}] {} est manquant sur le disque
+no_project = Aucun projet chargé
+policy_missing = La politique [{}] {} est sélectionnée, mais le chemin du bundle est manquant sur le disque
+policy_no_project = Aucun projet chargé
+policy_selected = Politique sélectionnée : [{}] {}
+ready = UnitPort prêt
+template_apply_failed = Échec de l'application du contenu du modèle
+template_backend_mismatch = Le backend du modèle '{tb}' ne correspond pas au backend actuel du canevas '{cb}'
+template_loaded = Le modèle '{name}' a été chargé dans le canevas actuel — Ctrl+S pour enregistrer
+template_missing = Modèle introuvable sur le disque
+template_no_backend = Le modèle ne contient pas de champ backend
+template_no_canvas = Ouvrez un canevas avant de charger un modèle
+template_no_project = Ouvrez un projet et un canevas avant de charger un modèle
+template_read_failed = Échec de lecture du modèle
+

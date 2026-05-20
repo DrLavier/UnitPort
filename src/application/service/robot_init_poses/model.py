@@ -1,7 +1,7 @@
 """Data models for the init pose override feature.
 
 InitPosePreset is the persisted shape (factory in robots_canonical.json,
-user in ~/UnitPort/robot_presets/init_poses.json).
+user in <USER_CONFIG_DIR>/robot_presets/init_poses.json).
 
 InitPoseOverride is the immutable in-memory snapshot the UI hands to a
 runtime Task. The Task never looks presets back up by name — once the

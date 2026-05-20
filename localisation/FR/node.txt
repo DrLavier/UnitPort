@@ -1,0 +1,544 @@
+[note]
+display = Note
+desc = Carte d'annotation du canevas (non exécutée). Contient un titre et un corps de texte multiligne pour les commentaires dans le canevas.
+
+[actor_setting]
+display = Paramètres acteur
+desc = Bloc acteur : pose initiale / contacts / actionneurs / espace d'action / curriculum
+param.init_pos_x = Pos init X
+param.init_pos_y = Pos init Y
+param.init_pos_z = Pos init Z
+param.init_joint_angles = Articulations init
+param.contact_body_names = Corps de contact
+param.contact_history_length = Historique contact
+param.contact_track_air_time = Suivi temps en l'air
+param.stiffness = Raideur
+param.damping = Amortissement
+param.effort_limit = Limite d'effort
+param.velocity_limit = Limite de vitesse
+param.action_joint_names_expr = Articulations d'action
+param.action_scale = Échelle d'action
+param.action_use_default_offset = Décalage par défaut
+param.action_scale_curriculum_enabled = Curr échelle act ON
+param.action_scale_curriculum_start = Début curr
+param.action_scale_curriculum_end = Fin curr
+param.action_scale_curriculum_ramp_iters = Rampe curr
+port.robot_pipe = Pipeline robot
+port.joint_init = Init articulations
+port.actor_pipe = Pipeline acteur
+
+[algorithm_config]
+display = Config algo
+desc = Algorithme RL + buffer + planning
+param.algorithm = Algorithme
+param.total_timesteps = Pas totaux
+param.learning_rate = Taux d'apprentissage
+param.batch_size = Taille lot
+param.gamma = Gamma
+param.seed = Graine
+param.device = Périphérique
+param.hidden_dim_1 = Dim cachée 1
+param.hidden_dim_2 = Dim cachée 2
+param.activation = Activation
+param.ent_coef = Coef entropie
+param.checkpoint_interval = Intervalle CKPT
+param.resume_mode = Mode reprise
+param.policy_id_out = Sortie ID politique
+param.gae_lambda = GAE λ
+param.n_steps = [PPO] n_steps
+param.n_epochs = [PPO] n_epochs
+param.lr_schedule = Planning LR
+param.gradient_steps = Pas de gradient
+param.tau = Tau
+param.target_entropy = Entropie cible
+param.buffer_size_mode = Mode buffer
+param.buffer_size = Taille buffer
+param.learning_starts = Début apprentissage
+param.use_per = Utiliser PER
+param.per_alpha = PER α
+param.per_beta = PER β
+param.collapse_guard = Garde effondrement
+param.collapse_threshold = Seuil effondrement
+param.collapse_patience = Patience
+param.collapse_lr_factor = LR effondrement
+param.collapse_max_rollbacks = Rollbacks max
+port.checkpoint = Checkpoint
+port.total_steps = Pas totaux
+port.algo_config = Config algo
+
+[amp_trainer]
+display = Entraîneur AMP
+desc = Entraîneur Isaac Lab AMP_PPO (alias de l'entraîneur IL PPO en mode AMP_PPO)
+param.training_mode = Mode entraînement
+param.num_envs = Nb envs
+param.max_iterations = Itérations max
+param.num_steps_per_env = Pas / env
+param.num_learning_epochs = Époques d'appr.
+param.num_minibatches = Minilots
+param.learning_rate = Taux d'apprentissage
+param.discount_factor = Remise γ
+param.gae_lambda = GAE λ
+param.clip_param = Clip ε
+param.entropy_coef = Coef entropie
+param.value_loss_coef = Perte valeur
+param.max_grad_norm = Norme grad max
+param.schedule = Planning LR
+param.desired_kl = KL désiré
+param.save_interval = Intervalle sauvegarde
+param.seed = Graine
+param.headless = Sans interface
+param.amp_reward_coef = Coef récomp. AMP
+param.task_reward_lerp = Interp récomp. tâche
+param.disc_grad_penalty = Pénalité grad
+param.disc_label_smoothing = Lissage labels
+param.amp_replay_buffer_size = Buffer replay
+param.num_preload_transitions = Transitions préchargées
+param.disc_lr = LR discri
+param.lerp_schedule = Planning lerp
+param.lerp_schedule_json = JSON planning lerp
+param.entropy_schedule_enabled = Planning ent. ON
+param.entropy_schedule_start = Début plan ent.
+param.entropy_schedule_end = Fin plan ent.
+param.entropy_schedule_ramp_iters = Rampe plan ent.
+port.policy = Politique
+port.total_reward = Récompense totale
+port.termination_config = Config term.
+port.domain_rand_config = Config DR
+port.obs_vector = Vecteur obs
+port.scene_pipe = Pipeline scène
+port.checkpoint = Checkpoint
+port.reference_motion_config = Config mouv réf
+port.init_pose_config = Config pose init
+port.discriminator_config = Config discri
+port.train_pipe = Pipeline entraînement
+port.training_metrics = Métriques entraînement
+
+[base_asset]
+display = Ressource de base
+desc = Ressource de base du robot + point de départ
+param.start_point = Point de départ
+param.asset_id = ID ressource
+param.checkpoint_file = Fichier CKPT
+param.load_mode = Mode chargement
+port.checkpoint = Checkpoint
+
+[discriminator]
+display = Discriminateur
+desc = Réseau discriminateur AMP + mise en forme de la récompense
+param.disc_modules = Modules discri
+param.disc_hidden_dims = Dim cachées discri
+param.amp_reward_coef = Coef récomp. AMP
+param.task_reward_lerp = Interp récomp. tâche
+param.lerp_schedule = Planning lerp
+param.lerp_schedule_json = JSON planning lerp
+param.disc_lr = LR discri
+param.disc_grad_penalty = Pénalité grad
+param.disc_label_smoothing = Lissage labels
+param.amp_replay_buffer_size = Buffer replay
+param.num_preload_transitions = Transitions préchargées
+param.amp_obs_fields = Champs obs AMP
+param.auto_inject_ref_obs = Injecter obs réf
+param.disc_logit_clamp_max = Clamp logits
+param.reward_clamp_per_step = Clamp récomp. / pas
+param.policy_std_clamp_max = Clamp std max
+port.reference_motion_config = Config mouv réf
+port.discriminator_config = Config discri
+
+[domain_rand]
+display = Aléa de domaine
+desc = Randomisation de domaine (SB3 / Isaac Lab selon backend)
+param.backend = Backend
+param.rand_schedule = Planning aléa
+param.rand_schedule_start_step = Début DR
+param.rand_schedule_end_step = Fin DR
+param.enabled = Activé
+param.mass_range = Plage masse
+param.friction_range = Plage friction
+param.motor_strength_range = Force moteur
+param.joint_damping_range = Amort. articulations
+param.obs_noise_std = Std bruit obs
+param.push_robot = Pousser robot
+param.push_interval_steps = Intervalle poussée
+param.push_force_range = Plage force poussée
+param.enable_friction_rand = Aléa friction
+param.friction_mode = Mode friction
+param.static_friction_range = Friction statique
+param.dynamic_friction_range = Friction dyn.
+param.restitution_range = Restitution
+param.enable_mass_rand = Aléa masse
+param.mass_mode = Mode masse
+param.mass_operation = Op masse
+param.mass_target_body = Corps cible
+param.mass_offset_range = Décalage masse
+param.enable_external_push = Poussée externe
+param.push_mode = Mode poussée
+param.push_interval_range_s = Int. poussée s
+param.push_velocity_x_range = Plage poussée Vx
+param.push_velocity_y_range = Plage poussée Vy
+param.enable_init_pose_rand = Aléa pose init
+param.init_pose_mode = Mode pose init
+param.init_pos_x_range = Plage X init
+param.init_pos_y_range = Plage Y init
+param.init_yaw_range = Plage lacet init
+param.enable_joint_noise = Bruit articulations
+param.joint_noise_mode = Mode bruit art.
+param.joint_pos_noise = Bruit pos art.
+param.joint_vel_noise = Bruit vit art.
+port.actor_pipe = Pipeline acteur
+port.domain_rand_config = Config DR
+
+[env_assembler]
+display = Assembleur env
+desc = Assemble les wrappers vec env + step_fn
+param.n_envs = Nb envs
+param.vec_type = Type vec
+param.obs_normalize = Normaliser obs
+param.reward_normalize = Normaliser récomp.
+param.clip_obs = Clip obs
+param.clip_reward = Clip récomp.
+param.action_clip_range = Clip action
+param.enable_monitor = Activer moniteur
+param.time_limit_override = Limite temps
+param.eval_disable_rand = Éval sans aléa
+port.actor_pipe = Pipeline acteur
+port.scene_pipe = Pipeline scène
+port.command_pipe = Pipeline commande
+port.physics_config = Config physique
+port.task_config = Config tâche
+port.obs_action_config = Config obs/act
+port.domain_rand_config = Config DR
+port.reference_motion_config = Config mouv réf
+port.init_pose_config = Config pose init
+port.env_config = Config env
+
+[eval_config]
+display = Config éval
+desc = Épisodes d'évaluation + enregistreur vidéo
+param.eval_episodes = Épisodes éval
+param.deterministic = Déterministe
+param.success_threshold = Seuil succès
+param.record_video = Enregistrer vidéo
+param.eval_interval = Intervalle éval
+param.save_best_model = Sauver meilleur
+param.video_dir = Rép vidéo
+port.eval_config = Config éval
+
+[export]
+display = Export
+desc = Export bundle + ONNX/TorchScript + revue de scène
+param.bundle_name = Nom bundle
+param.version = Version
+param.include_onnx = Inclure ONNX
+param.include_torchscript = Inclure TorchScript
+param.include_normalization = Inclure stats norm
+param.bundle_targets = Cibles bundle
+param.export_target = Cible export
+param.export_onnx = [legacy] ONNX
+param.export_torchscript = [legacy] TS
+param.include_norm_stats = [legacy] Norm
+param.overwrite = Écraser
+param.review_backend = Backend revue
+param.review_scene_id = Scène revue
+param.review_launch = Lancement revue
+param.auto_import = Import auto
+param.output_files = Fichiers sortie
+param.start_point_compat = Compat point départ
+manifest.exists_warn = ⚠ existe
+manifest.status.exists = Existe
+manifest.status.planned = Prévu
+manifest.open = Ouvrir
+manifest.placeholder = <NOUVEAU>
+compat.title = Compat point départ
+compat.field.framework = Framework
+compat.field.action_dim = Dim action
+compat.field.decimation = Décimation
+compat.field.joint_order = Ordre articulations
+compat.no_connection = Aucun point de départ connecté — connectez train_pipe pour renseigner
+port.train_pipe = Pipeline entraînement
+port.eval_config = Config éval
+port.bundle_path = Chemin bundle
+
+[il_observation]
+display = Observation IL
+desc = Termes d'observation Isaac Lab + curriculum
+param.obs_terms = Termes obs
+param.group_name = Nom groupe
+param.enable_corruption = Activer bruit
+param.corruption_noise_std = Std bruit
+param.obs_noise_curriculum_enabled = Curr bruit ON
+param.obs_noise_curriculum_start = Début bruit
+param.obs_noise_curriculum_end = Fin curr bruit
+param.obs_noise_curriculum_ramp_iters = Rampe curr bruit
+port.actor_pipe = Pipeline acteur
+port.command_pipe = Pipeline commande
+port.obs_vector = Vecteur obs
+
+[il_policy_network]
+display = Réseau politique IL
+desc = Actor-critic MLP Isaac Lab
+param.actor_hidden_dims = Caché acteur
+param.critic_hidden_dims = Caché critique
+param.activation = Activation
+param.init_noise_std = Std bruit init
+param.disc_hidden_dims = Caché discri
+port.obs_vector = Vecteur obs
+port.policy = Politique
+
+[il_ppo_trainer]
+display = Entraîneur IL PPO
+desc = Entraîneur Isaac Lab PPO/AMP_PPO
+param.training_mode = Mode entraînement
+param.num_envs = Nb envs
+param.max_iterations = Itérations max
+param.num_steps_per_env = Pas / env
+param.num_learning_epochs = Époques d'appr.
+param.num_minibatches = Minilots
+param.learning_rate = Taux d'apprentissage
+param.discount_factor = Remise γ
+param.gae_lambda = GAE λ
+param.clip_param = Clip ε
+param.entropy_coef = Coef entropie
+param.value_loss_coef = Perte valeur
+param.max_grad_norm = Norme grad max
+param.schedule = Planning LR
+param.desired_kl = KL désiré
+param.save_interval = Intervalle sauvegarde
+param.seed = Graine
+param.headless = Sans interface
+param.amp_reward_coef = Coef récomp. AMP
+param.task_reward_lerp = Interp récomp. tâche
+param.disc_grad_penalty = Pénalité grad
+param.disc_label_smoothing = Lissage labels
+param.amp_replay_buffer_size = Buffer replay
+param.num_preload_transitions = Transitions préchargées
+param.disc_lr = LR discri
+param.lerp_schedule = Planning lerp
+param.lerp_schedule_json = JSON planning lerp
+param.entropy_schedule_enabled = Planning ent. ON
+param.entropy_schedule_start = Début plan ent.
+param.entropy_schedule_end = Fin plan ent.
+param.entropy_schedule_ramp_iters = Rampe plan ent.
+port.policy = Politique
+port.total_reward = Récompense totale
+port.termination_config = Config term.
+port.domain_rand_config = Config DR
+port.obs_vector = Vecteur obs
+port.scene_pipe = Pipeline scène
+port.checkpoint = Checkpoint
+port.reference_motion_config = Config mouv réf
+port.init_pose_config = Config pose init
+port.discriminator_config = Config discri
+port.train_pipe = Pipeline entraînement
+port.training_metrics = Métriques entraînement
+
+[init_pose]
+display = Pose init
+desc = Pose initiale (RSI / image clé)
+param.mode = Mode
+param.noise_scale = Échelle bruit
+param.base_height = Hauteur base
+param.keyframe_name = Nom image clé
+param.custom_qpos = Qpos perso
+param.rsi_prob = Prob RSI
+param.rsi_sample_mode = Mode échant. RSI
+port.init_pose_config = Config pose init
+
+[joint_init]
+display = Init articulations
+desc = Angles initiaux par articulation
+param.angles = Angles
+port.joint_init = Init articulations
+
+[multigated_reward]
+display = Récompense à portes
+desc = Routeur de récompenses à plusieurs étapes
+param.max_step_stage0 = Pas étape0
+param.reward_threshold_ratio = Seuil récomp.
+param.min_ep_window = Fenêtre ép. min
+param.plateau_window = Fenêtre plateau
+param.plateau_eps = Plateau ε
+param.blend_steps = Pas de mélange
+param.stage_behavior = Comportement étape
+param.ep_reward_window = Fenêtre récomp. ép.
+param.stage1_ratio = Ratio étape1
+port.stage_0 = Étape 0
+port.stage_1 = Étape 1
+port.total_reward = Récompense totale
+port.total_steps = Pas totaux
+
+[obs_action_config]
+display = Config obs/act
+desc = Composants d'observation + mappage d'action
+param.contract_preset = Préréglage contrat
+param.obs_components = Composants obs
+param.obs_clip_range = Plage clip obs
+param.frame_stack = Empilement frames
+param.action_type = Type action
+param.action_scale = Échelle action
+param.action_clip = Clip action
+port.obs_action_config = Config obs/act
+
+[physics_config]
+display = Config physique
+desc = Dt sim + dt contrôle + solveur
+param.sim_dt = Dt sim
+param.control_dt = Dt contrôle
+param.episode_max_steps = Pas max ép.
+param.action_type = Type action
+port.robot_pipe = Pipeline robot
+port.robot_spec = Spec robot
+port.physics_config = Config physique
+
+[play_ground_setting]
+display = Terrain
+desc = Scène + arène + friction + scan de hauteur
+param.scene_id = ID scène
+param.scene_type = Type scène
+param.gravity_z = Gravité Z
+param.arena_extent_x = Étendue arène X
+param.arena_extent_y = Étendue arène Y
+param.friction_static = Friction statique
+param.friction_dynamic = Friction dyn.
+param.roughness_amplitude = Amp rugosité
+param.slope_max = Pente max
+param.curriculum_enabled = Curriculum ON
+param.difficulty_levels = Niveaux diff.
+param.height_scan_enabled = Scan hauteur ON
+param.scan_resolution = Résolution scan
+param.scan_size_x = Taille scan X
+param.scan_size_y = Taille scan Y
+param.sim_dt = Dt sim
+param.gpu_max_rigid_contact_count = Contacts GPU
+param.gpu_max_rigid_patch_count = Patches GPU
+port.scene_pipe = Pipeline scène
+
+[rewards]
+display = Récompenses
+desc = Configuration des termes de récompense (SB3 / Isaac Lab)
+param.backend = Backend
+param.reward_terms = Termes récompense
+param.std = Std
+param.threshold = Seuil
+port.actor_pipe = Pipeline acteur
+port.command_pipe = Pipeline commande
+port.total_reward = Récompense totale
+covered_lane = couvert par Unconditional
+empty_lane = aucune récompense — phase sous-contraite
+
+[robot]
+display = Robot
+desc = Ressource robot + mappage des corps + paramétrage PD
+param.asset_id = ID ressource
+param.active_override = Surcharge active
+param.body_mapping = Mappage corps
+param.target_height = Hauteur cible
+param.pd_param_mode = Mode PD
+param.pd_groups = Groupes PD
+param.pd_effort_limit = Limite effort
+param.pd_velocity_limit = Limite vitesse
+param.pd_resolve_at_reset = Recalcul au reset
+param.pd_calibration_blocking = Bloquer si échec calib
+param.pd_skip_calibration = Ignorer calibration
+port.robot_pipe = Pipeline robot
+
+[stage_switch]
+display = Commutateur d'étape
+desc = Commutation de curriculum multi-étapes
+param.stages_config = Config étapes
+param.checkpoint_strategy = Stratégie CKPT
+port.stage_0 = Étape 0
+port.stage_1 = Étape 1
+port.stage_2 = Étape 2
+port.stage_3 = Étape 3
+port.stage_4 = Étape 4
+port.stage_5 = Étape 5
+port.train_pipe = Pipeline entraînement
+
+[task_config]
+display = Config tâche
+desc = Définition de tâche RL
+param.task_type = Type tâche
+param.command_mode = Mode commande
+param.target_lin_vel_x = Vx cible
+param.target_lin_vel_y = Vy cible
+param.target_ang_vel_z = Wz cible
+param.curriculum = Curriculum
+param.success_threshold = Seuil succès
+param.truncation_max_steps = Pas troncature
+param.curriculum_schedule = Planning curr
+param.resampling_time_range = Temps rééchant.
+port.total_reward = Récompense totale
+port.termination_config = Config term.
+port.task_config = Config tâche
+
+[terminations]
+display = Terminaisons
+desc = Conditions de terminaison
+param.backend = Backend
+param.termination_conditions = Conditions terminaison
+param.termination_curriculum_enabled = Curr term. ON
+param.termination_curriculum_start = Début curr term.
+param.termination_curriculum_end = Fin curr term.
+param.termination_curriculum_ramp_iters = Rampe curr term.
+port.termination_config = Config term.
+
+[train]
+display = Entraîner
+desc = Point d'entrée d'entraînement principal
+port.env_config = Config env
+port.algo_config = Config algo
+port.eval_config = Config éval
+port.train_config = Config entraînement
+port.train_pipe = Pipeline entraînement
+port.vis_check = Vérif visuelle
+
+[training_motion]
+display = Mouvement d'entraînement
+desc = Mouvement de référence + commandes + curriculum
+param.training_items = Éléments d'entraînement
+param.mapping_mode = Mode mappage
+param.deadzone = Zone morte
+param.curve_exponent = Exposant courbe
+param.runtime_clip = Clip runtime
+param.gait_enabled = Allure activée
+param.gait_frequency_range = Fréq allure
+param.body_height_range = Hauteur corps
+param.step_height_range = Hauteur pas
+param.gait_presets = Préréglages allure
+param.resampling_time_range = Temps rééchant.
+param.zero_command_probability = Prob commande nulle
+param.cmd_step_change_prob = Prob changement cmd
+param.gain_lin_forward = Cap vitesse avant
+param.gain_lin_backward = Cap vitesse arrière
+param.gain_lin_lateral = Vitesse latérale
+param.gain_yaw = Cap taux lacet
+param.reference_state_init_enabled = AMP RSI ON
+param.rsi_prob = Prob RSI
+param.rsi_joint_noise = Bruit art. RSI
+param.consumer_mode = Mode consommateur
+param.phase_mode = Mode phase
+param.motion_fps = FPS mouvement
+param.random_start_phase = Phase départ aléa
+param.command_curriculum_enabled = Curr cmd ON
+param.command_curriculum_start = Début curr cmd
+param.command_curriculum_end = Fin curr cmd
+param.command_curriculum_ramp_iters = Rampe curr cmd
+port.command_pipe = Pipeline commande
+port.reference_motion_config = Config mouv réf
+
+[vis_check]
+display = Vérif visuelle
+desc = Vérification / aperçu visuel de cohérence
+param.trigger_mode = Mode déclenchement
+param.vis_start_step = Pas début vis
+param.vis_interval_steps = Intervalle vis
+param.num_vis_checks = Nb vérifs vis
+param.vis_episodes = Épisodes vis
+param.deterministic = Déterministe
+port.vis_check = Vérif visuelle
+
+[example]
+print_hello.display = Afficher bonjour
+print_hello.desc = Modèle de démarrage de nœud communautaire — déclare un unique paramètre texte ; utilise l'exécution passthrough par défaut.
+print_hello.param.message = Message
+

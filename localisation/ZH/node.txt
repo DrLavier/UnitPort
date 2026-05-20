@@ -66,14 +66,6 @@ port.checkpoint = 检查点
 port.total_steps = 总步数
 port.algo_config = 算法配置
 
-[amp_helper]
-display = AMP 辅助器
-desc = AMP 分析与自动调参辅助
-param.analysis_result = 分析结果
-param.applied_overrides = 权重覆盖
-port.total_reward = 总奖励
-port.discriminator_config = 判别器配置
-
 [amp_trainer]
 display = AMP 训练器
 desc = Isaac Lab AMP_PPO 训练器（IL PPO Trainer 在 AMP_PPO 模式下的别名）
@@ -259,7 +251,7 @@ manifest.placeholder = <未命名>
 compat.title = 起点兼容性
 compat.field.framework = 框架
 compat.field.action_dim = 动作维度
-compat.field.decimation = decimation
+compat.field.decimation = 降采样倍数
 compat.field.joint_order = 关节顺序
 compat.no_connection = 未连接 Start Point
 port.train_pipe = 训练管线
@@ -283,7 +275,7 @@ port.obs_vector = 观测向量
 
 [il_policy_network]
 display = IL 策略网络
-desc = Isaac Lab MLP actor-critic
+desc = Isaac Lab MLP actor-critic 网络
 param.actor_hidden_dims = actor 隐藏维
 param.critic_hidden_dims = critic 隐藏维
 param.activation = 激活函数
@@ -430,14 +422,23 @@ param.threshold = 全局 threshold
 port.actor_pipe = 角色管线
 port.command_pipe = 指令管线
 port.total_reward = 总奖励
+covered_lane = 已由 Unconditional 覆盖
+empty_lane = 无奖励——该阶段约束不足
 
 [robot]
 display = 机器人
-desc = 机器人资产与 body 映射
+desc = 机器人资产 + body 映射 + PD 参数化
 param.asset_id = 资产 id
 param.active_override = 格式覆盖
 param.body_mapping = body→IR 映射
 param.target_height = 目标高度
+param.pd_param_mode = PD 模式
+param.pd_groups = PD 关节组
+param.pd_effort_limit = 扭矩上限
+param.pd_velocity_limit = 速度上限
+param.pd_resolve_at_reset = Reset 时重算
+param.pd_calibration_blocking = 校准失败阻断
+param.pd_skip_calibration = 跳过校准
 port.robot_pipe = 机器人管线
 
 [stage_switch]
@@ -538,6 +539,6 @@ port.vis_check = 可视化检查
 
 [example]
 print_hello.display = 示例 hello
-print_hello.desc = 示例.print_hello
+print_hello.desc = 三方节点起步样例 —— 声明一个字符串参数，沿用 BaseNode.execute 默认 passthrough。
 print_hello.param.message = 要打印的消息
 

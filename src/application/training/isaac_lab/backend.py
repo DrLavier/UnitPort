@@ -6,10 +6,17 @@ RELEASE-specific changes:
 * ``IsaacLabConfig`` import switches to ``application.training.isaac_lab.config``.
 * Logging dispatches through ``train_log_*`` so messages get the ``[run_id]``
   prefix ``CmdLogWidget`` filters on.
-* The export step (``_run_export``) is gated behind
-  ``cfg.unitport_launcher_path`` because RSL-RL's stock ``play.py`` rejects
-  ``--load_checkpoint`` and we don't want to mix ONNX export into Phase 2.
-  Bundle export lands in Phase 3 via ``application.training.bundle_exporter``.
+* No post-training Isaac Sim ``play.py`` subprocess. The training launcher
+  already writes ``params/env.yaml`` + ``params/agent.yaml`` + ``model_*.pt``
+  to ``log_dir`` during the run, and ``bundle_finalizer`` converts the
+  latest ``.pt`` to ONNX in-process via ``export_rsl_rl_actor_to_onnx``.
+  The legacy ``_run_export`` spawn-a-second-Isaac-Sim path was redundant
+  (30s+ Kit cold boot) and a documented source of RTX scenedb crashes;
+  removed per CLAUDE.md §1.8 anti-fallback rule (the path was only ever
+  "successful" via its own argparse-crash fallback handing run_dir to
+  finalize — a textbook silent-fallback bug). Bundle export now happens
+  via ``application.training.isaac_lab.bundle_finalizer.finalize_isaac_lab_bundle``
+  on the run_dir directly.
 
 The subprocess + signal interface (MSG_*, on_message callback shape) and the
 log-parsing regex tables (``_ITER_LINE_RE`` / ``_AMP_LINE_RE`` /
@@ -250,7 +257,6 @@ class IsaacLabBackend:
         self._process: Optional[subprocess.Popen] = None
         self._thread: Optional[threading.Thread] = None
         self._cancelled = threading.Event()
-        self._export_path: Optional[Path] = None
         self._last_iter_total: int = 0
 
     # ------------------------------------------------------------------
@@ -325,129 +331,9 @@ class IsaacLabBackend:
     def is_running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def _run_export(self, last_checkpoint_path: Optional[str]) -> Optional[Path]:
-        """Spawn ``il_play_launcher.py`` to convert .pt → exported/policy.onnx.
-
-        Mirrors DEMO ``isaac_lab_backend.py:_run_export`` (line 952–993):
-
-          1. If no checkpoint reported, return None — bundle_finalizer
-             will refuse to proceed and the task surfaces a clear error.
-          2. ``self.config.build_export_command(checkpoint)`` produces an
-             absolute-path play.py command that loads the checkpoint and
-             runs one inference step. Stock Isaac Lab play.py auto-writes
-             ``<run_dir>/exported/policy.onnx`` + ``env.yaml`` during this
-             single-step replay (the export is RSL-RL's standard side
-             effect, not something we instrument).
-          3. Subprocess output is forwarded line-by-line to MSG_LOG so
-             the user sees the play.py boot + export trace alongside the
-             training log.
-          4. Probe two candidate locations for the resulting exported/
-             dir:
-               * ``<checkpoint_parent>/exported/`` — Isaac Lab default
-               * ``<checkpoint_parent>/../exported/`` — RSL-RL log_dir
-                 layout (params/ + checkpoints/ siblings)
-          5. Return the resolved path, or the checkpoint's parent dir as
-             a last resort (bundle_finalizer will fail cleanly if the
-             dir lacks env.yaml + policy).
-
-        Cancellable: respects ``self._cancelled`` between subprocess
-        wait polls so the task's ``cancel()`` propagates here too.
-        """
-        if not last_checkpoint_path:
-            self._emit({
-                "type": MSG_LOG,
-                "data": "[UnitPort] _run_export: no checkpoint reported — skipping",
-            })
-            return None
-
-        cp = Path(last_checkpoint_path)
-        try:
-            cmd = self.config.build_export_command(str(cp))
-        except Exception as exc:
-            self._emit({
-                "type": MSG_LOG,
-                "data": f"[UnitPort] _run_export: build_export_command raised: {exc}",
-            })
-            return cp.parent
-
-        cmd_str = " ".join(cmd)
-        self._emit({"type": MSG_LOG, "data": f"[UnitPort] Export command: {cmd_str}"})
-
-        env = dict(os.environ)
-        env["PYTHONUNBUFFERED"] = "1"
-        env.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
-        env.setdefault("PYTHONIOENCODING", "utf-8")
-
-        kwargs: dict = {
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.STDOUT,
-            "text": True,
-            "bufsize": 1,
-            "cwd": self.config.isaac_lab_path or None,
-            "env": env,
-            "encoding": "utf-8",
-            "errors": "replace",
-        }
-        if os.name == "nt":
-            kwargs["creationflags"] = (
-                subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-            )
-        else:
-            kwargs["start_new_session"] = True
-
-        try:
-            proc = subprocess.Popen(cmd, **kwargs)
-        except FileNotFoundError as exc:
-            self._emit({
-                "type": MSG_LOG,
-                "data": f"[UnitPort] _run_export: launcher not found: {exc}",
-            })
-            return cp.parent
-
-        try:
-            for line in proc.stdout:
-                if self._cancelled.is_set():
-                    break
-                line = line.rstrip()
-                if line:
-                    self._emit({"type": MSG_LOG, "data": f"[export] {line}"})
-            proc.wait()
-            retcode = proc.returncode
-            self._emit({
-                "type": MSG_LOG,
-                "data": f"[UnitPort] Export subprocess exited code={retcode}",
-            })
-        except Exception as exc:
-            self._emit({
-                "type": MSG_LOG,
-                "data": f"[UnitPort] _run_export: tail loop raised: {exc}",
-            })
-
-        # Locate exported/ dir — try checkpoint sibling first, then run_dir.
-        for cand in (cp.parent / "exported", cp.parent.parent / "exported"):
-            if cand.is_dir():
-                return cand
-        # Last resort: the checkpoint dir itself often has env.yaml in
-        # params/ + a model_*.pt at root, so bundle_finalizer can still
-        # scan + fall back to in-process .pt → ONNX conversion.
-        return cp.parent
-
-    @property
-    def export_path(self) -> Optional[Path]:
-        return self._export_path
-
     def dry_run(self) -> List[str]:
         """Return the command that would be executed (for debugging)."""
         return self.config.build_command()
-
-    def launch_review(self, checkpoint_dir: str) -> None:
-        """Open Isaac Sim viewport on a trained policy (detached)."""
-        cmd = self.config.build_review_command(checkpoint_dir)
-        train_log_info(self.run_id, f"Launching review: {' '.join(cmd)}")
-        env = dict(os.environ)
-        env["PYTHONUNBUFFERED"] = "1"
-        env.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
-        subprocess.Popen(cmd, cwd=self.config.isaac_lab_path or None, env=env)
 
     # ------------------------------------------------------------------
     # Internal
@@ -697,72 +583,60 @@ class IsaacLabBackend:
                 })
                 return
 
-            # Phase 3: stdout regex (``_SAVED_RE``) often misses the
-            # checkpoint path because RSL-RL versions vary in what they
-            # print on save (some emit nothing). Fall back to a disk
-            # scan of ``log_dir`` for the highest-iter ``model_*.pt``
+            # Stdout regex (``_SAVED_RE``) often misses the checkpoint
+            # path because RSL-RL versions vary in what they print on
+            # save (some emit nothing). Disk-scan ``log_dir`` for the
+            # highest-iter ``model_*.pt`` as a deterministic alternative
             # — RSL-RL's canonical filename, layout-stable across
-            # versions. Without this, _run_export gets ``None`` and
-            # bails ("no checkpoint reported"), bundle_finalizer never
-            # runs, and the export bundle never lands.
+            # versions. This is for the post-training log breadcrumb
+            # only; bundle_finalizer scans the same run_dir itself, so
+            # finalize does not depend on this scan succeeding.
+            # WHY KEPT (Rule 1.c — on-disk ground-truth read vs unreliable
+            # stdout text parse): the disk holds the actual saved
+            # checkpoints; stdout parse is an opportunistic fast path.
             if not last_checkpoint_path and self.config.log_dir:
-                try:
-                    log_dir_path = Path(self.config.log_dir)
+                log_dir_path = Path(self.config.log_dir)
 
-                    def _iter_num(p: Path) -> int:
-                        try:
-                            return int(p.stem.split("_", 1)[1])
-                        except (IndexError, ValueError):
-                            return -1
+                def _iter_num(p: Path) -> int:
+                    try:
+                        return int(p.stem.split("_", 1)[1])
+                    except (IndexError, ValueError):
+                        return -1
 
-                    candidates = [
-                        p for p in log_dir_path.rglob("model_*.pt")
-                        if _iter_num(p) >= 0
-                    ]
-                    if candidates:
-                        candidates.sort(key=_iter_num, reverse=True)
-                        last_checkpoint_path = str(candidates[0])
-                        self._emit({
-                            "type": MSG_LOG,
-                            "data": (
-                                f"[UnitPort] checkpoint disk-scan fallback: "
-                                f"{candidates[0].name} (iter "
-                                f"{_iter_num(candidates[0])})"
-                            ),
-                        })
-                except Exception as exc:
+                candidates = [
+                    p for p in log_dir_path.rglob("model_*.pt")
+                    if _iter_num(p) >= 0
+                ]
+                if candidates:
+                    candidates.sort(key=_iter_num, reverse=True)
+                    last_checkpoint_path = str(candidates[0])
                     self._emit({
                         "type": MSG_LOG,
                         "data": (
-                            f"[UnitPort] checkpoint disk-scan fallback "
-                            f"raised: {exc}"
+                            f"[UnitPort] last checkpoint resolved via "
+                            f"disk-scan: {candidates[0].name} "
+                            f"(iter {_iter_num(candidates[0])})"
                         ),
                     })
 
-            # Phase 3: spawn il_play_launcher.py inside Isaac Lab venv to
-            # let RSL-RL's stock play.py auto-export ``policy.onnx`` +
-            # ``env.yaml`` into ``<run_dir>/exported/``. Returns that
-            # exported_dir path so the parent IsaacLabTrainingTask can
-            # hand it to bundle_finalizer.finalize_isaac_lab_bundle()
-            # in its run() finally block.
-            exported_dir = self._run_export(last_checkpoint_path)
-            self._export_path = exported_dir
+            # Training writes ``params/env.yaml`` + ``params/agent.yaml``
+            # + ``model_*.pt`` to ``self.config.log_dir`` during the run
+            # (see il_train_launcher.py:1486-1487 + RSL-RL save_interval).
+            # ``bundle_finalizer`` consumes that layout directly and
+            # converts the latest ``.pt`` to ONNX in-process via
+            # ``export_rsl_rl_actor_to_onnx`` (pure torch, no Isaac Sim
+            # subprocess). The old spawn-a-second-Isaac-Sim ``_run_export``
+            # path was pure overhead (30s+ Kit cold boot) and the source
+            # of RTX scenedb crashes on certain Kit versions — see
+            # CLAUDE.md §1.9 anti-fallback / portable-artifact rules.
+            exported_dir = self.config.log_dir
 
             self._emit({
                 "type": MSG_FINISHED,
                 "data": {
-                    # Both keys carry the exported_dir so downstream code
-                    # (bundle_finalizer) gets a directory it can scan for
-                    # policy.onnx + env.yaml. last_checkpoint_path is kept
-                    # in artifact_path as a debugging breadcrumb when
-                    # _run_export fell back to it.
-                    "bundle_path": str(exported_dir) if exported_dir else (
-                        last_checkpoint_path or self.config.log_dir
-                    ),
-                    "artifact_path": str(exported_dir) if exported_dir else (
-                        last_checkpoint_path or self.config.log_dir
-                    ),
-                    "exported_dir": str(exported_dir) if exported_dir else "",
+                    "bundle_path": str(exported_dir),
+                    "artifact_path": str(exported_dir),
+                    "exported_dir": str(exported_dir),
                     "last_checkpoint_path": last_checkpoint_path or "",
                     "step": 0,
                     "reward_mean": best_reward,

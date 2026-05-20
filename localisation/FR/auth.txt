@@ -1,0 +1,58 @@
+[default]
+busy_oauth = En attente de la confirmation du navigateur...
+busy_sending_reset = Envoi de l'e-mail de réinitialisation...
+busy_signing_in = Connexion...
+busy_signing_up = Création du compte...
+close_button = Fermer
+confirm_password_label = Confirmer le mot de passe
+continue_github = Continuer avec GitHub
+continue_google = Continuer avec Google
+continue_with = ou continuer avec
+dialog_title = Compte UnitPort
+email_label = E-mail
+email_placeholder = vous@exemple.com
+error_email_taken = Un compte avec cet e-mail existe déjà.
+error_empty_email = L'e-mail est requis.
+error_empty_password = Le mot de passe est requis.
+error_generic = Échec de la connexion : {message}
+error_invalid_credentials = E-mail ou mot de passe incorrect.
+error_network = Erreur réseau — vérifiez votre connexion.
+error_password_mismatch = Les mots de passe ne correspondent pas.
+error_password_too_short = Le mot de passe doit contenir au moins 6 caractères.
+forgot_password = Mot de passe oublié ?
+info_email_confirmation = Compte créé. Vérifiez {email} pour confirmer votre adresse.
+password_label = Mot de passe
+password_placeholder = au moins 6 caractères
+restart_body_signin = Connecté en tant que {email}. Redémarrer UnitPort maintenant pour charger l'espace de travail de ce compte ?
+restart_body_signout = Déconnecté. Redémarrer UnitPort maintenant pour revenir à l'espace de travail invité ?
+restart_button_later = Plus tard
+restart_button_now = Redémarrer maintenant
+restart_title = Redémarrage requis
+sidebar_sign_in_button = Se connecter
+sidebar_sign_out = Se déconnecter
+sidebar_signed_out_hint = Connectez-vous à UnitPort
+sign_in_button = Se connecter
+sign_up_button = Créer un compte
+tab_sign_in = Connexion
+tab_sign_up = Inscription
+busy_linking = Liaison du compte {provider}...
+busy_unlinking = Dissociation...
+busy_setting_password = Mise à jour du mot de passe...
+busy_changing_email = Envoi de la vérification...
+error_oauth_busy = Une autre opération de connexion est en cours. Veuillez patienter.
+error_single_identity_not_deletable = Impossible de dissocier la seule méthode de connexion.
+error_identity_already_exists = Ce compte est déjà lié à un autre utilisateur.
+info_email_change_pending = E-mail de vérification envoyé. Cliquez sur le lien pour confirmer le changement.
+info_password_updated = Mot de passe mis à jour.
+info_unlink_current_provider = Vous avez dissocié votre méthode de connexion actuelle. Vous pourriez être déconnecté sous peu.
+error_email_rate_limited = Trop de requêtes. Attendez une minute puis réessayez.
+identity_conflict_title = Identité déjà utilisée
+identity_conflict_body = Impossible de lier {provider}.
+	
+	Ce compte appartient déjà à un autre utilisateur UnitPort, et Supabase ne peut pas fusionner deux comptes existants.
+	
+	Vous pouvez vous connecter directement avec {provider}, ou essayer un autre compte {provider}.
+	
+	Message du fournisseur : {message}
+identity_conflict_switch = Se connecter avec {provider} à la place
+

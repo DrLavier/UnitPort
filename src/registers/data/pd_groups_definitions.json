@@ -1,0 +1,150 @@
+{
+  "version": "1.0.0",
+  "schema": "pd_groups/definitions",
+  "_doc": "Joint-group definitions for PD parameterization (Stage A of sim2sim_mass-matrix-adaptive). Each family declares one or more groups; a group is identified by an IR-role regex matched against ir_canonical.json's family roles. (omega_n, zeta) defaults live in pd_groups_defaults.json. Robots inherit family defaults; per-canvas overrides are stored on the ActuatorPDNode (not in this registry). NEVER hand-edit kp/kd numbers here -- only the regex + rationale. Engine-specific kp/kd are derived at runtime by application.physics.{mujoco_gain_solver, physx_gain_solver}.",
+  "families": {
+    "quadruped": {
+      "_doc": "Each leg has 3 actuated DOFs in series: hip_AA (abduction, lateral) -> thigh_FE (fore/aft) -> calf (knee). foot/sensor/misc are body roles, not joints, and are intentionally NOT covered here.",
+      "groups": {
+        "hip_x": {
+          "label": "Hip AA (abduction)",
+          "ir_role_regex": "^hip_(FL|FR|RL|RR)$",
+          "rationale": "Low-excursion abduction DOF; overshoot is visually offensive on hardware. Default omega_n is low and zeta is critically damped."
+        },
+        "hip_y": {
+          "label": "Hip FE (flexion-extension)",
+          "ir_role_regex": "^thigh_(FL|FR|RL|RR)$",
+          "rationale": "Primary swing driver; must track gait harmonics ~20+ rad/s (trot/pace ~2-3 Hz). Under-damping is mildly OK for energy efficiency."
+        },
+        "knee": {
+          "label": "Knee",
+          "ir_role_regex": "^calf_(FL|FR|RL|RR)$",
+          "rationale": "Carries the largest M off-diagonal coupling with hip_y in MuJoCo. Mismatch here is the canary indicator for sim2sim engine drift."
+        }
+      }
+    },
+    "biped": {
+      "_doc": "Bilateral lower-body + optional upper-body. Aggregate single-DOF roles (hip_L, ankle_L, shoulder_L, wrist_L) AND axis-split roles (hip_pitch_L, ankle_pitch_L, ...) are both folded into the matching axis group via regex. Aggregates are treated as the primary axis: hip_L -> hip_y; ankle_L -> ankle_pitch; shoulder_L -> shoulder_pitch; wrist_L -> wrist_pitch.",
+      "groups": {
+        "hip_x": {
+          "label": "Hip Roll (abduction)",
+          "ir_role_regex": "^hip_roll_[LR]$",
+          "rationale": "Frontal-plane abduction; low-excursion, prioritize no overshoot."
+        },
+        "hip_y": {
+          "label": "Hip Pitch (flexion-extension)",
+          "ir_role_regex": "^hip_pitch_[LR]$|^hip_[LR]$",
+          "rationale": "Sagittal-plane primary swing driver; tracks walk/run gait harmonics. Aggregate hip_L/R folded here."
+        },
+        "hip_z": {
+          "label": "Hip Yaw",
+          "ir_role_regex": "^hip_yaw_[LR]$",
+          "rationale": "Transverse-plane yaw; low-excursion, similar profile to hip_x."
+        },
+        "knee": {
+          "label": "Knee",
+          "ir_role_regex": "^knee_[LR]$",
+          "rationale": "Largest mass-coupling joint; canary indicator for sim2sim drift."
+        },
+        "ankle_pitch": {
+          "label": "Ankle Pitch",
+          "ir_role_regex": "^ankle_pitch_[LR]$|^ankle_[LR]$",
+          "rationale": "Sagittal ankle; takeoff/landing energy. Aggregate ankle_L/R folded here."
+        },
+        "ankle_roll": {
+          "label": "Ankle Roll",
+          "ir_role_regex": "^ankle_roll_[LR]$",
+          "rationale": "Frontal ankle; low-excursion, balance-critical."
+        },
+        "shoulder_pitch": {
+          "label": "Shoulder Pitch",
+          "ir_role_regex": "^shoulder_pitch_[LR]$|^shoulder_[LR]$",
+          "rationale": "Sagittal-plane shoulder swing for arm-swing locomotion. Aggregate shoulder_L/R folded here."
+        },
+        "shoulder_roll": {
+          "label": "Shoulder Roll",
+          "ir_role_regex": "^shoulder_roll_[LR]$",
+          "rationale": "Frontal-plane shoulder abduction."
+        },
+        "shoulder_yaw": {
+          "label": "Shoulder Yaw",
+          "ir_role_regex": "^shoulder_yaw_[LR]$",
+          "rationale": "Transverse-plane shoulder rotation."
+        },
+        "elbow": {
+          "label": "Elbow",
+          "ir_role_regex": "^elbow_[LR]$",
+          "rationale": "Single-DOF elbow flexion-extension."
+        },
+        "wrist_pitch": {
+          "label": "Wrist Pitch",
+          "ir_role_regex": "^wrist_pitch_[LR]$|^wrist_[LR]$",
+          "rationale": "Sagittal wrist; aggregate wrist_L/R folded here."
+        },
+        "wrist_roll": {
+          "label": "Wrist Roll",
+          "ir_role_regex": "^wrist_roll_[LR]$",
+          "rationale": "Frontal wrist."
+        },
+        "wrist_yaw": {
+          "label": "Wrist Yaw",
+          "ir_role_regex": "^wrist_yaw_[LR]$",
+          "rationale": "Transverse wrist."
+        },
+        "waist": {
+          "label": "Waist",
+          "ir_role_regex": "^waist(_yaw|_roll|_pitch)?$",
+          "rationale": "Torso pivot; high mass-coupling with both legs and arms. Aggregate + all 3 axis-split roles folded together."
+        },
+        "neck": {
+          "label": "Neck / Head",
+          "ir_role_regex": "^neck(_yaw|_pitch)?$|^head_pitch$",
+          "rationale": "Head orientation joints; low mass, high bandwidth tolerated."
+        },
+        "finger": {
+          "label": "Finger / Thumb (per-knuckle)",
+          "ir_role_regex": "^(thumb|index|middle|ring|little)_[0-9]+_[LR]$",
+          "rationale": "Finger knuckle joints; much lower inertia than limb joints, separate omega_n tier."
+        }
+      }
+    },
+    "humanoid": {
+      "_doc": "Alias of biped; same group definitions.",
+      "alias_of": "biped"
+    },
+    "manipulator": {
+      "_doc": "Single-arm chain: shoulder -> elbow -> wrist -> hand. Aggregate single-DOF roles only.",
+      "groups": {
+        "shoulder": {
+          "label": "Shoulder",
+          "ir_role_regex": "^shoulder$",
+          "rationale": "Proximal arm joint; largest inertia downstream."
+        },
+        "elbow": {
+          "label": "Elbow",
+          "ir_role_regex": "^elbow$",
+          "rationale": "Mid-arm joint."
+        },
+        "wrist": {
+          "label": "Wrist",
+          "ir_role_regex": "^wrist$",
+          "rationale": "Distal arm joint; low inertia."
+        }
+      }
+    },
+    "wheeled": {
+      "_doc": "Wheeled chassis: per-wheel drive. wheel_FL/FR/RL/RR are kinematic contact links in ir_canonical; some platforms expose them as actuated revolute joints.",
+      "groups": {
+        "wheel": {
+          "label": "Wheel (drive)",
+          "ir_role_regex": "^wheel_(FL|FR|RL|RR)$",
+          "rationale": "Continuous-rotation drive joint; velocity control is more common than position PD, but a high-bandwidth PD around target velocity works for tracking tasks."
+        }
+      }
+    },
+    "generic": {
+      "_doc": "No joint groups defined. A generic robot has no actuated DOFs in the canonical; if a robot using the generic family declares joints, the compile-time resolver will fail with a clear 'no group covers this role' error and the user must override the family or extend pd_groups_custom.json.",
+      "groups": {}
+    }
+  }
+}

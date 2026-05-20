@@ -2,20 +2,23 @@
 
 Maps a flat AMP motion clip frame (canonical FL/FR/RL/RR leg order after
 ``reorder_legs=True`` in the loader) onto Isaac Lab's
-``env_cfg.scene.robot.init_state.joint_pos`` dict, via the single authoritative
-IR (intermediate representation) layer: ``BodyIRMapper``.
+``env_cfg.scene.robot.init_state.joint_pos`` dict via the IR layer.
 
-Mapping chain::
+Mapping chain (Stage 4 — per-format)::
 
     clip_flat_index
-      → canonical IR role id          (QUADRUPED_CLIP_IR_ROLES)
-      → USD body name                 (BodyIRMapper.get(role).body)
-      → Isaac Lab joint name          (body + joint_suffix)
+      → canonical IR role id          (clip.ir_roles[i] OR QUADRUPED_CLIP_IR_ROLES)
+      → physical joint name           (joint_names_by_ir[role])
       → init_state.joint_pos[name]    (per-joint override)
 
-This routes ALL robot-specific naming through the IR mapper stored in the
-Robot node — consistent with the rest of the compiler. No hardcoded joint
-orderings, no positional index matching against regex dicts.
+The ``joint_names_by_ir`` table is built from the robot's
+``joints_per_format[active_format]`` — the same data the env_cfg uses to
+emit JointPositionActionCfg.joint_names — so RSI lands on the **exact
+physical joint names** the runtime is loading. This drops the legacy
+body+suffix heuristic (``body_name + "_joint"``) which only worked for
+Unitree-style naming (FL_thigh → FL_thigh_joint) and silently failed on
+Boston Dynamics Spot (joint ``fl_hy`` doesn't share a stem with body
+``fl_uleg``).
 """
 
 from __future__ import annotations
@@ -39,28 +42,36 @@ class RSIMappingError(RuntimeError):
 
 
 def build_joint_pos_dict(
-    body_mapping_dict: Dict[str, Any],
     clip_frame: Any,
-    joint_suffix: str = "_joint",
+    joint_names_by_ir: Dict[str, str],
+    *,
     clip_ir_roles: Optional[List[str]] = None,
 ) -> Dict[str, float]:
     """Translate a flat clip frame into ``{joint_name: value}`` for Isaac Lab.
 
+    Stage 4 signature: takes an IR-role → physical-joint-name lookup
+    table directly (built from ``RobotSpecRef.joints_role_map_for(
+    active_format)`` and inverted). No body+suffix heuristic.
+
     Parameters
     ----------
-    body_mapping_dict
-        The Robot node's ``body_mapping`` param, parsed from JSON. Must have
-        ``body_names`` and ``roles`` keys matching :py:meth:`BodyIRMapper.from_dict`.
     clip_frame
-        A 1-D iterable of length ``len(clip_ir_roles)`` (12 for quadrupeds).
+        1-D iterable of length ``len(clip_ir_roles)`` (12 for quadrupeds).
         Values are target joint positions in the clip's canonical order.
-    joint_suffix
-        Suffix appended to each IR-resolved body name to form the Isaac Lab
-        joint name. Default ``"_joint"`` matches Go2/A1/Unitree convention;
-        pass ``""`` for assets where the body name IS the joint name.
+    joint_names_by_ir
+        ``{ir_role: joint_name}`` for the robot in its active format. Build
+        via:
+
+            joint_names_by_ir = {
+                ir: jn for jn, ir in
+                spec.robot.joints_role_map_for(active_format).items()
+            }
+
     clip_ir_roles
         IR role id for each clip frame index. Defaults to
-        :data:`QUADRUPED_CLIP_IR_ROLES`.
+        :data:`QUADRUPED_CLIP_IR_ROLES`. New clips should set this from
+        ``MotionClip.ir_roles`` so the caller doesn't pin a quadruped
+        assumption.
 
     Returns
     -------
@@ -71,8 +82,8 @@ def build_joint_pos_dict(
     Raises
     ------
     RSIMappingError
-        If any required IR role is missing or unresolved in ``body_mapping_dict``,
-        or if the clip frame length does not match ``clip_ir_roles``.
+        If any required IR role is missing from ``joint_names_by_ir``, or
+        if the clip frame length does not match ``clip_ir_roles``.
     """
     roles = list(clip_ir_roles or QUADRUPED_CLIP_IR_ROLES)
     frame = list(clip_frame)
@@ -81,47 +92,42 @@ def build_joint_pos_dict(
             f"clip frame length {len(frame)} does not match expected "
             f"{len(roles)} (one per IR role {roles!r})"
         )
-
-    try:
-        mapper = BodyIRMapper.from_dict(body_mapping_dict)
-    except Exception as exc:
-        raise RSIMappingError(f"failed to parse body_mapping: {exc}") from exc
+    if not isinstance(joint_names_by_ir, dict) or not joint_names_by_ir:
+        raise RSIMappingError(
+            "joint_names_by_ir is empty; pass the robot's per-format "
+            "joints_role_map_for(active_format) inverted to {ir_role: "
+            "joint_name}"
+        )
 
     out: Dict[str, float] = {}
     missing: List[str] = []
     for i, role_id in enumerate(roles):
-        role = mapper.get(role_id)
-        body = role.body if role is not None else None
-        if not body:
+        joint_name = joint_names_by_ir.get(role_id)
+        if not joint_name:
             missing.append(role_id)
             continue
-        joint_name = f"{body}{joint_suffix}"
         out[joint_name] = float(frame[i])
 
     if missing:
         raise RSIMappingError(
-            f"unresolved IR roles: {missing!r}. Open the Robot node's "
-            f"Body Mapping editor on the canvas and assign these roles to "
-            f"concrete USD body names."
+            f"unresolved IR roles: {missing!r} — not present in the robot's "
+            f"per-format joint table. Open Robot Asset → Dump MJCF/USD or "
+            f"verify the active format declares these joint roles."
         )
 
     return out
 
 
 def validate_mapping(
-    body_mapping_dict: Dict[str, Any],
+    joint_names_by_ir: Dict[str, str],
     clip_ir_roles: Optional[List[str]] = None,
 ) -> List[str]:
     """Return a list of unresolved IR roles (empty = all good).
 
     Purely static — does not require a clip frame. Useful for canvas-side
-    pre-flight gating (same pattern as ``IsaacLabConfigCompiler.validate_body_mapping``).
+    pre-flight gating.
     """
     roles = list(clip_ir_roles or QUADRUPED_CLIP_IR_ROLES)
-    try:
-        mapper = BodyIRMapper.from_dict(body_mapping_dict)
-    except Exception:
-        return list(roles)  # can't parse → everything is unresolved
-
-    return [r for r in roles
-            if not (mapper.get(r) and mapper.get(r).body)]
+    if not isinstance(joint_names_by_ir, dict):
+        return list(roles)
+    return [r for r in roles if not joint_names_by_ir.get(r)]

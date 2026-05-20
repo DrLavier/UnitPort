@@ -162,6 +162,7 @@ def _build_sb3_deploy_contract(
     joint_ir_roles: List[str],
     sim_dt: float,
     control_dt: float,
+    frame_stack: int = 1,
 ) -> Dict[str, Any]:
     """Compose a schema-v1 deploy_contract for an SB3-trained bundle.
 
@@ -182,10 +183,58 @@ def _build_sb3_deploy_contract(
     actuator = getattr(actor, "actuator", None) if actor is not None else None
     obs_action = getattr(spec, "obs_action", None)
 
-    stiffness_val = float(getattr(actuator, "stiffness", 25.0) or 25.0) if actuator else 25.0
-    damping_val = float(getattr(actuator, "damping", 0.5) or 0.5) if actuator else 0.5
-    effort_val = float(getattr(actuator, "effort_limit", 30.0) or 30.0) if actuator else 30.0
-    velocity_val = float(getattr(actuator, "velocity_limit", 0.0) or 0.0) if actuator else 0.0
+    # CLAUDE.md §1.8 + §1.10: PD gains MUST come from a wired actuator
+    # node — never from fabricated Go2-class defaults. The legacy chain
+    # ``float(getattr(actuator, X, default) or default) if actuator else default``
+    # silently substituted stiffness=25 / damping=0.5 / effort=30 /
+    # velocity=0 whenever the canvas had no actuator node or any field
+    # was missing, producing bundles whose deploy_contract PD values
+    # didn't match what training used. For SB3 the actuator block is
+    # spec.actor.actuator; for IL the bundle finalizer reads pd_param
+    # from deploy_meta (a separate path that already raises on missing).
+    if actor is None:
+        raise ValueError(
+            "[bundle_exporter] spec.actor is missing — cannot build "
+            "deploy_contract for an SB3 bundle without the canvas "
+            "ActorSetting node. Wire ActorSetting and connect its "
+            "actuator field before exporting. (CLAUDE.md §1.8 forbids "
+            "fabricating Go2-class PD defaults.)"
+        )
+    if actuator is None:
+        raise ValueError(
+            "[bundle_exporter] spec.actor.actuator is missing — cannot "
+            "build deploy_contract PD arrays without the canvas actuator "
+            "node. For SB3 wire an actuator node to ActorSetting; for IL "
+            "wire an ActuatorPDNode (per CLAUDE.md §1.10). Refusing to "
+            "substitute Go2-class defaults (stiffness=25, damping=0.5, "
+            "effort=30) that would silently corrupt deploy dynamics."
+        )
+
+    def _required_actuator_field(field: str) -> float:
+        val = getattr(actuator, field, None)
+        if val is None:
+            raise ValueError(
+                f"[bundle_exporter] spec.actor.actuator.{field} is missing. "
+                f"This is required for the deploy_contract; refusing to "
+                f"substitute a hardcoded default (CLAUDE.md §1.8). Fix the "
+                f"canvas actuator node's {field} parameter."
+            )
+        try:
+            return float(val)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"[bundle_exporter] spec.actor.actuator.{field}={val!r} is "
+                f"not a number."
+            ) from exc
+
+    stiffness_val = _required_actuator_field("stiffness")
+    damping_val = _required_actuator_field("damping")
+    effort_val = _required_actuator_field("effort_limit")
+    # velocity_limit is genuinely optional in the legacy schema (0.0 = no
+    # limit). Keep getattr-default but with explicit-None pass-through so
+    # downstream can distinguish "user set 0" from "field missing".
+    velocity_raw = getattr(actuator, "velocity_limit", None)
+    velocity_val = float(velocity_raw) if velocity_raw is not None else 0.0
 
     stiffness_arr = [stiffness_val] * n
     damping_arr = [damping_val] * n
@@ -239,8 +288,10 @@ def _build_sb3_deploy_contract(
         [-obs_clip, obs_clip] if obs_clip > 0.0 else None
     )
 
+    hist_len = max(1, int(frame_stack))
+
     def _obs_term(dim: int) -> Dict[str, Any]:
-        out: Dict[str, Any] = {"dim": int(dim), "scale": 1.0, "history_length": 1}
+        out: Dict[str, Any] = {"dim": int(dim), "scale": 1.0, "history_length": hist_len}
         if obs_clip_pair is not None:
             out["clip"] = list(obs_clip_pair)
         return out
@@ -254,9 +305,14 @@ def _build_sb3_deploy_contract(
         "commands": _obs_term(3),
     }
 
+    # ``robot_sku`` is intentionally NOT written here. The bundle's SKU
+    # lives in ``manifest.robot.sku`` (the single source of truth);
+    # storing a second copy on the contract used to allow silent
+    # divergence. Runtime callers (PolicyRunner / CompatibilityChecker)
+    # plumb the manifest SKU into ``joint_spaces_from_deploy_contract``
+    # explicitly. See ``deploy_contract.DeployContract`` class docstring.
     contract: Dict[str, Any] = {
         "schema_version": 1,
-        "robot_sku": str(getattr(spec.robot, "sku", "") or ""),
         "joint_sdk_names": list(joint_ir_roles),
         "joint_ids_map": list(range(n)),
         "stiffness": stiffness_arr,
@@ -275,13 +331,55 @@ def _build_sb3_deploy_contract(
         contract["velocity_limit"] = [velocity_val] * n
 
     # init_base_pos: only carry when the canvas set a non-default spawn
-    # height. init_pos_z == 0 means "fall back to RobotSpec.target_height"
-    # in the training env; we mirror that fallback by omitting the field.
-    init_z = float(getattr(actor, "init_pos_z", 0.0) or 0.0) if actor is not None else 0.0
-    if init_z > 0.0:
-        init_x = float(getattr(actor, "init_pos_x", 0.0) or 0.0)
-        init_y = float(getattr(actor, "init_pos_y", 0.0) or 0.0)
+    # height. ``actor.init_pos_z`` is None when the user didn't override
+    # the spawn height, in which case the deploy stack falls back to
+    # ``RobotSpec.target_height`` (which IS the intended behaviour — the
+    # registry holds the correct height per robot). Omitting the field
+    # here mirrors that. We use ``is None`` explicitly rather than
+    # ``or 0.0`` because the canvas allows the user to spawn AT z=0
+    # (drop the robot from ground level), and ``or 0.0`` would silently
+    # turn that explicit intent into "use registry default".
+    init_z: Optional[float] = None
+    if actor is not None:
+        raw_z = getattr(actor, "init_pos_z", None)
+        if raw_z is not None:
+            init_z = float(raw_z)
+    if init_z is not None and init_z != 0.0:
+        # Read x/y unconditionally — when the user set a non-default
+        # spawn height they implicitly accepted x/y as well (defaulting
+        # to 0.0 by canvas convention).
+        raw_x = getattr(actor, "init_pos_x", None)
+        raw_y = getattr(actor, "init_pos_y", None)
+        init_x = float(raw_x) if raw_x is not None else 0.0
+        init_y = float(raw_y) if raw_y is not None else 0.0
         contract["init_base_pos"] = [init_x, init_y, init_z]
+
+    # MJCF base spawn-Z offset overlay (USD↔MJCF anchor compensation).
+    # Carrying it into the deploy_contract makes bundles self-contained
+    # per CLAUDE.md §1.9 — a downstream MuJoCo runtime on a different
+    # machine doesn't need the user's robot_assets/state.json overlay.
+    # We embed the FULL overlay dict (status, offset_z, calibration
+    # metadata) so future deploy paths can choose to re-validate or
+    # re-calibrate; existing deploy paths just read offset_z.
+    try:
+        sku = str(getattr(getattr(spec, "robot", None), "sku", "") or "")
+        if sku:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            overlay = get_robot_asset_service().get_mjcf_base_offset(sku)
+            if isinstance(overlay, dict) and overlay:
+                contract["mjcf_base_height_offset"] = overlay
+    except Exception as exc:  # noqa: BLE001
+        # WHY KEPT (§1.8 (c)): bundle export must not fail because of
+        # an overlay read glitch (service singleton not yet ready in
+        # tests, USER_CONFIG_DIR unset). The runtime reader on the
+        # deploy side will WARN about uncalibrated spawn and proceed.
+        from unitport_sdk import log_warning
+        log_warning(
+            f"[bundle_exporter] could not attach mjcf_base_height_offset "
+            f"to deploy_contract: {exc}"
+        )
 
     return contract
 
@@ -444,6 +542,42 @@ class BundleExporter:
         return manifest
 
     @staticmethod
+    def wipe_bundle_dir(
+        *,
+        project: Any,
+        backend_id: str,
+        bundle_name: str,
+    ) -> bool:
+        """Delete the on-disk bundle directory for (project, backend, name).
+
+        Called from training tasks at run-start when the canvas Export
+        Node has ``overwrite=True``: the contract is *"new bundle
+        replaces the old one — and if the new one never lands, the old
+        one must not survive masquerading as the new result"*. Without
+        this, a failed training (export subprocess crash, cancel, etc.)
+        leaves the previous bundle on disk so the user sees a stale
+        artifact under the same name → confusion + the SKU-mismatch
+        chain we just patched.
+
+        Safe to call when the dir does not exist (returns False).
+        Refuses bundle_name=="" or "<NEW>" (sentinel — caller should
+        have resolved to a concrete name or skipped the wipe).
+
+        Returns True if a directory was actually removed, False otherwise.
+        """
+        if project is None:
+            return False
+        name = (bundle_name or "").strip()
+        if not name or name == "<NEW>":
+            return False
+        bid = (backend_id or "").strip() or "unknown"
+        target = Path(project.path) / "training" / "exported" / bid / name
+        if not target.exists():
+            return False
+        shutil.rmtree(target)
+        return True
+
+    @staticmethod
     def export_from_artifacts(
         *,
         name: str,
@@ -578,6 +712,19 @@ class BundleExporter:
             manifest_dst.write_text(
                 yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
+            )
+
+            # 2b) manifest.sha256 — integrity sidecar. The loader
+            # (ExportedBundleRegistry._parse_entry) verifies the digest
+            # against this file before trusting the manifest, so a
+            # tampered manifest gets detected at load time. Bundles
+            # without a sidecar still load with a one-shot WARN for one
+            # release cycle (back-compat with the prior factory).
+            # Plan finding P2-1.
+            import hashlib as _hashlib
+            _digest = _hashlib.sha256(manifest_dst.read_bytes()).hexdigest()
+            (staging / "manifest.sha256").write_text(
+                _digest + "\n", encoding="utf-8",
             )
 
             # 3) source.json — lineage stub
@@ -730,6 +877,16 @@ class BundleExporter:
             # Fall back to env-shape inference: ang_vel(3) + grav(3) + qpos(N)
             # + qvel(N) + last_action(N) + cmd(3); same as GenericMujocoEnv.
             obs_dim = 3 + 3 + action_dim + action_dim + action_dim + 3
+        # Track the per-frame ("base") dim before frame-stack — the deploy
+        # contract's per-term entries report this number with
+        # ``history_length=frame_stack`` so the deploy stack stacks the
+        # right number of frames on its side. The manifest's top-level
+        # observation_space.dim is the stacked dim the policy actually
+        # consumes.
+        base_obs_dim = int(obs_dim)
+        frame_stack = int(getattr(oa, "frame_stack", 1) or 1) if oa is not None else 1
+        if frame_stack > 1:
+            obs_dim = base_obs_dim * frame_stack
 
         action_type = str(
             getattr(oa, "action_type", "joint_position") or "joint_position"
@@ -787,10 +944,11 @@ class BundleExporter:
         deploy_contract = _build_sb3_deploy_contract(
             spec,
             action_dim=action_dim,
-            obs_dim=obs_dim,
+            obs_dim=base_obs_dim,
             joint_ir_roles=joint_names,
             sim_dt=sim_dt,
             control_dt=control_dt,
+            frame_stack=frame_stack,
         )
 
         manifest = BundleExporter.build_manifest(
@@ -831,7 +989,9 @@ class BundleExporter:
         # ``normalization.json``, then point the manifest at it so
         # PolicyRunner._load_bundle_normalizer picks them up at load time.
         extra_files: Dict[str, Union[bytes, str]] = {}
-        norm_payload = _extract_vec_normalize_stats(vec_env, obs_dim=obs_dim)
+        # VecNormalize sits below VecFrameStack so its obs_rms shape is the
+        # PER-FRAME (base) dim, not the stacked one. Check against base.
+        norm_payload = _extract_vec_normalize_stats(vec_env, obs_dim=base_obs_dim)
         if norm_payload is not None:
             extra_files["normalization.json"] = json.dumps(
                 norm_payload, indent=2, sort_keys=False

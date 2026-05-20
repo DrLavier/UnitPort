@@ -1,112 +1,47 @@
-"""Termination preset registry — SB3 + Isaac Lab.
+"""Termination preset aggregator — SB3 + Isaac Lab.
 
-Migrated from ``DEMO/src/system/training/task_module_registry.py``
-(termination portion only). Each preset is a :class:`TaskModuleItem`
-carrying a single float threshold so it fits the unified
-``_RegistryModuleEditor`` row layout.
+Each preset lives in its own file under ``sb3/`` or ``isaac_lab/`` and
+exports a single ``ENTRY: TaskModuleItem``. This module scans both
+sub-packages at import time and materialises ``TERMINATION_REGISTRY`` /
+``IL_TERMINATION_REGISTRY``. The dicts are module-level so downstream
+in-place mutation (UI editor's ``dataclasses.replace`` path) lands on a
+stable object identity.
+
+Per-key scoping is achieved by each entry passing
+``backends=frozenset({BACKEND_SB3 or BACKEND_ISAAC})`` directly — the
+private ``_SB3_ONLY`` / ``_IL_ONLY`` aggregator shortcuts are inlined.
 """
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from typing import Dict
 
-from scripts.task_module import (
-    ALL_FAMILIES,
-    BACKEND_ISAAC,
-    BACKEND_SB3,
-    LEGGED_FAMILIES,
-    LOCOMOTION_FAMILIES,
-    TaskModuleItem,
-    termination_item,
-)
+from scripts.task_module import TaskModuleItem
 
 
-# SB3-only termination presets. The default ``backends=ALL_BACKENDS`` would
-# let these surface in the Isaac Lab termination editor and corrupt the
-# canvas with SB3-only keys (e.g. ``"timeout"`` instead of the IL
-# ``"time_out"`` that env_cfg_compiler actually consumes). Scope every
-# entry to ``{sb3}`` so query_registry(backend="isaac_lab") excludes them.
-_SB3_ONLY: frozenset = frozenset({BACKEND_SB3})
+def _collect(subpkg: str) -> Dict[str, TaskModuleItem]:
+    pkg = importlib.import_module(f"scripts.terminations.{subpkg}")
+    out: Dict[str, TaskModuleItem] = {}
+    for m in pkgutil.iter_modules(pkg.__path__):
+        if m.name.startswith("_"):
+            continue
+        mod = importlib.import_module(f"scripts.terminations.{subpkg}.{m.name}")
+        entry = getattr(mod, "ENTRY", None)
+        if entry is None:
+            continue
+        if entry.key in out:
+            raise RuntimeError(
+                f"[scripts.terminations.{subpkg}] duplicate ENTRY.key "
+                f"{entry.key!r} in {mod.__name__}"
+            )
+        out[entry.key] = entry
+    return out
 
-TERMINATION_REGISTRY: Dict[str, TaskModuleItem] = {
-    "fall_threshold_roll": termination_item(
-        key="fall_threshold_roll",
-        title="Roll Threshold",
-        desc="Terminate when roll exceeds the allowed upright margin.",
-        default=1.2,
-        min_value=0.2,
-        max_value=3.14,
-        step=0.05,
-        applicable_families=LEGGED_FAMILIES,
-        backends=_SB3_ONLY,
-    ),
-    "fall_threshold_pitch": termination_item(
-        key="fall_threshold_pitch",
-        title="Pitch Threshold",
-        desc="Terminate when pitch exceeds the allowed upright margin.",
-        default=1.2,
-        min_value=0.2,
-        max_value=3.14,
-        step=0.05,
-        applicable_families=LEGGED_FAMILIES,
-        backends=_SB3_ONLY,
-    ),
-    "min_height": termination_item(
-        key="min_height",
-        title="Minimum Height",
-        desc="Terminate when the robot base drops below this height.",
-        default=0.15,
-        min_value=0.05,
-        max_value=0.5,
-        step=0.01,
-        applicable_families=LOCOMOTION_FAMILIES,
-        backends=_SB3_ONLY,
-    ),
-    "max_contact_impulse": termination_item(
-        key="max_contact_impulse",
-        title="Contact Impulse",
-        desc="Terminate on excessive impact indicating unstable collapse.",
-        default=250.0,
-        min_value=50.0,
-        max_value=500.0,
-        step=5.0,
-        applicable_families=LOCOMOTION_FAMILIES,
-        backends=_SB3_ONLY,
-    ),
-    "timeout": termination_item(
-        key="timeout",
-        title="Timeout",
-        desc="Terminate when the task exceeds its allowed duration.",
-        default=1000.0,
-        min_value=10.0,
-        max_value=100000.0,
-        step=10.0,
-        backends=_SB3_ONLY,
-    ),
-    "joint_limit_violation": termination_item(
-        key="joint_limit_violation",
-        title="Joint Limit",
-        desc="Terminate when joints exceed safe configured limits. "
-             "Threshold is a count: 3 = terminate when 3 or more joints exceed their range.",
-        default=3.0,
-        min_value=1.0,
-        max_value=12.0,
-        step=1.0,
-        applicable_families=ALL_FAMILIES,
-        backends=_SB3_ONLY,
-    ),
-    "self_collision": termination_item(
-        key="self_collision",
-        title="Self Collision",
-        desc="Terminate when forbidden self-collision is detected.",
-        default=1.0,
-        min_value=0.0,
-        max_value=5.0,
-        step=0.1,
-        applicable_families=frozenset({"manipulator"}),
-        backends=_SB3_ONLY,
-    ),
-}
+
+TERMINATION_REGISTRY:    Dict[str, TaskModuleItem] = _collect("sb3")
+IL_TERMINATION_REGISTRY: Dict[str, TaskModuleItem] = _collect("isaac_lab")
 
 
 def termination_registry() -> Dict[str, TaskModuleItem]:
@@ -124,75 +59,6 @@ def default_termination_conditions() -> Dict[str, float]:
             "joint_limit_violation",
         )
     }
-
-
-# ─── Isaac Lab termination registry ─────────────────────────────────────────
-# These mirror the DoneTerm entries the Isaac Lab compiler used to build from
-# standalone toggle params (enable_timeout / enable_illegal_contact /
-# enable_base_height). Each item carries a single float threshold so it fits
-# the unified _RegistryModuleEditor row layout, exactly like the SB3
-# termination registry. illegal_contact's bodies regex list is kept as a
-# separate hidden node parameter (illegal_contact_bodies) — the items list
-# only owns the contact-force threshold.
-
-# Isaac Lab-only termination presets. Scoping these to ``{isaac_lab}``
-# keeps SB3 canvases from picking up keys (``time_out`` / ``base_height``)
-# that env_cfg_compiler interprets exclusively. ``base_height`` also exists
-# as a reward in SB3 with different semantics, but here the key is owned
-# by Isaac Lab's DoneTerm path.
-_IL_ONLY: frozenset = frozenset({BACKEND_ISAAC})
-
-IL_TERMINATION_REGISTRY: Dict[str, TaskModuleItem] = {
-    "time_out": termination_item(
-        key="time_out",
-        title="Episode Timeout",
-        desc="Terminate when episode wall-clock duration (s) exceeds this limit. "
-             "Mapped to mdp.time_out in the compiled Isaac Lab task.",
-        default=20.0,
-        min_value=1.0,
-        max_value=300.0,
-        step=0.5,
-        applicable_families=ALL_FAMILIES,
-        backends=_IL_ONLY,
-    ),
-    "illegal_contact": termination_item(
-        key="illegal_contact",
-        title="Illegal Contact",
-        desc="Terminate when net contact force on the configured bodies "
-             "exceeds this Newton threshold. Body regex list is configured "
-             "via the node's illegal_contact_bodies parameter.",
-        default=1.0,
-        min_value=0.1,
-        max_value=200.0,
-        step=0.1,
-        applicable_families=LOCOMOTION_FAMILIES,
-        backends=_IL_ONLY,
-    ),
-    "base_height": termination_item(
-        key="base_height",
-        title="Base Height",
-        desc="Terminate when the robot base drops below this minimum height (m).",
-        default=0.2,
-        min_value=0.05,
-        max_value=1.0,
-        step=0.01,
-        applicable_families=LOCOMOTION_FAMILIES,
-        backends=_IL_ONLY,
-    ),
-    "bad_orientation": termination_item(
-        key="bad_orientation",
-        title="Bad Orientation",
-        desc="Terminate when the base tilts beyond this projected-gravity "
-             "deviation (rad). Mapped to mdp.bad_orientation in the compiled "
-             "Isaac Lab task.",
-        default=0.7,
-        min_value=0.1,
-        max_value=1.5,
-        step=0.05,
-        applicable_families=LOCOMOTION_FAMILIES,
-        backends=_IL_ONLY,
-    ),
-}
 
 
 def il_termination_registry() -> Dict[str, TaskModuleItem]:

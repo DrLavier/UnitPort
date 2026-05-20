@@ -115,6 +115,7 @@ def open_reward_function_editor(
     kind: str = "reward",
     canvas_backend: str = "sb3",
     conflicting_keys: Optional[set] = None,
+    robot_sku: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """打开 Reward / Termination / Observation 函数编辑器（modal）.
 
@@ -143,6 +144,7 @@ def open_reward_function_editor(
         items=items,
         canvas_backend=canvas_backend,
         conflicting_keys=conflicting_keys,
+        robot_sku=robot_sku,
         parent=parent,
     )
     if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -266,6 +268,7 @@ class RegistryModuleEditorPanel(QDialog):
         items: Dict[str, Any],
         canvas_backend: str = "sb3",
         conflicting_keys: Optional[set] = None,
+        robot_sku: Optional[str] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -284,6 +287,14 @@ class RegistryModuleEditorPanel(QDialog):
         # the canvas owns backend; the per-item engine tag is purely a
         # filtering hint, NOT an override.
         self._canvas_backend = canvas_backend if canvas_backend in _ENGINE_OPTIONS else "sb3"
+        # Optional robot SKU — drives the Variant dropdown's family
+        # hard-filter (rule §1.5 Stage 3). ``None`` keeps all variants
+        # visible and shows a banner so the user knows filtering is off.
+        self._robot_sku: Optional[str] = robot_sku or None
+        # The Variant dropdown is built lazily inside ``_build_right_pane``;
+        # bind the type slots here so static checkers stay happy.
+        self._variant_combo: Optional[LaviComboBox] = None
+        self._variant_banner: Optional[Any] = None
         # Deep copy items so any in-flight mutation (stub promotion on first
         # visit, edits before Cancel) doesn't leak back to the caller.
         import copy as _copy
@@ -513,8 +524,41 @@ class RegistryModuleEditorPanel(QDialog):
             )
             tag_row.addLayout(eng_group)
         tag_row.addLayout(fam_group)
+
+        # Variant dropdown — only meaningful for reward / termination /
+        # observation / discriminator kinds (training_motion has no
+        # script variants).  Populated lazily per selected key in
+        # ``_refresh_variant_combo``; family-hard-filtered against the
+        # canvas-bound robot via ``resolver.family_filter`` when
+        # ``self._robot_sku`` is set.
+        if self._kind != "training_motion":
+            self._variant_combo = setComboBox(
+                [("editor.variant.preset", "Preset")], height=24, i18n=False
+            )
+            _apply_small_font(self._variant_combo)
+            self._variant_combo.currentIndexChanged.connect(
+                self._on_variant_changed
+            )
+            var_group = self._labeled_row(
+                label_id="editor.variant", label_default="Variant:",
+                widget=self._variant_combo,
+            )
+            tag_row.addLayout(var_group)
         tag_row.addStretch(1)
         v.addLayout(tag_row)
+
+        # Banner row that surfaces when ``self._robot_sku`` is unset —
+        # tells the user the family hard-filter is off (so they
+        # understand why incompatible variants are still selectable).
+        if self._robot_sku is None and self._kind != "training_motion":
+            self._variant_banner = setText(
+                "editor.variant.banner",
+                default="No robot bound — family filter disabled.",
+                kind="content",
+                color=Config.get_color("sub_t2"),
+                size=int(Config.get_font_size("size_small")),
+            )
+            v.addWidget(self._variant_banner)
 
         # Central content panel — kind-specific.
         self._content_host = QFrame()
@@ -783,7 +827,7 @@ class RegistryModuleEditorPanel(QDialog):
     def _build_training_motion_panel(self) -> None:
         # Clip dropdown — populated on every selection refresh from
         # ``scripts.training_motion.library.list_entries`` so newly-dropped
-        # motion files under ``~/UnitPort/scripts/training_motion/motions/``
+        # motion files under ``<USER_CONFIG_DIR>/scripts/training_motion/motions/``
         # surface without restarting the dialog.
         self._clip_combo = setComboBox([], height=24, i18n=False)
         _apply_small_font(self._clip_combo)
@@ -966,6 +1010,10 @@ class RegistryModuleEditorPanel(QDialog):
             self._refresh_training_motion_fields(meta)
         else:
             self._refresh_source_code_field(key, meta)
+            # Variant dropdown depends on (kind, key) — refresh after the
+            # source-code field so the user sees the new options without
+            # a perceptible flicker.
+            self._refresh_variant_combo()
         # REMOVE is "remove from node" — only meaningful for added keys.
         self._refresh_remove_button_state()
 
@@ -1217,6 +1265,95 @@ class RegistryModuleEditorPanel(QDialog):
         if d is None:
             return
         d["engine"] = value
+
+    def _on_variant_changed(self, _index: int) -> None:
+        """Write the picked variant back to ``self._items[key]["variant"]``.
+
+        Only mutates items that the node has actually added — the
+        un-added drafts are discarded on OK / Cancel per the panel's
+        existing contract, so writing them is pointless.
+        """
+        if self._variant_combo is None:
+            return
+        key = self._current_key
+        if not key or key not in self._items:
+            return
+        ikey = self._variant_combo.currentKey() or ""
+        meta = self._items.get(key)
+        if not isinstance(meta, dict):
+            meta = {"weight": meta}
+            self._items[key] = meta
+        if ikey == "editor.variant.preset" or not ikey:
+            # Drop the variant tag entirely — preset is the implicit
+            # default, no need to add a "variant" key the resolver will
+            # normalise to None anyway.
+            meta.pop("variant", None)
+        elif ikey.startswith("editor.variant.user:"):
+            meta["variant"] = ikey.split(":", 1)[1]
+
+    def _refresh_variant_combo(self) -> None:
+        """Repopulate the Variant dropdown for the currently-selected key.
+
+        Source: :func:`application.service.scripts.resolver.list_variants`.
+        When ``self._robot_sku`` is set, variants whose families do not
+        intersect the robot's families are excluded (hard filter, rule
+        Stage 3). The current ``self._items[key]["variant"]`` value (if
+        any) is reflected as the active selection; legacy items without
+        a variant tag select "Preset".
+        """
+        if self._variant_combo is None or self._kind == "training_motion":
+            return
+        key = self._current_key
+        if not key:
+            return
+        try:
+            from application.service.scripts import resolver
+        except Exception:                                         # noqa: BLE001
+            return
+
+        # Robot families (empty if no SKU bound).
+        robot_fams = frozenset()
+        if self._robot_sku:
+            # Reuse the same lookup the resolver uses — never duplicate
+            # the brand-/SKU-stripping logic, that lives in registers.
+            from application.service.scripts.resolver import _robot_families
+            robot_fams = _robot_families(self._robot_sku)
+
+        entries = [("editor.variant.preset", "Preset")]
+        for v in resolver.list_variants(self._kind, key):
+            if not resolver.family_filter(v.families, robot_fams):
+                continue
+            entries.append((f"editor.variant.user:{v.name}", v.name))
+
+        # Replace the combo. LaviComboBox exposes no public "reset items"
+        # API, but the cheapest replacement is to clear + add: model is a
+        # plain QStandardItemModel populated in __init__.
+        self._variant_combo.blockSignals(True)
+        try:
+            model = self._variant_combo._src_model              # noqa: SLF001
+            model.clear()
+            from PyQt6.QtGui import QStandardItem
+            self._variant_combo._i18n_items = list(entries)     # noqa: SLF001
+            for ikey, default in entries:
+                item = QStandardItem(default)
+                from PyQt6.QtCore import Qt as _Qt
+                item.setData(ikey, _Qt.ItemDataRole.UserRole)
+                model.appendRow(item)
+
+            # Determine which entry to select based on current state.
+            meta = self._items.get(key)
+            cur_variant = ""
+            if isinstance(meta, dict):
+                cur_variant = str(meta.get("variant") or "")
+            target_ikey = (
+                f"editor.variant.user:{cur_variant}"
+                if cur_variant
+                else "editor.variant.preset"
+            )
+            if not self._variant_combo.setCurrentKey(target_ikey):
+                self._variant_combo.setCurrentIndex(0)
+        finally:
+            self._variant_combo.blockSignals(False)
 
     def _on_filter_changed(self, _value: str) -> None:
         cur = self._current_key

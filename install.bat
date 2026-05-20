@@ -1,10 +1,42 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+:: -------------------------------------------------------
+:: ASCII logo (always) + LICENSE panel (first install only)
+:: First-install gate: %~dp0runtime\env\install_state.json absence.
+:: reset.bat clears that file -> factory reset re-prompts the license.
+::
+:: UNITPORT_ASCII_PRINTED=1 means our caller (start.bat) already painted
+:: the logo, so we skip it to avoid the double-print. Direct runs of
+:: install.bat still see the logo because the var is not set.
+:: -------------------------------------------------------
+if not defined UNITPORT_ASCII_PRINTED call :print_ascii
+
+if exist "%~dp0runtime\env\install_state.json" goto :license_done
+
+call :print_license
+echo.
+
+:ask_license
+set "LICENSE_ANSWER="
+set /p "LICENSE_ANSWER=Have you read and agreed to the terms above? [Y/N]: "
+if /i "!LICENSE_ANSWER!"=="Y" goto :license_done
+if /i "!LICENSE_ANSWER!"=="N" (
+    echo.
+    echo [install] Cancelled. Run install.bat again to review the terms.
+    endlocal
+    exit /b 0
+)
+echo   Please enter Y or N.
+echo.
+goto :ask_license
+
+:license_done
+echo.
+
 :: ============================================================
-:: UnitPort RELEASE install.bat
-:: Strategy: project-local .venv311 (Python 3.11), physically isolated
-::           from DEMO/.venv311 (each tree has its own venv).
+:: UnitPort install.bat
+:: Strategy: project-local .venv311 (Python 3.11).
 ::
 :: Creates a project-local virtual environment at .venv311\
 :: and installs all dependencies into it.
@@ -176,6 +208,47 @@ if not exist "%DL_DEST%" (
     goto :install_failed
 )
 
+:: -------------------------------------------------------
+:: Verify SHA-256 of the downloaded installer.
+:: Plan finding P0-2: HTTPS alone is not enough -- a corporate root CA or
+:: a poisoned resolver can serve a tampered Python installer that then
+:: runs with the user's privileges. Constant below MUST be set to the
+:: SHA-256 published on https://www.python.org/downloads/release/python-3119/
+:: When bumping Python version, rotate this constant (see CLAUDE.md SOP).
+:: -------------------------------------------------------
+:: MAINTAINER: replace the value below with the official SHA-256 of
+::   python-3.11.9-amd64.exe taken from python.org BEFORE shipping a release.
+::   While empty, this script refuses to run the installer (fail-closed).
+set "DL_SHA256="
+
+if "!DL_SHA256!"=="" (
+    echo [ERROR] DL_SHA256 is not set in install.bat -- refusing to run an unverified installer.
+    echo [ERROR] Maintainer: fill in the SHA-256 from python.org and recommit.
+    del "%DL_DEST%" >nul 2>&1
+    goto :install_failed
+)
+
+set "DL_GOT="
+for /f "delims=" %%H in ('powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+    "(Get-FileHash -Algorithm SHA256 -LiteralPath '%DL_DEST%').Hash.ToLower()" 2^>nul') do set "DL_GOT=%%H"
+
+if "!DL_GOT!"=="" (
+    echo [ERROR] Could not compute SHA-256 of the downloaded installer.
+    echo [ERROR] PowerShell Get-FileHash failed; refusing to run the installer.
+    del "%DL_DEST%" >nul 2>&1
+    goto :install_failed
+)
+
+if /i not "!DL_GOT!"=="!DL_SHA256!" (
+    echo [ERROR] SHA-256 mismatch -- the downloaded Python installer is not what we expected.
+    echo [ERROR]   expected: !DL_SHA256!
+    echo [ERROR]   got     : !DL_GOT!
+    echo [ERROR] Refusing to execute. If you just bumped Python version, update DL_SHA256.
+    del "%DL_DEST%" >nul 2>&1
+    goto :install_failed
+)
+echo [install] SHA-256 verified.
+
 echo [install] Running Python 3.11.9 silent installer (per-user) ...
 "%DL_DEST%" /quiet InstallAllUsers=0 PrependPath=1 Include_launcher=1 Include_test=0 AssociateFiles=0 Shortcuts=0
 set "DL_RC=!errorlevel!"
@@ -306,3 +379,47 @@ echo [install] Python : %VENV_PYTHON%
 echo [install] Launch : start.bat
 
 endlocal
+exit /b 0
+
+:: ============================================================
+:: Subroutines: ASCII logo + LICENSE panel (120 chars wide).
+:: Kept inline so install.bat works without external resources.
+:: ============================================================
+
+:print_ascii
+echo(========================================================================================================================
+echo(------------------------------------------------------------------------------------------------------------------------
+echo(         ####
+echo(     ####   ####                                          ####
+echo( #####   ############      #####     #####                #####  #####   ############                            ####
+echo(##    ##########    ##     #####     #####                       #####   #############                          #####
+echo(##  #########       ##     #####     #####  ###########   ##### ######## #####    #####   #########   ####### #########
+echo(##  ######     #### ##     #####     #####  ############  ##### ######## #####    ##### ############  ####### #########
+echo(##  ######   ###### ##     #####     #####  ####    ####  #####  #####   #############  ####    ##### #####     #####
+echo(##  ######   ###### ##     #####     #####  ####    ####  #####  #####   ###########    ####    ##### #####     #####
+echo(##    ####   ###    ##     ######   ######  ####    ####  #####  #####   #####          #####   ##### #####     #####
+echo(##                ###       #############   ####    ####  #####  ####### #####           ###########  #####     #######
+echo(  #####      ######           ########      ####    ####  #####   ###### #####             #######    #####       #####
+echo(     #####   ###
+echo(         ####
+echo(------------------------------------------------------------------------------------------------------------------------
+echo(========================================================================================================================
+goto :eof
+
+:print_license
+echo.
+echo ========================================================================================================================
+echo  ^| UnitPort Studio  -  License and Pre-install Notice                                                                   ^|
+echo  ^|                                                                                                                      ^|
+echo  ^| [LICENSE - Key Terms]                                                                                                ^|
+echo  ^|   1. Data Security  : User data is processed and stored locally by default.                                          ^|
+echo  ^|                       Cloud storage is hosted on Supabase, optional, and does not block normal usage.                ^|
+echo  ^|   2. No Repackaging : Redistributing or commercially reselling this software (or derivatives) is prohibited.         ^|
+echo  ^|   3. Copyright      : Protected under the EU Copyright Directive 2019/790. Violations will be prosecuted.            ^|
+echo  ^|                                                                                                                      ^|
+echo  ^| [Installation Notice]                                                                                                ^|
+echo  ^|   First-time install may take 15 - 45 minutes, depending on selected components and network conditions.              ^|
+echo  ^|   Components include Isaac Lab, loco-mujoco, and vendor SDKs.                                                        ^|
+echo  ^|   Please keep the network stable and avoid power loss during installation.                                           ^|
+echo ========================================================================================================================
+goto :eof

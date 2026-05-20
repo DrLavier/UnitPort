@@ -32,7 +32,6 @@ during training.
 
 Usage::
 
-    cd D:/Unitport/EXE/RELEASE
     .venv311/Scripts/python.exe bootstrap/migrate_il_observation_obs_terms.py \\
         projects/new_test/canvas/IsaacLab/ppo_walk.canvas.json
     # Or sweep an entire project tree (recursive):

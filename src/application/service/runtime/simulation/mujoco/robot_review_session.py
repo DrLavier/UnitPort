@@ -126,6 +126,7 @@ class RobotReviewTask(Task):
         actuated_jids: List[int] = []
         actuated_qposadrs: List[int] = []
         actuated_ir_roles: List[str] = []
+        unmapped_joint_names: List[str] = []
         if self._init_pose_override is not None:
             name_to_role = self._build_name_to_role()
             for jid in range(int(model.njnt)):
@@ -136,8 +137,28 @@ class RobotReviewTask(Task):
                     continue
                 actuated_jids.append(jid)
                 actuated_qposadrs.append(int(model.jnt_qposadr[jid]))
-                jname = joint_names[jid] if jid < len(joint_names) else ""
-                actuated_ir_roles.append(name_to_role.get(str(jname), ""))
+                jname = str(joint_names[jid] if jid < len(joint_names) else "")
+                ir_role = name_to_role.get(jname, "")
+                if not ir_role:
+                    unmapped_joint_names.append(jname)
+                actuated_ir_roles.append(ir_role)
+            # CLAUDE.md §1.8: any actuated joint without an IR-role mapping
+            # is a registry vs. MJCF mismatch that used to silently zero-fill
+            # the entire pose and produce the "四脚伸直" T-pose bug. Fail loud
+            # so the user sees the exact joint names missing from the registry
+            # MJCF table for this SKU.
+            if unmapped_joint_names:
+                raise RuntimeError(
+                    f"[review/robot] {len(unmapped_joint_names)} MuJoCo joint(s) "
+                    f"have no IR-role mapping in registry "
+                    f"joints_per_format['MJCF'] for sku {self._sku!r}: "
+                    f"{unmapped_joint_names}. The MJCF asset declares "
+                    f"these joints but the canonical/overlay registry does "
+                    f"not — fix registers/data/robots_canonical.json (or the "
+                    f"user overlay) by adding entries with the correct "
+                    f"ir_role for each. Silent zero-fill (the previous "
+                    f"behavior) is forbidden by CLAUDE.md §1.8."
+                )
         override = self._init_pose_override
 
         def _apply_initial_pose() -> None:
@@ -154,9 +175,20 @@ class RobotReviewTask(Task):
                 )
                 if has_freejoint_root:
                     bp = override.base_pos
+                    # USD↔MJCF anchor offset: the user's init_pos_z is
+                    # authored against USD/IsaacLab semantics; in MJCF the
+                    # same value drops the trunk too low (穿地). The
+                    # one-shot calibration overlay holds the per-SKU lift
+                    # needed at standing pose. See plan
+                    # curious-nibbling-plum.md and
+                    # application.training.validation.mjcf_base_calibration.
+                    from application.service.robot_assets.runtime import (
+                        read_mjcf_base_offset,
+                    )
+                    off_z, _ = read_mjcf_base_offset(self._sku)
                     data.qpos[free_qposadr + 0] = float(bp[0])
                     data.qpos[free_qposadr + 1] = float(bp[1])
-                    data.qpos[free_qposadr + 2] = float(bp[2])
+                    data.qpos[free_qposadr + 2] = float(bp[2]) + off_z
                     data.qpos[free_qposadr + 3] = 1.0
                     data.qpos[free_qposadr + 4] = 0.0
                     data.qpos[free_qposadr + 5] = 0.0
@@ -271,6 +303,15 @@ class RobotReviewTask(Task):
         Returns ``-1`` if the model ships no keyframes at all — caller
         falls back to ``mj_resetData`` (qpos0).
         """
+        # WHY KEPT (Rule 1.c — MuJoCo C API boundary): model.nkey is a
+        # ctypes accessor that may raise AttributeError on stripped builds
+        # of mujoco; mj_name2id may raise when the keyframe table is
+        # absent. Both are environmental rather than logical failures —
+        # this helper is invoked only when no InitPoseOverride is given,
+        # so falling back to qpos0 (caller's ``mj_resetData`` branch) is
+        # the documented MuJoCo convention. The InitPoseOverride path
+        # (the one the user actually triggers via Review Pose) does NOT
+        # depend on this helper.
         try:
             nkey = int(model.nkey)
         except Exception:
@@ -291,17 +332,42 @@ class RobotReviewTask(Task):
         return 0
 
     def _build_name_to_role(self) -> Dict[str, str]:
-        """Build a physical-joint-name → IR-role lookup for this SKU.
+        """Build a physical-joint-name → IR-role lookup for the MJCF format.
 
-        Reads ``registers.robots.get_robot(sku)["joints"]``. Joints not
-        in the registry simply don't appear in the returned dict —
-        callers default to ``""`` (which makes the override fall back to
-        the per-slot default).
+        Canvas IR-only rule (memory: canvas-ir-only) carves out exactly one
+        IR→physical mapping site: the sim-preview path. This function is
+        that site for MuJoCo review — it translates IR roles in the user's
+        InitPoseOverride to the MJCF physical joint names MjData.qpos is
+        keyed by.
+
+        Reads ``registers.robots.get_robot(sku)['joints_per_format']['MJCF']``.
+        Previous implementation read ``entry['joints']`` which never existed
+        on the canonical schema (Phase-5 unified registry uses per-format
+        sub-tables); the silent empty-dict return then propagated to
+        ``actuated_ir_roles = ['', '', ...]``, causing every IR-role lookup
+        in ``InitPoseOverride.to_bundle_order`` to miss and the viewer to
+        render the default qpos=0 pose ("四脚伸直"). Fixed 2026-05-19.
         """
         from registers import robots as _robots_registry
 
         entry = _robots_registry.get_robot(self._sku) or {}
-        joints_dict = entry.get("joints", {}) or {}
+        if not entry:
+            raise RuntimeError(
+                f"[review/robot] sku {self._sku!r} is not registered — "
+                f"cannot build IR→MJCF joint mapping for the review viewer."
+            )
+        joints_dict = (
+            entry.get("joints_per_format", {}).get("MJCF", {}) or {}
+        )
+        if not isinstance(joints_dict, dict) or not joints_dict:
+            raise RuntimeError(
+                f"[review/robot] robot {self._sku!r} has no "
+                f"joints_per_format['MJCF'] entries in the registry — "
+                f"the MuJoCo review viewer cannot map IR roles to MJCF "
+                f"physical joint names. Add MJCF joints to "
+                f"registers/data/robots_canonical.json (or the user "
+                f"overlay) for this SKU."
+            )
         name_to_role: Dict[str, str] = {}
         for jspec in joints_dict.values():
             if not isinstance(jspec, dict):

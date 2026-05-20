@@ -61,6 +61,7 @@ from PyQt6.QtWidgets import (
     QGraphicsItem,
     QGraphicsSceneMouseEvent,
     QGraphicsView,
+    QMessageBox,
     QStyleOptionGraphicsItem,
     QWidget,
 )
@@ -77,6 +78,8 @@ from unitport_sdk import (
     draw_polarity_badge,
     draw_range_slider,
     log_error,
+    log_info,
+    log_warning,
     setText,
     tr,
 )
@@ -2998,6 +3001,54 @@ _BM_LABEL_UNASSIGNED_KEY = "canvas.body_mapping.label_unassigned"
 _BM_LABEL_OUT_OF_SCOPE_KEY = "canvas.body_mapping.label_out_of_scope"
 
 
+def _resolve_active_format(params: Dict[str, Any], asset: Any) -> str:
+    """Effective asset format for a Robot node — single source of truth.
+
+    Returns one of ``"MJCF"`` / ``"USD"`` / ``"URDF"`` (uppercase), or ``""``
+    when nothing is available. Algorithm mirrors
+    :meth:`ActiveFileTableRow._current_active`:
+
+      1. Explicit ``active_override`` param (``"mjcf"`` / ``"usd"`` /
+         ``"urdf"``) wins unconditionally — user clicked a row in the
+         upper Asset Files table.
+      2. Otherwise pick by ``backend`` param: ``isaac_lab`` prefers
+         USD > URDF > MJCF (matches Isaac Sim's native asset
+         pipeline); everything else (sb3 / mujoco / ...) prefers
+         MJCF > USD > URDF.
+      3. Within the preferred order, return the first format the asset
+         actually has (either local path or, for USD, a Nucleus URL).
+
+    The Body Mapping table and the Asset Files table MUST agree on
+    which format is live — otherwise the user picks USD in the upper
+    table but sees MJCF joints below, which is a hard contract
+    violation. Always go through this helper; never read
+    ``active_override`` raw.
+    """
+    raw = str(params.get("active_override", "") or "").strip().lower()
+    if raw in ("mjcf", "usd", "urdf"):
+        return raw.upper()
+    if asset is None:
+        return ""
+    backend = str(params.get("backend", "sb3") or "sb3").strip()
+    if backend == "isaac_lab":
+        order = ("usd", "urdf", "mjcf")
+    else:
+        order = ("mjcf", "usd", "urdf")
+    for kind in order:
+        if getattr(asset, f"{kind}_path", None) is not None:
+            return kind.upper()
+        if kind == "usd" and getattr(asset, "usd_url", None):
+            return kind.upper()
+    return ""
+
+
+# Public alias: Mission Control's _RobotConfigSection (Training Config
+# Perspective → Joint Mapping table) MUST use the same format resolution
+# as the canvas, otherwise canvas-side overrides written under e.g. "USD"
+# are read back from "MJCF" and the table looks all-Unassigned.
+resolve_active_format = _resolve_active_format
+
+
 class BodyMappingTableRow(ParamRow):
     """Inline body→IR-role validator table for the Robot node.
 
@@ -3097,7 +3148,14 @@ class BodyMappingTableRow(ParamRow):
     # ---------------------------------------------------------- data resolve
 
     def _resolve_asset_and_mapper(self):
-        """Return ``(sku, mapper)`` or ``("", None)`` if unresolved."""
+        """Return ``(sku, mapper)`` or ``("", None)`` if unresolved.
+
+        Stage 3 (per-format schema): the widget targets a single format
+        per render. Today we use the Robot node's ``active_override`` to
+        pin the format (matches what the canvas will train against);
+        Stage 5 adds a MJCF/USD/URDF tab so the user can edit any
+        declared format.
+        """
         try:
             from application.service.robot_assets.service import (
                 get_robot_asset_service,
@@ -3126,8 +3184,19 @@ class BodyMappingTableRow(ParamRow):
         asset = svc.resolve(sku)
         if asset is None:
             return "", None
-        mapper = BodyIRMapper.from_robot_asset(asset)
-        overrides = svc.get_body_ir_overrides(sku)
+
+        # The display format MUST match the upper Asset Files table —
+        # _resolve_active_format is the single source of truth (honors
+        # active_override, falls back to backend-aware default).
+        display_fmt = _resolve_active_format(self._owner.params, asset) or None
+
+        mapper = BodyIRMapper.from_robot_asset(asset, active_format=display_fmt)
+        # Read per-format overrides (legacy flat overrides auto-migrate
+        # to MJCF; new per-format overrides keyed by format).
+        if display_fmt:
+            overrides = svc.get_body_ir_overrides(sku, fmt=display_fmt)
+        else:
+            overrides = svc.get_body_ir_overrides(sku)
         if overrides:
             apply_user_overrides(mapper, overrides)
         return sku, mapper
@@ -3171,14 +3240,33 @@ class BodyMappingTableRow(ParamRow):
         # them at the source; mission-control body_mapping table follows the
         # same rule (training_config_card._BodyMappingTable._rebuild_rows).
         try:
-            from application.training.body_ir import get_joint_ir_roles
+            from application.training.body_ir import get_joint_ir_roles, get_role
             joint_role_ids = set(get_joint_ir_roles(mapper.family))
         except Exception:
             joint_role_ids = set()
+            get_role = None
         all_roles = list(mapper.roles)
+
+        def _is_required(role_id: str) -> bool:
+            if get_role is None:
+                return False
+            try:
+                canon = get_role(self._family, role_id)
+            except Exception:
+                return False
+            return bool(canon and canon.required)
+
         if joint_role_ids:
+            # Joint-centric filter: only canonical roles that map to ACTUATED
+            # joints for this morphology. AND only roles that are either
+            # (a) resolved (`role.body` filled) or (b) declared required in
+            # the IR catalog — empty optional rows are noise (every newly
+            # added humanoid multi-DOF / finger role is `required=false`,
+            # so without this guard the table balloons to ~40 empty rows).
             self._visible_roles = [
-                r for r in all_roles if r.role_id in joint_role_ids
+                r for r in all_roles
+                if r.role_id in joint_role_ids
+                and (r.body is not None or _is_required(r.role_id))
             ]
         else:
             # Family has no canonical actuated-joint categories (wheeled /
@@ -3207,6 +3295,133 @@ class BodyMappingTableRow(ParamRow):
         from PyQt6.QtCore import QTimer
         QTimer.singleShot(_BM_PERSIST_DEBOUNCE_MS, self._rebuild)
 
+    def _on_refresh_clicked(self) -> None:
+        """Refresh button — dump the active format from the live asset and
+        rebuild.
+
+        Default behaviour: pick the format from the Robot node's
+        ``active_override`` param (USD when unset — Isaac Lab training uses
+        USD), bump the live asset via
+        :meth:`RobotAssetService.dump_and_persist` (USD path spawns Isaac
+        Lab venv subprocess for 5-30s under a busy cursor), then rebuild.
+        The persist step writes ``<USER_CONFIG_DIR>/registers/robots_custom.json``
+        and auto-emits the service ``changed`` signal so Mission Control
+        and any other listeners also refresh.
+
+        On any dump failure (no asset path / subprocess crash / validation
+        error) we fall back to :meth:`_do_reload_only` so the click is
+        never a no-op — at minimum any out-of-band overlay write is
+        picked up. Errors go to the log (canvas context: no dialogs).
+        """
+        raw = str(self._owner.params.get("asset_id", "") or "").strip()
+        sku = self._sku
+        if not sku:
+            log_warning(
+                f"[body_mapping] refresh: no sku resolved for asset_id={raw!r}, "
+                f"falling back to reload-only"
+            )
+            self._do_reload_only()
+            return
+
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+        except Exception as exc:
+            log_warning(f"[body_mapping] refresh import failed: {exc!r}")
+            return
+
+        # Resolve fmt via the shared helper so Refresh dumps the EXACT
+        # same format the table is going to display (and the trainer
+        # is going to consume). Anything else breaks the contract that
+        # the upper Asset Files table and the lower Body Mapping table
+        # always agree.
+        svc = get_robot_asset_service()
+        asset = svc.resolve(sku)
+        fmt = _resolve_active_format(self._owner.params, asset)
+        if not fmt:
+            log_warning(
+                f"[body_mapping] refresh: no usable format for sku={sku!r} "
+                f"(asset has no MJCF/USD/URDF path/url), falling back to reload-only"
+            )
+            self._do_reload_only()
+            return
+
+        log_info(
+            f"[body_mapping] refresh dump {fmt} start: asset_id={raw!r} sku={sku!r}"
+        )
+
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        try:
+            result = svc.dump_and_persist(sku, fmt)
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if not result.ok:
+            kind = result.error_kind or "unknown"
+            msg = result.error or ""
+            level = log_error if kind == "unexpected" else log_warning
+            level(
+                f"[body_mapping] refresh dump {fmt} {kind} sku={sku!r}: {msg}; "
+                f"falling back to reload-only"
+            )
+            self._do_reload_only()
+            return
+
+        log_info(
+            f"[body_mapping] refresh dump {fmt} sku={sku!r}: "
+            f"{len(result.joints)} joints ({result.n_joints_resolved} resolved), "
+            f"{len(result.bodies)} bodies ({result.n_bodies_resolved} resolved)"
+        )
+
+        # set_discovered_bodies already reloaded the registry and emitted
+        # changed; rebuild this widget explicitly so the table re-renders
+        # immediately rather than waiting for the next paint tick.
+        self._rebuild()
+        n_resolved = (
+            sum(1 for r in self._mapper.roles if r.resolved)
+            if self._mapper is not None else 0
+        )
+        n_unmapped = len(self._unmapped)
+        log_info(
+            f"[body_mapping] refresh OK asset_id={raw!r} sku={sku!r} fmt={fmt!r}: "
+            f"{n_resolved} roles resolved, {n_unmapped} unmapped bodies"
+        )
+
+    def _do_reload_only(self) -> None:
+        """Fallback for Refresh: re-read user-overlay registry then rebuild.
+
+        Used when dump_and_persist isn't possible (no SKU, no asset path,
+        subprocess crash, etc.) so the Refresh click still performs the
+        minimum useful work — picking up any out-of-band overlay edits.
+        """
+        try:
+            from registers import RegistryHub
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+        except Exception as exc:
+            log_warning(f"[body_mapping] reload-only import failed: {exc!r}")
+            self._rebuild()
+            return
+
+        try:
+            RegistryHub.reload()
+        except Exception as exc:
+            log_error(f"[body_mapping] reload-only: RegistryHub.reload failed: {exc!r}")
+            self._rebuild()
+            return
+
+        try:
+            get_robot_asset_service().changed.emit()
+        except Exception:
+            pass
+
+        self._rebuild()
+
     # ------------------------------------------------------------ persistence
 
     def _persist(self) -> None:
@@ -3220,8 +3435,18 @@ class BodyMappingTableRow(ParamRow):
         except Exception:
             return
         overrides = extract_user_overrides(self._mapper)
-        get_robot_asset_service().set_body_ir_overrides(
-            self._sku, overrides if overrides else None
+        # Persist into the per-format slot the widget is displaying so
+        # MJCF and USD overrides don't clobber each other (Stage 3).
+        # Resolve through the shared helper so persist + display + dump
+        # never disagree on which format is live.
+        from application.service.robot_assets.service import (
+            get_robot_asset_service,
+        )
+        svc = get_robot_asset_service()
+        asset = svc.resolve(self._sku) if self._sku else None
+        fmt = _resolve_active_format(self._owner.params, asset) or None
+        svc.set_body_ir_overrides(
+            self._sku, overrides if overrides else None, fmt=fmt,
         )
 
     # ------------------------------------------------------------ painting
@@ -3493,7 +3718,7 @@ class BodyMappingTableRow(ParamRow):
         pos = event.pos()
         # Refresh button?
         if self._refresh_btn_rect.contains(pos):
-            self._schedule_rebuild()
+            self._on_refresh_clicked()
             return True
         # Row role-cell?
         for entry in self._row_rects:
@@ -3629,6 +3854,109 @@ _AF_FRAME_PAD = 4
 _AF_COL_GAP = 6
 
 
+class MjcfOffsetBadgeRow(ParamRow):
+    """Read-only status badge for the per-SKU MJCF base spawn-Z offset.
+
+    Lives on the Robot Node. Polls
+    :class:`RobotAssetService.get_mjcf_base_offset` at paint time and renders
+    one of three states:
+
+        - ``"+XX.X mm (auto)"``         — calibration succeeded; offset
+                                           is applied at every MuJoCo
+                                           spawn site.
+        - ``"not applicable"``          — family declares no landmark set
+                                           (fixed-base manipulator); no
+                                           correction needed.
+        - ``"uncalibrated"``            — overlay missing; runtime
+                                           spawns will WARN. The next
+                                           Robot Node refresh re-submits
+                                           the one-shot calibration task
+                                           via
+                                           :func:`ensure_mjcf_base_offset_cached`.
+
+    Click is a no-op — this is informational; manual recalibration is
+    available via the Robot Asset card. See plan
+    ``curious-nibbling-plum.md`` and
+    :mod:`application.training.validation.mjcf_base_calibration`.
+    """
+
+    _OPEN_ON_RELEASE = False
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return []
+
+    def _resolve_sku(self) -> str:
+        params = getattr(self._owner, "params", None) or {}
+        raw = str(params.get("asset_id", "") or "").strip()
+        if not raw:
+            return ""
+        try:
+            from registers import robots as _robots_registry
+            sku = _robots_registry.resolve_to_sku(raw)
+            return str(sku or raw)
+        except Exception:
+            return raw
+
+    def _read_overlay(self) -> Optional[Dict[str, Any]]:
+        sku = self._resolve_sku()
+        if not sku:
+            return None
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            return get_robot_asset_service().get_mjcf_base_offset(sku)
+        except Exception:
+            return None
+
+    def _summary_text(self) -> str:
+        overlay = self._read_overlay()
+        if not isinstance(overlay, dict):
+            return tr(
+                "canvas.robot.mjcf_offset.uncalibrated",
+                default="uncalibrated",
+            )
+        status = str(overlay.get("status", "") or "")
+        if status == "not_applicable":
+            return tr(
+                "canvas.robot.mjcf_offset.not_applicable",
+                default="not applicable",
+            )
+        if status == "calibrated":
+            try:
+                off_z = float(overlay.get("offset_z", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                off_z = 0.0
+            return f"+{off_z * 1000.0:.1f} mm (auto)"
+        return tr(
+            "canvas.robot.mjcf_offset.uncalibrated",
+            default="uncalibrated",
+        )
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        rect = self._value_rect()
+        text_color = QColor(Config.get_color("canvas_node_param_text"))
+        painter.setPen(QPen(text_color))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        text_rect = rect.adjusted(8, 0, -8, 0)
+        elided = fm.elidedText(
+            self._summary_text(),
+            Qt.TextElideMode.ElideRight,
+            text_rect.width(),
+        )
+        painter.drawText(
+            text_rect,
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            elided,
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        return False  # read-only
+
+
 class ActiveFileTableRow(ParamRow):
     """Robot.active_override 三行 file-type 表格 / 3-row file-type table.
 
@@ -3728,25 +4056,14 @@ class ActiveFileTableRow(ParamRow):
     def _current_active(self) -> str:
         """Return the file kind that currently owns the ✔ marker.
 
-        Explicit ``active_override`` (``"mjcf"``/``"usd"``/``"urdf"``) wins
-        unconditionally. ``"auto"`` resolves to a backend-aware fallback:
-        Isaac Lab prefers USD > URDF > MJCF; SB3/MuJoCo prefers MJCF > USD > URDF.
+        Delegates to module-level :func:`_resolve_active_format` so the
+        Body Mapping table below this one always agrees on which format
+        is live — see that function's docstring for the algorithm.
+        Returns lowercase (``"mjcf"``/``"usd"``/``"urdf"``) for backward
+        compat with the existing paint code that does ``file_kind ==
+        active`` comparisons against lowercase row spec.
         """
-        raw = str(self._owner.params.get(self.spec.key, "auto") or "auto").strip().lower()
-        if raw in ("mjcf", "usd", "urdf"):
-            return raw
-        a = self._asset
-        if a is None:
-            return ""
-        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
-        if backend == "isaac_lab":
-            order = ("usd", "urdf", "mjcf")
-        else:
-            order = ("mjcf", "usd", "urdf")
-        for kind in order:
-            if self._kind_available(a, kind):
-                return kind
-        return ""
+        return _resolve_active_format(self._owner.params, self._asset).lower()
 
     def _rebuild(self) -> None:
         self._asset = self._resolve_asset()
@@ -6400,172 +6717,464 @@ class ReviewLaunchButtonRow(ParamRow):
 _JOINT_POSE_ROW_PAD = 2  # outer pad inside the row's full-width value rect
 
 
-def _upstream_robot_sku(actor_node: "NodeItem") -> Optional[str]:
-    """Walk ``actor_node`` 's ``robot_pipe`` input back to the RobotNode and
+def _upstream_robot_sku(actor_node: "NodeItem") -> str:
+    """Walk ``actor_node``'s ``robot_pipe`` input back to the RobotNode and
     resolve its ``asset_id`` to a canonical SKU.
 
-    Returns ``None`` when the upstream is missing / not a RobotNode /
-    ``asset_id`` can't be resolved via ``registers.robots.resolve_id``.
-    All failure paths are silent — the caller logs.
+    Raises ``RuntimeError`` with a user-facing description (caught by
+    JointPoseTableRow._handle_click and surfaced via QMessageBox) when:
+        - actor_node has no ``robot_pipe`` input port
+        - that port is not connected to a RobotNode
+        - the upstream RobotNode has no ``asset_id`` set
+        - ``asset_id`` cannot be resolved through ``registers.robots.resolve_id``
+
+    CLAUDE.md §1.8: previous implementation returned ``None`` on every
+    failure path, so the canvas widget would silently fall back to a
+    raw JSON editor with no explanation to the user. Replaced with
+    descriptive raises.
     """
     in_ports = getattr(actor_node, "_in_ports", None)
     if not in_ports:
-        return None
+        raise RuntimeError(
+            "Actor 节点没有 robot_pipe 输入端口 — 这通常表示节点 schema "
+            "或图渲染层 bug。"
+        )
     target_port = None
     for p in in_ports:
-        try:
-            if getattr(p.spec, "name", "") == "robot_pipe":
-                target_port = p
-                break
-        except Exception:
-            continue
+        if getattr(getattr(p, "spec", None), "name", "") == "robot_pipe":
+            target_port = p
+            break
     if target_port is None:
-        return None
-    for conn in list(getattr(target_port, "connections", []) or []):
+        raise RuntimeError(
+            "Actor 节点缺少 robot_pipe 输入端口。请检查节点 schema 是否"
+            "正确声明该端口。"
+        )
+    connections = list(getattr(target_port, "connections", []) or [])
+    if not connections:
+        raise RuntimeError(
+            "请先把 Robot 节点连接到 Actor Setting 节点的 robot_pipe 端口，"
+            "然后再设置初始关节角度。"
+        )
+    for conn in connections:
         src_port = getattr(conn, "src_port", None)
         if src_port is None:
             continue
-        try:
-            src_node = src_port.parent_node()
-        except Exception:
-            src_node = None
+        src_node = src_port.parent_node()
         if src_node is None:
             continue
-        try:
-            node_id = str(getattr(src_node.manifest, "id", "") or "")
-        except Exception:
-            node_id = ""
+        node_id = str(getattr(src_node.manifest, "id", "") or "")
         if node_id != "robot":
-            continue
+            raise RuntimeError(
+                f"Actor 节点的 robot_pipe 端口连到了 {node_id!r} 节点，但应该"
+                f"连到 Robot 节点（schema_id='robot'）。"
+            )
         params = getattr(src_node, "params", None) or {}
         asset_id = str(params.get("asset_id", "") or "")
         if not asset_id:
-            return None
-        try:
-            from registers.robots import resolve_id
-            sku = resolve_id(asset_id)
-        except Exception:
-            return None
+            raise RuntimeError(
+                "上游 Robot 节点的 asset_id 为空 — 请先在 Robot 节点选择一"
+                "个机器人。"
+            )
+        from registers.robots import resolve_id
+        sku = resolve_id(asset_id)
         if sku:
             return sku
-        # Some RobotNode params may already store the canonical SKU
-        # directly — accept that as a fallback.
+        # WHY KEPT (Rule 1.b — cross-format identifier): some Robot
+        # nodes may already store the canonical SKU verbatim in
+        # asset_id (e.g. from registry editor round-trip); accept that
+        # path so RobotNode → SKU resolution survives both storage
+        # conventions.
         return asset_id
-    return None
+    raise RuntimeError(
+        "Actor 节点的 robot_pipe 端口虽有连接，但所有 connection 的 src_port "
+        "都解析失败 — 画布数据可能损坏，请重新连接 Robot 节点。"
+    )
 
 
-def _resolve_mjcf_joint_ranges(sku: str):
-    """Build the (ir_roles_in_qpos_order, ranges_by_role, sku_display_name)
-    triple needed by :class:`JointPoseEditorDialog`.
+def _reconcile_actor_init_joint_angles(actor_node: "NodeItem") -> bool:
+    """Reconcile an ActorSetting node's ``init_joint_angles`` against the
+    upstream Robot Node's authoritative IR-role set.
 
-    ``ranges_by_role[role]`` is ``(lo, hi)`` for limited joints and ``None``
-    for unlimited joints. Free / ball joints are skipped (no IR role).
-    Returns ``None`` on any failure (caller falls back to JSON code editor).
+    Behaviour (canvas-derived-keys rule):
+      - No upstream Robot Node connected (or SKU unresolvable / registry
+        missing joint table) → set ``init_joint_angles`` to ``{}``. The
+        editor will refuse to open until a Robot Node is connected, and
+        any prior canvas keys are dropped because they can no longer
+        claim authority.
+      - Upstream SKU resolved → keys become exactly the SKU's USD IR-role
+        set. Stale keys are dropped, missing keys are filled with 0.0,
+        existing keys keep their user-set values.
+
+    Returns True iff the node's stored value mutated (caller may use this
+    to skip redundant logs / undo entries).
+
+    Lookup is purely registry-driven (canvas-ir-only rule); no MJCF/USD
+    asset loading happens here.
     """
-    try:
-        from application.service.runtime.simulation.mujoco.mj_actor import (
-            MjActor,
-        )
-        from registers.robots import get_robot
-    except Exception:
-        return None
-    try:
-        actor = MjActor.from_sku(sku)
-    except Exception:
-        return None
-    mj_model = actor.mj_model
-    entry = get_robot(sku) or {}
-    joints_block = entry.get("joints", {}) or {}
-    # registers.robots stores joints as a dict whose VALUES are joint specs
-    # {name, ir_role, ...}; build physical_name -> ir_role.
-    name_to_ir: Dict[str, str] = {}
-    for v in joints_block.values():
-        if not isinstance(v, dict):
-            continue
-        n = str(v.get("name", "") or "")
-        r = str(v.get("ir_role", "") or "")
-        if n and r:
-            name_to_ir[n] = r
+    row = None
+    for r in getattr(actor_node, "_param_rows", []) or []:
+        spec_key = str(getattr(getattr(r, "spec", None), "key", "") or "")
+        if spec_key == "init_joint_angles":
+            row = r
+            break
+    if row is None:
+        return False
 
-    try:
-        import mujoco
-        FREE = int(mujoco.mjtJoint.mjJNT_FREE)
-        BALL = int(mujoco.mjtJoint.mjJNT_BALL)
-    except Exception:
-        return None
-
-    rows = []  # list of (qposadr, ir_role, lo_or_None, hi_or_None)
-    for jid in range(int(mj_model.njnt)):
-        try:
-            jtype = int(mj_model.jnt_type[jid])
-            if jtype == FREE or jtype == BALL:
+    existing_raw = (actor_node.params or {}).get("init_joint_angles")
+    existing: Dict[str, float] = {}
+    if isinstance(existing_raw, dict):
+        for k, v in existing_raw.items():
+            try:
+                existing[str(k)] = float(v)
+            except (TypeError, ValueError):
                 continue
-            qposadr = int(mj_model.jnt_qposadr[jid])
-            name = mujoco.mj_id2name(
-                mj_model, mujoco.mjtObj.mjOBJ_JOINT, jid
-            )
-        except Exception:
+    elif isinstance(existing_raw, str) and existing_raw.strip():
+        try:
+            parsed = json.loads(existing_raw)
+            if isinstance(parsed, dict):
+                for k, v in parsed.items():
+                    try:
+                        existing[str(k)] = float(v)
+                    except (TypeError, ValueError):
+                        continue
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Resolve the authoritative IR role set from the upstream Robot Node.
+    # If we cannot determine it (no upstream / SKU unknown / registry
+    # missing joint table), DO NOT mutate user values. The previous
+    # behaviour was "reset to {}", which silently wiped the user's
+    # carefully-set init pose whenever a transient registry / pipe
+    # state made the lookup throw — see user's "用户设置永远绝对权限"
+    # mandate. The editor will refuse to open without an authoritative
+    # set; that's enough signal to the user without destroying data.
+    try:
+        sku = _upstream_robot_sku(actor_node)
+        ir_roles, _ranges, _name = _resolve_active_format_joint_ranges(sku)
+        authoritative_list = list(ir_roles)
+    except RuntimeError as exc:
+        log_warning(
+            f"[actor_setting] init_joint_angles reconcile aborted: cannot "
+            f"resolve authoritative IR role set ({exc}); leaving existing "
+            f"user values untouched."
+        )
+        return False
+    if not authoritative_list:
+        log_warning(
+            "[actor_setting] init_joint_angles reconcile aborted: "
+            "upstream Robot Node returned an empty IR role list; "
+            "leaving existing user values untouched."
+        )
+        return False
+
+    # Pull SKU-specific standing-pose blueprint when available; falls back
+    # to 0.0 for IR roles the registry doesn't declare a default for.
+    # Without this, Spot's knee IR roles (calf_*) got reconciled to 0.0
+    # which is outside Spot's [-2.79, -0.25] joint range — the env_cfg
+    # joint-range validator then rejected training with an actionable
+    # error pointing back here. Per-SKU blueprints land in
+    # registers/data/robots_canonical.json under default_init_joint_angles.
+    sku_blueprint: Dict[str, float] = {}
+    try:
+        sku_val = locals().get("sku")
+        if sku_val:
+            from registers.robots import get_robot_spec
+            rs = get_robot_spec(sku_val)
+            if rs is not None and rs.default_init_joint_angles:
+                sku_blueprint = dict(rs.default_init_joint_angles)
+    except Exception:  # noqa: BLE001  WHY KEPT: registry lookup must not block canvas UX; fallback is 0.0
+        sku_blueprint = {}
+
+    def _seed_value(role: str) -> float:
+        if role in existing:
+            return existing[role]
+        return float(sku_blueprint.get(role, 0.0))
+
+    reconciled: Dict[str, float] = {
+        role: _seed_value(role) for role in authoritative_list
+    }
+    if reconciled == existing:
+        return False
+
+    authoritative_set = set(authoritative_list)
+    dropped = sorted(k for k in existing if k not in authoritative_set)
+    added = sorted(k for k in authoritative_list if k not in existing)
+    seeded_from_blueprint = sorted(
+        k for k in added if k in sku_blueprint
+    )
+    sku_repr = locals().get("sku", "<no upstream RobotNode>")
+    log_info(
+        f"[actor_setting] reconciled init_joint_angles against upstream "
+        f"Robot SKU={sku_repr!r}: dropped={dropped} added={added} "
+        f"(seeded from registry blueprint: {seeded_from_blueprint}; "
+        f"remaining defaults are 0.0)"
+    )
+    row.set_value(dict(reconciled))
+    return True
+
+
+def _reconcile_downstream_actor_settings(robot_node: "NodeItem") -> None:
+    """Walk ``robot_node``'s ``robot_pipe`` outgoing edges and reconcile
+    every connected ActorSetting node.
+
+    Called when:
+      - Robot Node's ``asset_id`` parameter changes (NodeItem.on_param_changed)
+      - A new edge is connected to / disconnected from an ActorSetting's
+        ``robot_pipe`` input (page._connect_raw / _disconnect_edge_by_id_raw)
+
+    Best-effort — never raises; an exception in one downstream's
+    reconcile must not block reconciling the others.
+    """
+    out_ports = getattr(robot_node, "_out_ports", None) or []
+    for port in out_ports:
+        if getattr(getattr(port, "spec", None), "name", "") != "robot_pipe":
             continue
-        if not name:
-            continue
-        ir_role = name_to_ir.get(name)
-        if not ir_role:
+        for conn in list(getattr(port, "connections", []) or []):
+            dst_port = getattr(conn, "dst_port", None)
+            if dst_port is None:
+                continue
+            dst_node = dst_port.parent_node()
+            if dst_node is None:
+                continue
+            if str(getattr(dst_node.manifest, "id", "") or "") != "actor_setting":
+                continue
+            try:
+                _reconcile_actor_init_joint_angles(dst_node)
+            except Exception as exc:
+                log_warning(
+                    f"[actor_setting] init_joint_angles reconcile from "
+                    f"upstream Robot Node failed for downstream "
+                    f"{dst_node!r}: {exc}"
+                )
+            try:
+                _reconcile_actor_actuator_params(dst_node)
+            except Exception as exc:
+                log_warning(
+                    f"[actor_setting] actuator_params reconcile from "
+                    f"upstream Robot Node failed for downstream "
+                    f"{dst_node!r}: {exc}"
+                )
+
+
+# Canvas ActorSetting param keys that mirror RobotSpec.default_actuator_params
+# entries. Names match the ActorSetting ParamSpec keys exactly (see
+# src/nodes/actor_setting/node.py §4 Actuator overrides). If the canvas
+# param key set changes, update this tuple in lockstep.
+_ACTUATOR_PARAM_KEYS: tuple = (
+    "stiffness",
+    "damping",
+    "effort_limit",
+    "velocity_limit",
+)
+
+
+def _reconcile_actor_actuator_params(actor_node: "NodeItem") -> bool:
+    """Reconcile ActorSetting actuator-PD params against upstream Robot SKU.
+
+    Canvas-derived-keys rule: the set of joint-control fields a robot
+    needs (stiffness/damping/effort_limit/velocity_limit) is fixed at
+    the ActorSetting schema level, but the VALUES belong to the upstream
+    Robot Node's SKU — a 42 kg Spot needs Kp~500 while a 15 kg Go2 needs
+    Kp~25, and forcing the user to memorise / re-enter these per SKU is
+    the same bug class as init_joint_angles drift. Returns True iff any
+    value mutated.
+
+    No upstream Robot Node (or SKU has no default_actuator_params in
+    registry) → no-op so canvas keeps whatever values the user has set.
+    Each per-key write is independent: SKU declaring only ``stiffness``
+    leaves the other three untouched.
+    """
+    rows_by_key: Dict[str, Any] = {}
+    for r in getattr(actor_node, "_param_rows", []) or []:
+        spec_key = str(getattr(getattr(r, "spec", None), "key", "") or "")
+        if spec_key in _ACTUATOR_PARAM_KEYS:
+            rows_by_key[spec_key] = r
+    if not rows_by_key:
+        return False
+
+    try:
+        sku = _upstream_robot_sku(actor_node)
+    except RuntimeError:
+        return False
+
+    from registers.robots import get_robot_spec
+    rs = get_robot_spec(sku)
+    if rs is None:
+        return False
+    dap = getattr(rs, "default_actuator_params", None) or {}
+    if not isinstance(dap, dict) or not dap:
+        return False
+
+    mutated = False
+    applied: Dict[str, float] = {}
+    for key, row in rows_by_key.items():
+        if key not in dap:
             continue
         try:
-            limited = bool(mj_model.jnt_limited[jid])
-            lo = float(mj_model.jnt_range[jid, 0])
-            hi = float(mj_model.jnt_range[jid, 1])
-        except Exception:
-            limited = False
-            lo, hi = 0.0, 0.0
-        if not limited or hi <= lo:
-            rows.append((qposadr, ir_role, None, None))
-        else:
-            rows.append((qposadr, ir_role, lo, hi))
+            new_val = float(dap[key])
+        except (TypeError, ValueError):
+            continue
+        current = (actor_node.params or {}).get(key)
+        try:
+            current_f = float(current) if current is not None else None
+        except (TypeError, ValueError):
+            current_f = None
+        if current_f is not None and abs(current_f - new_val) < 1e-9:
+            continue
+        row.set_value(new_val)
+        applied[key] = new_val
+        mutated = True
 
-    rows.sort(key=lambda r: r[0])
-    ir_roles_in_order = [r[1] for r in rows]
-    ranges: Dict[str, Optional[tuple]] = {}
-    for _adr, role, lo, hi in rows:
-        ranges[role] = None if lo is None else (lo, hi)
+    if mutated:
+        log_info(
+            f"[actor_setting] reconciled actuator params from upstream "
+            f"Robot SKU={sku!r}: {applied}"
+        )
+    return mutated
+
+
+def _resolve_active_format_joint_ranges(sku: str):
+    """Build (ir_roles_in_order, ranges_by_role, display_name) from the
+    registry alone — no MJCF / USD / URDF asset loading.
+
+    Canvas IR-only rule (memory: canvas-ir-only): widgets edit IR Roles,
+    not physical joint names; therefore the editor must never reach into
+    a specific format's asset file to populate its slider list. The IR
+    role set comes from the registry's per-format joint declaration; the
+    slider range is a uniform IR-level default. Per-IR-role precision
+    ranges (via an ir_canonical.json ``default_range`` field) is a
+    larger, separate task and not required to unblock training.
+
+    Active format defaults to ``USD`` — Isaac Lab is RELEASE's sole
+    training backend, so the canvas's IR-role coverage requirement
+    aligns with the USD joint table. Robots whose USD table is absent
+    (legacy / MJCF-only menagerie entries) fall back to MJCF with a
+    loud WARN so the user knows the editor is showing a different
+    format than the eventual training target.
+
+    Raises (CLAUDE.md §1.8) when the SKU is unknown OR neither USD nor
+    MJCF declares any joints — every silent ``return None`` path of the
+    previous implementation surfaced as an undiagnosable "raw JSON
+    editor pops up instead of the slider table" UX bug.
+    """
+    from registers.robots import get_robot
+
+    entry = get_robot(sku)
+    if not entry:
+        raise RuntimeError(
+            f"robot sku {sku!r} is not registered — cannot build "
+            f"joint-pose editor."
+        )
+    per_format = entry.get("joints_per_format", {}) or {}
+    if not isinstance(per_format, dict):
+        per_format = {}
+
+    fmt = "USD"
+    joints_block = per_format.get(fmt)
+    if not isinstance(joints_block, dict) or not joints_block:
+        # WHY KEPT (Rule 1.c — on-disk legacy compat): older robot
+        # entries only declared MJCF before Phase 5 added USD support.
+        # WARN loudly (not silent) so the user knows the editor is
+        # showing a different format than the training target.
+        mjcf_block = per_format.get("MJCF")
+        if isinstance(mjcf_block, dict) and mjcf_block:
+            log_warning(
+                f"[joint_pose_table] robot {sku!r} has no USD "
+                f"joints_per_format; falling back to MJCF for the editor "
+                f"— add a USD table to registers/data/robots_canonical.json "
+                f"(or the user overlay) so the editor matches the Isaac "
+                f"Lab training target."
+            )
+            joints_block = mjcf_block
+            fmt = "MJCF"
+        else:
+            raise RuntimeError(
+                f"robot {sku!r} has no joints_per_format entries for "
+                f"USD or MJCF — registers/data/robots_canonical.json (or "
+                f"the user overlay) is missing a joint table. Cannot "
+                f"build joint-pose editor."
+            )
+
+    ir_roles_in_order: List[str] = []
+    seen: set = set()
+    for jspec in joints_block.values():
+        if not isinstance(jspec, dict):
+            continue
+        ir = str(jspec.get("ir_role", "") or "")
+        if not ir:
+            continue
+        if ir in seen:
+            continue
+        ir_roles_in_order.append(ir)
+        seen.add(ir)
+
+    if not ir_roles_in_order:
+        raise RuntimeError(
+            f"robot {sku!r} joints_per_format[{fmt!r}] has zero entries "
+            f"with a non-empty ir_role — registry data is broken."
+        )
+
+    # Phase 1 IR-only range: uniform [-π, π] (radians). Phase 2 will
+    # source precision ranges from ir_canonical.json ``default_range``
+    # once the IR catalog grows that field.
+    ranges: Dict[str, Optional[tuple]] = {
+        ir: (-math.pi, math.pi) for ir in ir_roles_in_order
+    }
 
     display_name = str(entry.get("name", "") or sku)
     return ir_roles_in_order, ranges, display_name
 
 
 def _submit_actor_pose_review(
-    actor_node: "NodeItem", joint_pos_by_ir: Dict[str, float]
+    actor_node: "NodeItem",
+    joint_pos_by_ir: Dict[str, float],
+    *,
+    parent_widget: Optional[QWidget] = None,
 ) -> None:
-    """Construct an :class:`InitPoseOverride` from ``actor_node`` 's current
-    base_pos params + ``joint_pos_by_ir``, submit a ``RobotReviewTask``.
+    """Construct an :class:`InitPoseOverride` from ``actor_node``'s current
+    base_pos params + ``joint_pos_by_ir`` and submit a ReviewTask in the
+    engine selected on the node (``review_pose_engine``).
 
-    Defensive — log_warning on any failure, never raises into Qt.
+    Dispatch:
+        * ``review_pose_engine == "mujoco"`` (default) → ``RobotReviewTask``
+          (in-process MuJoCo passive viewer)
+        * ``review_pose_engine == "isaac_sim"`` → ``IsaacSimPoseReviewTask``
+          (out-of-process Isaac Sim Kit subprocess)
+
+    Failures surface as ``QMessageBox.warning`` against ``parent_widget``
+    so the user sees the specific reason — CLAUDE.md §1.8 forbids the
+    previous "log_warning and silently return" pattern that left the
+    user wondering why the viewer never opened.
     """
-    from unitport_sdk import get_tasks_manager, log_info, log_warning
+    from unitport_sdk import get_tasks_manager, log_info
 
-    sku = _upstream_robot_sku(actor_node)
-    if not sku:
-        log_warning(
-            "[actor_setting] Review Pose: no upstream Robot node connected "
-            "or asset_id unresolved — connect a Robot node first."
+    def _warn(msg: str) -> None:
+        QMessageBox.warning(
+            parent_widget,
+            tr("dialog.review_pose_unavailable",
+               default="无法启动 Review Pose"),
+            msg,
         )
-        return
+
     try:
-        from application.service.robot_init_poses import InitPoseOverride
-        from application.service.runtime.simulation.mujoco.robot_review_session import (
-            RobotReviewTask,
-        )
-    except Exception as exc:
-        log_warning(f"[actor_setting] Review Pose: import failed: {exc}")
+        sku = _upstream_robot_sku(actor_node)
+    except RuntimeError as exc:
+        _warn(str(exc))
         return
+
+    from application.service.robot_init_poses import InitPoseOverride
 
     params = getattr(actor_node, "params", None) or {}
+    engine = str(params.get("review_pose_engine") or "mujoco").strip()
     try:
         bx = float(params.get("init_pos_x", 0.0) or 0.0)
         by = float(params.get("init_pos_y", 0.0) or 0.0)
         bz = float(params.get("init_pos_z", 0.4) or 0.4)
-    except (TypeError, ValueError):
-        bx, by, bz = 0.0, 0.0, 0.4
+    except (TypeError, ValueError) as exc:
+        _warn(
+            f"Actor Setting 的 init_pos_x/y/z 数值无效：{exc}。请检查后重试。"
+        )
+        return
 
     cleaned: Dict[str, float] = {}
     for k, v in (joint_pos_by_ir or {}).items():
@@ -6578,94 +7187,329 @@ def _submit_actor_pose_review(
         base_pos=(bx, by, bz),
         joint_pos_by_ir=cleaned,
     )
-    try:
-        task = RobotReviewTask(
-            sku,
-            "flat_ground",
-            live_physics=False,
+
+    if engine == "isaac_sim":
+        try:
+            from registers import backends as _backends
+        except Exception as exc:
+            _warn(
+                f"无法访问 backends registry，IsaacSim 不可用：{exc}"
+            )
+            return
+        if not _backends.is_available("isaac_lab"):
+            _warn(
+                "Isaac Lab 未安装或未在 Engine Settings 中注册路径。\n"
+                "请打开 Engine Settings 注册 Isaac Lab 安装目录，或在 "
+                "Actor Setting 节点上将 review_pose_engine 切回 mujoco。"
+            )
+            return
+        try:
+            from application.service.runtime.simulation.isaac_sim import (
+                IsaacSimPoseReviewTask,
+            )
+        except Exception as exc:
+            _warn(f"IsaacSimPoseReviewTask 导入失败：{exc}")
+            return
+        task = IsaacSimPoseReviewTask(
+            sku=sku,
+            scene_id="flat_ground",
             init_pose_override=override,
         )
         tid = get_tasks_manager().submit(task)
         log_info(
-            f"[actor_setting] Review Pose: submitted RobotReviewTask "
+            f"[actor_setting] Review Pose: submitted IsaacSimPoseReviewTask "
             f"id={tid} sku={sku} joints={len(cleaned)}"
         )
-    except Exception as exc:
-        log_warning(f"[actor_setting] Review Pose: submit failed: {exc}")
+        return
+
+    if engine != "mujoco":
+        _warn(
+            f"未知的 review_pose_engine 值：{engine!r}。"
+            f"支持的取值为 mujoco / isaac_sim。"
+        )
+        return
+
+    from application.service.runtime.simulation.mujoco.robot_review_session import (
+        RobotReviewTask,
+    )
+    task = RobotReviewTask(
+        sku,
+        "flat_ground",
+        live_physics=False,
+        init_pose_override=override,
+    )
+    tid = get_tasks_manager().submit(task)
+    log_info(
+        f"[actor_setting] Review Pose: submitted RobotReviewTask "
+        f"id={tid} sku={sku} joints={len(cleaned)}"
+    )
+
+
+def _resolve_robot_ir_role_choices(
+    actor_node: "NodeItem", source: str
+) -> List[str]:
+    """Pull the upstream Robot Node's IR-role list for picker widgets.
+
+    ``source`` ∈ {"joint", "body"}:
+        * "joint" → ``joints_per_format[fmt]`` (USD with MJCF legacy fallback)
+        * "body"  → ``bodies_per_format[fmt]`` (USD with MJCF legacy fallback)
+
+    Walks ``actor_node.robot_pipe`` back to the RobotNode the same way
+    :func:`_upstream_robot_sku` does. Returns the IR roles in declaration
+    order, deduplicated.
+
+    Raises ``RuntimeError`` with a user-facing message — surfaced via
+    QMessageBox by callers so the user always knows why the picker came
+    up empty (no upstream Robot, asset_id unset, registry missing
+    table). CLAUDE.md §1.8 — no silent empty-list fallback.
+    """
+    sku = _upstream_robot_sku(actor_node)
+    from registers.robots import get_robot
+
+    entry = get_robot(sku)
+    if not entry:
+        raise RuntimeError(
+            f"robot sku {sku!r} is not registered — cannot resolve "
+            f"IR-role picker choices."
+        )
+    block_key = "joints_per_format" if source == "joint" else "bodies_per_format"
+    per_format = entry.get(block_key, {}) or {}
+    if not isinstance(per_format, dict):
+        per_format = {}
+    fmt = "USD"
+    spec_block = per_format.get(fmt)
+    if not isinstance(spec_block, dict) or not spec_block:
+        # WHY KEPT (CLAUDE.md §1.8 (c) — on-disk legacy compat): older
+        # robots only declare MJCF. WARN loudly so the user knows the
+        # picker is showing a different format than the training target.
+        mjcf_block = per_format.get("MJCF")
+        if isinstance(mjcf_block, dict) and mjcf_block:
+            log_warning(
+                f"[ir_role_picker] robot {sku!r} has no USD {block_key}; "
+                f"falling back to MJCF — add a USD table to "
+                f"registers/data/robots_canonical.json (or the user "
+                f"overlay) so the picker matches Isaac Lab."
+            )
+            spec_block = mjcf_block
+            fmt = "MJCF"
+        else:
+            raise RuntimeError(
+                f"robot {sku!r} has no {block_key} entries for USD or "
+                f"MJCF — cannot populate IR-role picker."
+            )
+    out: List[str] = []
+    seen: set = set()
+    for spec in spec_block.values():
+        if not isinstance(spec, dict):
+            continue
+        ir = str(spec.get("ir_role", "") or "")
+        if not ir or ir in seen:
+            continue
+        out.append(ir)
+        seen.add(ir)
+    if not out:
+        raise RuntimeError(
+            f"robot {sku!r} {block_key}[{fmt!r}] has zero entries with "
+            f"a non-empty ir_role — registry data is broken."
+        )
+    return out
+
+
+class IRRolePickerRow(_PickerRowMixin, ParamRow):
+    """``widget="ir_joint_picker" / "ir_body_picker"`` — multi-select dropdown
+    backed by the upstream RobotNode's IR-role catalog.
+
+    Used by ActorSettingNode for Contact Bodies (body IR roles, default
+    empty) and Action Joints (joint IR roles, default = all selected).
+
+    Meta keys:
+        * ``source`` ∈ {"joint", "body"} — which block to read from the
+          upstream Robot Node's registry entry. Default: "joint".
+        * ``default_select_all`` (bool) — if True, an empty stored value
+          (``[]``) renders as "全选 (N)" and the popup pre-checks every
+          role; the user deselects to exclude. Default: False.
+
+    Persistence: stores a JSON list of selected IR roles. Empty list
+    means "all" when ``default_select_all=True``, "none" otherwise —
+    matching ``spec_validator._check_action_joints`` which skips
+    validation when ``action_joint_names_expr`` is empty.
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _source(self) -> str:
+        meta = self.spec.meta or {}
+        return "body" if str(meta.get("source", "joint")).startswith("body") else "joint"
+
+    def _default_select_all(self) -> bool:
+        meta = self.spec.meta or {}
+        return bool(meta.get("default_select_all", False))
+
+    def _current_list(self) -> List[str]:
+        v = self._value
+        if isinstance(v, (list, tuple)):
+            return [str(x) for x in v]
+        if isinstance(v, str) and v.strip():
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed]
+            except (json.JSONDecodeError, ValueError):
+                return []
+        return []
+
+    def _summary_text(self) -> str:  # type: ignore[override]
+        cur = self._current_list()
+        if not cur and self._default_select_all():
+            # We don't fetch upstream just to count — empty + default-all
+            # always means "all". Show a stable label until the user
+            # interacts.
+            return tr("canvas.row.ir_picker_all", "All (default)")
+        if not cur:
+            return tr("canvas.row.empty", "—")
+        return tr("canvas.row.selected", "{n} selected").replace("{n}", str(len(cur)))
+
+    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        return self._open(event)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        return self._open(event)
+
+    def _open(self, event: QGraphicsSceneMouseEvent) -> bool:
+        view = _view_of(event)
+        parent_widget = view.window() if view is not None else None
+        try:
+            choices = _resolve_robot_ir_role_choices(self._owner, self._source())
+        except RuntimeError as exc:
+            QMessageBox.warning(
+                parent_widget,
+                tr(
+                    "dialog.ir_role_picker_unavailable",
+                    default="无法打开 IR 角色选单",
+                ),
+                str(exc),
+            )
+            return True
+
+        cur = self._current_list()
+        # default_select_all + empty stored value → pre-check everything.
+        # Also drop any stale entries no longer in the upstream catalog so
+        # the popup doesn't show ghost checkmarks (canvas-derived-keys
+        # rule: keys auto-reconcile against upstream).
+        choices_set = set(choices)
+        if not cur and self._default_select_all():
+            initial = list(choices)
+        else:
+            initial = [c for c in cur if c in choices_set]
+
+        def _commit(sel: list) -> None:
+            cleaned = [str(c) for c in sel if str(c) in choices_set]
+            self.set_value(cleaned)
+
+        open_choice_popup(
+            view=view,
+            row=self,
+            choices=choices,
+            current=initial,
+            multi=True,
+            leading_mode="checkbox",
+            on_commit=_commit,
+        )
+        return True
 
 
 class JointPoseTableRow(CodeRow):
     """``widget="joint_pose_table"`` — IR-role keyed slider table editor.
 
     Inline paint inherits CodeRow (single-line JSON preview); click pops the
-    new ``JointPoseEditorDialog`` instead of the code popup. When the upstream
-    RobotNode / SKU / MJCF can't be resolved, falls back to the original
-    CodeRow JSON popup so the user still has an escape hatch.
+    :class:`JointPoseEditorDialog`. The slider set is built purely from the
+    registry's IR-role declarations (memory: canvas-ir-only); we never
+    reach into a specific format's asset file from the canvas layer.
+
+    Failure (no upstream RobotNode, SKU unknown, registry missing joint
+    table) surfaces as a ``QMessageBox.warning`` with the specific reason
+    — CLAUDE.md §1.8 forbids the previous silent "switch to raw JSON
+    editor" fallback, which made the editor pop up the wrong UI without
+    telling the user why.
     """
 
     def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
-        from unitport_sdk import log_warning
-
-        sku = _upstream_robot_sku(self._owner)
-        if not sku:
-            log_warning(
-                "[joint_pose_table] no upstream Robot node — falling back "
-                "to raw JSON editor."
+        view = _view_of(event)
+        parent_widget = view.window() if view is not None else None
+        try:
+            sku = _upstream_robot_sku(self._owner)
+            ir_roles_in_order, ranges, display_name = (
+                _resolve_active_format_joint_ranges(sku)
             )
-            return super()._handle_click(event)
-
-        resolved = _resolve_mjcf_joint_ranges(sku)
-        if resolved is None:
-            log_warning(
-                f"[joint_pose_table] failed to resolve MJCF joint ranges for "
-                f"sku={sku!r} — falling back to raw JSON editor."
+        except RuntimeError as exc:
+            QMessageBox.warning(
+                parent_widget,
+                tr("dialog.joint_pose_editor_unavailable",
+                   default="无法打开关节角度编辑器"),
+                str(exc),
             )
-            return super()._handle_click(event)
-        ir_roles_in_order, ranges, display_name = resolved
+            return True
 
+        # Reconcile canvas value against upstream Robot Node before
+        # populating the dialog. The reconcile may have already happened
+        # via NodeItem.on_param_changed or _connect_raw hooks (so this
+        # call typically is a no-op), but staying defensive here ensures
+        # the dialog never displays stale keys even if a hook is missed
+        # (e.g. canvas loaded from disk and not yet routed through hook).
+        _reconcile_actor_init_joint_angles(self._owner)
+
+        # Now self._value reflects the reconciled state. CRITICAL: the
+        # stored param may be EITHER a dict (after a reconcile / dialog
+        # round-trip) OR a JSON string (fresh from disk load — the ParamSpec
+        # type is "json" with default "{}"). The old code only handled the
+        # dict case and silently dropped JSON-string user values, which
+        # surfaced as "I set 0/0.9/-1.8 in the inline view but every
+        # slider opens at 0.0" — user values absolutely preserved is the
+        # contract (forbid silent overwrite / drop).
+        reconciled: Dict[str, float] = {}
         v = self._value
-        if isinstance(v, dict):
-            initial: Dict[str, float] = {}
-            for k, val in v.items():
-                try:
-                    initial[str(k)] = float(val)
-                except (TypeError, ValueError):
-                    continue
-        elif isinstance(v, str) and v.strip():
+        if isinstance(v, str) and v.strip():
             try:
                 parsed = json.loads(v)
+                if isinstance(parsed, dict):
+                    v = parsed
             except (json.JSONDecodeError, ValueError):
-                parsed = {}
-            initial = {}
-            if isinstance(parsed, dict):
-                for k, val in parsed.items():
-                    try:
-                        initial[str(k)] = float(val)
-                    except (TypeError, ValueError):
-                        continue
-        else:
-            initial = {}
+                v = {}
+        if isinstance(v, dict):
+            for k, val in v.items():
+                try:
+                    reconciled[str(k)] = float(val)
+                except (TypeError, ValueError):
+                    continue
 
         owner = self._owner
+        review_parent = parent_widget
 
         def _on_review(snapshot: Dict[str, float]) -> None:
-            _submit_actor_pose_review(owner, snapshot)
+            _submit_actor_pose_review(
+                owner, snapshot, parent_widget=review_parent
+            )
 
         from .joint_pose_dialog import JointPoseEditorDialog
 
-        view = _view_of(event)
-        parent_widget = view.window() if view is not None else None
         dialog = JointPoseEditorDialog(
             sku=sku,
             sku_display_name=display_name,
             ir_roles_in_order=ir_roles_in_order,
             joint_ranges=ranges,
-            initial_joints=initial,
+            initial_joints=reconciled,
             on_review=_on_review,
             parent=parent_widget,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.set_value(dict(dialog.result_joint_pos_by_ir))
+            # Final write: filter dialog result through the authoritative
+            # set one more time so a future dialog bug that sneaks extra
+            # keys in cannot corrupt the canvas.
+            result = {
+                role: float(dialog.result_joint_pos_by_ir.get(role, 0.0))
+                for role in ir_roles_in_order
+            }
+            self.set_value(result)
         return True
 
 
@@ -6749,420 +7593,12 @@ class ActorReviewPoseButtonRow(ParamRow):
                         joints[str(k)] = float(v)
                     except (TypeError, ValueError):
                         continue
-        _submit_actor_pose_review(self._owner, joints)
+        view = _view_of(event)
+        parent_widget = view.window() if view is not None else None
+        _submit_actor_pose_review(
+            self._owner, joints, parent_widget=parent_widget
+        )
         return True
-
-
-# =============================================================================
-# RewardConflictTableRow — widget="reward_conflict_table"
-# Inline self-painted table for the TrainingMotion node's ``reward_analysis``
-# JSON blob (single field carrying ``analysis_result`` list + ``applied_overrides``
-# dict). Renders [☑, 项, current → suggested] rows + ⚡Analyze button + Apply.
-# Migrated from DEMO ``_AMPResultsPanel`` (training_node_items.py).
-# =============================================================================
-
-_RC_HDR_H = 20
-_RC_ROW_H = 18
-_RC_BTN_H = 22
-_RC_FRAME_PAD = 4
-_RC_FOOTER_GAP = 4
-
-
-class RewardConflictTableRow(ParamRow):
-    """Inline AMP reward-conflict analysis table.
-
-    Backing JSON schema (single ``reward_analysis`` param)::
-
-        {"analysis_result": [{"key", "display_name", "current_weight",
-                              "expert_mean_score", "verdict",
-                              "suggested_weight", "reason"}, ...],
-         "applied_overrides": {"reward_key": new_weight, ...}}
-
-    Top "⚡ Analyze" button → calls
-    :func:`application.training.amp.conflict_analyzer.evaluate_rewards_on_clips`
-    with reward_terms scraped from upstream Rewards node + motion clips from
-    own ``training_items`` and writes back ``analysis_result``.
-
-    Bottom "Apply Checked" button → writes selected rows'
-    ``suggested_weight`` into ``applied_overrides``; spec_compiler reads this
-    on next compile to override per-item reward weights.
-    """
-
-    _OPEN_ON_RELEASE = True
-
-    def __init__(self, spec, owner_node, width, parent=None):
-        super().__init__(spec, owner_node, width, parent)
-        self._checked: set = set()  # selected reward keys for Apply
-        self._items: List[Dict[str, Any]] = self._parse_items()
-        self._analyze_btn_rect: QRectF = QRectF()
-        self._apply_btn_rect: QRectF = QRectF()
-        self._height = float(self._compute_height())
-        self._height_callbacks: list = []
-        # Pre-check conflict rows by default
-        for it in self._items:
-            if str(it.get("verdict", "")).lower() == "conflict":
-                self._checked.add(str(it.get("key", "")))
-
-    # ---------------------------------------------------- data parse / height
-
-    def _parse_items(self) -> List[Dict[str, Any]]:
-        v = self._value
-        blob: Any = v
-        if isinstance(v, str) and v.strip():
-            try:
-                blob = json.loads(v)
-            except (json.JSONDecodeError, ValueError):
-                blob = {}
-        if not isinstance(blob, dict):
-            return []
-        ar = blob.get("analysis_result", [])
-        if not isinstance(ar, list):
-            return []
-        # Sort: conflicts first, ok second, skip last
-        order = {"conflict": 0, "ok": 1, "skip": 2}
-        return sorted(
-            (it for it in ar if isinstance(it, dict)),
-            key=lambda it: order.get(str(it.get("verdict", "")).lower(), 3),
-        )
-
-    def _parse_overrides(self) -> Dict[str, Any]:
-        v = self._value
-        blob: Any = v
-        if isinstance(v, str) and v.strip():
-            try:
-                blob = json.loads(v)
-            except (json.JSONDecodeError, ValueError):
-                blob = {}
-        if not isinstance(blob, dict):
-            return {}
-        ov = blob.get("applied_overrides", {})
-        return dict(ov) if isinstance(ov, dict) else {}
-
-    def _visible_items(self) -> List[Dict[str, Any]]:
-        # Skip rows are hidden from the canvas table (still in JSON for audit).
-        return [it for it in self._items
-                if str(it.get("verdict", "")).lower() != "skip"]
-
-    def preferred_height(self) -> float:
-        return float(self._height)
-
-    def on_height_changed(self, callback) -> None:
-        if callable(callback) and callback not in self._height_callbacks:
-            self._height_callbacks.append(callback)
-
-    def _set_height(self, h: float) -> None:
-        h = float(max(PARAM_ROW_H, h))
-        if abs(h - self._height) < 0.5:
-            return
-        self.prepareGeometryChange()
-        self._height = h
-        self.update()
-        for cb in list(self._height_callbacks):
-            try:
-                cb(h)
-            except Exception:
-                pass
-
-    def _compute_height(self) -> int:
-        n_rows = max(1, len(self._visible_items()))
-        return (
-            _RC_FRAME_PAD * 2
-            + _RC_BTN_H              # Analyze
-            + _RC_FOOTER_GAP
-            + _RC_HDR_H              # Header row
-            + n_rows * _RC_ROW_H
-            + _RC_FOOTER_GAP
-            + _RC_BTN_H              # Apply
-            + 2
-        )
-
-    # ---------------------------------------------------- painting
-
-    def _value_rect(self) -> QRectF:
-        x = SEP_X + _RC_FRAME_PAD
-        return QRectF(
-            x, _RC_FRAME_PAD,
-            max(0.0, self._width - x - _RC_FRAME_PAD - VALUE_PAD_RIGHT + 4),
-            self._height - _RC_FRAME_PAD * 2,
-        )
-
-    def _layout_rects(self) -> None:
-        v = self._value_rect()
-        self._analyze_btn_rect = QRectF(v.left(), v.top(), v.width(), _RC_BTN_H)
-        self._apply_btn_rect = QRectF(
-            v.left(), v.bottom() - _RC_BTN_H, v.width(), _RC_BTN_H,
-        )
-
-    def _interactive_regions(self) -> List[QRectF]:
-        self._layout_rects()
-        return [self._analyze_btn_rect, self._apply_btn_rect]
-
-    def _paint_value(self, painter: QPainter, tier: int) -> None:
-        self._layout_rects()
-        v = self._value_rect()
-
-        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
-        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
-        painter.setFont(font)
-        fm = QFontMetricsF(font)
-
-        # --- Top "⚡ Analyze" button ----------------------------------------
-        ana_bg = QColor(Config.get_color("btn_1", "#343636"))
-        if self._is_hovering(self._analyze_btn_rect):
-            ana_bg = ana_bg.lighter(115)
-        painter.setBrush(QBrush(ana_bg))
-        painter.setPen(QPen(QColor(Config.get_color("border_1", "#444444")), 1.0))
-        painter.drawRoundedRect(self._analyze_btn_rect, 3, 3)
-        painter.setPen(QPen(QColor(Config.get_color("main_t1", "#D6D3C7"))))
-        painter.drawText(
-            self._analyze_btn_rect,
-            int(Qt.AlignmentFlag.AlignCenter),
-            "⚡  " + tr("canvas.amp_helper.analyze", "Analyze"),
-        )
-
-        # --- Header row -----------------------------------------------------
-        header_y = self._analyze_btn_rect.bottom() + _RC_FOOTER_GAP
-        hdr_rect = QRectF(v.left(), header_y, v.width(), _RC_HDR_H)
-        hdr_color = QColor(Config.get_color("canvas_node_param_label", "#999999"))
-        painter.setPen(QPen(hdr_color))
-        # ☑ col (16), Name col (~110), Values col (rest)
-        check_w = 16.0
-        name_w = min(110.0, max(80.0, v.width() * 0.35))
-        gap = 4.0
-        check_rect = QRectF(hdr_rect.left(), hdr_rect.top(), check_w, hdr_rect.height())
-        name_rect = QRectF(check_rect.right() + gap, hdr_rect.top(),
-                            name_w, hdr_rect.height())
-        val_rect = QRectF(name_rect.right() + gap, hdr_rect.top(),
-                           hdr_rect.right() - (name_rect.right() + gap),
-                           hdr_rect.height())
-        painter.drawText(name_rect,
-                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                         tr("canvas.amp_helper.col_item", "项 Item"))
-        painter.drawText(val_rect,
-                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                         tr("canvas.amp_helper.col_value", "当前 → 推荐 Current → Suggested"))
-
-        # --- Rows -----------------------------------------------------------
-        rows = self._visible_items()
-        if not rows:
-            empty_rect = QRectF(v.left(), hdr_rect.bottom(), v.width(), _RC_ROW_H)
-            painter.setPen(QPen(QColor(Config.get_color("canvas_node_param_label", "#888888"))))
-            painter.drawText(
-                empty_rect,
-                int(Qt.AlignmentFlag.AlignCenter),
-                tr("canvas.amp_helper.no_data", "Click ⚡ Analyze to populate"),
-            )
-        else:
-            ok_color = QColor(Config.get_color("canvas_node_text_ok", "#60c060"))
-            conflict_color = QColor(Config.get_color("canvas_node_text_warn", "#e06060"))
-            for i, item in enumerate(rows):
-                y = hdr_rect.bottom() + i * _RC_ROW_H
-                verdict = str(item.get("verdict", "")).lower()
-                key = str(item.get("key", ""))
-                is_conflict = verdict == "conflict"
-                # checkbox
-                cb_rect = QRectF(v.left() + 2, y + 3, 12, 12)
-                painter.setPen(QPen(QColor(Config.get_color("border_1", "#666"))))
-                painter.setBrush(QBrush(QColor(Config.get_color("bg_1", "#222"))))
-                painter.drawRect(cb_rect)
-                if is_conflict and key in self._checked:
-                    painter.setPen(QPen(conflict_color, 1.5))
-                    painter.drawLine(cb_rect.topLeft() + QPointF(2, 6),
-                                     cb_rect.topLeft() + QPointF(5, 9))
-                    painter.drawLine(cb_rect.topLeft() + QPointF(5, 9),
-                                     cb_rect.topLeft() + QPointF(10, 3))
-                # name
-                name_text = str(item.get("display_name", key))
-                row_name_rect = QRectF(check_rect.right() + gap, y,
-                                        name_w, _RC_ROW_H)
-                painter.setPen(QPen(conflict_color if is_conflict else ok_color))
-                elided_name = fm.elidedText(name_text, Qt.TextElideMode.ElideRight,
-                                              row_name_rect.width())
-                painter.drawText(row_name_rect,
-                                  int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                                  elided_name)
-                # values
-                cur_w = item.get("current_weight", 0.0)
-                sug_w = item.get("suggested_weight", cur_w)
-                if is_conflict:
-                    val_text = f"{cur_w:g} → {sug_w:g}"
-                else:
-                    val_text = f"{cur_w:g}"
-                row_val_rect = QRectF(name_rect.right() + gap, y,
-                                       val_rect.width(), _RC_ROW_H)
-                painter.setPen(QPen(QColor(Config.get_color("canvas_node_text", "#D6D3C7"))))
-                painter.drawText(row_val_rect,
-                                  int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-                                  val_text)
-
-        # --- Apply Checked button ------------------------------------------
-        has_checked = bool(self._checked)
-        if has_checked:
-            ap_idle = QColor(Config.get_color("canvas_node_review_launch_bg", "#00695C"))
-            ap_hover = QColor(Config.get_color("canvas_node_review_launch_hover_bg", "#00897B"))
-            ap_text = QColor(Config.get_color("main_t2", "#FFFFFF"))
-            ap_bg = ap_hover if self._is_hovering(self._apply_btn_rect) else ap_idle
-        else:
-            ap_bg = QColor(Config.get_color("btn_1", "#343636"))
-            ap_text = QColor(Config.get_color("canvas_node_param_label", "#888"))
-        painter.setBrush(QBrush(ap_bg))
-        painter.setPen(QPen(QColor(Config.get_color("border_1", "#444"))))
-        painter.drawRoundedRect(self._apply_btn_rect, 3, 3)
-        painter.setPen(QPen(ap_text))
-        n_checked = len(self._checked)
-        label = tr("canvas.amp_helper.apply_checked", "Apply Checked")
-        if n_checked:
-            label = f"{label} ({n_checked})"
-        painter.drawText(self._apply_btn_rect,
-                         int(Qt.AlignmentFlag.AlignCenter), label)
-
-    # ---------------------------------------------------- interactions
-
-    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
-        pos = event.pos()
-        self._layout_rects()
-        # Analyze button
-        if self._analyze_btn_rect.contains(pos):
-            self._run_analyze()
-            return True
-        # Apply button
-        if self._apply_btn_rect.contains(pos) and self._checked:
-            self._apply_overrides()
-            return True
-        # Row checkbox toggle
-        v = self._value_rect()
-        header_y = self._analyze_btn_rect.bottom() + _RC_FOOTER_GAP
-        for i, item in enumerate(self._visible_items()):
-            y = header_y + _RC_HDR_H + i * _RC_ROW_H
-            row_rect = QRectF(v.left(), y, v.width(), _RC_ROW_H)
-            if row_rect.contains(pos) and str(item.get("verdict", "")).lower() == "conflict":
-                key = str(item.get("key", ""))
-                if key in self._checked:
-                    self._checked.discard(key)
-                else:
-                    self._checked.add(key)
-                self.update()
-                return True
-        return False
-
-    def _scrape_upstream_reward_terms(self) -> Dict[str, float]:
-        """Collect ``reward_terms`` from every rewards node on the scene."""
-        terms: Dict[str, float] = {}
-        try:
-            scene = self._owner.scene() if hasattr(self._owner, "scene") else None
-            for it in (scene.items() if scene else []):
-                if not hasattr(it, "manifest"):
-                    continue
-                if getattr(it.manifest, "id", None) != "rewards":
-                    continue
-                raw = it.params.get("reward_terms", "{}") if hasattr(it, "params") else "{}"
-                parsed: Any = raw
-                if isinstance(raw, str):
-                    try:
-                        parsed = json.loads(raw)
-                    except (json.JSONDecodeError, ValueError):
-                        parsed = {}
-                if not isinstance(parsed, dict):
-                    continue
-                for k, v in parsed.items():
-                    try:
-                        terms[str(k)] = float(v if not isinstance(v, dict)
-                                              else v.get("weight", 0.0))
-                    except (TypeError, ValueError):
-                        continue
-        except Exception:
-            pass
-        return terms
-
-    def _effective_reward_terms(self) -> Dict[str, float]:
-        """Upstream Rewards.reward_terms with this node's applied_overrides merged.
-
-        Used as the analyzer's input — Apply Checked must immediately re-score
-        against the *effective* weight (base ⊕ override), so the user sees
-        which conflicts disappear and which new ones surface.
-        """
-        base = self._scrape_upstream_reward_terms()
-        for k, v in self._parse_overrides().items():
-            try:
-                base[str(k)] = float(v)
-            except (TypeError, ValueError):
-                continue
-        return base
-
-    def _collect_clip_paths(self) -> List[Any]:
-        """Pull motion-clip paths from own ``training_items`` enabled entries."""
-        clip_paths: List[Any] = []
-        ti_raw = self._owner.params.get("training_items", "{}") if hasattr(self._owner, "params") else "{}"
-        try:
-            if isinstance(ti_raw, str):
-                ti_raw = json.loads(ti_raw)
-            if isinstance(ti_raw, dict):
-                from pathlib import Path
-                for entry in ti_raw.values():
-                    if not isinstance(entry, dict) or not entry.get("enabled", False):
-                        continue
-                    clip = entry.get("clip")
-                    if isinstance(clip, str) and clip:
-                        clip_paths.append(Path(clip))
-        except Exception:
-            pass
-        return clip_paths
-
-    def _run_analyze(self) -> None:
-        """Recompute analysis_result against the *effective* reward weights.
-
-        ``current_weight`` per row reflects upstream rewards ⊕ applied_overrides,
-        so post-Apply the table shows the new operating weights and re-scored
-        verdicts. ``applied_overrides`` is preserved across re-analysis.
-        """
-        try:
-            from application.training.amp.conflict_analyzer import (
-                evaluate_rewards_on_clips,
-            )
-        except Exception:
-            return
-        reward_terms = self._effective_reward_terms()
-        clip_paths = self._collect_clip_paths()
-        report = evaluate_rewards_on_clips(
-            reward_terms=reward_terms,
-            motion_clips=clip_paths,
-            discriminator_cfg=None,
-        )
-        existing_overrides = self._parse_overrides()
-        new_blob = {
-            "analysis_result": [it.to_dict() for it in report.items],
-            "applied_overrides": existing_overrides,
-        }
-        self.set_value(json.dumps(new_blob, ensure_ascii=False))
-        self._items = self._parse_items()
-        self._checked = {str(it.get("key", "")) for it in self._items
-                          if str(it.get("verdict", "")).lower() == "conflict"}
-        self._set_height(self._compute_height())
-
-    def _apply_overrides(self) -> None:
-        """Write checked rows' ``suggested_weight`` into ``applied_overrides``,
-        then immediately re-run the analyzer so the table reflects the new
-        effective weights (current_weight column) and re-scored verdicts."""
-        new_overrides = dict(self._parse_overrides())
-        items_by_key = {str(it.get("key", "")): it for it in self._items}
-        for key in self._checked:
-            it = items_by_key.get(key)
-            if it is None:
-                continue
-            try:
-                new_overrides[key] = float(it.get("suggested_weight", 0.0))
-            except (TypeError, ValueError):
-                continue
-        # Persist overrides first so _run_analyze can see them via
-        # _parse_overrides() when merging into effective reward_terms.
-        new_blob = {
-            "analysis_result": [dict(it) for it in self._items],
-            "applied_overrides": new_overrides,
-        }
-        self.set_value(json.dumps(new_blob, ensure_ascii=False))
-        # Re-score against the new effective weights; this rewrites
-        # analysis_result with fresh current_weight + verdict columns.
-        self._run_analyze()
 
 
 # =============================================================================
@@ -7195,6 +7631,7 @@ WIDGET_DISPATCH = {
     "picker_robot_asset":         RobotAssetPickerRow,
     "body_mapping_table":         BodyMappingTableRow,
     "active_file_table":          ActiveFileTableRow,
+    "mjcf_offset_badge":          MjcfOffsetBadgeRow,
     # Export node — DEMO §1 / §2 / §3 widgets
     "output_file_list":           OutputFileListRow,
     "start_point_compat_panel":   StartPointCompatPanelRow,
@@ -7204,8 +7641,9 @@ WIDGET_DISPATCH = {
     # ActorSettingNode — joint pose slider table + Review Pose button
     "joint_pose_table":           JointPoseTableRow,
     "actor_review_pose_button":   ActorReviewPoseButtonRow,
-    # TrainingMotionNode — AMP reward-conflict analysis inline table
-    "reward_conflict_table":      RewardConflictTableRow,
+    # ActorSettingNode — IR-role multi-select pickers (joints / bodies)
+    "ir_joint_picker":            IRRolePickerRow,
+    "ir_body_picker":             IRRolePickerRow,
 }
 
 TYPE_DISPATCH = {

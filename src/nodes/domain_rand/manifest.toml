@@ -95,20 +95,20 @@ description = "[SB3] 摩擦缩放范围"
 meta = { conditional_on = { key = "backend", op = "==", value = "sb3" }, min = 0.0, max = 5.0, step = 0.01 }
 
 [[parameters]]
-key = "motor_strength_range"
+key = "omega_n_log_uniform"
 type = "list"
-default = "[0.9, 1.1]"
+default = "[0.8, 1.25]"
 widget = "range_list"
-description = "[SB3] 电机扭矩缩放范围"
-meta = { conditional_on = { key = "backend", op = "==", value = "sb3" }, min = 0.0, max = 5.0, step = 0.01 }
+description = "[SB3] ωn 对数均匀缩放范围 (×nominal) / Natural-frequency DR factor"
+meta = { conditional_on = { key = "backend", op = "==", value = "sb3" }, min = 0.5, max = 2.0, step = 0.01 }
 
 [[parameters]]
-key = "joint_damping_range"
+key = "zeta_log_uniform"
 type = "list"
-default = "[0.95, 1.05]"
+default = "[0.9, 1.11]"
 widget = "range_list"
-description = "[SB3] 关节阻尼缩放范围"
-meta = { conditional_on = { key = "backend", op = "==", value = "sb3" }, min = 0.0, max = 2.0, step = 0.01 }
+description = "[SB3] ζ 对数均匀缩放范围 (×nominal) / Damping-ratio DR factor"
+meta = { conditional_on = { key = "backend", op = "==", value = "sb3" }, min = 0.7, max = 1.5, step = 0.01 }
 
 [[parameters]]
 key = "obs_noise_std"

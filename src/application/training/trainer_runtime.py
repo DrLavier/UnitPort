@@ -28,10 +28,208 @@ and submits the resulting Task to the SDK ``TasksManager``. The canvas-bound
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from unitport_sdk import get_tasks_manager, log_info, log_warning
+
+
+@dataclass
+class DeployCoverageReport:
+    """Structured result of cross-format IR-role coverage analysis.
+
+    Built by :func:`compute_deploy_coverage` from the registry's
+    ``joints_per_format`` tables for a SKU. The UI submit hook reads
+    this BEFORE calling :func:`submit_canvas_training` and surfaces a
+    blocking modal to the user when ``has_gap`` is True, so the user
+    can decide whether to spend compute on a training run whose
+    resulting bundle won't deploy to one (or both) targets.
+
+    A non-UI caller (CLI batch script, automated test) can ignore the
+    report and proceed straight to ``submit_canvas_training``; the
+    existing :func:`_pre_flight_warn_cross_format_coverage` still
+    log_warning's the same content, so nothing is silently swallowed.
+    """
+    sku: str = ""
+    robot_name: str = ""
+    has_gap: bool = False
+    # Roles declared by USD's joints_per_format but absent from MJCF's
+    # (or vice versa). Excludes bucket roles (misc / sensor* / base).
+    missing_in_mjcf: List[str] = field(default_factory=list)
+    missing_in_usd: List[str] = field(default_factory=list)
+    # Human-readable deploy-target consequence: e.g. ["MuJoCo unavailable"].
+    affected_targets: List[str] = field(default_factory=list)
+    # Whether each per-format table is present at all (vs declared but null).
+    has_mjcf_table: bool = False
+    has_usd_table: bool = False
+    # Single-format setups are valid and ``has_gap`` is False there;
+    # this lets the UI distinguish "no gap because alignment is perfect"
+    # from "no gap because only one format is even populated".
+    single_format_only: bool = False
+
+
+def compute_deploy_coverage(sku: str) -> DeployCoverageReport:
+    """Compare MJCF / USD IR-role sets in the registry for ``sku``.
+
+    Single source of truth for the cross-format coverage check — used by
+    both the UI submit-confirmation modal (:meth:`MainWindow._confirm_
+    deploy_coverage`) and the legacy log-only :func:`_pre_flight_warn_
+    cross_format_coverage` wrapper retained for non-UI callers. Bucket
+    roles (``misc`` / ``sensor*`` / ``base``) are excluded from the
+    comparison: they legitimately repeat or differ across formats
+    (MJCF cosmetic shells, floating-base joint that USD collapses into
+    the articulation root, etc.).
+    """
+    report = DeployCoverageReport(sku=sku)
+    if not sku:
+        return report
+
+    from registers import robots as _r
+
+    entry = _r.get_robot(sku) or {}
+    report.robot_name = entry.get("name") or sku
+    joints_pf = entry.get("joints_per_format") or {}
+
+    def _ir_role_set(fmt: str) -> Optional[frozenset]:
+        block = joints_pf.get(fmt)
+        if not isinstance(block, dict) or not block:
+            return None
+        return frozenset(
+            str((spec or {}).get("ir_role") or "").strip()
+            for spec in block.values()
+            if isinstance(spec, dict)
+            and str((spec or {}).get("ir_role") or "").strip()
+            and not str((spec or {}).get("ir_role") or "").strip().startswith("sensor")
+            and str((spec or {}).get("ir_role") or "").strip() not in ("misc", "base")
+        )
+
+    mjcf_set = _ir_role_set("MJCF")
+    usd_set = _ir_role_set("USD")
+    report.has_mjcf_table = mjcf_set is not None
+    report.has_usd_table = usd_set is not None
+
+    if mjcf_set is None or usd_set is None:
+        # Single-format setups are legitimate — no cross-format check
+        # possible / needed. Bundle will deploy to whichever format is
+        # populated; the other target is "unavailable" by definition.
+        report.single_format_only = True
+        return report
+    if mjcf_set == usd_set:
+        return report
+
+    report.has_gap = True
+    report.missing_in_mjcf = sorted(usd_set - mjcf_set)
+    report.missing_in_usd = sorted(mjcf_set - usd_set)
+    if report.missing_in_mjcf:
+        report.affected_targets.append(
+            "MuJoCo deploy (MJCF doesn't declare the missing roles)"
+        )
+    if report.missing_in_usd:
+        report.affected_targets.append(
+            "IsaacSim / cloud deploy (USD doesn't declare the missing roles)"
+        )
+    return report
+
+
+def _pre_flight_dump_assets(sku: str, *, log_prefix: str = "[pre-train]") -> None:
+    """Pre-flight safety net: dump declared-but-empty per-format tables before training.
+
+    For the given robot ``sku``, walks ``assets.{MJCF,USD,USD_URL}``; for
+    every format with a non-empty asset declaration whose
+    ``joints_per_format[fmt]`` is null/empty, runs
+    :meth:`RobotAssetService.dump_and_persist` synchronously. Skips
+    formats with no declared asset entirely — the bundle exporter won't
+    ship that format, so there's nothing to populate.
+
+    Why this exists despite the boot self-check (CLAUDE.md §1.8 / Pass A):
+    boot Pass A runs once per session; between boots a user can add a new
+    robot, repoint an asset path, or import a custom variant — any of
+    which leaves a declared-but-empty table that the boot pass already
+    missed. This pre-flight is the per-training-run safety net. Common
+    case (tables already populated) is a single registry lookup + dict
+    test — no I/O, no subprocess.
+
+    Loud failure: refuses to submit training when a required dump fails,
+    rather than queueing a run that will later raise from
+    ``spec_compiler`` / ``bundle_finalizer`` with a less specific error.
+    """
+    if not sku:
+        return
+
+    from registers import robots as _r
+    from application.service.robot_assets import get_robot_asset_service
+
+    entry = _r.get_robot(sku) or {}
+    assets = entry.get("assets") or {}
+    joints_pf = entry.get("joints_per_format") or {}
+
+    # Per-format declaration tests:
+    #   * MJCF — asset.path only (no Nucleus equivalent).
+    #   * USD  — asset.path OR asset.USD_URL (Nucleus URL is a first-class
+    #            asset declaration; the dump subprocess can read both).
+    needs_dump: list[str] = []
+    if assets.get("MJCF"):
+        tbl = joints_pf.get("MJCF") or {}
+        if not (isinstance(tbl, dict) and tbl):
+            needs_dump.append("MJCF")
+    if assets.get("USD") or assets.get("USD_URL"):
+        tbl = joints_pf.get("USD") or {}
+        if not (isinstance(tbl, dict) and tbl):
+            needs_dump.append("USD")
+
+    if not needs_dump:
+        return
+
+    svc = get_robot_asset_service()
+    name = entry.get("name") or sku
+    log_info(
+        f"{log_prefix} sku={sku!r} ({name}) has declared-but-empty "
+        f"format(s): {needs_dump}; auto-dumping before training"
+    )
+    for fmt in needs_dump:
+        result = svc.dump_and_persist(sku, fmt)
+        if not result.ok:
+            raise RuntimeError(
+                f"{log_prefix} pre-flight {fmt} dump failed for sku={sku!r} "
+                f"({name}): kind={result.error_kind} msg={result.error}. "
+                f"Training refused — fix the asset path / re-import the "
+                f"asset and retry. CLAUDE.md §1.8: shipping a bundle "
+                f"compiled against a non-existent per-format table would "
+                f"surface later as 'IR role X has no physical name' at "
+                f"export time."
+            )
+        log_info(
+            f"{log_prefix} dumped {fmt} ({len(result.joints)} joints, "
+            f"{len(result.bodies)} bodies, "
+            f"{result.n_unresolved} unresolved IR-role assignment(s))"
+        )
+
+
+def _pre_flight_warn_cross_format_coverage(
+    sku: str, *, log_prefix: str = "[pre-train]"
+) -> None:
+    """Pre-flight ADVISORY (non-blocking): log_warning wrapper around
+    :func:`compute_deploy_coverage` for callers (CLI / batch) that don't
+    surface a UI dialog. UI callers should read :class:`DeployCoverageReport`
+    directly via ``compute_deploy_coverage`` and present a modal.
+    """
+    report = compute_deploy_coverage(sku)
+    if not report.has_gap:
+        return
+    log_warning(
+        f"{log_prefix} sku={report.sku!r} ({report.robot_name}): MJCF "
+        f"and USD IR-role sets don't fully overlap. Training will proceed "
+        f"(uses the active format only), but the exported bundle will "
+        f"have reduced deploy target coverage. Affected: "
+        f"{report.affected_targets}. "
+        f"Roles in USD missing from MJCF: {report.missing_in_mjcf}. "
+        f"Roles in MJCF missing from USD: {report.missing_in_usd}. "
+        f"If you intended both deploy targets to work, repoint the "
+        f"smaller-DOF asset to a matching variant (e.g. Unitree G1: "
+        f"``menagerie/unitree_g1/scene_with_hands.xml`` instead of "
+        f"``scene.xml``) and re-Dump."
+    )
 
 
 def _make_run_id(node_id: str, *, schema_id: str = "") -> str:
@@ -221,6 +419,26 @@ def submit_canvas_training(
     from application.training.spec_validator import raise_if_errors
 
     ir = canvas_to_ir(canvas_dict if isinstance(canvas_dict, dict) else {})
+
+    # Pre-flight: declared assets with empty per-format tables → auto-dump.
+    # MUST run BEFORE compile_training_spec because the compiler reads
+    # ``joints_per_format[active_format]`` (see CLAUDE.md §1.8 fix that
+    # made empty tables a loud raise instead of a silent MJCF fallback).
+    # The dump synchronously updates the in-memory registry via
+    # ``RobotAssetService.set_discovered_bodies`` so the immediately-
+    # following compile sees the freshly-populated table.
+    #
+    # After dumps complete, advise on cross-format IR-role coverage gaps
+    # (non-blocking — training only needs the active format complete,
+    # cross-format mismatch only affects which deploy targets the
+    # resulting bundle supports). The warning lets the user know up
+    # front rather than discovering it at bundle finalize / MuJoCo load.
+    if ir.robot_id:
+        _pre_flight_dump_assets(ir.robot_id, log_prefix="[play]")
+        _pre_flight_warn_cross_format_coverage(
+            ir.robot_id, log_prefix="[play]"
+        )
+
     spec, issues = compile_training_spec(ir)
     raise_if_errors(issues)
 
@@ -270,4 +488,10 @@ def submit_canvas_training(
     }
 
 
-__all__ = ["submit_il_trainer", "submit_sb3_trainer", "submit_canvas_training"]
+__all__ = [
+    "submit_il_trainer",
+    "submit_sb3_trainer",
+    "submit_canvas_training",
+    "compute_deploy_coverage",
+    "DeployCoverageReport",
+]

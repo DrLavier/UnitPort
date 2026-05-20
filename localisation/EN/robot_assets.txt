@@ -9,6 +9,30 @@ no_path = (none)
 pick_file = Pick a {kind} file
 refresh_tip = Re-scan asset registry
 tag_placeholder = Add tag...
+add_robot = New model
+add_tip = Register a new robot or variant
+add_variant = New variant of …
+add_variant_empty = No base robots registered yet. Add a model first.
+cascade_body = This robot has user variants that depend on it. Delete or detach the variants first.
+	
+	{detail}
+cascade_title = Cannot delete
+dump_done_title = Dump complete
+dump_error_no_asset = Cannot resolve robot asset for SKU {sku}
+dump_error_persist = Failed to persist discovered bodies for {fmt}
+dump_error_title = Dump failed
+dump_error_validation = Validation failed after writing {fmt} mapping:
+	
+	{exc}
+	
+	Open the canvas Robot node and fix the flagged joint/body IR roles, then re-Dump.
+dump_mjcf = Dump MJCF bodies / joints
+dump_mjcf_disabled = MJCF asset not available locally
+dump_usd = Dump USD bodies / joints
+dump_usd_disabled = USD asset not declared (no local path and no Nucleus URL)
+menagerie = Menagerie…
+menagerie_tip = Browse and download MuJoCo Menagerie packages
+pick_parent = Choose the base model this variant inherits from:
 
 [status]
 cloud = cloud
