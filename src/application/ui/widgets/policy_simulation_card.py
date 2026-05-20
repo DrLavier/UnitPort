@@ -44,13 +44,13 @@ from unitport_sdk import (
     i18n_bind,
     log_info,
     log_warning,
-    read_data,
     setButton,
     setComboBox,
     tr,
 )
 
 from application.service.robot_init_poses import InitPoseOverride
+from application.service.runtime.policy.bundle_loader import BundleLoader
 from application.service.runtime.simulation.mujoco.review_session import (
     MujocoReviewTask,
 )
@@ -80,16 +80,21 @@ def _read_bundle_sku(bundle_dir) -> str:
     moved to a different robot since training). The single definition
     source is the canvas Robot Node; the bundle just preserves its
     training-time snapshot.
+
+    Goes through :class:`BundleLoader` (fresh ``open()`` + ``yaml.safe_load``)
+    rather than ``read_data`` so a re-exported manifest is always re-parsed.
+    ``read_data`` caches by absolute path with no mtime check, which silently
+    returned a previous export's SKU after the bundle was overwritten and
+    produced inverted "trained for X / canvas is Y" warnings versus the
+    fresh read PolicyRunner performs at load time.
     """
     manifest_path = bundle_dir / "manifest.yaml"
     if not manifest_path.exists():
         return ""
     try:
-        raw = read_data(manifest_path)
+        raw = BundleLoader._parse_manifest(bundle_dir)
     except Exception as exc:                           # pragma: no cover
         log_warning(f"[mission.sim] manifest read failed: {exc}")
-        return ""
-    if not isinstance(raw, dict):
         return ""
     robot = raw.get("robot")
     if not isinstance(robot, dict):
