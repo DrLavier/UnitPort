@@ -130,7 +130,6 @@ _INHERITABLE_FIELDS: tuple = (
     "bodies_per_format",
     "assets",
     "init_pose_presets",
-    "isaac_lab_joint_order",
     "default_actuator_params",
     "default_init_joint_angles",
     "sensors",
@@ -717,11 +716,6 @@ class RobotSpec:
     sensors: List[Dict[str, Any]]
     adapter: str
     sdk_paths: List[str]
-    # Legacy USD-ordering hint (preserved across migration). When the robot's
-    # ``joints_per_format['USD']`` dict is populated (via the Dump USD button),
-    # its insertion order supersedes this field; bundle_finalizer falls back
-    # here only when the USD table is still null.
-    isaac_lab_joint_order: Optional[List[str]] = None
     # SKU-specific PD / effort / velocity defaults the canvas ActorSetting
     # node reconciles to when this robot is selected (canvas-derived-keys
     # rule). Without this, every robot defaulted to Go2-shaped Kp=25 /
@@ -889,38 +883,15 @@ def get_robot_spec(robot_id: str) -> Optional[RobotSpec]:
 
     assets = entry.get("assets", {}) or {}
 
-    il_order_raw = entry.get("isaac_lab_joint_order")
-    isaac_lab_joint_order: Optional[List[str]]
-    if il_order_raw is None:
-        isaac_lab_joint_order = None
-    elif isinstance(il_order_raw, list):
-        # Empty list is treated as "absent" — consumers (bundle_finalizer)
-        # decide whether absence is acceptable for the active format.
-        if il_order_raw:
-            isaac_lab_joint_order = [str(x) for x in il_order_raw if x]
-        else:
-            isaac_lab_joint_order = None
-    else:
-        # CLAUDE.md §1.8: previously this branch silently produced None,
-        # which made a dict-shape authoring mistake look identical to
-        # "field absent" downstream — bundle_finalizer then raised with
-        # "no isaac_lab_joint_order declared" while the field was in fact
-        # present but in the wrong shape. Fail loud at load time so the
-        # diagnostic points at the actual data error.
-        raise RegistryValidationError(
-            f"robots[{sku!r}].isaac_lab_joint_order must be a flat list of "
-            f"IR roles (Isaac Lab USD-articulation order), got "
-            f"{type(il_order_raw).__name__}={il_order_raw!r}. This field is "
-            f"not format-keyed: its whole purpose is to record the order "
-            f"Isaac Lab reports during USD articulation load, so it has no "
-            f"MJCF/URDF counterpart. See the Go2 entry in "
-            f"registers/data/robots_canonical.json for the canonical shape: "
-            f"a top-level list like [\"hip_FL\", \"thigh_FL\", ...]. "
-            f"NOTE: once joints_per_format[\"USD\"] is populated (via "
-            f"\"Dump USD\" in the Robot Asset card), this field becomes "
-            f"redundant — the USD table's insertion order IS the "
-            f"articulation order and bundle_finalizer reads it from there."
-        )
+    # Legacy ``isaac_lab_joint_order`` field is intentionally not read.
+    # ``joints_per_format["USD"]`` insertion order is the sole source of
+    # truth for Isaac Lab's USD-articulation joint ordering. The hand-
+    # authored field used to mirror that order, but drifted from the
+    # dumped USD table whenever both were present and silently shipped
+    # bundles with the wrong joint permutation. Any value still carried
+    # in factory data or user overlay entries is silently ignored at
+    # load time — there is no migration warning because the field has
+    # no consumer left.
 
     dap_raw = entry.get("default_actuator_params")
     default_actuator_params: Optional[Dict[str, float]]
@@ -968,7 +939,6 @@ def get_robot_spec(robot_id: str) -> Optional[RobotSpec]:
         sensors=list_sensors(sku),
         adapter=str(entry.get("adapter", "")),
         sdk_paths=list(entry.get("sdk_paths", []) or []),
-        isaac_lab_joint_order=isaac_lab_joint_order,
         default_actuator_params=default_actuator_params,
         default_init_joint_angles=default_init_joint_angles,
     )

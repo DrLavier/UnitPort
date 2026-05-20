@@ -22,20 +22,6 @@
         "USD_URL": "nucleus:Robots/Unitree/Go2/go2.usd",
         "XACRO": null
       },
-      "isaac_lab_joint_order": [
-        "hip_FL",
-        "hip_FR",
-        "hip_RL",
-        "hip_RR",
-        "thigh_FL",
-        "thigh_FR",
-        "thigh_RL",
-        "thigh_RR",
-        "calf_FL",
-        "calf_FR",
-        "calf_RL",
-        "calf_RR"
-      ],
       "sensors": {},
       "capabilities": {
         "max_vx": 1.5,

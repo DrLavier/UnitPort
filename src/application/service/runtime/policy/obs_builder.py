@@ -250,11 +250,12 @@ class ObsBuilder:
             from registers.robots import get_robot_spec
 
             rs = get_robot_spec(self._robot_sku)
-            expected = (
-                list(getattr(rs, "isaac_lab_joint_order", None) or [])
-                if rs is not None
-                else []
-            )
+            expected: list = []
+            if rs is not None:
+                try:
+                    expected = list(rs.joint_ir_roles_for("USD"))
+                except Exception:
+                    expected = []
             actual = list(
                 getattr(bundle_space, "__dict__", {}).get("ir_labels") or ()
             )
@@ -274,7 +275,8 @@ class ObsBuilder:
                     f"  bundle has         : {actual}\n"
                     f"Re-export the bundle with the current RELEASE "
                     f"BundleFinalizer (the registry must have "
-                    f"isaac_lab_joint_order declared for the SKU). "
+                    f"joints_per_format['USD'] populated for the SKU — "
+                    f"use the Robot Asset card's \"Dump USD\" button). "
                     f"Old bundle path: re-train this canvas with the "
                     f"updated registry overlay, then re-launch review."
                 )

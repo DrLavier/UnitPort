@@ -966,36 +966,22 @@ def finalize_isaac_lab_bundle(
             # joint_order so the manifest is at least self-consistent on
             # length. Should not happen in Phase 5+ flows.
             joint_names = list(getattr(spec.robot, "joint_order", []) or [])
-        isaac_lab_order = list(
-            getattr(spec.robot, "isaac_lab_joint_order", None) or []
-        )
 
     # Phase 5 IL deploy contract: Isaac Lab's ManagerBasedRLEnv uses the
-    # articulation's native USD prim joint order, which for Unitree
-    # quadrupeds is grouped by joint TYPE (all hips → all thighs → all
-    # calves), NOT the SDK canonical "by leg" order recorded in
-    # robots_canonical.json's joint table. Without this reorder, the
-    # bundle ships joint_sdk_names / default_joint_pos in the wrong
-    # order → ObsBuilder feeds joint_pos/joint_vel/last_action to the
-    # policy in wrong slots → "twitching like electric shock" at deploy.
-    # See plan: release-demo-sim2sim-policy-...md §1.
-    # CLAUDE.md §1.8: previous behaviour was "log_warning + fall back to
-    # SDK canonical order", which produced a bundle whose joint_sdk_names
-    # ordering didn't match the USD-articulation order the policy was
-    # trained against. PolicyRunner / sim2sim then fed obs/action through
-    # the wrong joint slots, manifesting as the "electric shock" twitching
-    # the user reported. Refuse to finalize on any sort of mismatch — a
-    # broken bundle that *looks* exported is worse than no bundle at all.
+    # articulation's native USD prim joint order. Without reordering the
+    # bundle to that order, joint_sdk_names / default_joint_pos ship in
+    # the active format's order, ObsBuilder feeds joint_pos / joint_vel /
+    # last_action to the policy in wrong slots, and the deploy run
+    # twitches "like electric shock" (see plan: release-demo-sim2sim-
+    # policy-...md §1).
     #
-    # Active-format-driven branching (Stage 3 design):
-    #   * active_format == "USD": joint_ir_roles ARE already in USD-
-    #     articulation order (USD-table insertion order = articulation
-    #     order). No permutation needed; isaac_lab_joint_order is at most
-    #     an optional sanity check.
-    #   * active_format != "USD" (legacy): spec.robot.joint_ir_roles is
-    #     in the active format's order (typically MJCF / SDK-canonical).
-    #     The bundle MUST be reordered to Isaac Lab's USD-articulation
-    #     order, which is what isaac_lab_joint_order records.
+    # Source of truth: ``spec.robot.joints_per_format["USD"]`` insertion
+    # order. The hand-authored ``isaac_lab_joint_order`` registry field
+    # that used to mirror this was removed (it drifted from the dumped
+    # USD truth and silently shipped wrong bundles whenever both were
+    # present and disagreed). When ``active_format == "USD"``,
+    # ``joint_ir_roles`` IS that order; otherwise look up the USD-format
+    # IR roles directly from ``joints_per_format["USD"]``.
     active_format = ""
     if spec is not None and getattr(spec, "robot", None) is not None:
         active_format = str(getattr(spec.robot, "active_format", "") or "").upper()
@@ -1007,61 +993,48 @@ def finalize_isaac_lab_bundle(
         pass
     elif active_format == "USD":
         # joint_ir_roles is already in USD-articulation order; ship as-is.
-        # If isaac_lab_joint_order is also declared, sanity-check it (don't
-        # silently ignore the discrepancy).
-        if isaac_lab_order:
-            if list(isaac_lab_order) != list(joint_names):
-                raise RuntimeError(
-                    f"[bundle_finalizer] robot_sku={robot_sku!r} declares "
-                    f"isaac_lab_joint_order but its contents disagree with "
-                    f"the USD-derived joint_ir_roles. With "
-                    f"joints_per_format[\"USD\"] populated the USD insertion "
-                    f"order is the source of truth — either drop the "
-                    f"isaac_lab_joint_order field from the registry entry, "
-                    f"or fix it to match. "
-                    f"joint_ir_roles={joint_names!r}, "
-                    f"isaac_lab_joint_order={list(isaac_lab_order)!r}."
-                )
-        # No permutation: joint_names stays as-is.
-    elif not isaac_lab_order:
-        raise RuntimeError(
-            f"[bundle_finalizer] robot_sku={robot_sku!r} was compiled "
-            f"against active_format={active_format!r} (not USD) and has "
-            f"no isaac_lab_joint_order declared in registers/data/"
-            f"robots_canonical.json (or the user overlay). The bundle "
-            f"would ship joint_sdk_names in {active_format!r} order, "
-            f"which does not match the USD-articulation order Isaac Lab "
-            f"reports at deploy time — sim2sim then feeds obs/action "
-            f"through the wrong joint slots and the policy twitches "
-            f"(CLAUDE.md §1.8 forbids shipping known-broken artifacts). "
-            f"Two ways to fix, in order of preference: "
-            f"(1) populate joints_per_format[\"USD\"] for this robot via "
-            f"the Robot Asset card's \"Dump USD\" button and re-train — "
-            f"the USD-table insertion order becomes the contract and this "
-            f"field is no longer needed; "
-            f"(2) hand-author isaac_lab_joint_order as a flat list of IR "
-            f"roles in Isaac Lab's `Available strings` order (see the Go2 "
-            f"entry in robots_canonical.json as a reference shape)."
-        )
+        pass
     else:
+        # Non-USD active format: derive USD-articulation order from
+        # ``joints_per_format["USD"]`` and permute joint_names onto it.
+        usd_order: List[str] = []
+        try:
+            usd_order = list(spec.robot.joint_ir_roles_for("USD"))
+        except Exception:
+            usd_order = []
+        if not usd_order:
+            raise RuntimeError(
+                f"[bundle_finalizer] robot_sku={robot_sku!r} was compiled "
+                f"against active_format={active_format!r} (not USD) and "
+                f"its registry entry has no ``joints_per_format[\"USD\"]`` "
+                f"populated. The bundle would ship joint_sdk_names in "
+                f"{active_format!r} order, which does not match the "
+                f"USD-articulation order Isaac Lab reports at deploy time "
+                f"— sim2sim would then feed obs/action through the wrong "
+                f"joint slots and the policy would twitch (CLAUDE.md §1.8 "
+                f"forbids shipping known-broken artifacts). Open the "
+                f"Robot Asset card for this SKU and run \"Dump USD\" to "
+                f"populate the table, then re-train. The USD-table "
+                f"insertion order becomes the bundle's joint contract."
+            )
         canonical_index = {role: i for i, role in enumerate(joint_names)}
         try:
-            candidate = [canonical_index[r] for r in isaac_lab_order]
+            candidate = [canonical_index[r] for r in usd_order]
         except KeyError as exc:
             raise RuntimeError(
-                f"[bundle_finalizer] isaac_lab_joint_order references IR "
-                f"role {exc} that is not in spec.robot.joint_ir_roles for "
-                f"SKU {robot_sku!r}. Registry data is inconsistent — fix "
-                f"robots_canonical.json (or the user overlay) so every "
-                f"isaac_lab_joint_order entry matches a declared "
-                f"joints_per_format ir_role."
+                f"[bundle_finalizer] joints_per_format[\"USD\"] references "
+                f"IR role {exc} that is not in spec.robot.joint_ir_roles "
+                f"for SKU {robot_sku!r}. The USD and {active_format!r} "
+                f"joint tables disagree on which IR roles exist — re-Dump "
+                f"both formats from the Robot Asset card so they cover "
+                f"the same joint set."
             ) from exc
         if len(candidate) != len(joint_names):
             raise RuntimeError(
-                f"[bundle_finalizer] isaac_lab_joint_order length "
+                f"[bundle_finalizer] joints_per_format[\"USD\"] length "
                 f"({len(candidate)}) ≠ joint_ir_roles "
                 f"({len(joint_names)}) for SKU {robot_sku!r}. Registry "
-                f"data is inconsistent — both lists must cover the same "
+                f"data is inconsistent — both formats must cover the same "
                 f"joint set."
             )
         joint_permutation = candidate

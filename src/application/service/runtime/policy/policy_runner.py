@@ -444,18 +444,23 @@ class PolicyRunner:
         USD articulation joint order when the bundle ships them in a
         different order.
 
-        Legacy IL bundles exported before ``bundle_finalizer`` learned
-        about ``RobotSpec.isaac_lab_joint_order`` write ``joint_sdk_names``
-        in SDK canonical (按腿) order, but the trained policy expects USD
-        prim (按 type) order. Without normalization, every joint-keyed
-        obs/action slot lands in the wrong position and the deploy run
-        twitches catastrophically.
+        Legacy IL bundles exported before ``bundle_finalizer`` performed
+        the USD reorder write ``joint_sdk_names`` in the active format's
+        order (typically MJCF / SDK canonical), but the trained policy
+        expects USD-articulation order. Without normalization, every
+        joint-keyed obs/action slot lands in the wrong position and the
+        deploy run twitches catastrophically.
 
         Returns ``True`` when a reorder was applied, ``False`` otherwise.
         The mutation is in-place on the contract instance, which is the
         cached ``CheckpointBundle.deploy_contract`` — every downstream
         reader (JointSpace, ObsBuilder, ActionApplier, PDController) sees
         the corrected order.
+
+        Source of truth: ``spec.joint_ir_roles_for("USD")`` — the
+        registry's USD-table insertion order. The hand-authored
+        ``isaac_lab_joint_order`` field that used to back this was
+        removed in favour of trusting the dumped USD table directly.
         """
         inference_convention = str(
             (raw_manifest or {}).get("inference_convention", "") or ""
@@ -472,7 +477,10 @@ class PolicyRunner:
         spec = get_robot_spec(sku)
         if spec is None:
             return False
-        expected = list(getattr(spec, "isaac_lab_joint_order", None) or [])
+        try:
+            expected = list(spec.joint_ir_roles_for("USD"))
+        except Exception:
+            expected = []
         if not expected:
             return False
         current = list(contract.joint_sdk_names or [])
@@ -483,7 +491,7 @@ class PolicyRunner:
         if missing:
             log.error(
                 "PolicyRunner.load: cannot normalize contract joint order "
-                "for SKU %r — isaac_lab_joint_order references roles "
+                "for SKU %r — joints_per_format['USD'] references roles "
                 "missing from contract.joint_sdk_names: %s. Skipping; "
                 "sim2sim parity NOT guaranteed.",
                 sku, missing,
@@ -492,7 +500,7 @@ class PolicyRunner:
         if len(expected) != len(current):
             log.error(
                 "PolicyRunner.load: cannot normalize contract joint order "
-                "for SKU %r — isaac_lab_joint_order len=%d ≠ "
+                "for SKU %r — joints_per_format['USD'] len=%d ≠ "
                 "contract.joint_sdk_names len=%d. Skipping.",
                 sku, len(expected), len(current),
             )

@@ -747,15 +747,6 @@ class RobotSpecRef:
     joint_order: List[str] = field(default_factory=list)
     joint_ir_roles: List[str] = field(default_factory=list)
     body_role_map: Dict[str, str] = field(default_factory=dict)
-    # Isaac Lab's USD-articulation joint loading order (IR roles, by-type
-    # grouped — hip × n, thigh × n, calf × n for quadrupeds). Mirrors
-    # ``registers.robots.RobotSpec.isaac_lab_joint_order``. Used by
-    # ``bundle_finalizer`` to compute the permutation that maps the
-    # trained policy's action vector (in USD-articulation order) onto
-    # the bundle's joint_sdk_names (in SDK/canonical order) so sim2sim
-    # deployment doesn't twitch. None when the registry entry doesn't
-    # declare it — finalizer falls back with a WARN.
-    isaac_lab_joint_order: Optional[List[str]] = None
     # SKU-recommended actuator defaults (PD gains / effort / vel limits).
     # Mirrors ``registers.robots.RobotSpec.default_actuator_params``.
     # Canvas ActorSetting reconciles its stiffness/damping/effort_limit/
@@ -865,10 +856,6 @@ class RobotSpecRef:
                 f"formats for this robot: "
                 f"{sorted(getattr(rs, 'available_formats', []) or [])}."
             )
-        il_order_raw = getattr(rs, "isaac_lab_joint_order", None)
-        il_order: Optional[List[str]] = (
-            [str(x) for x in il_order_raw] if il_order_raw else None
-        )
         dap_raw = getattr(rs, "default_actuator_params", None)
         dap: Optional[Dict[str, float]] = (
             {str(k): float(v) for k, v in dap_raw.items()}
@@ -887,7 +874,6 @@ class RobotSpecRef:
             joint_order=joint_order_fmt,
             joint_ir_roles=joint_ir_roles_fmt,
             body_role_map=joints_role_map_fmt,   # legacy contract = joint→ir_role
-            isaac_lab_joint_order=il_order,
             default_actuator_params=dap,
             mjcf_path=rs.mjcf_path,
             urdf_path=rs.urdf_path,
