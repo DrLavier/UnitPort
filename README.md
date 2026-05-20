@@ -48,6 +48,7 @@ The current release is **most complete for quadrupeds** — out of the box, the 
 > - Attach your own cloud-training Docker server;
 > - Or install **IsaacLab (0.54.3)** and **IsaacSim (5.1.0.0)** directly through the built-in guided installer;
 >Everything is automatically integrated into the project's virtual environment. No more wasting hours dealing with dependency hell and environment conflicts.
+
 >该项目包含一个 IsaacLab / IsaacSim 的一键部署解决方案。
 >你可以：
 > - 连接到现有的本地 IsaacLab 环境;
