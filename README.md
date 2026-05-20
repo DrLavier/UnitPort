@@ -62,6 +62,7 @@ The current release is **most complete for quadrupeds** — out of the box, the 
 ## Getting started | 上手入门
 
 UnitPort uses a project‑local virtual environment at `.venv311` with **Python 3.11.9**. The launcher will create the venv on first run and re‑exec itself under it; you don't need to manage it manually.
+
 UnitPort 使用项目本地虚拟环境 `.venv311`，并运行 Python 3.11.9。启动器会在首次运行时创建该虚拟环境，并在该环境中重新执行自身，无需手动管理。
 
 ### Windows
@@ -72,6 +73,7 @@ start.bat     :: launch (also runs install.bat automatically if .venv311 is miss
 ```
 
 `start.bat` paints the LoadingScreen first, then the in‑app **ProvisioningTask** installs the heavy dependencies (torch + CUDA wheel if an NVIDIA GPU is detected, loco‑mujoco, vendor SDKs) while streaming pip output into the log panel. First install typically takes 15–45 minutes depending on what optional components you select in the install wizard.
+
 `start.bat` 首先会显示加载屏幕，然后应用内的 **ProvisioningTask** 会安装重要的依赖项（如果检测到 NVIDIA GPU，则安装 torch 和 CUDA wheel，以及 loco-mujoco 和厂商 SDK），同时将 pip 的输出流式传输到日志面板。首次安装通常需要 **15 到 45 分钟**，具体时间取决于你在安装向导中选择的可选组件。
 
 ### Linux
@@ -94,6 +96,7 @@ reset.bat   :: Windows — wipes .venv311 and runtime caches (keeps user data)
 ```
 
 User state (login tokens, exported bundles, project list) lives under `Paths.USER_CONFIG_DIR`, which is configured by the first‑launch wizard. `reset` does **not** touch it.
+
 用户状态（登录令牌、导出的包、项目列表）存储在你选择的 `Paths.USER_CONFIG_DIR` 下，该目录由首次启动向导配置。`reset` 命令**不会**修改它。
 
 ---
@@ -102,47 +105,66 @@ User state (login tokens, exported bundles, project list) lives under `Paths.USE
 
 Design, edit, and debug workflows from a unified workspace.
 Build robot training pipelines visually with nodes, while keeping full control to source codes when needed. 
+
 在统一的工作空间中设计、编辑和调试工作流程。
 使用节点以可视化的方式构建机器人训练流程，并在需要时完全掌控源代码。
 
 ### Training Ground | 训练场 — train policies on MuJoCo or IsaacLab
 
 This is the workspace most users start with. You wire a training graph on the canvas (robot + physics + observations + actions + rewards + terminations + algorithm), press Train, and watch loss / reward / episode length stream into the chart panel.
+
 这是大多数用户开始使用的工作区。您可以在画布上绘制训练图（机器人资产+物理+观测+动作+奖励+终止+算法），点击【训练】，然后在图表面板中查看Loss/Rewards/片段长度等数据。
 
 - **Two RL backends, picked per project | 每个项目选择两个强化学习后端:**
   - **Stable‑Baselines3** (stable): PPO, SAC, TD3 on MuJoCo.
   - **IsaacLab** (beta): AMP‑PPO, PPO on PhysX.
-- **Imitation learning**: Behavioral Cloning + IL‑PPO fine‑tuning, plus AMP discriminator nodes that consume `.npy` motion clips. **模仿学习**: 行为克隆 + IL-PPO 微调，以及使用 `.npy` 运动片段的 AMP 鉴别器节点
-- **Mass‑matrix‑adaptive PD** — joints are tuned by `(ωn, ζ)` on the `ActuatorPDNode`; the engine gain solvers derive the engine‑specific `kp / kd` at compile time. No more hand‑tuning per simulator. See [Sim2sim calibration](#sim2sim-calibration) below. **质量矩阵自适应PD** — 关节通过`ActuatorPDNode`上的`(ωn, ζ)`进行调整；引擎增益求解器在编译时导出引擎特定的`kp / kd`。无需再为每个仿真器手动调整。请参阅下方的[Sim2sim校准](#sim2sim-calibration)。
-- **Bundled artifacts** — every export produces a portable `manifest.yaml` + ONNX policy + deploy contract. Bundles are self‑contained and round‑trip across machines. **训练产物** — 每次导出都会生成一个可移植的 `manifest.yaml` 文件、一个 ONNX 策略和一个部署合约。这些打包文件是自包含的，并且可以在不同机器之间往返传输。
+- **Imitation learning**: Behavioral Cloning + IL‑PPO fine‑tuning, plus AMP discriminator nodes that consume `.npy` motion clips.
+- **Mass‑matrix‑adaptive PD** — joints are tuned by `(ωn, ζ)` on the `ActuatorPDNode`; the engine gain solvers derive the engine‑specific `kp / kd` at compile time. No more hand‑tuning per simulator. See [Sim2sim calibration](#sim2sim-calibration) below. 
+- **Bundled artifacts** — every export produces a portable `manifest.yaml` + ONNX policy + deploy contract. Bundles are self‑contained and round‑trip across machines. 
+
+-  **模仿学习**: 行为克隆 + IL-PPO 微调，以及使用 `.npy` 运动片段的 AMP 鉴别器节点
+-  **质量矩阵自适应PD** — 关节通过`ActuatorPDNode`上的`(ωn, ζ)`进行调整；引擎增益求解器在编译时导出引擎特定的`kp / kd`。无需再为每个仿真器手动调整。请参阅下方的[Sim2sim校准](#sim2sim-calibration)。
+-  **训练产物** — 每次导出都会生成一个可移植的 `manifest.yaml` 文件、一个 ONNX 策略和一个部署合约。这些打包文件是自包含的，并且可以在不同机器之间往返传输。
 
 ### Mission Control: Simulation and deploy | 任务控制: 模拟和部署
 
 Node‑based canvas for wiring real‑robot tasks: connect to the robot, stream telemetry, run a trained policy, drive joints from a gamepad / keyboard, replay a recorded clip.
+
 基于节点的画布，用于连接真实机器人任务：连接到机器人、传输遥测数据、运行训练好的策略、通过游戏手柄/键盘驱动关节、回放录制的片段。
 
-- **Vendor adapters** for Unitree (Go2 family, WebRTC + DDS), Boston Dynamics Spot, and MangDang Mini Pupper (ROS 2). **Unitree（Go2 系列，WebRTC + DDS）、Boston Dynamics Spot 和 MangDang Mini Pupper（ROS 2）的供应商适配器**。
-- **Live policy runtime** loads any exported bundle and runs it against the connected robot or against a MuJoCo preview window. **实时策略运行时** 加载任何导出的包，并针对连接的机器人或 MuJoCo 预览窗口运行它。
-- **Gamepad / keyboard / command‑bus input** so you can teleop or override the policy live. **支持游戏手柄/键盘/命令总线输入**，你可以进行远程操作或实时覆盖策略。
-- **Ethernet/SSH/USB/Webrtc Connection** (paramiko) for robots that need an on‑board service started before the bridge can talk to them. **Ethernet/SSH/USB/Webrtc 连接**（paramiko），用于在桥接器能够与机器人通信之前启动板载服务的机器人。
+- **Vendor adapters** for Unitree (Go2 family, WebRTC + DDS), Boston Dynamics Spot, and MangDang Mini Pupper (ROS 2). 
+- **Live policy runtime** loads any exported bundle and runs it against the connected robot or against a MuJoCo preview window. 
+- **Gamepad / keyboard / command‑bus input** so you can teleop or override the policy live. 
+- **Ethernet/SSH/USB/Webrtc Connection** (paramiko) for robots that need an on‑board service started before the bridge can talk to them. 
+
+- **Unitree（Go2 系列，WebRTC + DDS）、Boston Dynamics Spot 和 MangDang Mini Pupper（ROS 2）的供应商适配器**。
+- **实时策略运行时** 加载任何导出的包，并针对连接的机器人或 MuJoCo 预览窗口运行它。
+- **支持游戏手柄/键盘/命令总线输入**，你可以进行远程操作或实时覆盖策略。
+- **Ethernet/SSH/USB/Webrtc 连接**（paramiko），用于在桥接器能够与机器人通信之前启动板载服务的机器人。
 
 
 ### Shared infrastructure | 基础框架
 
-- **Visualized workflow**: like ComfyUI or LEGO Mindstorms: place nodes, set parameters, connect ports, run. Workflows can also be edited as Python directly from Mission Control. **可视化工作流程**——类似于 ComfyUI 或 LEGO Mindstorms：放置节点、设置参数、连接端口、运行。工作流程也可以直接在 Mission Control 中使用 Python 进行编辑。
-- **Multilingual User Interface:** Supports multilingual frameworks. User interface strings are processed using `tr()` / `i18n_bind`, therefore, adding a locale requires a folder within the `localisation/` directory. **多语种用户界面**：支持多语言框架。用户界面字符串通过 `tr()` / `i18n_bind` 进行处理，因此添加语言环境需要位于 `localisation/` 目录下的一个文件夹内。
-- **Cloud sync**: opt‑in Supabase backend for login, profile, and selected artifact sync. Everything works fully offline if you skip auth. **云同步**：用户可选择加入 Supabase 后端，用于登录，实现个人资料和选定工件的同步。如果跳过身份验证，所有功能均可完全离线运行。
-- **Auto updater**: checks GitHub Releases against `system.ini[System].version`. **应用内更新程序**：检查 GitHub Releases 是否与 `system.ini[System].version` 一致。
+- **Visualized workflow**: like ComfyUI or LEGO Mindstorms: place nodes, set parameters, connect ports, run. Workflows can also be edited as Python directly from Mission Control. 
+- **Multilingual User Interface:** Supports multilingual frameworks. User interface strings are processed using `tr()` / `i18n_bind`, therefore, adding a locale requires a folder within the `localisation/` directory. 
+- **Cloud sync**: opt‑in Supabase backend for login, profile, and selected artifact sync. Everything works fully offline if you skip auth. 
+- **Auto updater**: checks GitHub Releases against `system.ini[System].version`. 
+
+- **可视化工作流程**——类似于 ComfyUI 或 LEGO Mindstorms：放置节点、设置参数、连接端口、运行。工作流程也可以直接在 Mission Control 中使用 Python 进行编辑。
+- **多语种用户界面**：支持多语言框架。用户界面字符串通过 `tr()` / `i18n_bind` 进行处理，因此添加语言环境需要位于 `localisation/` 目录下的一个文件夹内。
+- **云同步**：用户可选择加入 Supabase 后端，用于登录，实现个人资料和选定工件的同步。如果跳过身份验证，所有功能均可完全离线运行。
+- **应用内更新程序**：检查 GitHub Releases 是否与 `system.ini[System].version` 一致。
 
 ---
 
 ## Sim2sim calibration | Sim2sim 校准 (IsaacLab + Mujoco)
 
 The default flow is **IsaacLab for training, MuJoCo for verification.** Two engines, two different rigid‑body solvers, two different conventions for what "PD gains" actually mean, yet the same trained policy has to behave the same in both.
+
 默认流程是**IsaacLab 用于训练，MuJoCo 用于验证**。两个引擎，两种不同的刚体求解器，两种不同的“PD增益”定义, 然而同一个训练好的策略在两者中必须表现相同。
 
 UnitPort handles this with a **mass‑matrix‑adaptive** approach: the canvas exposes a single, engine‑agnostic control semantic per joint group — natural frequency `ωn` and damping ratio `ζ` on the `ActuatorPDNode`. At compile time, each backend's gain solver reads the link / actuator inertia from its own dynamics representation (IsaacLab from the `articulated‑body mass matrix`, MuJoCo from `qM`) and **derives the engine‑specific `kp / kd`** from the shared `(ωn, ζ)` target.
+
 UnitPort 采用一种基于**质量矩阵自适应（mass-matrix-adaptive）** 的统一控制抽象。在 `ActuatorPDNode` 中，系统仅暴露与具体物理引擎解耦的控制语义：每个关节组的自然频率 `ωn` 与阻尼比 `ζ`。编译阶段，各后端增益求解器会从对应动力学模型中提取系统惯量信息（IsaacLab 使用 `articulated-body mass matrix`，MuJoCo 使用 `qM`），并**基于共享目标 (ωn, ζ)** 自动求解引擎特定的 `kp / kd` 参数。
 
 ```
@@ -161,9 +183,11 @@ canvas ──────►    │   (ωn, ζ) per joint    │   ────�
 ```
 
 The result is that an `(ωn, ζ)` value tuned in IsaacLab transfers to MuJoCo with the same closed‑loop bandwidth and damping — no per‑engine re‑tuning. This is the contract that lets a policy trained in IsaacLab be **sim2sim verified** in MuJoCo before going to the real robot.
+
 结果是，在 IsaacLab 中调优的 `(ωn, ζ)` 值可以以相同的闭环带宽和阻尼传递到 MuJoCo，无需针对每个引擎进行重新调优。正是这种机制使得在 IsaacLab 中训练的策略能够在应用到真实机器人之前，在 MuJoCo 中进行 **sim2sim 验证** 。
 
 For a more detailed infomation of this method, please see [our website](https://unitport.ai/).
+
 有关此方法的更多详细信息，请参阅[我们的网站](https://unitport.ai/)。
 
 ---
@@ -178,6 +202,7 @@ For a more detailed infomation of this method, please see [our website](https://
 | Canonical templates | Generic Quadruped, Generic Humanoid |
 
 Robots are registered through `registers/robots.py` + `registers/data/robots_canonical.json` and identified by an immutable SKU. Bringing a new robot online is an additive registry change — there is **no hardcoded brand string anywhere in the core pipeline.**
+
 机器人通过 `registers/robots.py` 和 `registers/data/robots_canonical.json` 进行注册，并使用不可变的 SKU 进行标识。新机器人上线只需对注册表进行一次更改——**核心流程中没有任何硬编码的品牌字符串。**
 
 ---
@@ -251,7 +276,8 @@ UnitPort/
 ```
 
 Some folders are more complete than others. A few areas still look like active construction **because they are**... 
-有些文件夹比其他文件夹更完整。部分区域看起来仍然像在积极建设中，**因为它们确实如此**...
+
+有些文件夹比其他文件夹更完整。部分区域看起来仍然像在建设中，**因为它们确实如此**...
 ---
 
 ## Community | 社区支持
@@ -262,6 +288,7 @@ Some folders are more complete than others. A few areas still look like active c
 - Discussions: [GitHub Discussions](https://github.com/DrLavier/UnitPort/discussions)
 
 If you encounter any issues during daily use that we may have overlooked, please feel free to submit a report via Issue.
+
 如果您在日常使用过程中遇到任何我们可能忽略的问题，请随时通过 Issue 提交报告。
 
 ---
