@@ -12,6 +12,7 @@
 
 > [!NOTE]
 > **First stable release (1.0.0).** The training pipeline (SB3 + IsaacLab) is stable and used internally for everyday work. IsaacLab support is present, including PPO and AMP-PPO workflows, but its advanced functions remain experimental. At present, general quadruped robots (e.g. Go2) have the most complete implementation and workflow support. General biped robots currently support a basic motion training pipeline. Robotic manipulators, wheeled/mobile-base platforms, and drones are not yet supported.
+> 
 > **首个稳定版本 (1.0.0)**。训练流程（SB3 + IsaacLab）稳定可靠，已在内部用于日常工作。该版本支持 IsaacLab，包括 PPO 和 AMP-PPO 工作流程，但其高级功能仍处于实验阶段。目前，通用四足机器人（例如 Go2）的实现和工作流程支持最为完善。通用双足机器人目前支持基本的运动训练流程。机械臂、轮式/移动式平台和无人机暂不支持。
 
 UnitPort is a **FREE** and open‑source Studio for robot behaviour authoring, motion training and sim/real deployment. One canvas, many robots, two simulation engines, one click to a deployable policy bundle.
@@ -21,10 +22,10 @@ The guiding idea hasn't changed: **make robot training simpler — whether you a
 指导理念始终未变：**让机器人训练更简单——无论你是学生、业余爱好者还是工程师。**
 
 > [!NOTE]
-> The project supports Email/GitHub/Google login, and each account has 100MB of cloud storage space for easy cross device deployment. **Don't worry, it's free, our foundation will cover the bill :)**
-> 项目支持Email / Github / Google 登录，每个登录的账号拥有100MB的云端存储空间以方便你的跨设备部署。**别担心，它是免费的，由我们的基金会支付账单 :)**
+> The project supports Email/GitHub/Google login, and each account has 100MB of cloud storage space for easy cross device deployment.
 > We use the [Supabase](https://supabase.com/security) to ensure your login and data security. Of course, logging in is not mandatory; you can start the project offline and use all development features except for cloud synchronization.
-> 我们使用Supabase框架来保证你的登录和数据安全。当然，登录并不是必须的，你完全可以以离线模式启动项目，使用除了云同步之外的完整开发功能；
+> 
+> 项目支持Email / Github / Google 登录，每个登录的账号拥有100MB的云端存储空间以方便你的跨设备部署。我们使用Supabase框架来保证你的登录和数据安全。当然，登录并不是必须的，你完全可以以离线模式启动项目，使用除了云同步之外的完整开发功能；
 
 ---
 
