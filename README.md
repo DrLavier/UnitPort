@@ -47,7 +47,6 @@ The current release is **most complete for quadrupeds** — out of the box, the 
 > - Attach your own cloud-training Docker server;
 > - Or install **IsaacLab (0.54.3)** and **IsaacSim (5.1.0.0)** directly through the built-in guided installer;
 >Everything is automatically integrated into the project's virtual environment. No more wasting hours dealing with dependency hell and environment conflicts.
->
 >该项目包含一个 IsaacLab / IsaacSim 的一键部署解决方案。
 >你可以：
 > - 连接到现有的本地 IsaacLab 环境;
@@ -111,51 +110,28 @@ This is the workspace most users start with. You wire a training graph on the ca
 
 - **Two RL backends, picked per project | 每个项目选择两个强化学习后端:**
   - **Stable‑Baselines3** (stable): PPO, SAC, TD3 on MuJoCo.
-  - **Stable-Baselines3**（稳定版）：MuJoCo 上的 PPO、SAC 和 TD3。
-  
   - **IsaacLab** (beta): AMP‑PPO, PPO on PhysX.
-  - **IsaacLab**（测试版）：AMP-PPO，PhysX 上的 PPO。
-  
-- **Imitation learning**: Behavioral Cloning + IL‑PPO fine‑tuning, plus AMP discriminator nodes that consume `.npy` motion clips.
-- **模仿学习**: 行为克隆 + IL-PPO 微调，以及使用 `.npy` 运动片段的 AMP 鉴别器节点
-- 
-- **Mass‑matrix‑adaptive PD** — joints are tuned by `(ωn, ζ)` on the `ActuatorPDNode`; the engine gain solvers derive the engine‑specific `kp / kd` at compile time. No more hand‑tuning per simulator. See [Sim2sim calibration](#sim2sim-calibration) below.
-- **质量矩阵自适应PD** — 关节通过`ActuatorPDNode`上的`(ωn, ζ)`进行调整；引擎增益求解器在编译时导出引擎特定的`kp / kd`。无需再为每个仿真器手动调整。请参阅下方的[Sim2sim校准](#sim2sim-calibration)。
-- 
-- **Bundled artifacts** — every export produces a portable `manifest.yaml` + ONNX policy + deploy contract. Bundles are self‑contained and round‑trip across machines.
-- **训练产物** — 每次导出都会生成一个可移植的 `manifest.yaml` 文件、一个 ONNX 策略和一个部署合约。这些打包文件是自包含的，并且可以在不同机器之间往返传输。
+- **Imitation learning**: Behavioral Cloning + IL‑PPO fine‑tuning, plus AMP discriminator nodes that consume `.npy` motion clips. **模仿学习**: 行为克隆 + IL-PPO 微调，以及使用 `.npy` 运动片段的 AMP 鉴别器节点
+- **Mass‑matrix‑adaptive PD** — joints are tuned by `(ωn, ζ)` on the `ActuatorPDNode`; the engine gain solvers derive the engine‑specific `kp / kd` at compile time. No more hand‑tuning per simulator. See [Sim2sim calibration](#sim2sim-calibration) below. **质量矩阵自适应PD** — 关节通过`ActuatorPDNode`上的`(ωn, ζ)`进行调整；引擎增益求解器在编译时导出引擎特定的`kp / kd`。无需再为每个仿真器手动调整。请参阅下方的[Sim2sim校准](#sim2sim-calibration)。
+- **Bundled artifacts** — every export produces a portable `manifest.yaml` + ONNX policy + deploy contract. Bundles are self‑contained and round‑trip across machines. **训练产物** — 每次导出都会生成一个可移植的 `manifest.yaml` 文件、一个 ONNX 策略和一个部署合约。这些打包文件是自包含的，并且可以在不同机器之间往返传输。
 
 ### Mission Control: Simulation and deploy | 任务控制: 模拟和部署
 
 Node‑based canvas for wiring real‑robot tasks: connect to the robot, stream telemetry, run a trained policy, drive joints from a gamepad / keyboard, replay a recorded clip.
 基于节点的画布，用于连接真实机器人任务：连接到机器人、传输遥测数据、运行训练好的策略、通过游戏手柄/键盘驱动关节、回放录制的片段。
 
-- **Vendor adapters** for Unitree (Go2 family, WebRTC + DDS), Boston Dynamics Spot, and MangDang Mini Pupper (ROS 2).
-- **Unitree（Go2 系列，WebRTC + DDS）、Boston Dynamics Spot 和 MangDang Mini Pupper（ROS 2）的供应商适配器**。
-
-- **Live policy runtime** loads any exported bundle and runs it against the connected robot or against a MuJoCo preview window.
-- **实时策略运行时** 加载任何导出的包，并针对连接的机器人或 MuJoCo 预览窗口运行它。
-
-- **Gamepad / keyboard / command‑bus input** so you can teleop or override the policy live.
-- **支持游戏手柄/键盘/命令总线输入**，你可以进行远程操作或实时覆盖策略。
-
-- **Ethernet/SSH/USB/Webrtc Connection** (paramiko) for robots that need an on‑board service started before the bridge can talk to them.
-- **Ethernet/SSH/USB/Webrtc 连接**（paramiko），用于在桥接器能够与机器人通信之前启动板载服务的机器人。
+- **Vendor adapters** for Unitree (Go2 family, WebRTC + DDS), Boston Dynamics Spot, and MangDang Mini Pupper (ROS 2). **Unitree（Go2 系列，WebRTC + DDS）、Boston Dynamics Spot 和 MangDang Mini Pupper（ROS 2）的供应商适配器**。
+- **Live policy runtime** loads any exported bundle and runs it against the connected robot or against a MuJoCo preview window. **实时策略运行时** 加载任何导出的包，并针对连接的机器人或 MuJoCo 预览窗口运行它。
+- **Gamepad / keyboard / command‑bus input** so you can teleop or override the policy live. **支持游戏手柄/键盘/命令总线输入**，你可以进行远程操作或实时覆盖策略。
+- **Ethernet/SSH/USB/Webrtc Connection** (paramiko) for robots that need an on‑board service started before the bridge can talk to them. **Ethernet/SSH/USB/Webrtc 连接**（paramiko），用于在桥接器能够与机器人通信之前启动板载服务的机器人。
 
 
 ### Shared infrastructure | 基础框架
 
-- **Visualized workflow**: like ComfyUI or LEGO Mindstorms: place nodes, set parameters, connect ports, run. Workflows can also be edited as Python directly from Mission Control.
-- **可视化工作流程**——类似于 ComfyUI 或 LEGO Mindstorms：放置节点、设置参数、连接端口、运行。工作流程也可以直接在 Mission Control 中使用 Python 进行编辑。
-
-- **Multilingual User Interface:** Supports multilingual frameworks. User interface strings are processed using `tr()` / `i18n_bind`, therefore, adding a locale requires a folder within the `localisation/` directory.
-- **多语种用户界面**：支持多语言框架。用户界面字符串通过 `tr()` / `i18n_bind` 进行处理，因此添加语言环境需要位于 `localisation/` 目录下的一个文件夹内。
-
-- **Cloud sync**: opt‑in Supabase backend for login, profile, and selected artifact sync. Everything works fully offline if you skip auth.
-- **云同步**：用户可选择加入 Supabase 后端，用于登录，实现个人资料和选定工件的同步。如果跳过身份验证，所有功能均可完全离线运行。
-
-- **Auto updater**: checks GitHub Releases against `system.ini[System].version`.
-- **应用内更新程序**：检查 GitHub Releases 是否与 `system.ini[System].version` 一致。
+- **Visualized workflow**: like ComfyUI or LEGO Mindstorms: place nodes, set parameters, connect ports, run. Workflows can also be edited as Python directly from Mission Control. **可视化工作流程**——类似于 ComfyUI 或 LEGO Mindstorms：放置节点、设置参数、连接端口、运行。工作流程也可以直接在 Mission Control 中使用 Python 进行编辑。
+- **Multilingual User Interface:** Supports multilingual frameworks. User interface strings are processed using `tr()` / `i18n_bind`, therefore, adding a locale requires a folder within the `localisation/` directory. **多语种用户界面**：支持多语言框架。用户界面字符串通过 `tr()` / `i18n_bind` 进行处理，因此添加语言环境需要位于 `localisation/` 目录下的一个文件夹内。
+- **Cloud sync**: opt‑in Supabase backend for login, profile, and selected artifact sync. Everything works fully offline if you skip auth. **云同步**：用户可选择加入 Supabase 后端，用于登录，实现个人资料和选定工件的同步。如果跳过身份验证，所有功能均可完全离线运行。
+- **Auto updater**: checks GitHub Releases against `system.ini[System].version`. **应用内更新程序**：检查 GitHub Releases 是否与 `system.ini[System].version` 一致。
 
 ---
 
