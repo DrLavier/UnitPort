@@ -3,11 +3,14 @@
 [![Python](https://img.shields.io/badge/Python-3.11.9-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE.txt)
 [![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](src/config/system.ini)
-[![Agent Used](https://img.shields.io/badge/Agent%20Used-Claude%20Code-orange.svg)](https://code.claude.com/docs/en/overview)
+
+[![Linux](https://img.shields.io/badge/Linux-%E2%9C%94-success)](README.md)
+[![Windows](https://img.shields.io/badge/windows-%E2%9C%94-success)](README.md)
 
 [![English](https://img.shields.io/badge/English-%E2%9C%94-success)](README.md)
 [![Français](https://img.shields.io/badge/Fran%C3%A7ais-%E2%9C%94-success)](README.md)
 [![中文](https://img.shields.io/badge/%E4%B8%AD%E6%96%87-%E2%9C%94-success)](README.md)
+
 *Deutsch, Italiano, Русский, Español, and 日本語 will be added in the next version iteration.*
 
 > [!NOTE]
@@ -17,9 +20,6 @@
 
 UnitPort is a **FREE** and open‑source Studio for robot behaviour authoring, motion training and sim/real deployment. One canvas, many robots, two simulation engines, one click to a deployable policy bundle.
 UnitPort 是一个**免费**的社区开源机器人行为设计、运动训练和仿真/实战部署工作室。它支持一个画布、多个机器人、两个仿真引擎，只需单击一下即可生成可部署的策略包。
-
-The guiding idea hasn't changed: **make robot training simpler — whether you are a student, hobbyist, or engineer.**
-指导理念始终未变：**让机器人训练更简单——无论你是学生、业余爱好者还是工程师。**
 
 > [!NOTE]
 > The project supports Email/GitHub/Google login, and each account has 100MB of cloud storage space for easy cross device deployment.
