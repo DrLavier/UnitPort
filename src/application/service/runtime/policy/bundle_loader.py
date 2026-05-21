@@ -13,6 +13,14 @@ Changes from DEMO:
   has a YAML handler but its dict semantics drop insertion order on some
   legacy paths, and ``deploy_contract.observations`` MUST preserve
   insertion order. Direct ``yaml.safe_load`` keeps that invariant safe.
+* ``import yaml`` is deferred into ``_parse_manifest`` (was top-level).
+  Any transitive import of this module that happens before
+  ``ProvisioningTask`` installs ``pyyaml`` (e.g. UI widgets that type-hint
+  ``BundleLoader`` at module load) used to surface a
+  ``ModuleNotFoundError: No module named 'yaml'`` warning during
+  Stage 2 of startup. Lazy-loading makes the module import yaml-free; the
+  actual load path still raises loudly if yaml is missing when a real
+  bundle is parsed.
 
 SKU-only contract (2026-05):
 * ``CheckpointBundle.robot_sku`` is the canonical robot identity. The
@@ -28,8 +36,6 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict
-
-import yaml
 
 from application.training.manifest_schema import (
     CheckpointBundle,
@@ -72,6 +78,12 @@ class BundleLoader:
     @staticmethod
     def _parse_manifest(bundle_path: Path) -> Dict[str, Any]:
         """Read and YAML-parse manifest.yaml from *bundle_path*."""
+        # Lazy import: keep module-level import-graph yaml-free so this
+        # module can be referenced (type hints, `from ... import BundleLoader`
+        # at the top of a widget) before ProvisioningTask has installed
+        # pyyaml. Missing-yaml at actual load time still raises loudly.
+        import yaml
+
         manifest_path = bundle_path / "manifest.yaml"
         try:
             with manifest_path.open("r", encoding="utf-8") as fh:
