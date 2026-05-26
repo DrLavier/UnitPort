@@ -222,7 +222,7 @@ if not exist "%DL_DEST%" (
 :: MAINTAINER: replace the value below with the official SHA-256 of
 ::   python-3.11.9-amd64.exe taken from python.org BEFORE shipping a release.
 ::   While empty, this script refuses to run the installer (fail-closed).
-set "DL_SHA256="
+set "DL_SHA256=5ee42c4eee1e6b4464bb23722f90b45303f79442df63083f05322f1785f5fdde"
 
 if "!DL_SHA256!"=="" (
     echo [ERROR] DL_SHA256 is not set in install.bat -- refusing to run an unverified installer.
