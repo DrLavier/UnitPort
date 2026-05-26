@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """BundleLoader — read manifest.yaml + verify policy file (port from DEMO).
 
 Changes from DEMO:

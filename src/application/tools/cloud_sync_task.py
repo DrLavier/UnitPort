@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CloudSyncTask — Task wrapper around CloudSyncService for the
 TasksManager queue.
 
@@ -71,12 +74,16 @@ class CloudSyncTask(Task):
             plan = svc.plan_push()
             total = len(plan.entries)
             self.log_debug(
-                f"plan: upload={total} skip_excluded={plan.skipped_excluded} "
+                f"plan: upload={total} skip_unchanged={plan.skipped_unchanged} "
+                f"skip_excluded={plan.skipped_excluded} "
                 f"skip_oversize={len(plan.skipped_oversize)} "
                 f"skip_runs_topn={plan.skipped_runs_topn}"
             )
             if total == 0:
-                self.log_info("push: nothing to upload")
+                self.log_info(
+                    f"push: nothing to upload "
+                    f"({plan.skipped_unchanged} already up to date)"
+                )
                 return {
                     "phase": "push", "ok": 0, "failed": 0,
                     "skipped": 0, "total": 0,
@@ -93,9 +100,15 @@ class CloudSyncTask(Task):
         self.log_debug("planning pull")
         plan = svc.plan_pull()
         total = len(plan.entries)
-        self.log_debug(f"plan: download={total}")
+        self.log_debug(
+            f"plan: download={total} "
+            f"skip_unchanged={plan.skipped_unchanged}"
+        )
         if total == 0:
-            self.log_info("pull: nothing to download")
+            self.log_info(
+                f"pull: nothing to download "
+                f"({plan.skipped_unchanged} already up to date)"
+            )
             return {
                 "phase": "pull", "ok": 0, "failed": 0,
                 "skipped": 0, "total": 0,

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.port_palette — 端口类型 → 颜色 / Port type → color.
 
 合并自 RELEASE Phase 1 (`application/ui/canvas/port_palette.py`, 39 entries) +

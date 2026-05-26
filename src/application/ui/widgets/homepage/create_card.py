@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HomepageCreateCanvas — homepage "Create New Project" card.
 
 Layout (the whole card is :class:`HomepageCreateCanvas`, fixed-width

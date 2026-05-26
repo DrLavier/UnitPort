@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Active-item dispatcher for composite per-motion rewards.
 
 Maps the env's current ``command`` vector to a soft membership over

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Runtime helpers for the robot_assets overlay — read-side, MuJoCo spawn sites.
 
 This module is imported from the three MuJoCo spawn paths (Review Pose,

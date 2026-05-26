@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort main entry point.
 
 Single process, single top-level window. ``UnitPortMain`` is the only
@@ -813,12 +816,110 @@ class UnitPortMain:
         # main content page (Sidebar | main_row + work_zone).
         self._main_window.finish_loading()
 
+        # One-time post-update "what's new" notice (project-root
+        # release_info.md). Local + immediate — no network involved.
+        self._maybe_show_version_notice()
+
+        # Startup update-available popup. The CheckUpdateTask result
+        # likely hasn't landed yet at this point, so connect a one-shot
+        # handler to the check-complete signal rather than polling.
+        self._wire_startup_update_popup()
+
         # IR-role assignment pop-up — opens iff RobotAssetSelfCheckTask
         # (in _data_load_body) found entries whose tokeniser couldn't
         # auto-resolve and that the user must pick a role for. Modal,
         # blocks training until resolved (or cancelled — next launch
         # will re-detect and re-open).
         self._maybe_open_ir_assignment_dialog()
+
+    # ------------------------------------------------------------------
+    # Post-update version notice + startup update popup
+    # ------------------------------------------------------------------
+    def _maybe_show_version_notice(self) -> None:
+        """Show the one-time post-update notice if this version has one.
+
+        Conditions (all must hold): CHANGELOG.md has a non-empty body (past
+        its license header), AND the running app version hasn't been shown
+        yet (user.ini[App].info_notice_seen_version). Tying "shown" to the
+        running version means the notice pops exactly once after each
+        upgrade — every release ships a fresh CHANGELOG, so it always pops.
+        The version displayed is the running app version itself
+        (system.ini[System].version), the single source of version truth.
+        """
+        try:
+            from unitport_sdk import Config
+            from application.service.updater import read_local_notice
+
+            current = str(
+                Config.get_value("System", "version", "0.0.0") or "0.0.0"
+            ).strip()
+            body = read_local_notice()
+            if not body:
+                return
+            seen = str(
+                Config.get_value("App", "info_notice_seen_version", "") or ""
+            ).strip()
+            if seen == current:
+                return
+
+            from application.ui.dialogs import VersionNoticeDialog
+            dlg = VersionNoticeDialog(
+                current, body, parent=self._main_window,
+            )
+            dlg.exec()
+            # Record AFTER showing so a crash mid-show re-shows next launch.
+            Config.set_value("App", "info_notice_seen_version", current)
+            log_info(f"[boot] shown post-update notice for v{current}")
+        except Exception as exc:  # noqa: BLE001 — never block boot on the notice
+            log_warning(f"[boot] version notice failed: {exc}")
+
+    def _wire_startup_update_popup(self) -> None:
+        """One-shot: pop the update dialog when an update check finds a release."""
+        self._startup_update_popup_shown = False
+        try:
+            from application.service.signals import get_app_signals
+            get_app_signals().update_check_complete.connect(
+                self._on_startup_update_check_complete
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[boot] could not wire startup update popup: {exc}")
+
+    def _on_startup_update_check_complete(self, release: Any) -> None:
+        """Show the startup update popup once per session for a new release."""
+        if getattr(self, "_startup_update_popup_shown", False):
+            return
+        if release is None:
+            return
+        try:
+            from unitport_sdk import Config
+            from application.service.updater import get_update_service
+
+            svc = get_update_service()
+            # Respect a user skip: the auto popup stays quiet for a skipped
+            # version (the sidebar Update button can still open it).
+            skipped = str(
+                Config.get_value("App", "update_skipped_version", "") or ""
+            ).strip()
+            if skipped == getattr(release, "version", ""):
+                return
+
+            # Claim the one-shot BEFORE any force-check: svc.check(force=True)
+            # re-emits update_check_complete, which would otherwise re-enter
+            # this handler and pop a second dialog.
+            self._startup_update_popup_shown = True
+
+            # Throttled-replay releases carry no body — force a fresh fetch
+            # so the dialog has notes to render. The app is already usable.
+            if not getattr(release, "body", "") and not getattr(release, "html_url", ""):
+                release = svc.check(force=True)
+                if release is None:
+                    return
+
+            self._main_window._open_update_available_dialog(
+                release, svc.current_version()
+            )
+        except Exception as exc:  # noqa: BLE001 — never block boot on the popup
+            log_warning(f"[boot] startup update popup failed: {exc}")
 
     def _wire_isaac_install_handlers(self) -> None:
         """Wire the in-app Isaac Lab installer's signals to UI/backend refresh.
@@ -1204,6 +1305,24 @@ class UnitPortMain:
         log_info(
             f"[data] scanned {len(snapshot)} project(s) under {store.projects_root()}"
         )
+
+        # Auto-detect locally-installed engines. Cheap importlib probes
+        # for sb3/mujoco/gymnasium (~10 ms each); for isaac_lab, the
+        # install root is resolved via
+        # ``backends_installed.json::isaac_lab.local_root`` with
+        # ``PROJECT_ROOT/Engines/isaac_lab/`` auto-discovery fallback, so
+        # a freshly-placed Engines/isaac_lab/ becomes available without
+        # the user ever opening the Settings dialog. The subprocess
+        # version-probe only runs when isaac is actually present (no
+        # markers → short-circuit), so users without isaac pay zero cost.
+        try:
+            from registers import backends as _backends
+            _backends.refresh_engine_availability()
+        except Exception as exc:                              # noqa: BLE001
+            log_warning(
+                f"[data] backend availability probe failed (non-fatal): "
+                f"{type(exc).__name__}: {exc}"
+            )
 
         # Register built-in training backends (Isaac Lab + SB3+MuJoCo) so
         # algorithm_config.backend selector can route train_pipe at submit

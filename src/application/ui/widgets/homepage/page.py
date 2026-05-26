@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HomepagePage — homepage container for the empty-state landing page.
 
 Hosted by ``_MainPanel.MODE_PICKER`` in place of the legacy

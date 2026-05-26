@@ -12,6 +12,7 @@ channel = Canal
 no_release_notes = (aucune note de version pour cette version)
 latest_body = Vous utilisez UnitPort v{current}. Aucune version plus récente n'a été trouvée sur GitHub.
 restart_prompt = La mise à jour vers v{version} a été appliquée. UnitPort va maintenant se fermer ; veuillez le relancer via start.bat ou start.sh.
+restarting = La mise à jour vers v{version} a été appliquée. Redémarrage de UnitPort…
 
 [btn]
 apply = Appliquer la mise à jour
@@ -19,6 +20,12 @@ skip = Ignorer cette version
 later = Plus tard
 ok = OK
 close = Fermer UnitPort
+update_restart = Mettre à jour et redémarrer
+update_on_exit = Mettre à jour à la fermeture
+
+[notice]
+title = Nouveautés
+ok = Compris
 
 [progress]
 checking = Vérification des mises à jour

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """One-shot canvas migrator: vendor / physical joint names → IR roles.
 
 Phase 5 of the IR-only joint contract: every ``actor_setting`` node's

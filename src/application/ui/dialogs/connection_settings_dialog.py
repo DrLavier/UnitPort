@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ConnectionSettingsDialog — modal for ROS2 Domain ID + SSH credentials.
 
 Phase 3.8 collapses RealRobotConnectionCard sec1 by extracting the

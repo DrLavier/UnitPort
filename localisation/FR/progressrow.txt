@@ -9,6 +9,7 @@ no_canvas = (aucun canevas)
 [target]
 cloud = Cloud
 local = Local
+local_ver = Local ({short})
 
 [tooltip]
 new = Ouvrir le sélecteur de nouveau canevas

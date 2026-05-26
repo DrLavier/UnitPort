@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Wizard-side shim — keeps the historical import path live.
 
 The card grid widgets moved to :mod:`application.ui.widgets.menagerie.card_grid`

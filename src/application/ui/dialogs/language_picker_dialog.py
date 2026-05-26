@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """LanguagePickerDialog — first-launch language chooser.
 
 Shown by ``UnitPortMain.run`` BEFORE :class:`InstallConfigWizard` opens,

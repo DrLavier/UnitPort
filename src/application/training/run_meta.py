@@ -1,9 +1,11 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort training-run metadata file — single source of truth for
 "was this run AMP, PPO, or something else?"
 
-H2 in ``knowledge_base/amp_fix.yaml``. Per spec §4 the compiler should
-emit ``algorithm_class: 'AMP_PPO'`` when the canvas used the AMP
-trainer node, and per spec §5 the run directory should carry a
+The compiler should emit ``algorithm_class: 'AMP_PPO'`` when the canvas
+used the AMP trainer node, and the run directory should carry a
 ``run.yaml`` that downstream tooling can consume without having to
 parse Isaac Lab's auto-generated ``params/agent.yaml`` (which lies
 about the runner class for AMP runs — see the ONNX exporter incident).

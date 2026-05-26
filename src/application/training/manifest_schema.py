@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Bundle manifest schema + validator (verbatim port from DEMO).
 
 Lives under ``application.training`` per the migration plan (DEMO had it

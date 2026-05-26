@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.engine — 运行期执行层 / Runtime execution layer.
 
 ⭐ 命名整改：本目录**单数** ``engine``。原 DEMO 中 ``engine + engines + runtime``

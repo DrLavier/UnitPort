@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """BaseAssetNode — Start Point selector (3 semantic categories).
 
 start_point token grammar (top-tier, exactly 3 entries):

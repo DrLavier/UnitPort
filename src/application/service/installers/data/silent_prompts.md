@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Silent-prompts disclosure
 
 This document tells the user, **before** they accept, every interactive

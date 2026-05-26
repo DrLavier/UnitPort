@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SdkManager -- per-brand SDK clone & dependency-install manager.
 
 Port of DEMO ``src/system/models/sdk_manager.py``, scoped down to the

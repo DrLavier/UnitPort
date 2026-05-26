@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Joint Pose Tracking — Gaussian reward for joint positions matching the reference frame."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Reference State Initialization (RSI) — IR-based clip→robot joint mapping.
 
 Maps a flat AMP motion clip frame (canonical FL/FR/RL/RR leg order after

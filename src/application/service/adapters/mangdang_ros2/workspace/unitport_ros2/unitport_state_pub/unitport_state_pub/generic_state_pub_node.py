@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """generic_state_pub_node — republish the robot's scattered sensor topics
 as a unified RobotStateGeneric on /unitport/robot_state.
 

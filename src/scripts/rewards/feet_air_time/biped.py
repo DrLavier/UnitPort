@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Biped feet_air_time reward — IsaacLab stock ``feet_air_time_positive_biped``.
 
 Variant of the canonical ``feet_air_time`` reward, tuned for two-foot

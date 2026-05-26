@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IL Policy → MuJoCo sim2sim adapter — Phase 3 territory.
 
 Phase 1 only delivers ``sim_env_context`` (the abstract base ``MjSimEnv``

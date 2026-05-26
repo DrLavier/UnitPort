@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SB3 subprocess orchestrator — Popen + line protocol + cancel.
 
 REWRITE-WITH-DEMO-REF from DEMO ``training_process.py`` (multiprocessing.Queue

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Quadruped gait presets — Walk These Ways style parameterised gaits.
 
 Each preset is a named bundle of continuous parameters that together

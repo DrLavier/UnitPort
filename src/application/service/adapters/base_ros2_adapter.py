@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """BaseROS2Adapter — concrete base for any adapter that talks ROS2 via DDS.
 
 Owns the shared lifecycle for every brand whose host-side surface is "subscribe

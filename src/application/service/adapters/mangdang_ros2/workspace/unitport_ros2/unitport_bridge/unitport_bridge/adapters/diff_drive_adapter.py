@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Diff-drive adapter — wheeled robots with a single /cmd_vel topic."""
 
 from __future__ import annotations

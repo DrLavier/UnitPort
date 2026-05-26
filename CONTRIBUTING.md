@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Contributing to UnitPort
 
 Thanks for your interest in contributing — UnitPort is a community project and

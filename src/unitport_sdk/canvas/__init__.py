@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas — 画布 widget 库 / Canvas widget library.
 
 为 Studio 画布节点提供统一的视觉 paint helper（端口圆点、range slider、

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Disk scanners for the Resources panel.
 
 Two separate scanners because the two asset kinds have different on-disk

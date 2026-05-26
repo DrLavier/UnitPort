@@ -1348,7 +1348,7 @@ class AMPOnPolicyRunner:
         # ``isaac_lab_backend._AMP_LINE_RE`` matches this exact format —
         # if you change the field names or order, update that regex AND
         # ``parse_amp_line()`` AND ``TrainingPanel.on_metrics()`` in the
-        # same commit (see knowledge_base/APP_PPO_TOKNOW.yaml §3).
+        # same commit.
         _tag = "PPO" if getattr(self, "_current_training_mode", "AMP_PPO") == "PPO" else "AMP"
 
         # rsl_rl-style multi-line box (Isaac Lab original format).

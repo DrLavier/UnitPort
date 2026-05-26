@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.backend — Training backend abstraction.
 
 Lets ``il_ppo_trainer`` / ``amp_trainer`` nodes route a compiled training
@@ -211,7 +214,8 @@ class IsaacLabBackendAdapter(TrainingBackend):
 
     def is_available(self) -> bool:
         # Primary: registers.backends.installed table (subprocess-probed,
-        # respects <USER_CONFIG_DIR>/engines/isaac_lab.json registration).
+        # root resolved via backends_installed.json::isaac_lab.local_root
+        # with PROJECT_ROOT/Engines/isaac_lab/ auto-discovery fallback).
         try:
             from registers import backends as registers_backends
             info = registers_backends.get_installed(BACKEND_ISAAC_LAB)

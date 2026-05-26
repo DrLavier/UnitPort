@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.rewards_coverage — Reward × MotionPhase coverage evaluation.
 
 Backed by ``data/reward_coverage_rules.json`` (factory defaults) plus an

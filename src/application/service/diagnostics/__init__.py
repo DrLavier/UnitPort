@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Diagnostics framework — Phase 3.5 self-diagnose / self-repair.
 
 Public API surface (every name a caller should ever need):

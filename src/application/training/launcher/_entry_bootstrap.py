@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared subprocess bootstrap — used by sb3_entry / il_train_launcher.
 
 Both training backends spawn a child process that needs to recover the

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TrainingAssetsCache — in-memory cache of <project>/training/{runs,exported}/.
 
 Single source of truth for "what runs / policies does the current project

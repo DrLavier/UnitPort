@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Lookbook widgets for browsing MuJoCo Menagerie packages.
 
 Shared by both the first-launch wizard and the sidebar Robot Asset browser

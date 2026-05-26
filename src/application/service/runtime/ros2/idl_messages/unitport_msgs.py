@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IdlStruct definitions for UnitPort's own ROS2 message set."""
 
 from dataclasses import dataclass, field

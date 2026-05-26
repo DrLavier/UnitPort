@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application — UnitPort 业务代码命名空间 / Business code namespace.
 
 子包（高度集中化布局，plan §3）:

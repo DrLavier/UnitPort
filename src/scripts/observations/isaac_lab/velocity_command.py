@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Velocity Command — Commanded velocity target (3D: vx, vy, wz)."""
 
 from __future__ import annotations

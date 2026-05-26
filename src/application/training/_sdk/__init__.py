@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training._sdk — internal SDK adapter shim for the training stack.
 
 This subpackage is **not a node** and is **not user-facing**. It wraps

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Task-module preset shared types.
 
 Common dataclass and constants used by both reward presets
@@ -84,6 +87,28 @@ class TaskModuleItem:
     il_params: str = ""
     il_inline: str = ""
 
+    # ── "Value" column metadata (function-internal tunable param) ─────
+    # The Rewards node exposes ONE tunable scalar a reward function takes
+    # internally (e.g. ``base_height(target_height=…)``) via a per-item
+    # "Value" chip. Non-empty ``il_value_label`` ⇒ the UI renders that
+    # chip and the IL ``il_params`` template carries the ``{item_value}``
+    # placeholder the compiler substitutes from the canvas payload.
+    #
+    #   il_value_label   — column-header / chip label ("" = no Value chip)
+    #   il_value_default — value when unset (0.0 = "auto", reward decides)
+    #   il_value_min/max — popup bounds
+    #   il_value_step    — popup step
+    #   il_value_unit    — UI unit suffix (e.g. "m")
+    #
+    # NOTE: this is NOT for ``std`` / ``threshold`` reward-shaping knobs —
+    # those get dedicated handling elsewhere.
+    il_value_label: str = ""
+    il_value_default: float = 0.0
+    il_value_min: float = 0.0
+    il_value_max: float = 0.0
+    il_value_step: float = 0.01
+    il_value_unit: str = ""
+
 
 def reward_item(
     *,
@@ -102,6 +127,12 @@ def reward_item(
     il_module: str = "",
     il_params: str = "",
     il_inline: str = "",
+    il_value_label: str = "",
+    il_value_default: float = 0.0,
+    il_value_min: float = 0.0,
+    il_value_max: float = 0.0,
+    il_value_step: float = 0.01,
+    il_value_unit: str = "",
 ) -> TaskModuleItem:
     return TaskModuleItem(
         key=key,
@@ -120,6 +151,12 @@ def reward_item(
         il_module=il_module,
         il_params=il_params,
         il_inline=il_inline,
+        il_value_label=il_value_label,
+        il_value_default=il_value_default,
+        il_value_min=il_value_min,
+        il_value_max=il_value_max,
+        il_value_step=il_value_step,
+        il_value_unit=il_value_unit,
     )
 
 

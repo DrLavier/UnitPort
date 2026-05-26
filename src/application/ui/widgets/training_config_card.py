@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TrainingConfigPerspectiveCard — mission_panel 左卡片：训练配置透视.
 
 横向 3 个子区段（左 → 右）：
@@ -221,95 +224,12 @@ def _format_value(value: Any, kind: str) -> str:
     return str(value)
 
 
-# Slider step = 0.01 m (matches Robot manifest meta.step). Slider ticks are
-# integers; ``int(value × _HEIGHT_TICKS_PER_M)`` converts m ↔ ticks.
-_HEIGHT_TICKS_PER_M = 100
-# Fallback height-slider bounds (m) when the asset's MJCF / URDF can't be
-# parsed. Mirrors the Robot node manifest's ``target_height.meta`` defaults
-# so the widget still works on assets without packaged geometry.
-_HEIGHT_RANGE_FALLBACK = (0.0, 5.0)
-
-
-def _parse_asset_nominal_height(asset: Any) -> Optional[float]:
-    """Best-effort nominal standing Z (m) extracted from MJCF, else URDF.
-
-    MJCF: first ``<body>`` under ``<worldbody>`` with a positive Z component
-    in its ``pos`` attribute — that's the floating-base body Z (e.g. Go2's
-    trunk at 0.34 m).
-    URDF: largest positive Z found among any ``<joint><origin xyz="…">`` —
-    a coarse proxy for the leg/base stack height.
-
-    Returns ``None`` when nothing parseable found; callers fall back to the
-    manifest meta range.
-    """
-    import xml.etree.ElementTree as ET
-
-    mjcf_path = getattr(asset, "mjcf_path", None)
-    if mjcf_path is not None:
-        p = Path(str(mjcf_path))
-        if p.exists():
-            try:
-                root = ET.parse(str(p)).getroot()
-                wb = root.find(".//worldbody")
-                if wb is not None:
-                    for body in wb.iter("body"):
-                        pos = body.get("pos", "")
-                        parts = pos.split() if pos else []
-                        if len(parts) < 3:
-                            continue
-                        try:
-                            z = float(parts[2])
-                        except ValueError:
-                            continue
-                        if z > 0.0:
-                            return z
-            except Exception as exc:
-                log_warning(f"[mission.robot] MJCF parse failed: {exc!r}")
-
-    urdf_path = getattr(asset, "urdf_path", None)
-    if urdf_path is not None:
-        p = Path(str(urdf_path))
-        if p.exists():
-            try:
-                root = ET.parse(str(p)).getroot()
-                max_z = 0.0
-                for joint in root.iter("joint"):
-                    origin = joint.find("origin")
-                    if origin is None:
-                        continue
-                    xyz = origin.get("xyz", "")
-                    parts = xyz.split() if xyz else []
-                    if len(parts) < 3:
-                        continue
-                    try:
-                        z = float(parts[2])
-                    except ValueError:
-                        continue
-                    if z > max_z:
-                        max_z = z
-                if max_z > 0.0:
-                    return max_z
-            except Exception as exc:
-                log_warning(f"[mission.robot] URDF parse failed: {exc!r}")
-
-    return None
-
-
-def _resolve_height_range(asset: Any) -> Tuple[float, float]:
-    """Return ``(min_m, max_m)`` for the target-height slider, tied to the asset.
-
-    Range = ``[0.0, max(2 × nominal, 1.0)]`` when MJCF/URDF parsing succeeds;
-    0 m always remains the "use asset nominal" sentinel. Falls back to
-    :data:`_HEIGHT_RANGE_FALLBACK` (matches the Robot manifest meta) when
-    the asset has no packaged geometry to read from.
-    """
-    if asset is None:
-        return _HEIGHT_RANGE_FALLBACK
-    nominal = _parse_asset_nominal_height(asset)
-    if nominal is None or nominal <= 0.0:
-        return _HEIGHT_RANGE_FALLBACK
-    upper = max(round(float(nominal) * 2.0, 2), 1.0)
-    return (0.0, upper)
+# NOTE: the Target Height slider/range helpers (``_parse_asset_nominal_height``,
+# ``_resolve_height_range``, ``_HEIGHT_*``) were removed alongside the Robot
+# node ``target_height`` param. The base_height reward target now lives on the
+# Rewards node's per-item "Value" chip; spawn height = actor init_pos_z / the
+# model's nominal base z (resolved in the env at load time). See CLAUDE.md
+# decouple.
 
 
 # ---------------------------------------------------------------------------
@@ -536,17 +456,11 @@ class _TrainingStatusSection(_SectionFrame):
 
         # ---- bottom row: [stretch] [link combo] [Start button] ----------
         # Link combo 去掉 title (旧"链路"label 取消)，与 Start 同一行紧邻其前。
+        # 选项动态来自已注册的 Isaac 版本（Local (版本号)）+ Cloud，由 MainWindow
+        # 通过 mirror_link_options 灌入，故初始为空、i18n=False（label 已本地化）。
         self._cb_link: LaviComboBox = setComboBox(
-            [
-                ("mission.link.local", "本地"),
-                ("mission.link.cloud", "云端"),
-            ],
-            height=32,
-            i18n=True,
-            parent=self._body,
+            [], height=32, i18n=False, parent=self._body,
         )
-        self._cb_link.setItemData(0, "local")
-        self._cb_link.setItemData(1, "cloud")
 
         self._btn_run: QPushButton = setButton(
             "mission.train.btn.start", 100, 32,
@@ -653,50 +567,50 @@ class _TrainingStatusSection(_SectionFrame):
         self._apply_env_value_style()
 
     def bind_link_combo(self, top_combo: QComboBox) -> None:
-        """与顶部 [Local|Cloud] combo 双向同步。"""
-        self._top_link_combo = top_combo
-        self._sync_card_from_top()
-        top_combo.currentIndexChanged.connect(self._sync_card_from_top)
+        """记录顶部 [Local(版本)…|Cloud] combo 引用。
 
-    def _sync_card_from_top(self, *_: Any) -> None:
-        if self._top_link_combo is None:
-            return
-        if self._link_syncing:
-            return
-        data = str(self._top_link_combo.currentData() or "").strip().lower()
-        if not data:
-            return
-        target = 0 if data == "local" else 1
-        if self._cb_link.currentIndex() == target:
+        选项的灌入与回填由 MainWindow 单向驱动（``mirror_link_options`` /
+        ``set_link_current``）；本卡的用户改动通过 ``_on_local_link_changed``
+        反向驱动顶部 combo，由顶部完成持久化，避免两处各写一遍 user.ini。
+        """
+        self._top_link_combo = top_combo
+
+    def mirror_link_options(self, opts: list, current_data: str) -> None:
+        """用 MainWindow 给的同一份选项重建本卡 combo（label 已本地化）。"""
+        if self._cb_link is None:
             return
         self._link_syncing = True
         try:
-            self._cb_link.setCurrentIndex(target)
+            self._cb_link.setItems(
+                [(str(o.get("data", "")), str(o.get("label", ""))) for o in opts]
+            )
+            if current_data:
+                self._cb_link.setCurrentKey(str(current_data))
+        finally:
+            self._link_syncing = False
+
+    def set_link_current(self, data: str) -> None:
+        """顶部选择变化时，无回声地把本卡选中项对齐到 ``data`` 令牌。"""
+        if self._cb_link is None or not data:
+            return
+        self._link_syncing = True
+        try:
+            self._cb_link.setCurrentKey(str(data))
         finally:
             self._link_syncing = False
 
     def _on_local_link_changed(self, _idx: int) -> None:
-        if self._top_link_combo is None:
+        if self._top_link_combo is None or self._link_syncing:
             return
-        if self._link_syncing:
-            return
-        data = str(self._cb_link.currentData() or "").strip().lower()
+        data = self._cb_link.currentKey()
         if not data:
             return
-        target_idx = -1
+        # 反向驱动顶部 combo 到同一 data 令牌 → 顶部 _on_target_changed 落盘。
         for i in range(self._top_link_combo.count()):
-            if str(self._top_link_combo.itemData(i) or "").strip().lower() == data:
-                target_idx = i
-                break
-        if target_idx < 0:
-            return
-        if self._top_link_combo.currentIndex() == target_idx:
-            return
-        self._link_syncing = True
-        try:
-            self._top_link_combo.setCurrentIndex(target_idx)
-        finally:
-            self._link_syncing = False
+            if str(self._top_link_combo.itemData(i) or "") == data:
+                if self._top_link_combo.currentIndex() != i:
+                    self._top_link_combo.setCurrentIndex(i)
+                return
 
     # ── run-button state machine ─────────────────────────────────────────
     def bind_run_buttons(
@@ -1168,25 +1082,6 @@ class _MergedRunFilter(QObject):
 # ---------------------------------------------------------------------------
 
 
-class _HeightInlineEdit(QLineEdit):
-    """One-shot numeric inline editor for the Target Height value chip.
-
-    Behaves like a plain QLineEdit but emits :attr:`cancelled` on Escape
-    so the section can swap the chip back to its display button without
-    committing. ``editingFinished`` (Enter / focus-out) is left to commit
-    through the section's handler.
-    """
-
-    cancelled = pyqtSignal()
-
-    def keyPressEvent(self, ev) -> None:  # noqa: D401
-        if ev.key() == Qt.Key.Key_Escape:
-            self.cancelled.emit()
-            ev.accept()
-            return
-        super().keyPressEvent(ev)
-
-
 def _active_file_kind_available(asset: Any, kind: str) -> bool:
     """True iff ``asset`` has a usable resource for ``kind`` (mjcf/usd/urdf).
 
@@ -1506,7 +1401,6 @@ class _RobotConfigSection(_SectionFrame):
       ``asset_id``        (string) — Training Asset 下拉
       ``active_override`` (enum)   — Asset Files 3 行 mini-table
       ``body_mapping``    (json)   — Joint Mapping 编辑表
-      ``target_height``   (float)  — Target Height 输入框
 
     任一控件提交 → ``page.set_node_param(key, value, save=False)`` 走
     ParamChangeCmd —— 只更新画布 in-memory params + push 到 undo stack +
@@ -1522,7 +1416,7 @@ class _RobotConfigSection(_SectionFrame):
     """
 
     _ROBOT_KEYS = frozenset({
-        "asset_id", "active_override", "body_mapping", "target_height",
+        "asset_id", "active_override", "body_mapping",
     })
 
     # Emitted whenever the resolved Robot SKU changes (canvas-driven).
@@ -1588,88 +1482,11 @@ class _RobotConfigSection(_SectionFrame):
         body.addWidget(self._lbl_joints, 0)
         body.addWidget(self._joints_tbl, 1)  # expanding row
 
-        # ---- Target Height (target_height) ----
-        # Slider 取值离散到 0.01 m 一格 (Robot manifest meta.step 一致);
-        # range 来自 _resolve_height_range(asset) — 解析 MJCF/URDF 拿到的
-        # nominal 标准高度,严格随机器人资产联动。
-        self._height_min: float = _HEIGHT_RANGE_FALLBACK[0]
-        self._height_max: float = _HEIGHT_RANGE_FALLBACK[1]
-
-        self._height_host = QWidget(self._body)
-        height_layout = QHBoxLayout(self._height_host)
-        height_layout.setContentsMargins(0, 0, 0, 0)
-        height_layout.setSpacing(8)
-
-        self._slider_height = QSlider(
-            Qt.Orientation.Horizontal, self._height_host,
-        )
-        # tracking=False → valueChanged 只在 release / 键盘步进时触发,中间拖
-        # 拽不会产生 ParamChangeCmd 风暴;sliderMoved 单独用来实时预览数值。
-        self._slider_height.setTracking(False)
-        self._slider_height.setSingleStep(1)
-        self._slider_height.setPageStep(10)
-        self._slider_height.setRange(
-            int(self._height_min * _HEIGHT_TICKS_PER_M),
-            int(self._height_max * _HEIGHT_TICKS_PER_M),
-        )
-        self._slider_height.setValue(0)
-        self._slider_height.setToolTip(
-            tr("mission.train.field.target_height_hint",
-               "0 = use asset nominal")
-        )
-        self._slider_height.sliderMoved.connect(self._on_slider_moved)
-        self._slider_height.valueChanged.connect(
-            self._on_slider_value_changed
-        )
-
-        # Value chip: a QPushButton showing the current numeric value
-        # (canvas RangeRow's end-button equivalent). Click → flip to an
-        # inline QLineEdit; Enter commits / Esc cancels; focus-out also
-        # commits. The widgets share the same fixed slot via swap-visibility.
-        _HEIGHT_VAL_W = 56
-        self._btn_height_val = QPushButton("0.00", self._height_host)
-        self._btn_height_val.setObjectName("missionRobotHeightVal")
-        self._btn_height_val.setFixedWidth(_HEIGHT_VAL_W)
-        self._btn_height_val.setFixedHeight(24)
-        self._btn_height_val.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_height_val.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._btn_height_val.setToolTip(
-            tr("mission.train.field.target_height_hint",
-               "0 = use asset nominal")
-        )
-        self._btn_height_val.clicked.connect(self._open_height_editor)
-
-        self._le_height_edit = _HeightInlineEdit("", self._height_host)
-        self._le_height_edit.setObjectName("missionRobotHeightEdit")
-        self._le_height_edit.setFixedWidth(_HEIGHT_VAL_W)
-        self._le_height_edit.setFixedHeight(24)
-        self._le_height_edit.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
-        self._le_height_edit.setVisible(False)
-        # Validator range is updated alongside the slider's range when the
-        # asset changes (see _apply_height_range_for_asset).
-        self._le_height_validator = QDoubleValidator(
-            self._height_min, self._height_max, 3, self._le_height_edit,
-        )
-        self._le_height_validator.setNotation(
-            QDoubleValidator.Notation.StandardNotation
-        )
-        self._le_height_edit.setValidator(self._le_height_validator)
-        self._le_height_edit.editingFinished.connect(
-            self._commit_height_editor
-        )
-        self._le_height_edit.cancelled.connect(self._cancel_height_editor)
-
-        height_layout.addWidget(self._slider_height, 1)
-        height_layout.addWidget(self._btn_height_val, 0)
-        height_layout.addWidget(self._le_height_edit, 0)
-
-        self._row_height = _FormRow(
-            "mission.train.field.target_height", "Target Height (m)",
-            self._height_host, self._body,
-        )
-        body.addWidget(self._row_height, 0)
+        # NOTE: the former "Target Height" slider was removed — the
+        # base_height reward target now lives on the Rewards node's per-item
+        # "Value" chip, and spawn height comes from actor init_pos_z / the
+        # asset nominal (CLAUDE.md decouple). The Robot node no longer carries
+        # a target_height param.
 
         # ---- placeholder (visible only when no robot node) ----
         self._lbl_placeholder = I18nLabel(
@@ -1711,35 +1528,10 @@ class _RobotConfigSection(_SectionFrame):
         self._lbl_joints.setStyleSheet(lbl_style)
         self._row_asset.apply_theme()
         self._row_files.apply_theme()
-        self._row_height.apply_theme()
         self._joints_tbl.apply_theme()
         self._lbl_placeholder.setStyleSheet(
             f"QLabel#missionTrainHyperLabel {{ color: {sub}; "
             f"font-size: {font_small}px; background: transparent; }}"
-        )
-        # Height value chip + inline editor: matches the canvas RangeRow's
-        # end-button look (rounded border + hover lift). Button background
-        # uses the input-bg slot to read as an interactive chip rather than
-        # a flat label.
-        main = Config.get_color("main_t1")
-        chip_bg = Config.get_color("bg_1")
-        border = Config.get_color("border_1")
-        hover = Config.get_color("hover_1", "#525252")
-        font_normal = Config.get_font_size("size_normal")
-        self._btn_height_val.setStyleSheet(
-            f"QPushButton#missionRobotHeightVal {{ color: {main}; "
-            f"background-color: {chip_bg}; "
-            f"border: 1px solid {border}; border-radius: 4px; "
-            f"font-size: {font_normal}px; padding: 0 6px; "
-            f"text-align: right; }}"
-            f"QPushButton#missionRobotHeightVal:hover {{ "
-            f"background-color: {hover}; }}"
-        )
-        self._le_height_edit.setStyleSheet(
-            f"QLineEdit#missionRobotHeightEdit {{ color: {main}; "
-            f"background-color: {chip_bg}; "
-            f"border: 1px solid {border}; border-radius: 4px; "
-            f"font-size: {font_normal}px; padding: 0 6px; }}"
         )
         for cb in (self._cb_asset, self._cb_files):
             refresher = getattr(cb, "refresh_style", None)
@@ -1797,7 +1589,7 @@ class _RobotConfigSection(_SectionFrame):
         self._lbl_placeholder.setVisible(disabled)
         for w in (
             self._row_asset, self._row_files,
-            self._lbl_joints, self._joints_tbl, self._row_height,
+            self._lbl_joints, self._joints_tbl,
         ):
             w.setVisible(not disabled)
 
@@ -1843,18 +1635,10 @@ class _RobotConfigSection(_SectionFrame):
                 self._refresh_asset_picker(value)
                 self._refresh_active_files_from_canvas()
                 self._refresh_body_mapping_from_overrides()
-                # Slider range just changed (new asset) — re-pull current
-                # target_height so the displayed value reflects the new bounds.
-                cur_h = self._page.get_node_param(
-                    self._robot_node_id, "target_height", 0.0,
-                )
-                self._refresh_target_height_from_canvas(cur_h)
             elif key == "active_override":
                 self._refresh_active_files_from_canvas()
             elif key == "body_mapping":
                 self._refresh_body_mapping_from_param(value)
-            elif key == "target_height":
-                self._refresh_target_height_from_canvas(value)
         finally:
             self._syncing = False
 
@@ -1870,10 +1654,6 @@ class _RobotConfigSection(_SectionFrame):
             self._refresh_asset_picker(asset_id)
             self._refresh_active_files_from_canvas()
             self._refresh_body_mapping_from_overrides()
-            target_h = self._page.get_node_param(
-                self._robot_node_id, "target_height", 0.0,
-            )
-            self._refresh_target_height_from_canvas(target_h)
         finally:
             self._syncing = False
 
@@ -1903,9 +1683,6 @@ class _RobotConfigSection(_SectionFrame):
                 log_warning(
                     f"[mission.robot] resolve {self._current_sku!r}: {exc!r}"
                 )
-        # Slider range is asset-derived (MJCF/URDF nominal Z × 2);
-        # recompute on every asset switch.
-        self._apply_height_range_for_asset()
         # Combo: select matching SKU (no signal echo)
         target_idx = -1
         for i in range(self._cb_asset.count()):
@@ -2059,54 +1836,6 @@ class _RobotConfigSection(_SectionFrame):
             return
         self._joints_tbl.set_data(self._asset, self._mapper)
 
-    def _apply_height_range_for_asset(self) -> None:
-        """根据当前 asset 重新计算 slider range + inline-edit validator
-        (MJCF/URDF 解析)."""
-        lo, hi = _resolve_height_range(self._asset)
-        # 防御:确保 hi > lo 且 step 至少 1 tick。
-        if hi <= lo:
-            hi = lo + max(_HEIGHT_RANGE_FALLBACK[1] - _HEIGHT_RANGE_FALLBACK[0], 1.0)
-        self._height_min = float(lo)
-        self._height_max = float(hi)
-        # 重设 slider tick range (blockSignals → 不触发 valueChanged 回调)
-        self._slider_height.blockSignals(True)
-        try:
-            self._slider_height.setRange(
-                int(self._height_min * _HEIGHT_TICKS_PER_M),
-                int(self._height_max * _HEIGHT_TICKS_PER_M),
-            )
-        finally:
-            self._slider_height.blockSignals(False)
-        # Keep the inline-edit validator's range in lockstep — without
-        # this, switching to a robot with a tighter range and then typing
-        # the old value would silently reject the input.
-        self._le_height_validator.setRange(
-            self._height_min, self._height_max, 3,
-        )
-
-    def _format_height_label(self, value_m: float) -> str:
-        """Chip text is always a fixed-width numeric (``"0.00"`` etc.). The
-        ``0 = use asset nominal`` hint lives in the chip's tooltip — keeps
-        the button width stable and makes Enter-to-commit unambiguous.
-        """
-        return f"{float(value_m):.2f}"
-
-    def _refresh_target_height_from_canvas(self, raw_value: Any) -> None:
-        try:
-            f = float(raw_value)
-        except Exception:
-            f = 0.0
-        # 夹到当前 slider range,避免值超出 (asset 切换时旧值可能落到新范围外)
-        f = max(self._height_min, min(self._height_max, f))
-        ticks = int(round(f * _HEIGHT_TICKS_PER_M))
-        if self._slider_height.value() != ticks:
-            self._slider_height.blockSignals(True)
-            try:
-                self._slider_height.setValue(ticks)
-            finally:
-                self._slider_height.blockSignals(False)
-        self._btn_height_val.setText(self._format_height_label(f))
-
     # ── outbound (user edits) ────────────────────────────────────────
     def _commit_param(self, key: str, value: Any) -> None:
         """Write to the in-memory canvas params and let the global
@@ -2150,12 +1879,6 @@ class _RobotConfigSection(_SectionFrame):
             self._refresh_asset_picker(sku)
             self._refresh_active_files_from_canvas()
             self._refresh_body_mapping_from_overrides()
-            # Refresh slider against the new asset's height range.
-            if self._page is not None and self._robot_node_id is not None:
-                cur_h = self._page.get_node_param(
-                    self._robot_node_id, "target_height", 0.0,
-                )
-                self._refresh_target_height_from_canvas(cur_h)
         finally:
             self._syncing = False
 
@@ -2173,78 +1896,6 @@ class _RobotConfigSection(_SectionFrame):
         if current == new_val:
             return
         self._commit_param("active_override", new_val)
-
-    def _on_slider_moved(self, ticks: int) -> None:
-        """实时预览:拖动过程中只更新右侧数值按钮文字,不写画布。"""
-        value_m = float(ticks) / _HEIGHT_TICKS_PER_M
-        self._btn_height_val.setText(self._format_height_label(value_m))
-
-    def _on_slider_value_changed(self, ticks: int) -> None:
-        """提交:slider release / 键盘步进 / 点击导轨触发 (tracking=False)."""
-        if self._syncing:
-            return
-        if self._page is None or self._robot_node_id is None:
-            return
-        value_m = round(float(ticks) / _HEIGHT_TICKS_PER_M, 2)
-        self._btn_height_val.setText(self._format_height_label(value_m))
-        self._commit_param("target_height", value_m)
-
-    # ---- inline numeric editor for the value chip --------------------
-    def _open_height_editor(self) -> None:
-        """User clicked the value chip → swap to QLineEdit for direct entry.
-
-        Editor seed = current slider value (the truth source). Validator
-        range matches the slider's asset-derived bounds. Selection is
-        primed so a single keystroke replaces the value, matching the
-        canvas RangeRow's number-popup feel.
-        """
-        cur_value = float(self._slider_height.value()) / _HEIGHT_TICKS_PER_M
-        # Sync validator to the current asset's range (slider was already
-        # reset in _apply_height_range_for_asset; mirror that here so a
-        # stale validator doesn't reject otherwise-valid input).
-        self._le_height_validator.setRange(
-            self._height_min, self._height_max, 3,
-        )
-        self._le_height_edit.setText(f"{cur_value:.2f}")
-        self._btn_height_val.setVisible(False)
-        self._le_height_edit.setVisible(True)
-        self._le_height_edit.selectAll()
-        self._le_height_edit.setFocus(Qt.FocusReason.MouseFocusReason)
-
-    def _commit_height_editor(self) -> None:
-        """Enter / focus-out: parse → clamp → drive slider → swap back to chip."""
-        if not self._le_height_edit.isVisible():
-            return
-        text = self._le_height_edit.text().strip()
-        try:
-            value = 0.0 if not text else float(text)
-        except Exception:
-            value = float(self._slider_height.value()) / _HEIGHT_TICKS_PER_M
-        # Clamp to slider bounds; the validator should reject most invalid
-        # input but a stray ``-`` or stale range can still leak through.
-        value = max(self._height_min, min(self._height_max, value))
-        # Drive the slider — its valueChanged handler does the canvas
-        # commit + DirtyTracker flip + chip text refresh. blockSignals is
-        # NOT used here on purpose; we WANT the slider's change pipeline
-        # to fire so undo/dirty work end-to-end.
-        ticks = int(round(value * _HEIGHT_TICKS_PER_M))
-        if self._slider_height.value() != ticks:
-            self._slider_height.setValue(ticks)
-        else:
-            # Value didn't actually change — slider won't emit, refresh
-            # the chip text ourselves and we're done.
-            self._btn_height_val.setText(self._format_height_label(value))
-        self._le_height_edit.setVisible(False)
-        self._btn_height_val.setVisible(True)
-
-    def _cancel_height_editor(self) -> None:
-        """Escape: discard edits, snap chip text back to the current slider."""
-        if not self._le_height_edit.isVisible():
-            return
-        cur_value = float(self._slider_height.value()) / _HEIGHT_TICKS_PER_M
-        self._btn_height_val.setText(self._format_height_label(cur_value))
-        self._le_height_edit.setVisible(False)
-        self._btn_height_val.setVisible(True)
 
     def _on_role_reassigned(self, body: str, new_role_id: str) -> None:
         if self._mapper is None or not self._current_sku or not body:
@@ -2414,6 +2065,13 @@ class TrainingConfigPerspectiveCard(QFrame):
     def bind_link_combo(self, top_combo: QComboBox) -> None:
         # Link combo lives in the (merged) status section now.
         self._sec_status.bind_link_combo(top_combo)
+
+    def mirror_link_options(self, opts: list, current_data: str) -> None:
+        # Forward to the status section that owns the link combo.
+        self._sec_status.mirror_link_options(opts, current_data)
+
+    def set_link_current(self, data: str) -> None:
+        self._sec_status.set_link_current(data)
 
     # ------------------------------------------------------------------
     # Theme

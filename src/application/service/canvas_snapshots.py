@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CanvasSnapshotStore -- content-addressed canvas archive for training runs.
 
 When a training run begins, the active canvas is serialized via

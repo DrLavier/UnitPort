@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Lin Vel XY Penalty — L2 penalty on horizontal linear velocity — unconditional."""
 
 from __future__ import annotations

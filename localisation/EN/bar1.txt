@@ -1,0 +1,7 @@
+[default]
+title_block = Training likely to crash (GPU BAR1)
+title_warn = GPU memory warning (BAR1)
+headline = Headed training renders through the GPU BAR1 aperture, which looks too small / saturated for this run. It may crash with a GPU device-lost error.
+btn_continue = Continue anyway
+btn_abort = Abort
+

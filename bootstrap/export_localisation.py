@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Scan src/ for i18n call sites, replay through I18n.tr() to register keys,
 then dump localisation/{LANG}/{category}.txt for each target language via
 I18n.export_template (merge mode: existing translations preserved, new keys

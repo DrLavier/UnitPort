@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.ir — IR 角色 / 意图 / 动作 / 编译器 schema 规范源.
 
 合并自原 ir_catalog/ 子目录（plan §11.4）/ Merged from former ir_catalog/ subdir:

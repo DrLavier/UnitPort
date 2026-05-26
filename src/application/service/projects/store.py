@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ProjectStore — directory-level project scanner for the Project Files panel.
 
 Scan root: ``Paths.PROJECTS_DIR`` (default ``Paths.USER_CONFIG_DIR / "projects"``,

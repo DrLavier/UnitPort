@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AdapterFactory — single entrypoint resolving SKU + strategy → adapter instance.
 
 Robot identity (brand + model) flows from the RealRobotConnectionCard combos

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Secure credential storage via the OS credential manager.
 
 The only module in RELEASE that imports ``keyring``. Every consumer routes

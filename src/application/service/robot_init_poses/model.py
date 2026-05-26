@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Data models for the init pose override feature.
 
 InitPosePreset is the persisted shape (factory in robots_canonical.json,

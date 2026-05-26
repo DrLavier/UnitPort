@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Mini Pupper 2 aux handler — LEDs, LCD, speaker.
 
 Runs on the robot only. Lazily imports ``mini_pupper_driver`` so generic

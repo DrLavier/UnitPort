@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Velocity envelope clamp for Go2 Air sport API.
 
 Go2 Air datasheet absolute limits (factory firmware): vx <= 1.0 m/s,

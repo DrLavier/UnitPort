@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Alive Bonus — Constant per-step survival bonus — encourages the policy to keep the robot alive."""
 
 from __future__ import annotations

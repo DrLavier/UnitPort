@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """One-shot canvas migrator: bring pre-strict canvases up to strict-canvas v1.
 
 The strict-canvas migration (2026-05) hardened the canvas→config pipeline:

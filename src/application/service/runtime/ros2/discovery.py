@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DDSDiscoveryView — wire-level peer/publication/subscription enumeration.
 
 Wraps the cyclonedds-python builtin readers (DCPSParticipant / DCPSPublication

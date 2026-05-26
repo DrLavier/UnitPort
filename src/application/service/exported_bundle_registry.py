@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.exported_bundle_registry — Export bundle discovery.
 
 DEMO 对应：``DEMO/src/system/service/checkpoint_registry.py:CheckpointRegistry``

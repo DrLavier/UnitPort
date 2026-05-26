@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Robot-side liveness + lightweight state report. Published on
 # /unitport/heartbeat at ~2 Hz by HeartbeatPublisher (PC side) and
 # consumed by unitport_estop watchdog + PC control_plane probes.

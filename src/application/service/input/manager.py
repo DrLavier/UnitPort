@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """GlobalInputManager — process-singleton input dispatcher.
 
 Owns one CommandBus + at most one active input source for the whole UnitPort

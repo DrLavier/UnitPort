@@ -1,4 +1,9 @@
 <?xml version="1.0"?>
+<!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
 <package format="3">
   <name>unitport_estop</name>
   <version>0.1.0</version>

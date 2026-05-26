@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Flip the UnitPort DDS active profile between usb and wifi.
 #   unitport-dds-select.sh {usb|wifi|status}
 # Restarts unitport-bridge.service on change so the new RMW env takes effect.

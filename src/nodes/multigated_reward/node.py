@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MultiGatedRewardNode — Multi-stage gated reward curriculum.
 
 DEMO 对应：``training_nodes.py:MultiGatedRewardNode``.

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # UnitPort USB link — on-robot diagnostic.
 # Prints every piece of state that matters for "why isn't handshake working"
 # so a copy-paste of the output is enough to root-cause remotely.

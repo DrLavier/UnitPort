@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Sidebar-side Menagerie tasks.
 
 The pure-Python git/network surface lives in

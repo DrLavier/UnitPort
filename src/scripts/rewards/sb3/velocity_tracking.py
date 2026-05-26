@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Velocity Tracking — Reward matching commanded forward and lateral velocity."""
 
 from __future__ import annotations

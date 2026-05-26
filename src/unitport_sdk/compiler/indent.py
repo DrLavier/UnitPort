@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Indentation engine for CodeEditorWidget.
 
 Pure helpers: no Qt, no SDK imports. Reused by editor.py.

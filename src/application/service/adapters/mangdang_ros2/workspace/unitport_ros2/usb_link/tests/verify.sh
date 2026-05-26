@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # UnitPort USB link — post-install verification. Runs on the robot after
 # install + reboot + cable plugged in. Exits 0 only if every check passes.
-# Mirrors the 7 success_criteria in knowledge_base/unitport_usb_link_spec.yaml §1.
+# Mirrors the 7 success_criteria of the USB-link bring-up spec.
 
 set -uo pipefail
 

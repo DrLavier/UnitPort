@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Termination preset aggregator — SB3 + Isaac Lab.
 
 Each preset lives in its own file under ``sb3/`` or ``isaac_lab/`` and

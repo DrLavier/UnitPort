@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """In-app update checker + applier.
 
 Public API:
@@ -15,6 +18,8 @@ from __future__ import annotations
 
 from .apply_task import ApplyUpdateTask
 from .check_task import CheckUpdateTask
+from .local_notice import read_local_notice
+from .relaunch import relaunch_app
 from .release_api import (
     UpdateNetworkError,
     UpdateParseError,
@@ -36,4 +41,6 @@ __all__ = [
     "fetch_latest_release",
     "fetch_releases",
     "get_update_service",
+    "read_local_notice",
+    "relaunch_app",
 ]

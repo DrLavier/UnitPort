@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.widgets.scripts_tool_buttons — Scripts 模式工具row 左侧按钮组。
 
 Scripts 模式下出现在 MissionControlPanel 工具row 左侧的 3 按钮集合：

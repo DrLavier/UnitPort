@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HuggingFace Hub transport.
 
 Wraps :func:`huggingface_hub.snapshot_download`. The hub library handles

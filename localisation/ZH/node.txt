@@ -431,7 +431,6 @@ desc = 机器人资产 + body 映射 + PD 参数化
 param.asset_id = 资产 id
 param.active_override = 格式覆盖
 param.body_mapping = body→IR 映射
-param.target_height = 目标高度
 param.pd_param_mode = PD 模式
 param.pd_groups = PD 关节组
 param.pd_effort_limit = 扭矩上限

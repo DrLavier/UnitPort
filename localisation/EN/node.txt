@@ -431,7 +431,6 @@ desc = Robot asset + body mapping + PD parameterization
 param.asset_id = Asset Id
 param.active_override = Active Override
 param.body_mapping = Body Mapping
-param.target_height = Target Height
 param.pd_param_mode = PD Mode
 param.pd_groups = PD Groups
 param.pd_effort_limit = Effort Limit

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.validation — Pre-export validation steps.
 
 Hosts the sim2sim PD calibration node + future validation pre-flight

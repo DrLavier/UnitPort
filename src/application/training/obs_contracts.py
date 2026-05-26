@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.obs_contracts — Obs/Action contract presets.
 
 Named obs-space layouts used by ``ObsActionConfigNode`` (canvas) and the

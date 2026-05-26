@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Forward — MLP forward pass — trunk + linear head."""
 
 from __future__ import annotations
@@ -7,15 +10,14 @@ from scripts.task_module import (
 )
 
 
-INLINE_SOURCE = '''\
-def forward(self, x):
+INLINE_SOURCE = '''def forward(self, x):
     """Score a batch of concatenated (s_t, s_{t+1}) pairs.
 
-    Default body: trunk MLP -> linear head. Override to add residual
+    Default body: trunk MLP → linear head. Override to add residual
     connections, attention, etc. Inputs:
       - self : the AMPDiscriminator instance (has self.trunk, self.amp_linear)
       - x    : torch.Tensor of shape (batch, 2 * amp_obs_dim)
-    Returns: torch.Tensor of shape (batch, 1) -- raw logits.
+    Returns: torch.Tensor of shape (batch, 1) — raw logits.
     """
     h = self.trunk(x)
     return self.amp_linear(h)

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Termination presets — sub-folder aggregator."""
 
 from scripts.terminations.registry import (

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Host-side probes — brand-agnostic checks the orchestrator always runs.
 
 Each probe inspects something on the host machine: USB tether NIC, host

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Modal dialogs opened from the sidebar panels and node ParamRow ⚙ buttons.
 
 Lazy-loaded via PEP 562 ``__getattr__``: the dialog submodules in this
@@ -32,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Type-checker visibility without runtime cost.
+    from .bar1_risk_dialog import Bar1RiskDialog
     from .canvas_error_dialog import (
         CanvasErrorDialog,
         CanvasIssue,
@@ -53,8 +57,10 @@ if TYPE_CHECKING:
     from .update_available_dialog import UpdateAvailableDialog
     from .update_latest_dialog import UpdateLatestDialog
     from .update_progress_dialog import UpdateProgressDialog
+    from .version_notice_dialog import VersionNoticeDialog
 
 __all__ = [
+    "Bar1RiskDialog",
     "CanvasErrorDialog",
     "CanvasIssue",
     "clear_canvas_diagnostic_marks",
@@ -69,6 +75,7 @@ __all__ = [
     "UpdateAvailableDialog",
     "UpdateLatestDialog",
     "UpdateProgressDialog",
+    "VersionNoticeDialog",
     "issues_from_exception",
     "open_reward_function_editor",
     "open_training_motion_editor",
@@ -80,6 +87,7 @@ __all__ = [
 # raises AttributeError so typos surface loudly instead of silently
 # loading the wrong module.
 _LAZY: dict[str, tuple[str, str]] = {
+    "Bar1RiskDialog": ("bar1_risk_dialog", "Bar1RiskDialog"),
     "CanvasErrorDialog": ("canvas_error_dialog", "CanvasErrorDialog"),
     "CanvasIssue": ("canvas_error_dialog", "CanvasIssue"),
     "clear_canvas_diagnostic_marks": ("canvas_error_dialog", "clear_canvas_diagnostic_marks"),
@@ -106,6 +114,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "UpdateAvailableDialog": ("update_available_dialog", "UpdateAvailableDialog"),
     "UpdateLatestDialog": ("update_latest_dialog", "UpdateLatestDialog"),
     "UpdateProgressDialog": ("update_progress_dialog", "UpdateProgressDialog"),
+    "VersionNoticeDialog": ("version_notice_dialog", "VersionNoticeDialog"),
 }
 
 

@@ -1,9 +1,11 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.pd_groups — PD 关节组注册表 / Joint-group registry for PD parameterization.
 
 Provides family-level joint groups (e.g. ``hip_x``, ``hip_y``, ``knee`` for
 quadruped) and per-group ``(omega_n, zeta)`` defaults that feed into the
-mass-matrix-adaptive sim2sim PD framework (see
-``knowledge_base/sim2sim_mass-matrix-adaptive.yaml`` and the canvas
+mass-matrix-adaptive sim2sim PD framework (see the canvas
 ``ActuatorPDNode``).
 
 Design invariants (Stage A of the sim2sim refactor):

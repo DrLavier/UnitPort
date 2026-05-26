@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AuthManager — Qt-facing facade over SupabaseClient + secure store + profile cache.
 
 Holds the currently signed-in user in memory, emits signals whenever the auth

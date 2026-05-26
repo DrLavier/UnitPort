@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SourceZipChannel — download release zipball, smart-merge into PROJECT_ROOT.
 
 Used when no ``.git/`` exists or no ``git`` binary is on PATH. The

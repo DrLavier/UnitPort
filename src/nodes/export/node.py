@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ExportNode — 统一策略导出 / Unified policy export.
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:ExportNode``

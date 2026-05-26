@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.node_library_panel — Node Library 面板（移植自 DEMO ModulePalette）.
 
 - 数据源 / data: ``registers.nodes.list_nodes()`` —— 启动期由 ``RegistryHub.load_all()``

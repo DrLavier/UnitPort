@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Unified observation frame published on /unitport/robot_state.
 # Consumed by host-side PolicyRunner (via ROS2EnvContext) at policy rate.
 

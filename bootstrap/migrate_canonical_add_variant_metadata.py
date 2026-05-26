@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """One-shot migration: add model_family / variant_label to robots_canonical.json.
 
 Schema additions (all optional, defaults safe):

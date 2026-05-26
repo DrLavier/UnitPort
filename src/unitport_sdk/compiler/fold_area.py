@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Fold-button gutter widget — internal helper for CodeEditorWidget."""
 
 from __future__ import annotations

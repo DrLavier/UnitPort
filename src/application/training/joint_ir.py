@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.joint_ir — IR-Joint canonical translation core.
 
 The single, authoritative translator between the application layer's IR

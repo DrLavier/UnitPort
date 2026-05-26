@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.node_library_overlay — Node Library button + card.
 
 Three pieces:

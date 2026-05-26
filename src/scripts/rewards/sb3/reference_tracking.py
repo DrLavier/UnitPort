@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Reference Tracking — Reward for matching a reference motion trajectory keyframe via Gaussian similarity."""
 
 from __future__ import annotations

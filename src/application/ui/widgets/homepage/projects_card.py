@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HomepageLocalFiles — multi-user × multi-project × multi-canvas table.
 
 Rows are sourced by walking the **workspace root** (the base path that

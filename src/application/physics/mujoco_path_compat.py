@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Windows non-ASCII path compatibility shim for MuJoCo XML loads.
 
 MuJoCo's ``MjModel.from_xml_path`` calls into tinyxml2's C++ parser,

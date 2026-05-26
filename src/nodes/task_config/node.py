@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TaskConfigNode — RL 任务定义 / RL task definition.
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:TaskConfigNode``.

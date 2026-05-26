@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Feet Slide — L2 penalty on foot velocity while in contact — discourages sliding/skating."""
 
 from __future__ import annotations
@@ -44,6 +47,6 @@ ENTRY = reward_item(
     algorithms=frozenset({ALG_ALL}),
     il_func='_unitport_feet_slide',
     il_module=IL_MOD_INLINE,
-    il_params='"sensor_cfg": SceneEntityCfg("contact_forces", body_names={ir:feet}), "asset_cfg": SceneEntityCfg("robot")',
+    il_params='"sensor_cfg": SceneEntityCfg("contact_forces", body_names={ir:feet}), "asset_cfg": SceneEntityCfg("robot", body_names={ir:feet})',
     il_inline=INLINE_SOURCE,
 )

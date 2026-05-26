@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IsaacSim **pose-only** review subprocess driver.
 
 Counterpart of :class:`IsaacSimReviewTask`. Where the latter loads a

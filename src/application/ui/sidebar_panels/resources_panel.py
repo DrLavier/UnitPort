@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ResourcesPanel — sidebar > Resources view.
 
 Modeled on :class:`robot_assets_panel.RobotAssetsPanel` (same card-with-

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.sensor_health — 6 项固定传感器的健康状态 model.
 
 为 mission_panel "传感器状态" 卡片提供统一数据源。当前是 stub：所有传感器初始

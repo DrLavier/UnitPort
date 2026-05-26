@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Homepage templates — backend-scoped scan for the "Create" card.
 
 Scan root: ``Paths.PROJECT_ROOT / "custom_mods" / "canvas" / <backend_id> /

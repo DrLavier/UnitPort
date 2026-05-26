@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """``unitport_sdk.compiler`` — reusable code-editor widget primitives.
 
 This subpackage hosts a full-featured code editor (line-number gutter,

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Homepage card base — rounded panel with a title row + body area.
 
 All four homepage cards (user / news / projects / create) share this

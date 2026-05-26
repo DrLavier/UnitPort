@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IsaacLabConfigCompiler — compiles a serialized IL node graph into a
 Python @configclass file that Isaac Lab's training CLI can consume.
 
@@ -1021,6 +1024,9 @@ class IsaacLabConfigCompiler:
         # without re-deriving from env.yaml. Shape:
         #     {"pd_param": {...}, "physx_gains": {...}}  (see Stage D)
         self._stashed_pd_meta: Optional[Dict[str, Any]] = None
+        # Stashed by ``_terminations_cfg`` → emitted as ``unitport_terminations``
+        # in the deploy_meta.json sidecar (per-condition grace_period_s audit).
+        self._stashed_termination_meta: Optional[Dict[str, Any]] = None
         self._parse()
 
     @property
@@ -1936,6 +1942,9 @@ class IsaacLabConfigCompiler:
         # both engines' derived arrays into deploy_contract.
         if self._stashed_pd_meta is not None:
             out["unitport_pd_param"] = self._stashed_pd_meta
+        # Termination grace audit (per-condition grace_period_s → grace_steps).
+        if self._stashed_termination_meta is not None:
+            out["unitport_terminations"] = self._stashed_termination_meta
         return out
 
     # ------------------------------------------------------------------
@@ -1959,7 +1968,7 @@ class IsaacLabConfigCompiler:
             "from isaaclab.managers import RewardTermCfg as RewTerm",
             "from isaaclab.managers import SceneEntityCfg",
             "from isaaclab.managers import TerminationTermCfg as DoneTerm",
-            "from isaaclab.actuators import ImplicitActuatorCfg, DCMotorCfg, ActuatorNetMLPCfg, ActuatorNetLSTMCfg, IdealPDActuatorCfg",
+            "from isaaclab.actuators import ImplicitActuatorCfg, DCMotorCfg, ActuatorNetMLPCfg, ActuatorNetLSTMCfg, IdealPDActuatorCfg, RemotizedPDActuatorCfg",
             "from isaaclab.scene import InteractiveSceneCfg",
             "from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns",
             "from isaaclab.sim import PhysxCfg, RenderCfg, SimulationCfg",
@@ -2057,7 +2066,7 @@ class IsaacLabConfigCompiler:
         Reads ``il_inline`` from the registry for each reward the user
         selected. Only emits functions actually used in the current canvas.
         """
-        from application.training.isaac_lab.task_module_registry import lookup, BACKEND_ISAAC
+        from scripts import lookup, BACKEND_ISAAC
 
         rew_ids = self._find_by_type("rewards")
         if not rew_ids:
@@ -2150,7 +2159,7 @@ class IsaacLabConfigCompiler:
         path inlined). Returns empty list when no node carries inline
         funcs (preset-only canvas).
         """
-        from application.training.isaac_lab.task_module_registry import lookup, BACKEND_ISAAC
+        from scripts import lookup, BACKEND_ISAAC
 
         node_ids = self._find_by_type(node_type)
         if not node_ids:
@@ -2393,8 +2402,11 @@ class IsaacLabConfigCompiler:
         # Robot
         # Actuator config — canonical (omega_n, zeta) PD parameterization
         # via the ActuatorPDNode, with PhysX-side gains derived at compile
-        # time (kp = omega_n^2, kd = 2*zeta*omega_n; PhysX renormalizes by
-        # articulation inertia internally). Falls back to the legacy
+        # time mass-weighted off the MJCF mass matrix (kp = m_eff*omega_n^2,
+        # kd = 2*zeta*sqrt(kp*m_eff)) — the SAME formula+m_eff the MuJoCo
+        # bundle finalizer uses, so the emitted stiffness/damping equal the
+        # bundle's mujoco_pd_gains (PhysX stiffness is real torque units, NOT
+        # mass-normalized — CLAUDE.md §10). Falls back to the legacy
         # ActorSettingNode scalar path when no actuator_pd node is wired.
         # The fallback is a one-release back-compat bridge — RELEASE/CLAUDE.md
         # §1.8 (c) on-disk legacy compat — and emits a WARN at compile time.
@@ -2406,21 +2418,21 @@ class IsaacLabConfigCompiler:
         robot_ids_for_pd = self._find_by_type("robot")
         if actor_ids_for_actuators:
             aid = actor_ids_for_actuators[0]
-            cfg_cls = self._actuator_cfg_class("implicit_pd")
 
-            pd_payload = self._compile_pd_payload_for_emit(
+            # Canonical PD path. Returns the fully-rendered actuator-dict
+            # lines: one "legs" ImplicitActuatorCfg, plus one
+            # RemotizedPDActuatorCfg per remotized joint group when the
+            # robot's manifest declares any (see remotized_emit.py). Returns
+            # None only when the canvas predates the PD merge → legacy scalar
+            # path below.
+            pd_lines = self._compile_pd_payload_for_emit(
                 actor_setting_node_id=aid,
                 actuator_pd_node_id=(robot_ids_for_pd[0] if robot_ids_for_pd else None),
             )
-            if pd_payload is not None:
-                kp_dict_repr, kd_dict_repr, eff, vel = pd_payload
-                actuator_lines.append(
-                    f'            "legs": {cfg_cls}('
-                    f'joint_names_expr=[".*"], '
-                    f'stiffness={kp_dict_repr}, damping={kd_dict_repr}, '
-                    f'effort_limit={eff}, velocity_limit={vel}),'
-                )
+            if pd_lines is not None:
+                actuator_lines.extend(pd_lines)
             else:
+                cfg_cls = self._actuator_cfg_class("implicit_pd")
                 # Legacy scalar path. WHY KEPT: one-release back-compat
                 # for canvases saved before the ActuatorPDNode landed
                 # (§1.8 c). Re-saving the canvas with an ActuatorPDNode
@@ -3301,8 +3313,29 @@ class IsaacLabConfigCompiler:
                 reason="termination_conditions is empty — at least one termination required (time_out is the canonical minimum).",
             )
 
-        def _f(key: str) -> float:
-            """Strict float read from items[key] — raises if missing or unparseable."""
+        # Policy control dt (= sim_dt * decimation) — the unit of
+        # episode_length_buf. Single source of truth, same call the sim cfg
+        # uses. grace_period_s (seconds) -> grace_steps via this.
+        import math as _math
+        _, _control_dt, _ = self._resolve_play_ground_dt()
+
+        # Provenance for the deploy_meta sidecar (audit trail). Populated by
+        # _cond as a side effect so the recorded grace_steps is exactly what
+        # is emitted (single parse, no drift). Stashed on self below.
+        _prov: Dict[str, Any] = {}
+
+        def _cond(key: str) -> Tuple[float, int]:
+            """Strict read of one termination knob -> (threshold, grace_steps).
+
+            Accepts BOTH payload shapes (Design A, co-located grace):
+              * legacy scalar  ``items[key] = 0.2``            -> grace 0
+              * structured dict ``{"weight": 0.2, "grace_period_s": 0.5}``
+                (``weight`` is the shared term-payload numeric = the
+                threshold for terminations; ``threshold`` also accepted).
+            ``grace_period_s`` (seconds) is converted to whole policy steps
+            via ceil(grace_s / control_dt). Fails loud (CLAUDE.md §8) on
+            missing key / non-numeric / negative grace.
+            """
             if key not in items:
                 raise CanvasConfigError(
                     nid=tid,
@@ -3311,18 +3344,68 @@ class IsaacLabConfigCompiler:
                     reason=f"missing required sub-key {key!r}",
                 )
             raw = items[key]
+            if isinstance(raw, dict):
+                thr_raw = raw.get("weight", raw.get("threshold"))
+                grace_raw = raw.get("grace_period_s", 0.0)
+            else:
+                thr_raw, grace_raw = raw, 0.0
             try:
-                return float(raw)
+                threshold = float(thr_raw)
             except (ValueError, TypeError) as exc:
                 raise CanvasConfigError(
                     nid=tid,
                     key="termination_conditions",
                     schema_id=self._types.get(tid, ""),
                     reason=(
-                        f"sub-key {key!r} value {raw!r} ({type(raw).__name__}) "
-                        f"is not a valid float"
+                        f"sub-key {key!r} threshold {thr_raw!r} "
+                        f"({type(thr_raw).__name__}) is not a valid float"
                     ),
                 ) from exc
+            try:
+                grace_s = float(grace_raw)
+            except (ValueError, TypeError) as exc:
+                raise CanvasConfigError(
+                    nid=tid,
+                    key="termination_conditions",
+                    schema_id=self._types.get(tid, ""),
+                    reason=(
+                        f"sub-key {key!r} grace_period_s {grace_raw!r} "
+                        f"({type(grace_raw).__name__}) is not a valid float"
+                    ),
+                ) from exc
+            if grace_s < 0.0:
+                raise CanvasConfigError(
+                    nid=tid,
+                    key="termination_conditions",
+                    schema_id=self._types.get(tid, ""),
+                    reason=f"sub-key {key!r} grace_period_s={grace_s} must be >= 0",
+                )
+            grace_steps = int(_math.ceil(grace_s / _control_dt)) if grace_s > 0.0 else 0
+            _prov[key] = {
+                "threshold": threshold,
+                "grace_period_s": grace_s,
+                "grace_steps": grace_steps,
+            }
+            return threshold, grace_steps
+
+        # Module-level grace-wrapper funcs, emitted *before* the class block.
+        # A condition with grace_period_s>0 cannot fire while
+        # env.episode_length_buf < grace_steps (the spawn/settle transient),
+        # but reward still accrues and actions still output. grace=0 emits the
+        # plain DoneTerm — byte-identical to the pre-grace path.
+        _wrapper_lines: List[str] = []
+        _emitted_wrappers: set = set()
+
+        def _grace_wrapper(name: str, params_sig: str, base_call: str) -> None:
+            if name in _emitted_wrappers:
+                return
+            _emitted_wrappers.add(name)
+            _wrapper_lines.extend([
+                f"def {name}(env, {params_sig}, grace_steps):",
+                f"    fired = {base_call}",
+                f"    return fired & (env.episode_length_buf >= grace_steps)",
+                "",
+            ])
 
         if "time_out" in items:
             # ``time_out`` on DoneTerm is a bool flag (Isaac Lab
@@ -3335,10 +3418,27 @@ class IsaacLabConfigCompiler:
             # match Isaac Lab's documented signature and align with the
             # sibling DoneTerm emissions below (base_height /
             # bad_orientation use params={} + default time_out=False).
+            #
+            # grace_period_s on time_out is meaningless — time_out IS the
+            # episode-length cutoff, not a transient-sensitive failure. Reject
+            # it loud (CLAUDE.md §8) rather than silently ignore.
+            _to_val = items["time_out"]
+            if isinstance(_to_val, dict) and float(_to_val.get("grace_period_s", 0.0) or 0.0) > 0.0:
+                raise CanvasConfigError(
+                    nid=tid,
+                    key="termination_conditions",
+                    schema_id=self._types.get(tid, ""),
+                    reason=(
+                        "time_out does not support grace_period_s — it is the "
+                        "episode-length cutoff, not a transient failure. Remove "
+                        "grace from time_out (put it on base_height / "
+                        "bad_orientation / illegal_contact instead)."
+                    ),
+                )
             lines.append(f"    time_out = DoneTerm(func=mdp.time_out, time_out=True)")
 
         if "illegal_contact" in items:
-            thresh = _f("illegal_contact")
+            thresh, ic_grace = _cond("illegal_contact")
             # Two corrections vs the original hardcoding:
             #
             #  (a) Sensor entity name = ``contact_forces`` (matches what
@@ -3354,8 +3454,6 @@ class IsaacLabConfigCompiler:
             #      naming) and ``trunk`` (A1 / Anymal USD root naming),
             #      mirroring the same fix already applied to
             #      add_base_mass in _events_cfg.
-            lines.append(f"    illegal_contact = DoneTerm(")
-            lines.append(f"        func=mdp.illegal_contact,")
             # Family-aware illegal-contact body set. The IR-role categories
             # available differ per morphology, so we can't share a single
             # tuple:
@@ -3391,19 +3489,48 @@ class IsaacLabConfigCompiler:
                 ic_expr = "[" + ", ".join(f'"{b}"' for b in ic_bodies) + "]"
             else:
                 ic_expr = fallback_re
-            lines.append(
-                f"        params={{\"sensor_cfg\": SceneEntityCfg("
-                f"\"contact_forces\", body_names={ic_expr}), "
-                f"\"threshold\": {thresh}}},"
+            ic_sensor = (
+                f"SceneEntityCfg(\"contact_forces\", body_names={ic_expr})"
             )
-            lines.append(f"    )")
+            if ic_grace > 0:
+                _grace_wrapper(
+                    "_unitport_term_illegal_contact_graced",
+                    "sensor_cfg, threshold",
+                    "mdp.illegal_contact(env, sensor_cfg=sensor_cfg, threshold=threshold)",
+                )
+                lines.append(f"    illegal_contact = DoneTerm(")
+                lines.append(f"        func=_unitport_term_illegal_contact_graced,")
+                lines.append(
+                    f"        params={{\"sensor_cfg\": {ic_sensor}, "
+                    f"\"threshold\": {thresh}, \"grace_steps\": {ic_grace}}},"
+                )
+                lines.append(f"    )")
+            else:
+                lines.append(f"    illegal_contact = DoneTerm(")
+                lines.append(f"        func=mdp.illegal_contact,")
+                lines.append(
+                    f"        params={{\"sensor_cfg\": {ic_sensor}, "
+                    f"\"threshold\": {thresh}}},"
+                )
+                lines.append(f"    )")
 
         if "base_height" in items:
-            min_h = _f("base_height")
-            lines.append(
-                f"    base_height = DoneTerm(func=mdp.root_height_below_minimum, "
-                f"params={{\"minimum_height\": {min_h}}})"
-            )
+            min_h, bh_grace = _cond("base_height")
+            if bh_grace > 0:
+                _grace_wrapper(
+                    "_unitport_term_base_height_graced",
+                    "minimum_height",
+                    "mdp.root_height_below_minimum(env, minimum_height=minimum_height)",
+                )
+                lines.append(
+                    f"    base_height = DoneTerm(func=_unitport_term_base_height_graced, "
+                    f"params={{\"minimum_height\": {min_h}, \"grace_steps\": {bh_grace}}})"
+                )
+            else:
+                lines.append(
+                    f"    base_height = DoneTerm(func=mdp.root_height_below_minimum, "
+                    f"params={{\"minimum_height\": {min_h}}})"
+                )
 
         # Roll/pitch termination. Without this, a quadruped can flip and
         # ragdoll without triggering base_height (torso still > min_h while
@@ -3412,13 +3539,41 @@ class IsaacLabConfigCompiler:
         # detect tilt, so ``limit_angle`` is the max allowed deviation from
         # upright in radians (0.7 ≈ 40°, a safe margin for AMP gaits).
         if "bad_orientation" in items:
-            limit = _f("bad_orientation")
-            lines.append(
-                f"    bad_orientation = DoneTerm(func=mdp.bad_orientation, "
-                f"params={{\"limit_angle\": {limit}}})"
-            )
+            limit, bo_grace = _cond("bad_orientation")
+            if bo_grace > 0:
+                _grace_wrapper(
+                    "_unitport_term_bad_orientation_graced",
+                    "limit_angle",
+                    "mdp.bad_orientation(env, limit_angle=limit_angle)",
+                )
+                lines.append(
+                    f"    bad_orientation = DoneTerm(func=_unitport_term_bad_orientation_graced, "
+                    f"params={{\"limit_angle\": {limit}, \"grace_steps\": {bo_grace}}})"
+                )
+            else:
+                lines.append(
+                    f"    bad_orientation = DoneTerm(func=mdp.bad_orientation, "
+                    f"params={{\"limit_angle\": {limit}}})"
+                )
 
         lines += ["", ""]
+        # Stash termination provenance for the deploy_meta.json sidecar
+        # (audit trail of every threshold + grace_period_s → grace_steps).
+        self._stashed_termination_meta = {
+            "schema_version": 1,
+            "step_dt": float(_control_dt),
+            "conditions": _prov,
+        }
+        # Module-level grace wrappers (if any) must be defined before the
+        # class block that references them.
+        if _wrapper_lines:
+            header = [
+                "# " + "=" * 70,
+                "# UnitPort termination grace wrappers (time-gated via "
+                "env.episode_length_buf)",
+                "# " + "=" * 70,
+            ]
+            return header + _wrapper_lines + lines
         return lines
 
     def _events_cfg(self) -> List[str]:
@@ -3637,8 +3792,18 @@ class IsaacLabConfigCompiler:
                     "set the desired episode duration in seconds."
                 ),
             )
+        # time_out's value is the episode DURATION (seconds), not a
+        # threshold. Accept the legacy scalar and the structured-dict form
+        # (``{"weight": 15.0}`` — ``weight`` is the shared term-payload
+        # numeric, ``threshold`` also accepted) so a canvas that stored
+        # time_out structurally still yields a valid episode_length_s.
+        _to_raw = tcs["time_out"]
+        if isinstance(_to_raw, dict):
+            _to_num = _to_raw.get("weight", _to_raw.get("threshold"))
+        else:
+            _to_num = _to_raw
         try:
-            episode_length_s = float(tcs["time_out"])
+            episode_length_s = float(_to_num)
         except (TypeError, ValueError) as exc:
             raise CanvasConfigError(
                 nid=term_ids[0],
@@ -3989,13 +4154,17 @@ class IsaacLabConfigCompiler:
         *,
         actor_setting_node_id: str,
         actuator_pd_node_id: Optional[str],   # historical kwarg name — now refers to robot node (PD merged there)
-    ) -> Optional[Tuple[str, str, float, float]]:
-        """Build the per-joint PhysX stiffness/damping dicts for emit.
+    ) -> Optional[List[str]]:
+        """Build the rendered actuator-dict lines for the emitted env_cfg.
 
-        Returns ``(stiffness_dict_python_literal, damping_dict_python_literal,
-        effort_limit, velocity_limit)`` when the robot node carries PD
-        params AND the robot is bound with joint info; ``None`` when the
-        caller should fall back to the legacy scalar emit path.
+        Returns a ``List[str]`` of actuator-dict entry lines (one ``"legs"``
+        ImplicitActuatorCfg, plus one RemotizedPDActuatorCfg per remotized
+        joint group declared in the robot's brand manifest) when the robot
+        node carries PD params AND the robot is bound with joint info;
+        ``None`` when the caller should fall back to the legacy scalar emit
+        path. The per-joint stiffness/damping come from the mass-weighted
+        solver (World B); remotized groups additionally carry a
+        ``joint_parameter_lookup`` and no ``effort_limit``.
 
         The ``actuator_pd_node_id`` kwarg name is kept for back-compat
         but now points at the RobotNode (where the PD params live after
@@ -4009,7 +4178,7 @@ class IsaacLabConfigCompiler:
         # When the RobotNode predates the PD merge, none of the pd_*
         # params exist — fall back to legacy scalar emit.
         if not any(self._p(actuator_pd_node_id, k) for k in (
-            "pd_groups", "pd_param_mode", "pd_effort_limit",
+            "pd_groups", "pd_param_mode",
         )):
             return None
         if self._robot is None:
@@ -4031,6 +4200,9 @@ class IsaacLabConfigCompiler:
         try:
             from application.physics.pd_param import PDParam
             from application.physics.physx_gain_solver import solve as solve_physx
+            from application.physics.mujoco_gain_solver import (
+                effective_inertia_diag,
+            )
             from application.training.joint_ir import JointIRResolver
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -4094,35 +4266,85 @@ class IsaacLabConfigCompiler:
             return None
         physical = [resolver.to_physical(r) for r in ir_roles]
 
+        # PhysX gains are mass-weighted (kp = m_eff·ωn²) off the SAME
+        # effective inertia the MuJoCo bundle finalizer uses — both read
+        # the robot's MJCF via mj_fullM at the MJCF nominal stance
+        # (nominal_qpos=None ⇒ keyframe-0/qpos0). Sharing the m_eff source
+        # makes the emitted ImplicitActuatorCfg stiffness/damping equal the
+        # bundle's mujoco_pd_gains by construction, so the trained policy
+        # meets identical real-unit gains in MuJoCo review (CLAUDE.md §10).
+        sku = getattr(self._robot, "sku", "") or ""
+        mjcf_path = None
+        try:
+            from application.service.robot_assets.service import (
+                get_robot_asset_service,
+            )
+            asset = get_robot_asset_service().resolve(sku) if sku else None
+            mjcf_path = getattr(asset, "mjcf_path", None) if asset else None
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"[env_cfg_compiler] could not resolve RobotAsset for "
+                f"sku={sku!r} to compute PD effective inertia: {exc}"
+            ) from exc
+        if mjcf_path is None or not mjcf_path.is_file():
+            raise RuntimeError(
+                f"[env_cfg_compiler] robot sku={sku!r} has an ActuatorPDNode "
+                f"wired but no on-disk MJCF (mjcf_path="
+                f"{str(mjcf_path) if mjcf_path else None!r}). The (omega_n, "
+                f"zeta) PD parameterization derives engine gains as "
+                f"kp = m_eff·ωn² from the MJCF mass matrix; without an MJCF "
+                f"the PhysX and MuJoCo sides cannot agree. Open the Robot "
+                f"Asset card and run 'Dump MJCF' before training."
+            )
+
+        try:
+            inertia = effective_inertia_diag(
+                mjcf_path=Path(mjcf_path),
+                joint_order_physical=physical,
+                nominal_qpos=None,  # MJCF keyframe-0 / qpos0; matches finalizer
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"[env_cfg_compiler] effective-inertia (mj_fullM) failed for "
+                f"sku={sku!r}: {exc}"
+            ) from exc
+
         try:
             gains = solve_physx(
                 joint_order_physical=physical,
                 joint_ir_roles=ir_roles,
                 pd_param=pd_param,
+                m_eff=inertia.m_eff,
             )
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
                 f"[env_cfg_compiler] physx_gain_solver failed: {exc}"
             ) from exc
 
-        # Per-joint dicts, emitted as Python literal for ImplicitActuatorCfg.
-        # Sort by physical name so the emit is deterministic across runs.
-        kp_pairs = sorted(zip(physical, gains.kp))
-        kd_pairs = sorted(zip(physical, gains.kd))
-        kp_dict_repr = "{" + ", ".join(
-            f'"{name}": {float(v):.6g}' for name, v in kp_pairs
-        ) + "}"
-        kd_dict_repr = "{" + ", ".join(
-            f'"{name}": {float(v):.6g}' for name, v in kd_pairs
-        ) + "}"
+        # Per-joint gains keyed by physical NAME (stable across permutations —
+        # World B lesson; the emit helpers subset these per actuator group).
+        kp_by_name = {name: float(v) for name, v in zip(physical, gains.kp)}
+        kd_by_name = {name: float(v) for name, v in zip(physical, gains.kd)}
 
-        eff = self._pf(actuator_pd_node_id, "pd_effort_limit")
-        vel = self._pf(actuator_pd_node_id, "pd_velocity_limit")
+        # effort_limit / velocity_limit are owned by the ActorSetting node
+        # (§4 Actuator overrides) — the single canvas source of truth, shared
+        # with the SB3 bundle_exporter path. De-duplicated off RobotNode
+        # (ex pd_effort_limit / pd_velocity_limit) so both engines agree.
+        eff = self._pf(actor_setting_node_id, "effort_limit")
+        vel = self._pf(actor_setting_node_id, "velocity_limit")
 
         # Stash for deploy_meta sidecar.
         self._stashed_pd_meta = {
             "pd_param": pd_param.to_dict(),
             "physx_gains": gains.to_dict(),
+            "m_eff_source": {
+                "mjcf_path": str(mjcf_path),
+                "nominal_qpos_source": inertia.nominal_qpos_source,
+                "qpos_ref": list(inertia.qpos_ref),
+                "qpos_sha256": inertia.qpos_sha256(),
+                "m_eff": [float(v) for v in inertia.m_eff],
+                "joint_order_physical": list(physical),
+            },
             "primary_family": primary_family,
             "resolve_at_reset": self._pi_bool(actuator_pd_node_id, "pd_resolve_at_reset", True),
             "calibration_blocking": self._pi_bool(actuator_pd_node_id, "pd_calibration_blocking", True),
@@ -4131,7 +4353,58 @@ class IsaacLabConfigCompiler:
             "velocity_limit": float(vel),
         }
 
-        return kp_dict_repr, kd_dict_repr, float(eff), float(vel)
+        # Resolve the robot's remotized-actuator manifest (if any) and render
+        # the actuator-dict lines. A MISSING manifest is normal (non-remotized
+        # robot → groups=[] → single legacy "legs" group). A MALFORMED
+        # manifest (pattern matches nothing, joint claimed twice, table fails
+        # to load) RAISES — never silently falls back (§8).
+        from .remotized_emit import (
+            build_actuator_lines,
+            build_remotized_provenance,
+            match_remotized_groups,
+        )
+
+        groups = []
+        try:
+            from registers import brands as _brands_reg
+            from registers import robots as _robots_reg
+            spec = _robots_reg.get_robot(sku) if sku else None
+            manifest = (
+                _brands_reg.remotized_manifest(
+                    spec.get("brand", ""), spec.get("model", "")
+                )
+                if spec else None
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                f"[env_cfg_compiler] failed to load remotized manifest for "
+                f"sku={sku!r}: {exc}"
+            ) from exc
+        if manifest and manifest.get("remotized_joints"):
+            from application.physics.actuators.torque_lookup import (
+                TorqueLookupTable,
+            )
+            groups = match_remotized_groups(
+                physical,
+                manifest["remotized_joints"],
+                lambda p: TorqueLookupTable.from_yaml(Path(p)),
+            )
+
+        prov = build_remotized_provenance(
+            physical=physical, ir_roles=ir_roles, groups=groups,
+        )
+        if prov is not None:
+            self._stashed_pd_meta["remotized_joints"] = prov
+
+        return build_actuator_lines(
+            physical=physical,
+            kp=kp_by_name,
+            kd=kd_by_name,
+            effort_limit=float(eff),
+            velocity_limit=float(vel),
+            groups=groups,
+            implicit_cls=self._actuator_cfg_class("implicit_pd"),
+        )
 
     def _pi_bool(self, nid: str, key: str, default: bool) -> bool:
         """Read a bool parameter; tolerant of "true"/"false"/"True" strings."""
@@ -4184,7 +4457,7 @@ class IsaacLabConfigCompiler:
         Kind-aware lookup guarantees we never pick up a same-named
         termination entry (e.g. ``base_height`` exists in both kinds).
         """
-        from application.training.isaac_lab.task_module_registry import lookup, BACKEND_ISAAC
+        from scripts import lookup, BACKEND_ISAAC
         item = lookup(func_key, kind="reward", backend=BACKEND_ISAAC)
         if item is None or not item.il_func:
             return "mdp", func_key
@@ -4192,7 +4465,7 @@ class IsaacLabConfigCompiler:
 
     @staticmethod
     def _reward_func_name(func_key: str) -> str:
-        from application.training.isaac_lab.task_module_registry import lookup, BACKEND_ISAAC
+        from scripts import lookup, BACKEND_ISAAC
         item = lookup(func_key, kind="reward", backend=BACKEND_ISAAC)
         return item.il_func if (item and item.il_func) else func_key
 
@@ -4263,7 +4536,7 @@ class IsaacLabConfigCompiler:
         ``{ir:role}``, ``{node_std}``, etc. placeholders are still
         resolved by the same two-phase pipeline below.
         """
-        from application.training.isaac_lab.task_module_registry import (
+        from scripts import (
             REWARD_REGISTRY, IL_REWARD_REGISTRY,
         )
         item = IL_REWARD_REGISTRY.get(func_key) or REWARD_REGISTRY.get(func_key)
@@ -4287,36 +4560,34 @@ class IsaacLabConfigCompiler:
             from application.training.body_ir import resolve_body_params
             params_str = resolve_body_params(params_str, mapper)
         # Phase 2: substitute node-level values ({node_std}, {node_threshold})
-        # plus robot-level scalars pulled from the canvas Robot node so
-        # reward params can vary per machine without hardcoding (e.g.
-        # base_height target).
+        # plus the per-item ``{item_value}`` (the Rewards node "Value" chip —
+        # a reward's function-internal param, e.g. base_height target height).
+        # ``{item_value}`` defaults to 0.0 = "auto" (the reward resolves its
+        # own brand-neutral target). No reach-back into the Robot node.
         params_str = params_str.format(
             node_std=self._pf(nid, "std"),
             node_threshold=self._pf(nid, "threshold"),
-            robot_target_height=self._resolve_robot_target_height(),
+            item_value=self._resolve_reward_item_value(nid, func_key),
         )
         return ", params={" + params_str + "}"
 
-    def _resolve_robot_target_height(self) -> float:
-        """Return the effective base_height target (m), or 0.0 sentinel.
+    def _resolve_reward_item_value(self, nid: str, func_key: str) -> float:
+        """Return the per-item ``{item_value}`` for a reward term (or 0.0).
 
-        Resolution:
-          1. Robot node ``target_height`` param — explicit per-project
-             override entered on the canvas slider. Returned verbatim
-             when > 0.
-          2. ``0.0`` sentinel — signals to ``_unitport_base_height_l2``
-             that no canvas override was set; the reward function then
-             auto-resolves the target to ``asset.data.default_root_state[:, 2]``
-             (the asset's spawn z) at the first call. This is brand-neutral
-             and avoids the old ``0.34`` Go2-only magic that silently
-             broke training for any robot with a different standing height.
+        Reads the reward's payload on node ``nid`` and decodes the optional
+        ``value`` field (the canvas "Value" chip). ``None`` / absent → 0.0,
+        the brand-neutral "auto" sentinel the reward function interprets
+        itself (e.g. ``_unitport_base_height_l2`` resolves 0.0 → the asset's
+        nominal spawn z). Never reaches back into the Robot node.
         """
-        robot_ids = self._find_by_type("robot")
-        if robot_ids:
-            override = self._pf(robot_ids[0], "target_height")
-            if override > 0.0:
-                return override
-        return 0.0
+        from application.compiler.term_payload import parse_item_value
+        try:
+            terms = self._parse_json_param(nid, "reward_terms")
+        except Exception:                                         # noqa: BLE001
+            terms = {}
+        payload = terms.get(func_key) if isinstance(terms, dict) else None
+        v = parse_item_value(payload)
+        return float(v) if v is not None else 0.0
 
     # ------------------------------------------------------------------
     # Cross-node consistency validation
@@ -4346,23 +4617,38 @@ class IsaacLabConfigCompiler:
             return
 
         # Multi-rewards canvas: ``base_height`` may live in any rewards
-        # node. Aggregate keys across all rewards nodes for the
-        # cross-node check.
-        rewards_keys: set = set()
+        # node. Find the node that carries it (and its per-item Value).
+        bh_rid: Optional[str] = None
         for rid in rew_ids:
             try:
                 rt = self._parse_json_param(rid, "reward_terms")
             except Exception:
                 continue
-            if isinstance(rt, dict):
-                rewards_keys.update(rt.keys())
+            if isinstance(rt, dict) and "base_height" in rt:
+                bh_rid = rid
+                break
         terminations = self._parse_json_param(term_ids[0], "termination_conditions")
-        if "base_height" not in rewards_keys or "base_height" not in terminations:
+        if bh_rid is None or "base_height" not in terminations:
             return
 
-        target = self._resolve_robot_target_height()
+        # The reward target is now the per-item "Value" chip (0.0 = auto →
+        # the reward resolves to the asset's nominal spawn z at runtime).
+        # When auto, we cannot statically compare against the termination
+        # minimum, and the auto target (asset nominal) is by construction a
+        # sane standing height ≥ any reasonable minimum — so skip the check.
+        target = self._resolve_reward_item_value(bh_rid, "base_height")
+        if target <= 0.0:
+            return
+        # base_height value may be a scalar (legacy) or the structured
+        # ``{"weight": <threshold>, "grace_period_s": ...}`` form — extract
+        # the threshold from either (``weight``/``threshold`` key).
+        _bh_raw = terminations["base_height"]
+        if isinstance(_bh_raw, dict):
+            _bh_num = _bh_raw.get("weight", _bh_raw.get("threshold"))
+        else:
+            _bh_num = _bh_raw
         try:
-            minimum = float(terminations["base_height"])
+            minimum = float(_bh_num)
         except (ValueError, TypeError) as exc:
             raise CanvasConfigError(
                 nid=term_ids[0],
@@ -4385,8 +4671,8 @@ class IsaacLabConfigCompiler:
                 f"terminate the episode the instant it does — reward "
                 f"signal is unsatisfiable, training will not converge.\n"
                 f"  Fix one of:\n"
-                f"    (a) Robot node target_height ≥ {minimum} m "
-                f"(currently {target} m).\n"
+                f"    (a) Rewards node base_height Value (target height) ≥ "
+                f"{minimum} m (currently {target} m).\n"
                 f"    (b) Terminations node base_height ≤ {target} m "
                 f"(currently {minimum} m).\n"
                 f"    (c) Remove base_height from the Rewards or "

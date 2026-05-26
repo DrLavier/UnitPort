@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.choice_box — 下拉选择框 paint helper.
 
 替换 DEMO ``MainPicker`` 的视觉契约（DEMO node_ui_rows.py:1352-1436）：

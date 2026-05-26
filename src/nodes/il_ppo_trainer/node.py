@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ILPPOTrainerNode — Isaac Lab 统一 trainer (PPO / AMP_PPO).
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:ILPPOTrainerNode``.

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DeployContract — single source of truth for sim2sim deployment (verbatim port).
 
 A ``DeployContract`` lives inside ``manifest.yaml`` under the top-level
@@ -340,6 +343,17 @@ class DeployContract:
     # runtime loader checks this field and refuses to load with the
     # carried reason text. Empty / None = MuJoCo deploy supported.
     mujoco_deploy_unsupported: Optional[str] = None
+    # Step 4 (remotized actuators): per-remotized-joint angle→max-torque
+    # lookup tables, keyed by **IR role** (e.g. ``"calf_FL"`` — the same name
+    # space as ``joint_sdk_names`` / ``robot.joint_names``, NOT the physical
+    # MJCF joint name). Values are ``TorqueLookupTable`` instances. Present
+    # only for robots whose brand manifest declared ``remotized_joints``; the
+    # MuJoCo ``PDController`` reads these to clamp each remotized joint against
+    # its angle-dependent ceiling instead of a static scalar effort_limit.
+    # This is the SINGLE runtime copy of the table data the bundle ships — it
+    # is the same payload embedded under ``pd_derivation.remotized_joints``
+    # (the finalizer reuses it; they cannot drift).
+    mujoco_torque_lookups: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -549,6 +563,7 @@ class DeployContract:
         pd_param_raw: Optional[Dict[str, Any]] = None
         mujoco_pd_gains: Optional[List[float]] = None
         mujoco_pd_damping: Optional[List[float]] = None
+        mujoco_torque_lookups: Optional[Dict[str, Any]] = None
         mujoco_deploy_unsupported_raw = raw.get("mujoco_deploy_unsupported")
         mujoco_unsupported = bool(mujoco_deploy_unsupported_raw)
         if schema_version == CURRENT_SCHEMA_VERSION:
@@ -586,6 +601,49 @@ class DeployContract:
                         f"deploy_contract.mujoco_pd_damping: length "
                         f"{len(mujoco_pd_damping)} != n_joints {n}"
                     )
+                # ----- Load-time cross-engine TORQUE guard (cheap, always-on;
+                # runs on the arrays actually parsed into memory).
+                #
+                # Post-fix, BOTH engines mass-weight off the same m_eff, so the
+                # PhysX gains baked into training (stiffness/damping) and the
+                # MuJoCo gains the bundle ships (mujoco_pd_gains/_damping)
+                # produce identical torque. Old bundles trained under the
+                # unit-mass bug carry stiffness = ωn² (no mass) while
+                # mujoco_pd_gains = M·ωn²: torque diverges 9–65× (worst at
+                # low-inertia joints like the knee). Such a policy was trained
+                # against torques MuJoCo can never reproduce, so loading it for
+                # local inference yields a silently-broken rollout (robot
+                # collapses). Fail loud (§8) — the only fix is to re-train.
+                #
+                # We probe TORQUE, not raw gains, so a kd-only divergence
+                # cannot slip past a matching-kp check. Two sentinel probes
+                # (position-error torque kp·Δq, velocity torque kd·q̇) cover
+                # kp and kd independently and can't cancel to a false pass.
+                # This is the cheaper sibling of the export-time canary-joint
+                # check in sim2sim_calibration.run_calibration (1e-3 there;
+                # 1% here, looser to tolerate YAML float round-trip noise
+                # while still catching the 9–65× bug by a wide margin).
+                _DQ, _QD = 0.1, 0.5  # rad position error, rad/s joint velocity
+                worst_rel = 0.0
+                for sk, sd, mk, md in zip(
+                    stiffness, damping, mujoco_pd_gains, mujoco_pd_damping
+                ):
+                    rel_pos = abs(sk - mk) * _DQ / max(abs(mk) * _DQ, 1e-9)
+                    rel_vel = abs(sd - md) * _QD / max(abs(md) * _QD, 1e-9)
+                    worst_rel = max(worst_rel, rel_pos, rel_vel)
+                if worst_rel > 0.01:
+                    raise ValueError(
+                        "deploy_contract: PhysX training torque "
+                        "(stiffness/damping) diverges from the MuJoCo torque "
+                        f"(mujoco_pd_gains/_damping) by up to {worst_rel*100:.0f}% "
+                        "— this bundle was trained before the 2026-05 PD fix, "
+                        "when PhysX used the unit-mass form (kp=ωn²) while "
+                        "MuJoCo mass-weighted (kp=M·ωn²). The policy learned "
+                        "against torques MuJoCo cannot reproduce; replaying it "
+                        "collapses the robot. RE-TRAIN the policy with the "
+                        "current pipeline (both engines now mass-weight "
+                        "identically). See CLAUDE.md §10."
+                    )
             elif pd_param_raw is None and (
                 mj_gains_raw is not None or mj_damp_raw is not None
             ):
@@ -608,6 +666,165 @@ class DeployContract:
                     "Drop the arrays when opting out of MuJoCo deploy."
                 )
 
+            # ----- Remotized-actuator lookup tables (Step 4.2 / 4.3).
+            # Keyed by IR role (same name space as joint_sdk_names). Parse
+            # into TorqueLookupTable objects and run the load-time guard.
+            mtl_raw = raw.get("mujoco_torque_lookups")
+            if mtl_raw is not None and not mujoco_unsupported:
+                if not isinstance(mtl_raw, dict):
+                    raise ValueError(
+                        "deploy_contract.mujoco_torque_lookups: expected a "
+                        f"mapping of ir_role -> table, got "
+                        f"{type(mtl_raw).__name__}"
+                    )
+                from application.physics.actuators.torque_lookup import (
+                    TorqueLookupTable,
+                )
+                effort_by_role = dict(zip(joint_sdk_names, effort_limit))
+                parsed: Dict[str, Any] = {}
+                for role, tbl_dict in mtl_raw.items():
+                    if role not in effort_by_role:
+                        raise ValueError(
+                            f"deploy_contract.mujoco_torque_lookups: ir_role "
+                            f"{role!r} is not in joint_sdk_names — the lookup "
+                            f"key space must match the contract joint names "
+                            f"(IR roles), not physical MJCF names."
+                        )
+                    table = TorqueLookupTable.from_dict(tbl_dict)
+                    # axis range sanity: a remotized joint that sweeps < 1 rad
+                    # is suspicious (knees sweep ~2.5 rad). WARN, don't fail —
+                    # a short-range joint is unusual but not provably wrong.
+                    lo, hi = table.axis_range
+                    if (hi - lo) < 1.0:
+                        log.warning(
+                            "deploy_contract.mujoco_torque_lookups[%r]: axis "
+                            "range %.3f rad is suspiciously small (< 1.0) — "
+                            "verify the table covers the joint's operating "
+                            "range.", role, hi - lo,
+                        )
+                    # The static effort_limit for a remotized joint is derived
+                    # by manifest_parser as the lookup PEAK (the joint's max
+                    # capability), so peak == eff is the NORMAL case. Raise only
+                    # when the table peak is MEANINGFULLY below the static cap —
+                    # a wrong table (wrong column/robot/units) is orders of
+                    # magnitude off, while a 0.1% margin absorbs float round-trip
+                    # between the env.yaml lookup and the embedded table without
+                    # masking a real defect (§8). A peak below the cap means the
+                    # lookup can never reach the box cap — the table is wrong.
+                    eff = float(effort_by_role[role])
+                    if 0.0 < eff and table.peak_torque < eff * (1.0 - 1e-3):
+                        raise ValueError(
+                            f"deploy_contract.mujoco_torque_lookups[{role!r}]: "
+                            f"table peak {table.peak_torque:.2f} N·m is below "
+                            f"the joint's static effort_limit {eff:.2f} N·m. "
+                            f"Remotization exists to RAISE the ceiling; a "
+                            f"lower peak means the table is wrong (wrong "
+                            f"column extracted, wrong robot, or unit error)."
+                        )
+                    parsed[role] = table
+
+                # Cross-check against the provenance block (Step 3.2): every
+                # joint the compiler recorded as remotized MUST have a runtime
+                # lookup here, else the MuJoCo side would silently clamp it at
+                # the static effort_limit while IsaacLab trained it remotized.
+                pd_deriv = raw.get("pd_derivation")
+                isaac_tables_by_role: Dict[str, Any] = {}
+                if isinstance(pd_deriv, dict):
+                    rj = pd_deriv.get("remotized_joints")
+                    if isinstance(rj, dict):
+                        declared = (rj.get("joints") or {})
+                        for _name, entry in declared.items():
+                            role = (entry or {}).get("ir_role")
+                            if role and role not in parsed:
+                                raise ValueError(
+                                    f"deploy_contract: pd_derivation marks "
+                                    f"joint ir_role={role!r} as remotized but "
+                                    f"mujoco_torque_lookups has no table for "
+                                    f"it — the MuJoCo runtime would clamp it "
+                                    f"at the static effort_limit while it was "
+                                    f"trained remotized. Re-export the bundle."
+                                )
+                            _itbl = (entry or {}).get("table")
+                            if role and _itbl is not None:
+                                isaac_tables_by_role[role] = (
+                                    TorqueLookupTable.from_dict(_itbl)
+                                )
+
+                # ----- Step 5: multi-point cross-engine torque consistency
+                # (load-time, LOOSER 1% — same threshold layering rationale as
+                # the kp/kd guard above; tolerates YAML float round-trip). For
+                # each remotized joint, sample the lookup range and confirm the
+                # IsaacLab-side ceiling (from pd_derivation, via to_isaaclab_array)
+                # and the MuJoCo-side ceiling (from mujoco_torque_lookups) clamp
+                # the PD torque to the same value. A divergence is diagnosed as
+                # PD-region (gains drifted — World B regression) vs clip-region
+                # (lookup data drifted — conversion / embedding bug). Needs the
+                # per-engine gains; only runs when they're present (remotization
+                # implies an ActuatorPDNode, so they should be).
+                if mujoco_pd_gains is not None and mujoco_pd_damping is not None:
+                    from application.physics.actuators.torque_consistency import (
+                        check_remotized_torque_consistency,
+                    )
+                    role_to_idx = {nm: i for i, nm in enumerate(joint_sdk_names)}
+                    # === D18 one-way call-order contract (top of block) ===
+                    # INVARIANT: §10 has enforced 1% PD-gain consistency by this
+                    # point. PD-region diagnosis below is unreachable in
+                    # production paths under current §10 behavior. If §10 is
+                    # relaxed or skipped for any joint, PD-region diagnosis
+                    # becomes reachable here and needs integration test coverage.
+                    #
+                    # We do NOT touch the §10 guard — this is a one-way contract:
+                    # the multi-point check self-declares its dependency on §10.
+                    # The assert re-states the precondition at runtime (fail-loud,
+                    # D2) so a §10 change cannot silently invalidate the
+                    # unreachability reasoning. It is always true today (the §10
+                    # guard above raised otherwise), so it adds no new production
+                    # behavior — only a tripwire. §10's per-joint metric reduces
+                    # to |stiffness−mujoco_pd_gains|/|mujoco_pd_gains| ≤ 1%
+                    # (the probe Δq cancels), which we recompute here.
+                    for _role in parsed:
+                        _i = role_to_idx[_role]
+                        _mk = float(mujoco_pd_gains[_i])
+                        _md = float(mujoco_pd_damping[_i])
+                        assert (
+                            abs(float(stiffness[_i]) - _mk)
+                            <= 0.01 * max(abs(_mk), 1e-9)
+                            and abs(float(damping[_i]) - _md)
+                            <= 0.01 * max(abs(_md), 1e-9)
+                        ), (
+                            f"D18 INVARIANT VIOLATED for {_role!r}: §10's 1% "
+                            f"PD-gain consistency precondition does not hold "
+                            f"here, so the PD-region diagnosis path is now "
+                            f"reachable and needs integration-test coverage. "
+                            f"Was §10 (the deploy_contract kp/kd guard) relaxed "
+                            f"or skipped? See design decision D18."
+                        )
+                    for role, mtable in parsed.items():
+                        idx = role_to_idx[role]
+                        # WHY KEPT (§8 (c) defense-in-depth, not a silent
+                        # fallback of required input): when provenance carries
+                        # the IsaacLab-side table, compare the two contract
+                        # LOCATIONS (catches embedding drift between them); when
+                        # it doesn't, compare the MuJoCo table against itself
+                        # through to_isaaclab_array (still catches a conversion
+                        # bug). Either way the check is meaningful.
+                        itable = isaac_tables_by_role.get(role, mtable)
+                        result = check_remotized_torque_consistency(
+                            joint=role,
+                            isaac_table=itable,
+                            mujoco_table=mtable,
+                            kp_isaac=float(stiffness[idx]),
+                            kd_isaac=float(damping[idx]),
+                            kp_mujoco=float(mujoco_pd_gains[idx]),
+                            kd_mujoco=float(mujoco_pd_damping[idx]),
+                            threshold=0.01,
+                        )
+                        if not result.passed:
+                            raise ValueError(
+                                "deploy_contract: " + result.diagnosis()
+                            )
+                mujoco_torque_lookups = parsed
+
         return cls(
             schema_version=schema_version,
             joint_sdk_names=joint_sdk_names,
@@ -629,6 +846,7 @@ class DeployContract:
             pd_param=pd_param_raw,
             mujoco_pd_gains=mujoco_pd_gains,
             mujoco_pd_damping=mujoco_pd_damping,
+            mujoco_torque_lookups=mujoco_torque_lookups,
             mujoco_deploy_unsupported=(
                 str(mujoco_deploy_unsupported_raw)
                 if mujoco_unsupported else None
@@ -677,6 +895,13 @@ class DeployContract:
             out["mujoco_pd_gains"] = [float(v) for v in self.mujoco_pd_gains]
         if self.mujoco_pd_damping is not None:
             out["mujoco_pd_damping"] = [float(v) for v in self.mujoco_pd_damping]
+        if self.mujoco_torque_lookups:
+            # Embed each table inline (self-contained bundle). Keyed by IR
+            # role; value is the v1 table payload via TorqueLookupTable.to_dict.
+            out["mujoco_torque_lookups"] = {
+                role: table.to_dict()
+                for role, table in self.mujoco_torque_lookups.items()
+            }
         if self.mujoco_deploy_unsupported:
             out["mujoco_deploy_unsupported"] = str(self.mujoco_deploy_unsupported)
         return out

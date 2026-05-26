@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 schema = "unitport.node/v1"
 id = "robot"
 kind = "CUSTOM"
@@ -14,8 +17,9 @@ icon = "robot.svg"
 # canvas display panels (asset files / joint & IR list / init pose default /
 # actuator defaults) are read-only projections of the selected asset_id.
 # Settings live on the paired ActorSettingNode; do not add editable fields
-# here beyond `asset_id`, `active_override`, `body_mapping` (auto-resolved),
-# and `target_height` (per-project override for base_height reward).
+# here beyond `asset_id`, `active_override`, and `body_mapping`
+# (auto-resolved). The base_height reward target lives on the Rewards node's
+# per-item "Value" chip; spawn height = actor init_pos_z / asset nominal.
 
 # ---------------------------------------------------------------------------
 # Outputs
@@ -60,14 +64,6 @@ default = ""
 widget = "mjcf_offset_badge"
 description = "MJCF 落地偏移 / MJCF base spawn-Z offset (auto-calibrated; read-only status)"
 
-[[parameters]]
-key = "target_height"
-type = "float"
-default = 0.0
-widget = "range"
-description = "目标高度 (0 = 跟随资产 nominal_height) / Standing-height override (0 = use asset nominal)"
-meta = { min = 0.0, max = 5.0, step = 0.01 }
-
 # ---------------------------------------------------------------------------
 # PD parameterization (sim2sim_mass-matrix-adaptive) — merged from
 # ex-ActuatorPDNode. Specifies (omega_n, zeta) per joint group; engine-
@@ -93,21 +89,12 @@ widget = "pd_param_table"
 description = "按关节组覆盖 (omega_n, zeta)；空 {} 表示全部使用 family 默认 / Per-group (omega_n, zeta) overrides; empty {} = family defaults for all groups"
 meta = { language = "json" }
 
-[[parameters]]
-key = "pd_effort_limit"
-type = "float"
-default = 30.0
-widget = "range"
-description = "扭矩上限 / Effort (torque) limit (N·m)"
-meta = { min = 0.0, max = 200.0, step = 1.0 }
-
-[[parameters]]
-key = "pd_velocity_limit"
-type = "float"
-default = 30.0
-widget = "range"
-description = "速度上限 / Joint velocity limit (rad/s)"
-meta = { min = 0.0, max = 100.0, step = 0.5 }
+# NOTE: effort_limit / velocity_limit are NOT defined here. The single
+# canvas source of truth for both is the ActorSetting node (§4 Actuator
+# overrides). They were de-duplicated off this node (ex pd_effort_limit /
+# pd_velocity_limit) so MuJoCo (bundle_exporter) and IsaacLab
+# (env_cfg_compiler) read the same value. RobotNode keeps only the
+# (omega_n, zeta) parameterization and the PD-process toggles below.
 
 [[parameters]]
 key = "pd_resolve_at_reset"

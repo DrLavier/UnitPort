@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Snapshot + restore user-customised keys inside ``system.ini`` across an update.
 
 Per CLAUDE.md §1.4 a small set of keys inside ``system.ini`` are

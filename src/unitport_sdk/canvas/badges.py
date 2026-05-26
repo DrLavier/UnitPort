@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.badges — Node 状态 / 极性徽章 widget.
 
 DEMO 对应（``bin/nodes/training_node_items.py``）：

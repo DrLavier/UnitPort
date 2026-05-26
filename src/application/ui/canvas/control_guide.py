@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CanvasControlGuide — 画布左下角悬浮操控提示图.
 
 实现形式参考 ``CanvasMiniMap``：作为 ``QGraphicsView.viewport()`` 的子 widget，

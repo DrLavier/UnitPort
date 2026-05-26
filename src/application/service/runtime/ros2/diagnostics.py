@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ROS2 bridge diagnostics — topic rate / latency / health summaries."""
 
 from __future__ import annotations

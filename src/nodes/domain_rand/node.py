@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DomainRandNode — 统一域随机化节点 (SB3 + Isaac Lab).
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:DomainRandNode``.
@@ -80,8 +83,7 @@ _SB3_DEFAULTS: Dict[str, Any] = {
     "enabled": True,
     "mass_range": "[0.8, 1.2]",
     "friction_range": "[0.5, 1.5]",
-    # Stage H defaults mirror knowledge_base/sim2sim_mass-matrix-adaptive.yaml
-    # lines 103-105.
+    # Stage H defaults.
     "omega_n_log_uniform": "[0.8, 1.25]",
     "zeta_log_uniform": "[0.9, 1.11]",
     "obs_noise_std": 0.01,

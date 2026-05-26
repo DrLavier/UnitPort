@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.ros2_connection_config — ROS2 实机连接配置 + 控制器.
 
 职责拆为两部分：

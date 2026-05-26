@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """PlayGroundSettingNode — 统一场景配置节点 (General §2 Scene).
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:PlayGroundSettingNode``.

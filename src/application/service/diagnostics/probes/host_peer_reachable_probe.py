@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HostPeerReachableProbe — verify the host can reach the robot's IP.
 
 Single ICMP echo (``ping``) at the OS level — no admin rights needed on

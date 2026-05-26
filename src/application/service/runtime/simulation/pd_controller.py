@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """PD controller matching Isaac Lab's ImplicitActuator model.
 
 Isaac Lab's ImplicitActuator computes joint torques as:
@@ -48,6 +51,7 @@ class PDController:
         *,
         velocity_limit: Optional[Union[np.ndarray, Sequence[float]]] = None,
         saturation_effort: Optional[Union[np.ndarray, Sequence[float]]] = None,
+        torque_lookups: Optional[Dict[int, Any]] = None,
     ) -> None:
         self._n = num_joints
         self._kp = self._to_array(kp, num_joints)
@@ -72,6 +76,12 @@ class PDController:
             if saturation_effort is not None
             else None
         )
+        # Remotized actuators (Step 4): per-joint angle→max-torque lookup,
+        # keyed by joint INDEX in THIS controller's order (== bundle order).
+        # Only the remotized joints appear here; every other joint keeps its
+        # static ``_effort_limit``. Empty dict = no remotized joints (the
+        # common case) — ``compute`` then takes the original scalar path.
+        self._torque_lookups: Dict[int, Any] = dict(torque_lookups or {})
 
     @property
     def num_joints(self) -> int:
@@ -137,8 +147,20 @@ class PDController:
             )
             torques = np.clip(torques, -avail, avail)
 
-        # Clip to effort limits
-        torques = np.clip(torques, -self._effort_limit, self._effort_limit)
+        # Clip to effort limits. For non-remotized joints this is the static
+        # per-joint ``effort_limit``. For remotized joints (Step 4) the ceiling
+        # is angle-dependent: looked up from the joint's TorqueLookupTable at
+        # the CURRENT position (matches IsaacLab RemotizedPDActuator, which
+        # queries ``joint_pos`` — PV-2 (d)). Same clamp point as the scalar
+        # path; only the value clamped against changes. tau_max is rebuilt
+        # per-step (negligible for sub-100-DoF robots) — kept dead simple.
+        if self._torque_lookups:
+            tau_max = self._effort_limit.copy()
+            for j_idx, table in self._torque_lookups.items():
+                tau_max[j_idx] = table.max_torque_at(float(pos[j_idx]))
+        else:
+            tau_max = self._effort_limit
+        torques = np.clip(torques, -tau_max, tau_max)
 
         return torques.astype(np.float32)
 
@@ -247,14 +269,16 @@ class PDController:
 
         # ----- Gain source selection (sim2sim PD framework, CLAUDE.md §1.10).
         #
-        # MuJoCo runtime MUST use the mass-weighted gains the bundle finalizer
-        # pre-derived via ``mujoco_gain_solver`` (kp = M_diag(q₀) · ωn²). The
-        # legacy ``contract.stiffness`` / ``contract.damping`` are PhysX's
-        # unit-mass form (kp = ωn²) and only happen to be in the right
-        # ballpark for very light robots — heavier robots (Spot ~32 kg) get
-        # under-damped 10–50×, leading to the "robot flies away" failure mode
-        # in MuJoCo review. See the DeployContract docstring at
-        # deploy_contract.py L327–335 for the cross-engine contract.
+        # Prefer ``contract.mujoco_pd_gains`` — the mass-weighted gains the
+        # bundle finalizer derives via ``mujoco_gain_solver`` (kp = M_diag(q₀)
+        # · ωn²). Post-2026-05 bundles have ``contract.stiffness`` mass-weighted
+        # too (PhysX gains now use the identical kp = M_diag·ωn² form off the
+        # same m_eff), so the two arrays agree. But OLD bundles carry the buggy
+        # unit-mass ``stiffness`` (kp = ωn²): right ballpark only for very light
+        # robots — heavier robots (Spot ~32 kg) come out 9–65× too soft at
+        # low-inertia joints (knees) and collapse in MuJoCo review. Preferring
+        # mujoco_pd_gains keeps both old and new bundles correct here. See the
+        # DeployContract docstring at deploy_contract.py L327–335.
         if contract.mujoco_pd_gains is not None:
             # Schema v2 with ActuatorPDNode wired: prefer derived MuJoCo
             # gains. ``from_dict`` guarantees length(mujoco_pd_gains) == n.
@@ -297,6 +321,25 @@ class PDController:
 
         # default_joint_pos is ALREADY in isaac/bundle order — no permute.
         default_bundle = np.asarray(contract.default_joint_pos, dtype=np.float32)
+
+        # Remotized-actuator lookups (Step 4). ``contract.mujoco_torque_lookups``
+        # is keyed by IR role (the same name space as ``joint_names``, the
+        # BUNDLE-order name list). Map each role → its bundle index so the
+        # ceiling lines up with ``compute``'s bundle-order ``pos``/``_kp``.
+        # Match by NAME (stable across permutations — World B), never index.
+        torque_lookups: Dict[int, Any] = {}
+        contract_lookups = getattr(contract, "mujoco_torque_lookups", None)
+        if contract_lookups:
+            name_to_bundle_idx = {nm: i for i, nm in enumerate(joint_names)}
+            for role, table in contract_lookups.items():
+                if role not in name_to_bundle_idx:
+                    raise ValueError(
+                        f"PDController.from_deploy_contract: "
+                        f"mujoco_torque_lookups role {role!r} is not in the "
+                        f"bundle joint_names {list(joint_names)} — cannot map "
+                        f"the remotized table to a joint index."
+                    )
+                torque_lookups[name_to_bundle_idx[role]] = table
 
         # DCMotor envelope params. Stored in SDK order on the contract, so
         # the same permutation applies as for kp/kd/effort.
@@ -389,6 +432,7 @@ class PDController:
             num_joints=n,
             velocity_limit=velocity_limit_bundle,
             saturation_effort=saturation_effort_bundle,
+            torque_lookups=torque_lookups,
         )
 
     # ------------------------------------------------------------------

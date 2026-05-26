@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.badge — 极性徽章 paint helper.
 
 替换 DEMO ``_ModulePolarityBadge``（training_node_items.py:888-930）的视觉

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ApplyUpdateTask — TasksManager wrapper around ``UpdateService.apply()``.
 
 Submitted when the user clicks Apply in ``UpdateAvailableDialog``. Heavy

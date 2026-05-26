@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CanvasErrorDialog — unified popup for canvas self-check failures.
 
 When the user hits ▶ Play and the spec compiler / Isaac Lab env_cfg

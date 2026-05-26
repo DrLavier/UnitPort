@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Track Ang Vel Z — Exponential tracking reward for commanded yaw angular velocity."""
 
 from __future__ import annotations

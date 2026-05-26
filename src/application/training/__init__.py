@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training — 训练计算管线 / Training compute pipeline.
 
 来源 / Source: DEMO/src/system/training/（去掉已搬到 ``registers/backends.py`` 的

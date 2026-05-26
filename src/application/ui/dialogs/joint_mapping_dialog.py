@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """JointMappingDialog — visualise the registry's per-format joint tables.
 
 Opens after a successful Dump (MJCF / USD) cascade, and from the Robot

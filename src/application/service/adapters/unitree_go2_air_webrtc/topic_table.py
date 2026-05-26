@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Topic surface declared by the Unitree Go2 Air WebRTC adapter.
 
 Topic names are the literal strings the firmware accepts over the

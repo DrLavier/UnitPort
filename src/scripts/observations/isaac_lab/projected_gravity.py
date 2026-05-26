@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Projected Gravity — Gravity vector projected into body frame (3D)."""
 
 from __future__ import annotations

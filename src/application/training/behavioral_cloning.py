@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Behavioral Cloning (BC) — Phase 1 pure BC pre-training.
 
 REWRITE-WITH-DEMO-REF from DEMO ``src/system/training/behavioral_cloning.py``,

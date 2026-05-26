@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.backends — 训练/仿真 后端清单 + 算法 + 场景 + 奖励预设.
 
 ⚠ 重命名说明 / Rename note:
@@ -518,16 +521,79 @@ def _detect_module(module_name: str) -> Dict[str, Any]:
 
 # ---------------------------------------------------------------------------
 # Isaac Lab — separate venv, subprocess probe via registered root.
+#
+# Local-installation registration lives in this same ``backends_installed.json``
+# (the per-installation runtime-writable SDK file). USER_CONFIG_DIR is reserved
+# for cloud-server state only — never read here.
 # ---------------------------------------------------------------------------
 
-# Match the on-disk schema used by application.service.engines.EngineService:
-#   <USER_CONFIG_DIR>/engines/isaac_lab.json  →  { "local": { "root": "...", ... }, ... }
-def _isaac_lab_state_path() -> Path:
-    """Lazy resolve of Isaac Lab's engine-state path inside the LIVE
-    USER_CONFIG_DIR. Resolved at call time so workspace hot-switches are
-    picked up without restart."""
-    return Paths.USER_CONFIG_DIR / "engines" / "isaac_lab.json"
 _ISAAC_PROBE_TIMEOUT_S = 30  # Isaac import is slow; first launch can take 20s+
+_ISAAC_LAB_ENGINE_ID = "isaac_lab"
+
+
+def _project_engine_root(engine_id: str) -> Path:
+    """Default project-level install root: ``PROJECT_ROOT/Engines/<engine_id>/``.
+
+    The ``Engines/`` convention is the documented install destination for
+    heavy backends (Isaac Sim is ~30 GB) — mirrored in
+    ``application.service.installers._paths.default_isaac_lab_install_root``.
+    Duplicated rather than imported to keep ``registers/`` free of
+    ``application/`` dependencies.
+    """
+    return Paths.PROJECT_ROOT / "Engines" / engine_id
+
+
+def _has_isaac_markers(root: Path) -> bool:
+    """True iff ``root`` looks like a valid Isaac Lab install skeleton.
+
+    Markers match :meth:`EngineService.register_isaac_local` and the
+    install_state probe in startup_tasks — single source of truth so
+    auto-discovery and manual-register cannot disagree.
+    """
+    try:
+        if not root.is_dir():
+            return False
+        has_launcher = (root / "isaaclab.sh").exists() or (root / "isaaclab.bat").exists()
+        has_source = (root / "source").is_dir()
+        return has_launcher and has_source
+    except OSError:
+        return False
+
+
+def _resolve_isaac_local_root() -> Optional[Path]:
+    """Resolve where Isaac Lab is installed on this machine.
+
+    Resolution order:
+      1. ``backends_installed.json::isaac_lab.local_root`` — explicit pin
+         from the User panel's gear button, the in-app installer, or a
+         prior auto-discovery.
+      2. ``PROJECT_ROOT/Engines/isaac_lab/`` — the default install
+         destination. If a user (or the install wizard) places Isaac Lab
+         here, no manual registration step is needed.
+      3. ``None`` — Isaac Lab is not on this machine.
+
+    A registered root that no longer exists is logged loudly (rule §8 —
+    no silent fallback) before we drop through to auto-discovery so the
+    surface error is the broken pin, not a phantom auto-detect that
+    masks it.
+    """
+    if not _state["loaded"]:
+        load()
+    row = _state["installed"].get(_ISAAC_LAB_ENGINE_ID) or {}
+    declared = str(row.get("local_root") or "").strip()
+    if declared:
+        p = Path(declared).expanduser()
+        if _has_isaac_markers(p):
+            return p
+        log_warning(
+            f"[backends] registered isaac_lab root {p} no longer has markers "
+            f"(isaaclab.sh|isaaclab.bat + source/); falling through to "
+            f"auto-discovery under PROJECT_ROOT/Engines/"
+        )
+    auto = _project_engine_root(_ISAAC_LAB_ENGINE_ID)
+    if _has_isaac_markers(auto):
+        return auto
+    return None
 
 
 def _find_isaac_python(root: Path) -> Optional[str]:
@@ -554,27 +620,17 @@ def _find_isaac_python(root: Path) -> Optional[str]:
     return None
 
 
-def _detect_isaac_lab() -> Dict[str, Any]:
-    """Probe Isaac Lab via subprocess against the registered installation.
+def _probe_isaac_root(root: Path) -> Dict[str, Any]:
+    """Probe one *specific* Isaac Lab root via subprocess.
 
-    Reads root from ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` (`local.root`),
-    locates the Isaac Python via :func:`_find_isaac_python`, then runs
+    Locates the Isaac Python via :func:`_find_isaac_python`, then runs
     ``python -c "import isaaclab; print(isaaclab.__version__)"``.
 
     Returns the same shape as :func:`_detect_module` — ``path`` carries the
     Isaac Lab root (not the .py file) since that is the actionable handle for
-    callers (subprocess launchers, installer UI).
+    callers (subprocess launchers, installer UI). Multi-version aware: callers
+    that manage several registered installs probe each root through here.
     """
-    if not _isaac_lab_state_path().exists():
-        return {"available": False, "version": "", "path": ""}
-    state = read_data(_isaac_lab_state_path()) or {}
-    root_str = str(((state.get("local") or {}).get("root") or "")).strip()
-    if not root_str:
-        return {"available": False, "version": "", "path": ""}
-    root = Path(root_str).expanduser()
-    if not root.is_dir():
-        log_warning(f"[backends] isaac_lab root does not exist: {root}")
-        return {"available": False, "version": "", "path": str(root)}
     python = _find_isaac_python(root)
     if python is None:
         log_warning(
@@ -608,17 +664,41 @@ def _detect_isaac_lab() -> Dict[str, Any]:
     return {"available": True, "version": version, "path": str(root)}
 
 
+def _detect_isaac_lab() -> Dict[str, Any]:
+    """Probe Isaac Lab via subprocess against the resolved installation.
+
+    Resolves the install root via :func:`_resolve_isaac_local_root`
+    (pinned row → ``PROJECT_ROOT/Engines/isaac_lab/`` auto-discovery), then
+    delegates the version probe to :func:`_probe_isaac_root`. This is the
+    single-root "is Isaac available at all" probe used by
+    :func:`refresh_engine_availability`; the multi-version management surface
+    probes each registered root individually via
+    :func:`refresh_isaac_installations`.
+    """
+    root = _resolve_isaac_local_root()
+    if root is None:
+        return {"available": False, "version": "", "path": ""}
+    return _probe_isaac_root(root)
+
+
 def refresh_engine_availability() -> Dict[str, Dict[str, Any]]:
     """扫描本机引擎可用性并写入 backends_installed.json.
 
     sb3 走主进程 importlib 探针（与主进程同栈）；isaac_lab 走独立 venv
-    子进程探针（依赖 ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` 中 ``local.root``，
-    由 ``EngineService.import_isaac_lab_path_from_demo`` 或
-    ``EngineService.register_isaac_local`` 写入）。registers/ 内**唯一**
-    允许运行时写入。
+    子进程探针，根来源由 :func:`_resolve_isaac_local_root` 解析（先读本表
+    ``local_root`` 字段，再回退到 ``PROJECT_ROOT/Engines/isaac_lab/`` 自动发现）。
+    任何依赖 USER_CONFIG_DIR 的引擎注册都已迁出 —— 本地安装是"每台机器一份
+    物理事实"，归 SDK 树管理。
+
+    自动发现命中时把 ``local_root`` / ``registered=True`` / ``source="auto"``
+    一并落盘，下次 Settings UI 打开就能直接看到，不再需要用户去 gear 按钮
+    手动 locate。
+
+    registers/ 内**唯一**允许运行时写入。
 
     Returns:
-        {engine_id: {available: bool, enabled: bool, version: str, path: str}}
+        {engine_id: {available, enabled, version, path, local_root,
+                      registered, source, display_name}}
     """
     payload = read_data(_INSTALLED) or {}
     engines = dict(payload.get("engines", {}))
@@ -646,13 +726,63 @@ def refresh_engine_availability() -> Dict[str, Dict[str, Any]]:
 
     for eid, det in detection.items():
         prev = engines.get(eid, {}) or {}
-        engines[eid] = {
+        row = {
             "display_name": prev.get("display_name") or _DEFAULT_DISPLAY_NAMES.get(eid, eid),
             "available": det["available"],
             "enabled": prev.get("enabled") if det["available"] else False,
             "version": det["version"],
             "path": det["path"],
+            # Local-registration fields — preserved across refreshes.
+            # ``local_root`` only exists for engines whose install root is
+            # external to the .venv (currently isaac_lab); pip-installed
+            # backends carry the .py path in ``path`` and have an empty
+            # ``local_root``.
+            "local_root": str(prev.get("local_root") or ""),
+            "registered": bool(prev.get("registered", False)),
+            "source": str(prev.get("source") or ""),
         }
+        # Isaac Lab auto-discovery write-back: when the probe used the
+        # ``Engines/isaac_lab/`` default and there's no prior pin, persist it
+        # so the User panel / installer report "already registered" without
+        # the user ever clicking the gear button.
+        if eid == _ISAAC_LAB_ENGINE_ID and det["available"] and det.get("path"):
+            if not row["local_root"]:
+                row["local_root"] = str(det["path"])
+                row["registered"] = True
+                row["source"] = row["source"] or "auto"
+        # Multi-version: keep the project-owned base in the installations list
+        # (cheap — reuses the single probe just run, no extra subprocess) so the
+        # User-panel management surface and the train-target dropdowns see it
+        # without a separate refresh. External pins are probed lazily by
+        # refresh_isaac_installations(); we only touch the base here.
+        if eid == _ISAAC_LAB_ENGINE_ID:
+            base = _project_engine_root(_ISAAC_LAB_ENGINE_ID)
+            prev_list = prev.get("installations")
+            items = (
+                [dict(x) for x in prev_list if isinstance(x, dict)]
+                if isinstance(prev_list, list) else []
+            )
+            if _has_isaac_markers(base):
+                base_avail = det["available"] and _norm_root(
+                    det.get("path", "")) == _norm_root(str(base))
+                hit = next(
+                    (x for x in items
+                     if _norm_root(x.get("root", "")) == _norm_root(str(base))),
+                    None,
+                )
+                if hit is None:
+                    items.insert(0, {
+                        "root": str(base),
+                        "version": det["version"] if base_avail else "",
+                        "source": "auto",
+                        "available": base_avail,
+                    })
+                else:
+                    hit["available"] = base_avail
+                    if base_avail and det["version"]:
+                        hit["version"] = det["version"]
+            row["installations"] = items
+        engines[eid] = row
         if not det["available"]:
             log_warning(f"[backends] {eid} 未安装")
         else:
@@ -663,6 +793,360 @@ def refresh_engine_availability() -> Dict[str, Dict[str, Any]]:
     # Refresh in-memory snapshot
     _state["installed"] = dict(engines)
     return engines
+
+
+# ---------------------------------------------------------------------------
+# Local-installation setters / getters — owned here because
+# ``backends_installed.json`` is the per-installation source of truth.
+# EngineService delegates to these; USER_CONFIG_DIR holds cloud state only.
+# ---------------------------------------------------------------------------
+
+
+def get_local_registration(engine_id: str) -> Dict[str, Any]:
+    """Return the local-installation block for ``engine_id`` as a plain dict.
+
+    Shape (always all keys present, falsy when unset):
+
+        {"root": "<absolute path or ''>",
+         "registered": bool,
+         "enabled": bool,
+         "source": "<manual|install|import_from_demo|boot_repair|auto|''>"}
+
+    Reads from :data:`_INSTALLED` (``backends_installed.json``) — never
+    from USER_CONFIG_DIR. ``root`` is the live ``local_root`` field; the
+    sibling ``path`` field of the same row carries the same value once
+    detection has run (kept distinct so future probes can write ``path``
+    without clobbering an explicit user pin).
+    """
+    if not _state["loaded"]:
+        load()
+    row = _state["installed"].get(engine_id) or {}
+    return {
+        "root": str(row.get("local_root") or ""),
+        "registered": bool(row.get("registered", False)),
+        "enabled": bool(row.get("enabled", False)),
+        "source": str(row.get("source") or ""),
+    }
+
+
+def set_local_registration(
+    engine_id: str,
+    *,
+    root: Optional[str] = None,
+    registered: Optional[bool] = None,
+    enabled: Optional[bool] = None,
+    source: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Patch the local-installation block of ``engine_id`` in
+    ``backends_installed.json`` and return the post-write row.
+
+    Any field passed as ``None`` is left untouched; pass an empty string
+    to clear ``root`` / ``source``. The row is created (with default
+    ``display_name`` / empty probe fields) when ``engine_id`` has no row
+    yet — useful for first-time registration before
+    :func:`refresh_engine_availability` has ever run.
+
+    Callers (EngineService.register_isaac_local, installer success path,
+    UserPanel gear button) should always go through this rather than
+    poking the JSON directly.
+    """
+    if not _state["loaded"]:
+        load()
+    payload = read_data(_INSTALLED) or {}
+    engines = dict(payload.get("engines", {}) or {})
+    row = dict(engines.get(engine_id) or {})
+    row.setdefault("display_name", _DEFAULT_DISPLAY_NAMES.get(engine_id, engine_id))
+    row.setdefault("available", False)
+    row.setdefault("enabled", False)
+    row.setdefault("version", "")
+    row.setdefault("path", "")
+    row.setdefault("local_root", "")
+    row.setdefault("registered", False)
+    row.setdefault("source", "")
+    if root is not None:
+        row["local_root"] = str(root)
+    if registered is not None:
+        row["registered"] = bool(registered)
+    if enabled is not None:
+        row["enabled"] = bool(enabled)
+    if source is not None:
+        row["source"] = str(source)
+    engines[engine_id] = row
+    payload["engines"] = engines
+    save_data(_INSTALLED, payload)
+    _state["installed"] = dict(engines)
+    return dict(row)
+
+
+# ---------------------------------------------------------------------------
+# Multi-version Isaac Lab installation registry.
+#
+# A machine may carry several Isaac Lab installs: the project-owned "base"
+# under ``PROJECT_ROOT/Engines/isaac_lab/`` (auto-installed / auto-discovered)
+# plus any number of external roots the user redirected to. All of them are a
+# per-installation physical fact, so they live in ``backends_installed.json``
+# under ``engines.isaac_lab.installations`` (a list), NOT in USER_CONFIG_DIR.
+#
+# Each entry: {"root", "version", "source", "available"}. ``is_base`` / ``drive``
+# / ``exists`` are derived at read time (not persisted) so a renamed project
+# root or a moved drive can't leave a stale flag behind.
+#
+# The legacy single-pin fields (``local_root`` / ``registered`` / ``version``)
+# are kept in sync with the primary (base, else first) entry so existing
+# readers — ``_resolve_isaac_local_root``, ``get_local_registration``,
+# ``status`` — keep working unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _norm_root(root: str) -> str:
+    """Normalise an install root for dedup/equality comparison.
+
+    Case-folded, resolved, trailing-separator stripped. Used so
+    ``D:\\IsaacLab`` and ``d:/IsaacLab/`` register as the same install.
+    """
+    s = str(root or "").strip()
+    if not s:
+        return ""
+    try:
+        s = str(Path(s).expanduser().resolve())
+    except OSError:
+        pass
+    return s.rstrip("\\/").lower()
+
+
+def _root_drive(root: str) -> str:
+    """Return the drive anchor of ``root`` (``"A:"`` on Windows, ``"/"`` POSIX)."""
+    s = str(root or "")
+    if not s:
+        return ""
+    drive = os.path.splitdrive(s)[0]
+    if drive:
+        return drive
+    # POSIX has no drive letter — surface the mount root instead.
+    return "/" if s.startswith("/") else ""
+
+
+def install_roots_equal(a: str, b: str) -> bool:
+    """True iff two install roots resolve to the same location (case/sep-insensitive)."""
+    na, nb = _norm_root(a), _norm_root(b)
+    return bool(na) and na == nb
+
+
+def is_base_isaac_root(root: str) -> bool:
+    """True iff ``root`` is the project-owned base install under ``Engines/``."""
+    base = _project_engine_root(_ISAAC_LAB_ENGINE_ID)
+    return bool(root) and _norm_root(root) == _norm_root(str(base))
+
+
+def _read_isaac_installations_raw() -> List[Dict[str, Any]]:
+    if not _state["loaded"]:
+        load()
+    row = _state["installed"].get(_ISAAC_LAB_ENGINE_ID) or {}
+    raw = row.get("installations")
+    if isinstance(raw, list):
+        return [dict(e) for e in raw if isinstance(e, dict)]
+    # Legacy single-pin → synthesise a one-entry list so first read after an
+    # upgrade still shows the previously-registered install (rule §8(c)).
+    lr = str(row.get("local_root") or "").strip()
+    if lr:
+        return [{
+            "root": lr,
+            "version": str(row.get("version") or ""),
+            "source": str(row.get("source") or "manual"),
+            "available": bool(row.get("available", False)),
+        }]
+    return []
+
+
+def _pick_primary_installation(
+    items: List[Dict[str, Any]]
+) -> Optional[Dict[str, Any]]:
+    """Base entry if present, else the first — drives the legacy single pin."""
+    for e in items:
+        if is_base_isaac_root(str(e.get("root") or "")):
+            return e
+    return items[0] if items else None
+
+
+def _write_isaac_installations(items: List[Dict[str, Any]]) -> None:
+    """Persist the installations list and keep legacy single-pin fields synced."""
+    payload = read_data(_INSTALLED) or {}
+    engines = dict(payload.get("engines", {}) or {})
+    row = dict(engines.get(_ISAAC_LAB_ENGINE_ID) or {})
+    row.setdefault(
+        "display_name",
+        _DEFAULT_DISPLAY_NAMES.get(_ISAAC_LAB_ENGINE_ID, _ISAAC_LAB_ENGINE_ID),
+    )
+    clean = [
+        {
+            "root": str(e.get("root") or ""),
+            "version": str(e.get("version") or ""),
+            "source": str(e.get("source") or "manual"),
+            "available": bool(e.get("available", False)),
+        }
+        for e in items
+        if str(e.get("root") or "").strip()
+    ]
+    row["installations"] = clean
+    primary = _pick_primary_installation(clean)
+    if primary is not None:
+        row["local_root"] = primary["root"]
+        row["registered"] = True
+        if primary.get("version"):
+            row["version"] = primary["version"]
+        row["source"] = primary.get("source") or row.get("source") or "manual"
+    else:
+        row["local_root"] = ""
+        row["registered"] = False
+    engines[_ISAAC_LAB_ENGINE_ID] = row
+    payload["engines"] = engines
+    save_data(_INSTALLED, payload)
+    _state["installed"] = dict(engines)
+
+
+def list_isaac_installations(
+    *, ensure_base: bool = True
+) -> List[Dict[str, Any]]:
+    """Return registered Isaac Lab installs, newest-API decorated.
+
+    Each item: ``{"root", "version", "source", "available", "is_base",
+    "drive", "exists"}``. ``ensure_base=True`` injects the auto-discovered
+    project base (``Engines/isaac_lab/``) at the front when it has valid
+    markers but is not yet persisted — so the management UI shows it without a
+    prior refresh. Read-only: never persists (use
+    :func:`refresh_isaac_installations` for that).
+    """
+    items = _read_isaac_installations_raw()
+    if ensure_base:
+        base = _project_engine_root(_ISAAC_LAB_ENGINE_ID)
+        if _has_isaac_markers(base) and not any(
+            _norm_root(e.get("root", "")) == _norm_root(str(base)) for e in items
+        ):
+            items.insert(
+                0, {"root": str(base), "version": "", "source": "auto",
+                    "available": False}
+            )
+    out: List[Dict[str, Any]] = []
+    for e in items:
+        root = str(e.get("root") or "")
+        if not root:
+            continue
+        exists = _has_isaac_markers(Path(root))
+        out.append({
+            "root": root,
+            "version": str(e.get("version") or ""),
+            "source": str(e.get("source") or "manual"),
+            "available": bool(e.get("available", False)),
+            "is_base": is_base_isaac_root(root),
+            "drive": _root_drive(root),
+            "exists": exists,
+        })
+    return out
+
+
+def is_isaac_root_registered(root: str) -> bool:
+    """True iff ``root`` (normalised) is already in the installations list."""
+    nr = _norm_root(root)
+    if not nr:
+        return False
+    return any(
+        _norm_root(e.get("root", "")) == nr
+        for e in list_isaac_installations(ensure_base=True)
+    )
+
+
+def register_isaac_installation(
+    root: str,
+    *,
+    version: str = "",
+    source: str = "manual",
+    available: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """Add (or update) an Isaac Lab install in the multi-version list.
+
+    Dedups on the normalised root: re-registering an existing root patches its
+    cached ``version`` / ``source`` / ``available`` instead of duplicating.
+    Returns the persisted (raw) entry. Caller is responsible for validating
+    markers (see :meth:`EngineService.register_isaac_local`).
+    """
+    items = _read_isaac_installations_raw()
+    nr = _norm_root(root)
+    for e in items:
+        if _norm_root(e.get("root", "")) == nr:
+            if version:
+                e["version"] = version
+            if source:
+                e["source"] = source
+            if available is not None:
+                e["available"] = available
+            _write_isaac_installations(items)
+            return dict(e)
+    try:
+        resolved = str(Path(root).expanduser().resolve())
+    except OSError:
+        resolved = str(root)
+    entry = {
+        "root": resolved,
+        "version": version,
+        "source": source,
+        "available": bool(available) if available is not None else False,
+    }
+    items.append(entry)
+    _write_isaac_installations(items)
+    return dict(entry)
+
+
+def unregister_isaac_installation(root: str) -> bool:
+    """Remove an install from the list. Returns True iff something was removed.
+
+    Does NOT touch the install on disk — physical removal (base uninstall) is
+    the caller's job. Removing the base entry is legal; it reappears via
+    ``ensure_base`` on next read if the directory still has markers, so a true
+    uninstall must delete the directory first.
+    """
+    items = _read_isaac_installations_raw()
+    nr = _norm_root(root)
+    kept = [e for e in items if _norm_root(e.get("root", "")) != nr]
+    if len(kept) == len(items):
+        return False
+    _write_isaac_installations(kept)
+    return True
+
+
+def refresh_isaac_installations() -> List[Dict[str, Any]]:
+    """Re-probe every registered Isaac Lab root and persist cached version/avail.
+
+    One subprocess per install (each up to ``_ISAAC_PROBE_TIMEOUT_S``) — call
+    from the management dialog / an explicit user refresh, NOT on the startup
+    hot path (:func:`refresh_engine_availability` probes only the primary root).
+    Drops entries whose directory no longer has Isaac markers and is not the
+    base (a vanished external pin), logging each drop loudly (rule §8).
+    """
+    decorated = list_isaac_installations(ensure_base=True)
+    persisted: List[Dict[str, Any]] = []
+    for e in decorated:
+        root = e["root"]
+        if e["exists"]:
+            det = _probe_isaac_root(Path(root))
+            persisted.append({
+                "root": root,
+                "version": det["version"] or e.get("version", ""),
+                "source": e.get("source") or "manual",
+                "available": det["available"],
+            })
+        elif e["is_base"]:
+            # Base directory missing markers — keep the slot but mark unavailable
+            # so the UI can offer "download" rather than silently dropping it.
+            persisted.append({
+                "root": root, "version": "", "source": "auto", "available": False,
+            })
+        else:
+            log_warning(
+                f"[backends] dropping isaac_lab install {root!r}: directory no "
+                f"longer has Isaac markers (isaaclab.sh|bat + source/)"
+            )
+    _write_isaac_installations(persisted)
+    return list_isaac_installations(ensure_base=True)
 
 
 __all__ = [
@@ -676,6 +1160,15 @@ __all__ = [
     "list_training_items",
     "list_training_assets",
     "refresh_engine_availability",
+    "get_local_registration",
+    "set_local_registration",
+    "is_base_isaac_root",
+    "install_roots_equal",
+    "list_isaac_installations",
+    "is_isaac_root_registered",
+    "register_isaac_installation",
+    "unregister_isaac_installation",
+    "refresh_isaac_installations",
     "BackendInfo",
     "get_engine_info",
     "is_available",

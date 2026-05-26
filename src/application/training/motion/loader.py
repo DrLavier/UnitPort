@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Motion loaders — ``format_id → MotionClip``.
 
 DIRECT-MIGRATE from DEMO ``src/system/training/motion/loader.py``. Two

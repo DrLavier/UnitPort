@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Sidebar -- left rail + slide-out content panel for MainWindow.
 
 Layout (top to bottom in the rail)::
@@ -1288,9 +1291,14 @@ class Sidebar(QFrame):
         label = getattr(btn, "_nav_icon_label", None)
         if icon_name is None or label is None:
             return
+        # Optional per-button tint slot (e.g. Update button flips to
+        # ``highlight`` when a new version is available). Resolved at paint
+        # time so a theme switch re-tints correctly. Defaults to ``main_t1``
+        # so the rail reads as one family.
+        tint_slot = getattr(btn, "_nav_icon_tint_slot", None) or "main_t1"
         pm = self._render_icon_pixmap(
             icon_name, self._icon_side(btn),
-            tint=Config.get_color("main_t1"),
+            tint=Config.get_color(tint_slot),
         )
         if pm is not None:
             label.setPixmap(pm)
@@ -1347,6 +1355,9 @@ class Sidebar(QFrame):
                 "You are on the latest version",
             )
         self._update_btn._nav_icon_name = new_icon
+        # Tint the "update needed" icon with the highlight accent so the rail
+        # draws the eye; reset to the default rail tint when up to date.
+        self._update_btn._nav_icon_tint_slot = "highlight" if needed else None
         self._refresh_aux_btn_icon(self._update_btn)
         text_label = getattr(self._update_btn, "_nav_text_label", None)
         if text_label is not None:

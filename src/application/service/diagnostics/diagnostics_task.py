@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DiagnosticsTask — runs a probe pipeline and emits one report.
 
 Probe execution rules:

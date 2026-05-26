@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IdlStruct definitions for ROS2 ``builtin_interfaces`` messages.
 
 Time and Duration are structurally identical (int32 sec + uint32 nanosec) per

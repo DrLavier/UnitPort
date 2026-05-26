@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Alive Bonus — Small survival bonus that encourages staying upright."""
 
 from __future__ import annotations

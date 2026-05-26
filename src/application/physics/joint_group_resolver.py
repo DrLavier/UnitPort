@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Expand a :class:`PDParam` against a robot's IR-role list.
 
 The compile-time bridge between the abstract group definition

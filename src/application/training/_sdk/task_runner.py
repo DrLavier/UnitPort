@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TrainingTask — base ``unitport_sdk.Task`` for long-running training work.
 
 Replaces DEMO's raw ``QThread`` patterns in ``sb3_trainer.py`` /

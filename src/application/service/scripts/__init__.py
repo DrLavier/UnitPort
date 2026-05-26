@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.scripts — variant resolver for training-function presets.
 
 The factory presets in ``src/scripts/{rewards,terminations,observations,

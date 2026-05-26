@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Reader for ``custom_mods/installs.txt`` -- the hot-plug install manifest.
 
 Each non-comment line of ``installs.txt`` declares one optional third-party

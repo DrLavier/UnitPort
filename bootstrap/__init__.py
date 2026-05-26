@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Project-level bootstrap helpers.
 
 The .py files here (``_check_requirements``, ``detect_ros2``,

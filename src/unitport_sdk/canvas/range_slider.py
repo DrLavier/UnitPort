@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.range_slider — 单/双手柄 range slider paint helper.
 
 替换 DEMO ``_RangeHandleSlider.paintEvent``（training_node_items.py:1473）的

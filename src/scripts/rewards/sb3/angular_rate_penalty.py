@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Angular Rate Penalty — Penalty on squared roll and pitch angular rates."""
 
 from __future__ import annotations

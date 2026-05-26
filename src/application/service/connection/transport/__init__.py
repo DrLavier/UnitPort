@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.connection.transport — transport layer.
 
 Phase 2 ships the first concrete transport (USB DATA role); Ethernet / WiFi /

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CloudManageDialog — browse / download / delete / upload the user's
 Supabase Storage ``{user_id}/...`` namespace.
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """WebRTCConnectTask -- brownfield connect over the WebRTC data channel.
 
 Sibling of :class:`application.service.ros2_connection_config.Ros2BrownfieldConnectTask`

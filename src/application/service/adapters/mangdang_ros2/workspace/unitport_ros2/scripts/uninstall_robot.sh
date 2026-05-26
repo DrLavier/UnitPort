@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # UnitPort full uninstaller — removes every UnitPort-authored artifact from
 # the robot and returns the boot path to the factory baseline. Safe to run
 # multiple times (idempotent) and safe to run on a half-installed robot.

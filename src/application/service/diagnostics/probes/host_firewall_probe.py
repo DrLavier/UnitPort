@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HostFirewallProbe — verify Windows Defender Firewall does not block DDS.
 
 CycloneDDS uses UDP for SPDP / SEDP discovery in the 7400-7500 range

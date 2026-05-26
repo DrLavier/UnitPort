@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Motion Library — manages reference motion files.
 
 Hot-pluggable assets are scanned from **two roots, always merged**:

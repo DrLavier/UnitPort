@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SensorManager — dynamic sensor activation/deactivation per SkillManifest.
 
 Manages MuJoCo sensor streams, activating and deactivating sensors as

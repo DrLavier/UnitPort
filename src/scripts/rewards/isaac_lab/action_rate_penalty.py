@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Action Rate Penalty — L2 penalty on action rate of change for smooth control."""
 
 from __future__ import annotations

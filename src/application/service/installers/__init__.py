@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Heavy-backend installers (currently Isaac Lab only).
 
 Owns the in-app installation of backends whose footprint and licence

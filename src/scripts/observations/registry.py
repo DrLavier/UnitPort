@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Observation preset aggregator — Isaac Lab only.
 
 Each observation lives in its own file under ``isaac_lab/`` and exports

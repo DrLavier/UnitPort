@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ui.py — SDK 内置 Qt 控件。
 
 整合三个原本分散的 UI 组件：
@@ -1428,7 +1431,15 @@ class LaviProgressBar(QWidget):
         return Config.get_color("sub_t2", "#777777")
 
     def _update_percent_label(self) -> None:
-        self._percent_label.setText(f"{int(round(self._ratio * 100))}%")
+        # Floor (not round) so we never advertise "100%" before the run is
+        # actually complete — e.g. step 999/1000 (ratio 0.999) would round up
+        # to 100% and mislead the user. 100% is shown only when ratio reaches
+        # 1.0, which set_state(SUCCESS) sets explicitly on completion.
+        if self._ratio >= 1.0:
+            pct = 100
+        else:
+            pct = min(99, int(self._ratio * 100))
+        self._percent_label.setText(f"{pct}%")
 
     def _update_count_label(self) -> None:
         self._count_label.setText(f"{self._current}/{self._total}")

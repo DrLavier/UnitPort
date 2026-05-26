@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HomeAccountCard — the Account tile on the homepage grid.
 
 A single class owns the entire homepage Account experience so future

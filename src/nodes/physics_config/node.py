@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """PhysicsConfigNode — 仿真时间步 + 执行器配置.
 
 DEMO 对应：``training_nodes.py:PhysicsConfigNode``.

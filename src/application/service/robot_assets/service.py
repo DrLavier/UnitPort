@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RobotAssetService — registers.robots-driven asset registry.
 
 Reads the (brand, model) catalog from registers.robots; per-asset selection +

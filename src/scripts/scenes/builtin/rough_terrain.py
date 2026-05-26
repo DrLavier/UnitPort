@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Built-in scene — rough terrain (Isaac Lab only)."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.resources — third-party asset downloader & registry.
 
 This package powers the Sidebar > Resources panel: users add a GitHub repo

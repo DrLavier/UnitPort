@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """topic_registry — declarative per-brand topic / msg_type / QoS table.
 
 Each brand adapter declares its topic surface at module-load time via

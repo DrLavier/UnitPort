@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Short-lived localhost HTTP server that catches the OAuth redirect.
 
 Loopback server (RFC 8252) is preferred over the custom URL scheme because it

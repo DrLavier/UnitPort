@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.compiler.reward_conflicts — cross-rewards term conflict detection.
 
 A canvas may carry multiple ``rewards`` nodes that all fan into the same

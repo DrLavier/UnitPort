@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 [Unit]
 Description=UnitPort robot-side state banner (LCD + LED)
 # Binds the banner to the UnitPort target lifecycle so every transition into

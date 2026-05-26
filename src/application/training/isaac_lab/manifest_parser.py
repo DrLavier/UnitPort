@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Parse Isaac Lab's exported env.yaml into a SkillManifest v2.
 
 Isaac Lab's play.py export produces an ``env.yaml`` that describes the full
@@ -747,13 +750,45 @@ def _extract_actuator_pd(
             )
             continue
 
-        required = ("stiffness", "damping", "effort_limit", "velocity_limit")
+        # Remotized actuator groups (RemotizedPDActuatorCfg) carry an
+        # angle-dependent torque ceiling via joint_parameter_lookup instead of
+        # a scalar effort_limit (which is intentionally None — IsaacLab forces
+        # it to inf and the lookup owns the ceiling; see CLAUDE.md §10 /
+        # docs/architecture/remotized_actuators.md). For the DEPLOY contract we
+        # still need a per-joint scalar: use the lookup's PEAK torque (the
+        # joint's true max capability). The angle-dependent reduction is applied
+        # at runtime via mujoco_torque_lookups, so this scalar is the fallback /
+        # max-capability value, not the operating ceiling.
+        lookup = group_cfg.get("joint_parameter_lookup")
+        is_remotized = lookup is not None
+        remotized_peak: Optional[float] = None
+        if is_remotized:
+            import numpy as _np
+            arr = _np.asarray(lookup, dtype=float)
+            if arr.ndim != 2 or arr.shape[1] < 3 or arr.shape[0] < 2:
+                raise RuntimeError(
+                    f"actuators.{group_name}.joint_parameter_lookup is malformed "
+                    f"(expected an Nx3 [angle, ratio, max_torque] array with "
+                    f"N>=2, got shape {getattr(arr, 'shape', None)})."
+                )
+            remotized_peak = float(arr[:, 2].max())
+
+        # effort_limit is required as a scalar ONLY for non-remotized groups;
+        # for remotized groups it is derived from the lookup (above).
+        required = ("stiffness", "damping", "velocity_limit") if is_remotized \
+            else ("stiffness", "damping", "effort_limit", "velocity_limit")
         missing = [k for k in required if group_cfg.get(k) is None]
         if missing:
+            extra = (
+                " (effort_limit is lookup-derived for remotized groups, so it "
+                "is not required here — but velocity_limit IS)."
+                if is_remotized else
+                ". DeployContract requires per-joint stiffness/damping/"
+                "effort_limit/velocity_limit."
+            )
             raise RuntimeError(
                 f"actuators.{group_name} is missing required field(s) "
-                f"{missing} for joints {matched}. DeployContract requires "
-                f"per-joint stiffness/damping/effort_limit/velocity_limit. "
+                f"{missing} for joints {matched}{extra} "
                 f"Fix in env_cfg_compiler or the actor_setting node."
             )
 
@@ -787,7 +822,10 @@ def _extract_actuator_pd(
             params = {
                 "stiffness": _resolve_field("stiffness", jn),
                 "damping": _resolve_field("damping", jn),
-                "effort_limit": _resolve_field("effort_limit", jn),
+                "effort_limit": (
+                    remotized_peak if is_remotized
+                    else _resolve_field("effort_limit", jn)
+                ),
                 "velocity_limit": _resolve_field("velocity_limit", jn),
                 "saturation_effort": _resolve_optional("saturation_effort", jn),
             }

@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # MIGRATION_MAP — RELEASE 27 Nodes → TrainingSpec Field Contract
 
 > **Purpose** — freeze the 1:N mapping from RELEASE's 27 fine-grained canvas

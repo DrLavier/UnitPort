@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """USBDataTransport — DATA-role HTTP+DDS channel over the libcomposite tether.
 
 Phase 2 simplification of DEMO ``usb_identity_transport.py``: stdlib-only

@@ -106,3 +106,14 @@ health.title = État du dump robot
 mjcf_offset.not_applicable = non applicable
 mjcf_offset.uncalibrated = non calibré
 
+[inline]
+col_grace = Tolérance
+col_item = Élément
+col_maxspeed = Vitesse max.
+col_name = Nom
+col_param = Valeur
+col_scale = Échelle
+col_threshold = Seuil
+col_value = Valeur
+col_weight = Poids
+

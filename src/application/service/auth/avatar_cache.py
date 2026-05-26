@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Async downloader + on-disk cache for the signed-in user's avatar.
 
 Cache lives at ``Paths.USER_CONFIG_DIR / "avatars" / "<md5(url)>.img"`` so it

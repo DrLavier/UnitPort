@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """InitPoseService — factory + user init pose presets, keyed by SKU.
 
 Factory presets ship with the canonical robot registry

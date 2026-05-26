@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """LoadingScreen -- the loading-stage page hosted inside MainWindow.
 
 This is **not** a top-level window. It is a regular ``QWidget`` that lives as

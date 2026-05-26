@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Undesired Contacts — Penalty when non-foot bodies make ground contact."""
 
 from __future__ import annotations

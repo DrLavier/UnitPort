@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """EULA acceptance tracking for in-app installers.
 
 Three responsibilities:

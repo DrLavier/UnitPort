@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """amp.algorithms — discriminator + AMP-PPO orchestrator.
 
 Lazy-attr contract: only :class:`AMPDiscriminator` is imported eagerly,

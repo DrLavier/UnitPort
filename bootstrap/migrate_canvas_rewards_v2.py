@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """One-shot canvas migrator: lower reward fan-out to per-motion-item (v2).
 
 Background — v2 reward fan-out (2026-05):

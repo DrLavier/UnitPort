@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Sidebar panels for the Scripts work-mode.
 
 In Scripts mode the sidebar rail flips to four buttons:

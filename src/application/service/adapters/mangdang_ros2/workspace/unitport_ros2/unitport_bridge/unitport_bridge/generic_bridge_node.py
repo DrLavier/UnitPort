@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """generic_bridge_node — robot-side translator between the host's generic
 /unitport/policy_action and the robot's native controller topics.
 

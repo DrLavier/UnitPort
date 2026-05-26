@@ -1,0 +1,96 @@
+# =============================================================================
+# UnitPort canonical torque-lookup schema — VERSION 1 (annotated template)
+# =============================================================================
+# THIS IS A SCHEMA TEMPLATE, NOT A DATA FILE. It documents the contract that
+# every torque-lookup data file (e.g. a brand's knee_torque_table.yaml) must
+# satisfy, and that every consumer reads through
+# `application.physics.actuators.torque_lookup.TorqueLookupTable`.
+#
+# WHAT THIS DESCRIBES
+# -----------------------------------------------------------------------------
+# A "remotized" actuator is one whose maximum output torque depends on the
+# joint's mechanical configuration (angle) rather than being a single scalar
+# box limit. The PD law itself is unchanged (τ = kp·err_pos + kd·err_vel); the
+# only difference is the per-step torque CEILING, which is looked up from the
+# table below at the joint's CURRENT angle. Boston Dynamics Spot's knee is the
+# first consumer; the mechanism is brand-agnostic.
+#
+# VERSION SEMANTICS (when the integer is bumped, when it is not)
+# -----------------------------------------------------------------------------
+#   - Bump `schema_version` ONLY on a breaking change to the field set or the
+#     interpretation of an existing field (e.g. adding asymmetric columns —
+#     see "FORWARD COMPAT" below).
+#   - Do NOT bump for new data files, new robots, or different table contents:
+#     those are data, not schema.
+#   - A reader pinned to v1 MUST reject any file whose `schema_version` != 1
+#     with explicit upgrade/downgrade guidance — it must never silently
+#     reinterpret a future file under v1 rules (that is exactly how a v2
+#     asymmetric table would be misread as symmetric and ship wrong torque).
+#
+# FORWARD COMPAT — asymmetric torque is a v2 concern, not v1
+# -----------------------------------------------------------------------------
+# v1 tables are SYMMETRIC: the table gives |τ_max| and the lower bound is
+# implicitly −|τ_max|. A future v2 will add separate
+# `max_torque_positive` / `max_torque_negative` columns for actuators whose
+# extension and flexion ceilings differ. v1 readers must REJECT v2 files
+# loudly (not coerce them), because silently treating a v2 file as symmetric
+# would apply the positive ceiling to the negative direction — a wrong-torque
+# bug that looks like a working feature. Hence `symmetric: true` is the only
+# value a v1 file may carry; `symmetric: false` is reserved for v2.
+#
+# WHY `array_ordering` HERE IS "monotonic_increasing_axis", NOT "ir_roles"
+# -----------------------------------------------------------------------------
+# Elsewhere in the PD subsystem (deploy_contract.pd_derivation, the kp/kd
+# arrays) the convention is `array_ordering: ir_roles` — arrays are parallel
+# to the joint IR-role list and matched by joint name. THIS table is a
+# DIFFERENT array with a DIFFERENT convention: its rows are ordered by the
+# AXIS VALUE (joint angle), ascending, and have nothing to do with joints or
+# IR roles. Conflating the two orderings is precisely the cross-array ordering
+# ambiguity that has bitten this codebase before (the "World B" index-vs-name
+# lesson). The loader REJECTS a table whose axis column is not strictly
+# increasing. The ordering convention belongs to the table object itself, not
+# to whatever block embeds it.
+# =============================================================================
+
+schema_version: 1
+
+# The independent variable the table is indexed by. v1 supports only joint
+# angle in radians. (String is informational + hashed into provenance; the
+# loader does not branch on it in v1.)
+axis: joint_position_rad
+
+# Interpolation between table rows. ENUM: [linear, step, cubic_spline].
+# v1 IMPLEMENTS ONLY `linear`. `step` and `cubic_spline` are reserved enum
+# values that the v1 reader REJECTS. Rationale: the IsaacLab side uses
+# `isaaclab.utils.interpolation.LinearInterpolation` (hardwired linear, with
+# zero-order-hold outside the sample range). For the MuJoCo-side ceiling to
+# match IsaacLab's at every angle, it MUST interpolate identically. Allowing a
+# non-linear method on one engine would silently diverge the two engines and
+# defeat the entire point of a single shared table. Keep it linear in v1.
+interpolation: linear
+
+# v1 tables are symmetric: the value is |τ_max|, the lower clamp is −|τ_max|.
+# Must be `true` in v1 (see FORWARD COMPAT above).
+symmetric: true
+
+# Behavior for queries outside [axis_min, axis_max]. ENUM:
+#   clamp_to_endpoint — return the nearest endpoint value (zero-order-hold).
+#                       Matches IsaacLab LinearInterpolation's extrapolation.
+#   error             — raise on any out-of-range query (use when the table is
+#                       guaranteed to cover the full joint range and an
+#                       out-of-range query signals a bug upstream).
+extrapolation: clamp_to_endpoint
+
+# Declares the row ordering. The loader enforces this: axis column must be
+# STRICTLY increasing. See "WHY array_ordering" above.
+array_ordering: monotonic_increasing_axis
+
+# The table itself: a list of [axis_value_rad, max_torque_Nm] rows.
+#   - rows sorted strictly ascending by axis_value (loader rejects otherwise)
+#   - every max_torque > 0 (loader rejects otherwise)
+#   - at least 2 rows (loader rejects otherwise)
+# The two rows below are ILLUSTRATIVE PLACEHOLDERS — a real data file carries
+# the full curve (e.g. Spot's knee: ~101 rows spanning ≈ -2.6 … 0.0 rad).
+table:
+  - [-3.14, 30.0]
+  - [ 0.00, 30.0]

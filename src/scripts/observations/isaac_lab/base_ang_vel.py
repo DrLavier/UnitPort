@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Base Ang Vel — Base angular velocity in body frame (3D)."""
 
 from __future__ import annotations

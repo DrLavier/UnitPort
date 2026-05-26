@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RealRobotConnectionCard — mission_panel 右卡片：实机连接配置.
 
 横向 2 个子区段，从左到右：

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.undo — QUndoStack 命令类 / Canvas undo commands.
 
 每个用户可见的 mutating 操作对应一个 ``QUndoCommand`` 子类。命令在 ``CanvasPage``

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Gait preset — pace (left/right pairs)."""
 
 from __future__ import annotations

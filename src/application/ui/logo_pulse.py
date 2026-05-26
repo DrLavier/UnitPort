@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Lightweight pulsing-logo widget for the startup loading overlay.
 
 Renders a static SVG once and modulates a ``QGraphicsOpacityEffect`` between

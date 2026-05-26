@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HeartbeatMatchProbe — verify the robot-side estop watchdog hears us.
 
 The robot-side ``unitport_estop`` watchdog subscribes to

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Foot Clearance — Reward for lifting feet enough to avoid stumbling during swing."""
 
 from __future__ import annotations

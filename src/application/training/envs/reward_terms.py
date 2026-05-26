@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SB3 reward & termination registry — numpy implementations.
 
 The canvas's ``rewards`` and ``terminations`` nodes serialize to:
@@ -22,7 +25,8 @@ work that fixes those env attributes.
 """
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Tuple, TYPE_CHECKING
+import functools
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 import numpy as np
 
@@ -50,6 +54,21 @@ def _weight_of(value: Any) -> float:
         return float(value)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _value_of(value: Any) -> Optional[float]:
+    """Per-item "Value" chip (a reward's function-internal param) or None.
+
+    Mirrors :func:`application.compiler.term_payload.parse_item_value`: only
+    the structured dict form carries a ``"value"`` key; scalar / absent →
+    ``None`` ("unset, use the reward's own default / auto").
+    """
+    if isinstance(value, dict) and "value" in value:
+        try:
+            return float(value.get("value"))
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +114,19 @@ def _r_angular_rate_penalty(env) -> float:
     return float(env._ang_vel[0] ** 2 + env._ang_vel[1] ** 2)
 
 
-def _r_base_height_penalty(env) -> float:
-    target = float(getattr(env._d, "target_height", 0.32))
+def _r_base_height_penalty(env, value: float = 0.0) -> float:
+    # ``value`` = the per-item "Value" chip (target standing height, m),
+    # bound in by _compile_pairs. 0.0 / unset = "auto" → the env's nominal
+    # base z (MJCF keyframe-0 / qpos0), computed once at construction. No
+    # silent 0.32 magic (CLAUDE.md §8) and no reach-back to the Robot node.
+    target = float(value) if value and value > 0.0 else float(env._nominal_base_z)
     return float((env._base_pos[2] - target) ** 2)
+
+
+# Reward keys whose function takes a per-item "Value" chip (function-internal
+# param). _compile_pairs binds the decoded value into the fn so the runtime
+# closure keeps the uniform ``(env) -> float`` contract.
+_VALUE_AWARE_REWARDS = frozenset({"base_height_penalty"})
 
 
 def _r_joint_torque_penalty(env) -> float:
@@ -227,6 +256,11 @@ def _compile_pairs(terms: Any) -> List[Tuple[str, EnvRewardFn, float]]:
                     f"Known: {sorted(_REWARD_FNS)}"
                 )
             continue
+        # Bind the per-item "Value" chip into value-aware reward fns so the
+        # runtime closure stays ``(env) -> float``. Unset → 0.0 ("auto").
+        if str(key) in _VALUE_AWARE_REWARDS:
+            v = _value_of(val)
+            fn = functools.partial(fn, value=float(v) if v is not None else 0.0)
         pairs.append((str(key), fn, weight))
     return pairs
 

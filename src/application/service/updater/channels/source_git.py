@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SourceGitChannel — update by switching to a release tag in a git checkout.
 
 Preconditions: ``PROJECT_ROOT/.git/`` exists AND ``git`` is on PATH.

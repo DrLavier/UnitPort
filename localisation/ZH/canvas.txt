@@ -106,3 +106,14 @@ health.title = 机器人导出健康状态
 mjcf_offset.not_applicable = 不适用
 mjcf_offset.uncalibrated = 未校准
 
+[inline]
+col_grace = 宽限
+col_item = 项目
+col_maxspeed = 最大速度
+col_name = 名称
+col_param = 值
+col_scale = 缩放
+col_threshold = 阈值
+col_value = 值
+col_weight = 权重
+

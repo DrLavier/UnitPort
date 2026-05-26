@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ProjectsPanel — project picker + flat Canvas files list.
 
 The panel is two-pieced:

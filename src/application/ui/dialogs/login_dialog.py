@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """LoginDialog — Supabase sign-in / sign-up modal for the Sidebar User panel.
 
 Triggered by UserPanel when the user is signed out and clicks Sign in.

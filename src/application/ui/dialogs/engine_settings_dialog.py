@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """EngineSettingsDialog — manage cloud servers for a single engine.
 
 Opened from the User panel's "cloud settings" gear button. Lets the user add /

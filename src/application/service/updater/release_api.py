@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """GitHub Releases REST wrapper.
 
 Pure-httpx, no Qt. Mirrors the error-handling shape of

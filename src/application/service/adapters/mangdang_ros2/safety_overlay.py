@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Mangdang Mini Pupper v2 — teleop safety envelope.
 
 Hard-clamps the user-supplied Twist before it hits the bridge so a jittery

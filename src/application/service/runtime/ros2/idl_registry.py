@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IDL type registry for NativeDDSBridge.
 
 Resolves ROS2 msg_type strings (e.g. ``geometry_msgs/msg/Twist``) to

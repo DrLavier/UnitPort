@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Lateral Penalty — Penalty for sideways drift when forward tracking is desired."""
 
 from __future__ import annotations

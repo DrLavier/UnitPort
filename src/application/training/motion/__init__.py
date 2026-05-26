@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.motion — Reference-motion pipeline.
 
 Stage 5 — receive, validate, and surface reference motion clips for the

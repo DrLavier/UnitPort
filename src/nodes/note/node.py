@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """NoteNode — Canvas annotation card.
 
 不参与 IR lowering / 编译执行；编译器对未知 schema_id 的 dispatch 是静默跳过。

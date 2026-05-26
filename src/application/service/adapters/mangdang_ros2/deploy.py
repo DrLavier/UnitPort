@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """mangdang_ros2/deploy.py — first-time deploy of unitport bringup.
 
 Phase 3.7 invasive RepairAction. Fires when

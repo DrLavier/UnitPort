@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """GamepadInputSource — pygame.joystick poll thread feeding a CommandBus.
 
 Polls the first available joystick at 60 Hz on a QThread:

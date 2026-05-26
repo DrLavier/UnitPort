@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.brands — 品牌 / 适配器 索引 / Brand & adapter index.
 
 合并自原 brands/ 子目录 / Merged from former brands/ subdir:
@@ -24,6 +27,9 @@ from unitport_sdk import Paths, log_warning, read_data
 _DATA_DIR = Paths.REGISTERS_DIR / "data"
 _PACKAGES = _DATA_DIR / "brands_packages.json"
 _ADAPTERS = _DATA_DIR / "brands_adapters.yaml"
+# Per-robot brand DATA tree (remotized-actuator tables + manifests, etc.).
+# DATA ONLY — see registers/brands/<brand>/<model>/README.md.
+_BRANDS_TREE = Paths.REGISTERS_DIR / "brands"
 
 _state: Dict[str, Any] = {
     "loaded": False,
@@ -82,6 +88,38 @@ def get_adapter_class(adapter_id: str) -> Optional[str]:
     return _state["adapters_built_in"].get(adapter_id)
 
 
+def remotized_manifest(brand: str, model: str) -> Optional[Dict[str, Any]]:
+    """Load ``registers/brands/<brand>/<model>/manifest.yaml`` or ``None``.
+
+    Returns the parsed remotized-actuator manifest for a robot, with each
+    ``remotized_joints[*]`` entry augmented with an absolute
+    ``lookup_table_path`` (resolved against the manifest directory) so callers
+    need not reconstruct the brand-data layout. ``None`` when the robot has no
+    such declaration — that is the normal case for non-remotized robots, NOT
+    an error.
+
+    DATA ONLY: this reads a data file; it carries no brand-specific logic
+    (CLAUDE.md §1). The mechanism is generic ("remotized actuator with a
+    torque lookup table"); the brand contributes only the table + manifest.
+    """
+    b = str(brand or "").strip().lower()
+    m = str(model or "").strip().lower()
+    if not b or not m:
+        return None
+    bdir = _BRANDS_TREE / b / m
+    mpath = bdir / "manifest.yaml"
+    if not mpath.is_file():
+        return None
+    data = read_data(mpath)
+    if not isinstance(data, dict):
+        log_warning(f"[brands] remotized manifest is not a mapping: {mpath}")
+        return None
+    for entry in data.get("remotized_joints", []) or []:
+        if isinstance(entry, dict) and entry.get("lookup_table"):
+            entry["lookup_table_path"] = str(bdir / entry["lookup_table"])
+    return data
+
+
 def get_host_adapter_class(adapter_id: str) -> Optional[str]:
     """Return the host-side dotted-path for ``adapter_id`` or None.
 
@@ -109,4 +147,5 @@ __all__ = [
     "get_adapter_class",
     "get_host_adapter_class",
     "list_host_built_in_adapters",
+    "remotized_manifest",
 ]

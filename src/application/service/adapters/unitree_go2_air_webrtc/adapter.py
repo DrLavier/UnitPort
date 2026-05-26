@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Go2AirWebRTCAdapter -- Unitree Go2 Air host-side adapter.
 
 Sibling of :class:`MangdangROS2Adapter` but sits on a different transport

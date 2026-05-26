@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.param_rows — 节点参数行（custom paint）/ Node parameter rows.
 
 20 种 ``ParamRow`` 子类，全部 ``QGraphicsItem`` 自绘，绝无 ``QGraphicsProxyWidget``。
@@ -1476,6 +1479,18 @@ class CodeRow(ParamRow):
         else:
             text = str(v or "")
             language = str(meta.get("language", "python"))
+            # Pretty-print compact JSON *strings* too (e.g. the default "{}",
+            # or a value reloaded from disk as a single-line string) so the
+            # editor opens with indentation/newlines instead of one cramped
+            # line. If the string isn't valid JSON (user mid-edit), leave it
+            # untouched so they can see and fix the raw text.
+            if language == "json" and text.strip():
+                try:
+                    text = json.dumps(
+                        json.loads(text), indent=2, ensure_ascii=False
+                    )
+                except (json.JSONDecodeError, ValueError):
+                    pass
 
         def _commit(new_text: str) -> None:
             if language == "json":
@@ -4257,6 +4272,7 @@ _INL_GAP = 4
 _INL_KEY_GAP = 8       # gap between header "key:" text and the selector picker
 _INL_HDR_TOP_PAD = 2   # top breathing space above header
 _INL_HDR_BOT_PAD = 4   # gap between header and the table frame
+_INL_COLHDR_H = 15     # column-header strip height inside the frame (Name/Value/Grace labels)
 _INL_LANE_HDR_H = 20   # phase-lane header height (when phase_aware=true)
 _INL_LANE_EMPTY_H = 26 # phase-lane "uncovered" placeholder height (warning state)
 _INL_LANE_COVERED_H = 14  # phase-lane "covered by unconditional" hint height (informational)
@@ -4266,6 +4282,8 @@ _INL_CHIP_PAD_X = 6    # chip horizontal padding around its text
 _INL_CHIP_GAP = 3      # gap between adjacent chips
 _INL_PHASE_BTN_W = 30  # phase-summary chip button width on each reward row (phase-aware mode)
 _INL_PHASE_BTN_GAP = 4 # gap between phase-summary chip button and slider/value
+_INL_GRACE_BTN_W = 48  # grace-period chip width on termination rows (fits "0.25s" + unit)
+_INL_VALUE_BTN_W = 48  # value-param chip width on reward rows (fits "0.45m" + unit)
 _PHASE_UNCONDITIONAL = "__unconditional__"  # synthetic lane id for applies_to == []
 
 
@@ -4408,6 +4426,8 @@ class _InlineTableRow(ParamRow):
     def _compute_height(self) -> int:
         n = len(self._row_payloads)
         body = (n if n > 0 else 1) * _INL_ROW_H + _INL_FRAME_PAD * 2
+        if n > 0:
+            body += _INL_COLHDR_H  # column-header strip inside the frame
         return _INL_HDR_TOP_PAD + _INL_HDR_H + _INL_HDR_BOT_PAD + body + 2
 
     # ---- 几何（full-width，跨 key + value 两列）----
@@ -4474,10 +4494,18 @@ class _InlineTableRow(ParamRow):
 
     def _row_rect(self, idx: int) -> QRectF:
         f = self._frame_rect()
-        y = f.top() + _INL_FRAME_PAD + idx * _INL_ROW_H
+        y = f.top() + _INL_FRAME_PAD + _INL_COLHDR_H + idx * _INL_ROW_H
         return QRectF(
             f.left() + _INL_FRAME_PAD, y,
             f.width() - _INL_FRAME_PAD * 2, _INL_ROW_H,
+        )
+
+    def _col_header_rect(self) -> QRectF:
+        """The column-header strip at the top of the frame (Name/Value/…)."""
+        f = self._frame_rect()
+        return QRectF(
+            f.left() + _INL_FRAME_PAD, f.top() + _INL_FRAME_PAD,
+            f.width() - _INL_FRAME_PAD * 2, float(_INL_COLHDR_H),
         )
 
     def _row_badge_rect(self, idx: int) -> QRectF:
@@ -4485,22 +4513,41 @@ class _InlineTableRow(ParamRow):
         bw = min(float(_INL_BADGE_W), r.height() - 8)
         return QRectF(r.left(), r.top() + (r.height() - bw) * 0.5, bw, bw)
 
+    def _row_right_reserved(self, idx: int) -> float:
+        """Width reserved at the row's right edge for optional chips drawn to
+        the RIGHT of the value button (e.g. the termination grace chip).
+        Default 0 — the value button sits flush at the right. Subclasses
+        override to shift the value column left and make room."""
+        return 0.0
+
+    def _row_name_right(self, idx: int) -> float:
+        """X coordinate where the (flexible) name column must stop. Default:
+        just left of the value button. Subclasses that draw a chip to the
+        LEFT of the value (e.g. the reward phase chip) override to stop the
+        name before that chip."""
+        return self._row_value_rect(idx).left() - _INL_GAP
+
     def _row_name_rect(self, idx: int) -> QRectF:
+        # v2 (slider removed): columns are FIXED-width with priority
+        # value > grace > name. The value/grace columns reserve their fixed
+        # widths first; the name column takes exactly the remainder (no
+        # min/max clamp) and truncates with an ellipsis (full text on hover).
         r = self._row_rect(idx)
-        return QRectF(
-            r.left() + _INL_BADGE_W + _INL_GAP, r.top(),
-            float(_INL_NAME_W), r.height(),
-        )
+        x0 = r.left() + _INL_BADGE_W + _INL_GAP
+        x1 = self._row_name_right(idx)
+        return QRectF(x0, r.top(), x1 - x0, r.height())
 
     def _row_slider_rect(self, idx: int) -> QRectF:
-        r = self._row_rect(idx)
-        x_start = r.left() + _INL_BADGE_W + _INL_GAP + _INL_NAME_W + _INL_GAP
-        x_end = r.right() - _INL_VAL_W - _INL_GAP
-        return QRectF(x_start, r.top() + 6, max(20.0, x_end - x_start), r.height() - 12)
+        # v2: per-row sliders were removed (node width is tight; the value
+        # button is the sole weight editor). Empty rect → no draw, no drag
+        # hit-test in mousePressEvent. Kept as a method so callers that still
+        # reference it degrade to a no-op.
+        return QRectF()
 
     def _row_value_rect(self, idx: int) -> QRectF:
         r = self._row_rect(idx)
-        return QRectF(r.right() - _INL_VAL_W, r.top(), float(_INL_VAL_W), r.height())
+        x_right = r.right() - self._row_right_reserved(idx)
+        return QRectF(x_right - _INL_VAL_W, r.top(), float(_INL_VAL_W), r.height())
 
     # ---- 命中测试 ----
 
@@ -4539,6 +4586,7 @@ class _InlineTableRow(ParamRow):
             self._paint_empty_text(painter)
             return
         self._paint_frame(painter)
+        self._paint_col_header(painter)
         for idx, payload in enumerate(self._row_payloads):
             try:
                 self._paint_row(painter, idx, payload)
@@ -4638,6 +4686,91 @@ class _InlineTableRow(ParamRow):
 
     def _empty_text(self) -> str:
         return tr("canvas.row.no_items", "(no items)")
+
+    # ---- 列表头 / column header ----
+
+    def _col_name_label(self) -> str:
+        return tr("canvas.inline.col_name", "Name")
+
+    def _col_value_label(self) -> str:
+        return tr("canvas.inline.col_value", "Value")
+
+    def _col_grace_label(self) -> str:
+        return tr("canvas.inline.col_grace", "Grace")
+
+    def _has_grace_col(self) -> bool:
+        """Subclass override — True when a grace column is drawn."""
+        return False
+
+    def _paint_col_header(self, painter: QPainter) -> None:
+        """Column titles aligned to the value / name / grace columns.
+
+        Labels are right/left aligned to match their column and elide when
+        the (fixed) column is too narrow — same truncation contract as the
+        cells. A thin rule separates the header from the rows.
+        """
+        if not self._row_payloads:
+            return
+        hdr = self._col_header_rect()
+        # Column x-positions are identical to row 0 (only y differs).
+        name_r = self._row_name_rect(0)
+        val_r = self._row_value_rect(0)
+        color = QColor(Config.get_color("main_c2", "#888888"))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(color))
+        fm = QFontMetricsF(font)
+        # Name (left-aligned over the name column).
+        nx = QRectF(name_r.left(), hdr.top(), name_r.width(), hdr.height())
+        painter.drawText(
+            nx, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            fm.elidedText(self._col_name_label(), Qt.TextElideMode.ElideRight, max(0.0, nx.width())),
+        )
+        # Value (right-aligned over the value column).
+        vx = QRectF(val_r.left(), hdr.top(), val_r.width(), hdr.height())
+        painter.drawText(
+            vx, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+            fm.elidedText(self._col_value_label(), Qt.TextElideMode.ElideRight, max(0.0, vx.width())),
+        )
+        # Grace (centered over the grace column), when present.
+        if self._has_grace_col():
+            try:
+                g = self._row_grace_btn_rect(0)
+                gx = QRectF(g.left(), hdr.top(), g.width(), hdr.height())
+                painter.drawText(
+                    gx, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+                    fm.elidedText(self._col_grace_label(), Qt.TextElideMode.ElideRight, max(0.0, gx.width())),
+                )
+            except Exception:
+                pass
+        # Separator rule under the header.
+        sep = QColor(Config.get_color("border_1", "#444444"))
+        sep.setAlpha(160)
+        painter.setPen(QPen(sep, 0.8))
+        painter.drawLine(QPointF(hdr.left() + 2, hdr.bottom()), QPointF(hdr.right() - 2, hdr.bottom()))
+
+    # ---- hover tooltip (full text for truncated cells) ----
+
+    def _row_tooltip(self, idx: int) -> str:
+        """Subclass override — full (un-truncated) text for the hovered row."""
+        return ""
+
+    def hoverMoveEvent(self, event):  # type: ignore[override]
+        self._update_inline_tooltip(event.pos())
+        super().hoverMoveEvent(event)
+
+    def hoverLeaveEvent(self, event):  # type: ignore[override]
+        self.setToolTip("")
+        super().hoverLeaveEvent(event)
+
+    def _update_inline_tooltip(self, pos: QPointF) -> None:
+        for idx in range(len(self._row_payloads)):
+            if self._row_rect(idx).contains(pos):
+                self.setToolTip(self._row_tooltip(idx))
+                return
+        self.setToolTip("")
 
     # ---- 子类钩子 ----
 
@@ -4862,12 +4995,28 @@ class RegistryModuleInlineRow(_InlineTableRow):
                 applies = [str(s).strip() for s in applies_raw if str(s).strip()]
             else:
                 applies = []
+            # Per-condition grace_period_s (termination grace window). 0 / absent
+            # for the legacy scalar form and non-grace kinds.
+            try:
+                from application.compiler.term_payload import parse_grace_period
+                grace_s = float(parse_grace_period(val))
+            except Exception:
+                grace_s = 0.0
+            # Per-item "Value" (a reward's function-internal param, e.g.
+            # base_height target_height). None = unset → reward default.
+            try:
+                from application.compiler.term_payload import parse_item_value
+                item_value = parse_item_value(val)
+            except Exception:
+                item_value = None
             payloads.append({
                 "key": key,
                 "weight": weight,
                 "item": self._lookup_item(key),
                 "meta": val if isinstance(val, dict) else {},
                 "applies_to": applies,
+                "grace_period_s": grace_s,
+                "value": item_value,
             })
         if self._is_phase_aware():
             payloads = self._sort_payloads_by_phase(payloads)
@@ -5159,22 +5308,120 @@ class RegistryModuleInlineRow(_InlineTableRow):
     # chip button (slider right edge = chip-button left edge − gap).
     # ------------------------------------------------------------------
 
-    def _row_slider_rect(self, idx: int) -> QRectF:
-        base = super()._row_slider_rect(idx)
-        if not self._is_phase_aware():
-            return base
-        new_w = max(
-            20.0,
-            base.width() - (float(_INL_PHASE_BTN_W) + float(_INL_PHASE_BTN_GAP)),
+    def _row_right_reserved(self, idx: int) -> float:
+        # Reserve the RIGHTMOST chip column TABLE-WIDE so the weight column
+        # aligns vertically across every row. Terminations reserve the grace
+        # column; rewards reserve the value-param column. The two never
+        # coexist on one node (reward vs termination kind).
+        if self._supports_grace():
+            return float(_INL_GRACE_BTN_W) + float(_INL_PHASE_BTN_GAP)
+        if self._has_value_col():
+            return float(_INL_VALUE_BTN_W) + float(_INL_PHASE_BTN_GAP)
+        return 0.0
+
+    def _row_name_right(self, idx: int) -> float:
+        # Reward phase chip sits to the LEFT of the weight button → name stops
+        # before it. Otherwise the name stops just left of the weight column
+        # (the value-param / grace chips live to the RIGHT of weight, handled
+        # via _row_right_reserved, so they don't affect the name's right edge).
+        if self._is_phase_aware():
+            return self._row_phase_btn_rect(idx).left() - _INL_GAP
+        return super()._row_name_right(idx)
+
+    # ------------------------------------------------------------------
+    # Grace-period chip (termination rows on grace-supporting nodes).
+    # Mirrors the phase-button affordance: an always-visible clickable
+    # chip in the slider→value gap that opens a numeric popup for the
+    # per-condition ``grace_period_s`` (seconds). time_out is excluded
+    # (its grace is meaningless — it IS the episode-length cutoff).
+    # ------------------------------------------------------------------
+
+    def _supports_grace(self) -> bool:
+        # Grace applies to terminations (a transient settle window before the
+        # condition can fire). Gate on kind alone — robust to whether the
+        # node manifest's ``supports_grace_period`` meta flag reached this
+        # spec (the flag is informational; kind is the contract).
+        return self._kind() == "termination"
+
+    def _row_supports_grace(self, payload: dict) -> bool:
+        return self._supports_grace() and str(payload.get("key", "")) != "time_out"
+
+    def _row_grace_btn_rect(self, idx: int) -> QRectF:
+        # Rightmost column: [name | value | grace].
+        r = self._row_rect(idx)
+        x_right = r.right()
+        x_left = x_right - float(_INL_GRACE_BTN_W)
+        y = r.top() + (r.height() - float(_INL_CHIP_H)) * 0.5
+        return QRectF(x_left, y, float(_INL_GRACE_BTN_W), float(_INL_CHIP_H))
+
+    def _paint_row_grace_button(self, painter: QPainter, idx: int, payload: dict) -> None:
+        rect = self._row_grace_btn_rect(idx)
+        grace = float(payload.get("grace_period_s", 0.0) or 0.0)
+        active = grace > 0.0
+        # Always show the unit (seconds) so the field is self-explanatory:
+        # "0s" (unset) / "0.5s" (set). `:g` keeps it compact in the column.
+        label = f"{grace:g}s"
+        # Background is the ORIGINAL chip bg (btn_1) in EVERY state — the
+        # "set" state is conveyed by HIGHLIGHTING THE TEXT (system.ini
+        # ``highlight`` slot), never by recolouring the background (rule §5).
+        bg = QColor(Config.get_color("btn_1", "#343636"))
+        fg = QColor(Config.get_color("highlight", "#F6D393")) if active else \
+            QColor(Config.get_color("main_c2", "#999999"))
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 0.8))
+        painter.drawRoundedRect(rect, 3, 3)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(fg))
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), label)
+
+    def _set_grace_period(self, idx: int, payload: dict, grace_s: float) -> None:
+        """Write ``grace_period_s`` back into the conditions dict.
+
+        Mirrors :meth:`_set_applies_to` — upgrades a legacy scalar to the
+        structured ``{"weight": ...}`` shape, then sets/clears grace. Collapses
+        back to a bare scalar when only ``weight`` remains, to keep canvas-JSON
+        diffs minimal (matches ``serialize_term_payload``).
+        """
+        grace_s = max(0.0, float(grace_s))
+        payload["grace_period_s"] = grace_s
+        d = _parse_dict_value(self._value) or {}
+        cur = d.get(payload["key"])
+        if isinstance(cur, dict):
+            cur = dict(cur)
+        else:
+            cur = {"weight": float(payload.get("weight", 0.0) or 0.0)}
+        if grace_s > 0.0:
+            cur["grace_period_s"] = grace_s
+        else:
+            cur.pop("grace_period_s", None)
+        if set(cur.keys()) == {"weight"}:
+            d[payload["key"]] = cur["weight"]
+        else:
+            d[payload["key"]] = cur
+        self.set_value(_serialize_for_spec(self.spec, d))
+
+    def _open_grace_popup(self, idx: int, event: QGraphicsSceneMouseEvent) -> None:
+        payload = self._row_payloads[idx]
+        cur = float(payload.get("grace_period_s", 0.0) or 0.0)
+        open_number_popup(
+            view=_view_of(event), row=self,
+            value=cur, is_int=False,
+            minimum=0.0, maximum=10.0,
+            on_commit=lambda v, _i=idx, _p=payload: (
+                self._set_grace_period(_i, _p, float(v)), self.update(),
+            ),
+            sub_rect=self._row_grace_btn_rect(idx),
         )
-        return QRectF(base.left(), base.top(), new_w, base.height())
 
     def _row_phase_btn_rect(self, idx: int) -> QRectF:
-        """Phase-summary chip button at the right end of a reward row.
-
-        Positioned in the gap between the slider (now shorter — see
-        ``_row_slider_rect``) and the value button. Single hit target
-        for opening the phase multi-select popup.
+        """Phase-summary chip button on a reward row, immediately left of the
+        weight button (the value-param column sits to the RIGHT of weight,
+        reserved table-wide via _row_right_reserved). Single hit target for
+        opening the phase multi-select popup.
         """
         r = self._row_rect(idx)
         val = self._row_value_rect(idx)
@@ -5182,6 +5429,152 @@ class RegistryModuleInlineRow(_InlineTableRow):
         x_left = x_right - float(_INL_PHASE_BTN_W)
         y = r.top() + (r.height() - float(_INL_CHIP_H)) * 0.5
         return QRectF(x_left, y, float(_INL_PHASE_BTN_W), float(_INL_CHIP_H))
+
+    # ------------------------------------------------------------------
+    # Value-param chip (reward rows whose registry item declares a
+    # function-internal tunable param, e.g. base_height target_height).
+    # Mirrors the grace chip: an always-visible clickable chip just left
+    # of the weight button that opens a numeric popup for the per-item
+    # "Value". std/threshold reward-shaping knobs are NOT this field.
+    # ------------------------------------------------------------------
+
+    def _supports_value(self) -> bool:
+        # Gate on kind=="reward" AND any row carrying a value-bearing item.
+        if self._kind() != "reward":
+            return False
+        return any(self._row_supports_value(p) for p in self._row_payloads)
+
+    def _row_supports_value(self, payload: dict) -> bool:
+        if self._kind() != "reward":
+            return False
+        item = payload.get("item")
+        return bool(
+            item is not None
+            and str(getattr(item, "il_value_label", "") or "").strip()
+        )
+
+    def _has_value_col(self) -> bool:
+        return self._supports_value()
+
+    def _row_value_param_rect(self, idx: int) -> QRectF:
+        # Reward value-param chip: RIGHTMOST column [name | weight | value].
+        # Reserved table-wide (when the table has a Value column) via
+        # _row_right_reserved so the weight column stays vertically aligned;
+        # only value-bearing rows actually paint a chip here.
+        r = self._row_rect(idx)
+        x_right = r.right()
+        x_left = x_right - float(_INL_VALUE_BTN_W)
+        y = r.top() + (r.height() - float(_INL_CHIP_H)) * 0.5
+        return QRectF(x_left, y, float(_INL_VALUE_BTN_W), float(_INL_CHIP_H))
+
+    def _paint_row_value_param_button(
+        self, painter: QPainter, idx: int, payload: dict
+    ) -> None:
+        rect = self._row_value_param_rect(idx)
+        item = payload.get("item")
+        unit = str(getattr(item, "il_value_unit", "") or "")
+        default = float(getattr(item, "il_value_default", 0.0) or 0.0)
+        raw = payload.get("value")
+        cur = float(raw) if raw is not None else default
+        # "Set" = an explicit value differing from the registry default.
+        active = raw is not None and float(raw) != default
+        label = f"{cur:g}{unit}"
+        # Background = btn_1 in EVERY state; "set" is conveyed by HIGHLIGHTING
+        # THE TEXT (system.ini ``highlight``), never recolouring bg (rule §5).
+        bg = QColor(Config.get_color("btn_1", "#343636"))
+        fg = QColor(Config.get_color("highlight", "#F6D393")) if active else \
+            QColor(Config.get_color("main_c2", "#999999"))
+        border = QColor(Config.get_color("border_1", "#444444"))
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(border, 0.8))
+        painter.drawRoundedRect(rect, 3, 3)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(fg))
+        fm = QFontMetricsF(font)
+        painter.drawText(
+            rect, int(Qt.AlignmentFlag.AlignCenter),
+            fm.elidedText(label, Qt.TextElideMode.ElideRight, max(0.0, rect.width() - 4)),
+        )
+
+    def _set_item_value(self, idx: int, payload: dict, value: float) -> None:
+        """Write the per-item ``value`` back into the reward_terms dict.
+
+        Mirrors :meth:`_set_grace_period`: upgrade a legacy scalar to the
+        structured ``{"weight": ...}`` shape, store ``value`` only when it
+        DIFFERS from the registry default (collapse back to a bare scalar
+        otherwise) so canvas-JSON diffs stay minimal and ``value == default``
+        round-trips to "auto" (matches ``serialize_term_payload``).
+        """
+        item = payload.get("item")
+        default = float(getattr(item, "il_value_default", 0.0) or 0.0)
+        value = float(value)
+        d = _parse_dict_value(self._value) or {}
+        cur = d.get(payload["key"])
+        if isinstance(cur, dict):
+            cur = dict(cur)
+        else:
+            cur = {"weight": float(payload.get("weight", 0.0) or 0.0)}
+        if value != default:
+            cur["value"] = value
+            payload["value"] = value
+        else:
+            cur.pop("value", None)
+            payload["value"] = None
+        if set(cur.keys()) == {"weight"}:
+            d[payload["key"]] = cur["weight"]
+        else:
+            d[payload["key"]] = cur
+        self.set_value(_serialize_for_spec(self.spec, d))
+
+    def _open_item_value_popup(self, idx: int, event: QGraphicsSceneMouseEvent) -> None:
+        # NOTE: deliberately NOT named ``_open_value_popup`` — that base-class
+        # method opens the WEIGHT popup (called from _handle_click on the
+        # weight cell). Shadowing it routed weight clicks into the value editor.
+        payload = self._row_payloads[idx]
+        item = payload.get("item")
+        default = float(getattr(item, "il_value_default", 0.0) or 0.0)
+        lo = float(getattr(item, "il_value_min", 0.0) or 0.0)
+        hi = float(getattr(item, "il_value_max", 0.0) or 0.0)
+        raw = payload.get("value")
+        cur = float(raw) if raw is not None else default
+        open_number_popup(
+            view=_view_of(event), row=self,
+            value=cur, is_int=False,
+            minimum=lo, maximum=hi,
+            on_commit=lambda v, _i=idx, _p=payload: (
+                self._set_item_value(_i, _p, float(v)), self.update(),
+            ),
+            sub_rect=self._row_value_param_rect(idx),
+        )
+
+    def _col_param_label(self) -> str:
+        return tr("canvas.inline.col_param", "Value")
+
+    def _paint_col_header(self, painter: QPainter) -> None:  # type: ignore[override]
+        super()._paint_col_header(painter)
+        # Add the value-param column title (centered over the chip column).
+        if not self._row_payloads or not self._has_value_col():
+            return
+        try:
+            hdr = self._col_header_rect()
+            pr = self._row_value_param_rect(0)
+            color = QColor(Config.get_color("main_c2", "#888888"))
+            font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+            font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QPen(color))
+            fm = QFontMetricsF(font)
+            px = QRectF(pr.left(), hdr.top(), pr.width(), hdr.height())
+            painter.drawText(
+                px, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+                fm.elidedText(self._col_param_label(), Qt.TextElideMode.ElideRight, max(0.0, px.width())),
+            )
+        except Exception:
+            pass
 
     def _paint_phase_lanes(self, painter: QPainter) -> None:
         """Paint lane headers + empty-lane placeholders.
@@ -5365,6 +5758,16 @@ class RegistryModuleInlineRow(_InlineTableRow):
         if self._is_phase_aware():
             for i in range(len(self._row_payloads)):
                 regions.append(self._row_phase_btn_rect(i))
+        elif self._supports_grace():
+            for i, p in enumerate(self._row_payloads):
+                if self._row_supports_grace(p):
+                    regions.append(self._row_grace_btn_rect(i))
+        # Value-param chips coexist with the phase chip (rewards) — always
+        # register them for value-bearing rows when the table has the column.
+        if self._has_value_col():
+            for i, p in enumerate(self._row_payloads):
+                if self._row_supports_value(p):
+                    regions.append(self._row_value_param_rect(i))
         return regions
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:  # type: ignore[override]
@@ -5372,6 +5775,17 @@ class RegistryModuleInlineRow(_InlineTableRow):
         # multi-select popup *before* the base class hits its slider
         # drag detection. Drop straight through to ``super()`` outside
         # phase-aware mode.
+        # Value-param chip click (reward rows) — checked first since it can
+        # coexist with the phase chip in phase-aware reward mode.
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._has_value_col()
+        ):
+            for idx, p in enumerate(self._row_payloads):
+                if self._row_supports_value(p) and self._row_value_param_rect(idx).contains(event.pos()):
+                    self._open_item_value_popup(idx, event)
+                    event.accept()
+                    return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._is_phase_aware()
@@ -5379,6 +5793,17 @@ class RegistryModuleInlineRow(_InlineTableRow):
             for idx in range(len(self._row_payloads)):
                 if self._row_phase_btn_rect(idx).contains(event.pos()):
                     self._open_phase_selector_popup(idx, event)
+                    event.accept()
+                    return
+        # Grace chip click (termination rows) — intercept before the base
+        # slider-drag detection, since the chip sits in the slider→value gap.
+        elif (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._supports_grace()
+        ):
+            for idx, p in enumerate(self._row_payloads):
+                if self._row_supports_grace(p) and self._row_grace_btn_rect(idx).contains(event.pos()):
+                    self._open_grace_popup(idx, event)
                     event.accept()
                     return
         super().mousePressEvent(event)
@@ -5493,6 +5918,51 @@ class RegistryModuleInlineRow(_InlineTableRow):
             d[payload["key"]] = v
         self.set_value(_serialize_for_spec(self.spec, d))
 
+    # ---- column header labels + hover tooltip ----
+
+    def _col_value_label(self) -> str:
+        k = self._kind()
+        if k == "termination":
+            return tr("canvas.inline.col_threshold", "Threshold")
+        if k == "observation":
+            return tr("canvas.inline.col_scale", "Scale")
+        return tr("canvas.inline.col_weight", "Weight")
+
+    def _has_grace_col(self) -> bool:
+        return self._supports_grace() and any(
+            self._row_supports_grace(p) for p in self._row_payloads
+        )
+
+    def _row_tooltip(self, idx: int) -> str:
+        try:
+            payload = self._row_payloads[idx]
+        except (IndexError, TypeError):
+            return ""
+        item = payload.get("item")
+        meta = payload.get("meta") or {}
+        title = str(meta.get("title", "") or "").strip() if isinstance(meta, dict) else ""
+        if not title and item is not None:
+            title = str(getattr(item, "title", "") or "").strip()
+        if not title:
+            title = str(payload.get("key", ""))
+        lines = [title, f"{self._col_value_label()}: {payload.get('weight', 0.0)}"]
+        if self._row_supports_value(payload):
+            item = payload.get("item")
+            label = str(getattr(item, "il_value_label", "") or "Value")
+            unit = str(getattr(item, "il_value_unit", "") or "")
+            raw = payload.get("value")
+            if raw is None:
+                lines.append(f"{label}: auto")
+            else:
+                lines.append(f"{label}: {float(raw):g}{unit}")
+        if self._row_supports_grace(payload):
+            g = float(payload.get("grace_period_s", 0.0) or 0.0)
+            lines.append(
+                f"{self._col_grace_label()}: {g:.2f}s" if g > 0
+                else f"{self._col_grace_label()}: off"
+            )
+        return "\n".join(lines)
+
     def _paint_row(self, painter, idx, payload):
         kind = self._kind()
         item = payload.get("item")
@@ -5538,35 +6008,42 @@ class RegistryModuleInlineRow(_InlineTableRow):
             name_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), elided,
         )
 
-        # Slider —— curve-aware. The SDK ``draw_range_slider`` is strictly
-        # linear in [vmin, vmax], so we pre-warp ``weight`` into a normalized
-        # position via :func:`_slider_value_to_pos` and tell the SDK we are
-        # drawing in [0, 1] space. The on-screen value-button still renders
-        # the *true* weight, only the handle's horizontal placement is
-        # warped per the per-row sign of [vmin, vmax].
-        slider_rect = self._row_slider_rect(idx)
+        # v2: per-row slider removed (tight node width). Weight is edited via
+        # the value button (click → number popup). Value 按钮 —— 与 RangeRow
+        # 端点按钮同款。Trim trailing zeros so "-2.000" reads "-2", "0.500" → "0.5".
         weight = payload["weight"]
-        vmin = self._row_min(idx, payload)
-        vmax = self._row_max(idx, payload)
-        pos = _slider_value_to_pos(weight, vmin, vmax)
-        try:
-            draw_range_slider(
-                painter, slider_rect,
-                lo=pos,
-                vmin=0.0,
-                vmax=1.0,
-                dual=False,
-                hover_handle=("lo" if self._is_hovering(slider_rect) else None),
-            )
-        except Exception:
-            pass
-
-        # Value 按钮 —— 与 RangeRow 端点按钮同款
         if abs(weight) >= 1000 or (weight != 0 and abs(weight) < 0.01):
             text = f"{weight:.2e}"
         else:
-            text = f"{weight:.3f}"
+            text = f"{weight:.3f}".rstrip("0").rstrip(".")
+            if text in ("", "-", "-0"):
+                text = "0"
         self._paint_value_button(painter, idx, text, accent=True)
+
+        # Value-param chip (reward rows whose item declares a tunable param).
+        if self._row_supports_value(payload):
+            self._paint_row_value_param_button(painter, idx, payload)
+
+        # Grace-period chip (termination rows; not time_out).
+        if self._row_supports_grace(payload):
+            self._paint_row_grace_button(painter, idx, payload)
+
+        # Column dividers [name | weight | value] on reward value-tables.
+        # Drawn after the cells so the thin rule sits on top of the row bg.
+        if self._has_value_col() and not self._is_phase_aware():
+            self._paint_row_col_dividers(painter, idx)
+
+    def _paint_row_col_dividers(self, painter: QPainter, idx: int) -> None:
+        """Thin vertical rules separating the Name | Weight | Value columns."""
+        r = self._row_rect(idx)
+        wr = self._row_value_rect(idx)
+        vr = self._row_value_param_rect(idx)
+        sep = QColor(Config.get_color("border_1", "#444444"))
+        sep.setAlpha(110)
+        painter.setPen(QPen(sep, 0.8))
+        top, bot = r.top() + 3.0, r.bottom() - 3.0
+        for x in (wr.left() - _INL_GAP * 0.5, vr.left() - _INL_PHASE_BTN_GAP * 0.5):
+            painter.drawLine(QPointF(x, top), QPointF(x, bot))
 
     def _commit_drag(self, idx: int, x: float) -> None:  # type: ignore[override]
         """Curve-aware drag commit — mirrors the warping done in ``_paint_row``.
@@ -5787,6 +6264,19 @@ class TrainingItemsInlineRow(_InlineTableRow):
             d[payload["key"]] = {"enabled": True, "speed": [0.0, v], "clip": None, "advanced": {}}
         self.set_value(_serialize_for_spec(self.spec, d))
 
+    def _col_name_label(self) -> str:
+        return tr("canvas.inline.col_item", "Item")
+
+    def _col_value_label(self) -> str:
+        return tr("canvas.inline.col_maxspeed", "Max Spd")
+
+    def _row_tooltip(self, idx: int) -> str:
+        try:
+            p = self._row_payloads[idx]
+        except (IndexError, TypeError):
+            return ""
+        return f"{p.get('key', '')}\n{self._col_value_label()}: {float(p.get('smax', 0.0)):.2f}"
+
     def _paint_row(self, painter, idx, payload):
         # v2: the legacy circular clip indicator was removed to free up the
         # row-leading anchor for a per-item ``reward_pipe`` input port (the
@@ -5814,19 +6304,10 @@ class TrainingItemsInlineRow(_InlineTableRow):
             name_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), elided,
         )
 
-        # Slider for smax —— SDK 共享 ``draw_range_slider``
-        slider_rect = self._row_slider_rect(idx)
+        # v2: per-row slider removed (tight node width). smax is edited via
+        # the value button (click → number popup). Value 按钮 —— 与 RangeRow
+        # 端点按钮同款。
         smax = payload["smax"]
-        try:
-            draw_range_slider(
-                painter, slider_rect,
-                lo=smax, vmin=0.0, vmax=1.5, dual=False,
-                hover_handle=("lo" if self._is_hovering(slider_rect) else None),
-            )
-        except Exception:
-            pass
-
-        # Value 按钮 —— 与 RangeRow 端点按钮同款
         self._paint_value_button(painter, idx, f"{smax:.2f}", accent=True)
 
     def _on_selector_clicked(self, event) -> bool:

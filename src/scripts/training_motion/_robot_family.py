@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Minimal robot-family lookup vendored from DEMO.
 
 DEMO's ``src.system.training.robot_family`` was a thin wrapper around

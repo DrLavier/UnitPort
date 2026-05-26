@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """estop_node — heartbeat watchdog.
 
 Subscribes to /unitport/heartbeat (expected ≥1 Hz from the host). If the

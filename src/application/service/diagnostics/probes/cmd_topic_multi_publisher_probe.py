@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CmdTopicMultiPublisherProbe — flag competing publishers on cmd topics.
 
 DEMO traced a class of "robot doesn't move even though host publishes

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Body-name IR layer — canonical-catalog driven, brand-neutral.
 
 Each robot body is mapped onto a slot in a fixed canonical IR catalog

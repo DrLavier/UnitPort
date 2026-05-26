@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Flat Orientation — L2 penalty on projected gravity deviation from vertical — keeps the base level."""
 
 from __future__ import annotations

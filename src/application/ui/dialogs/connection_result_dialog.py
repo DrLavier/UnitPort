@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ConnectionResultDialog — final outcome of one AutoConnect run.
 
 Phase 3.7's terminal modal. AutoRepairLoop ships a

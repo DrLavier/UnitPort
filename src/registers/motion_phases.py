@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.motion_phases — Motion phase registry / 动作 phase 注册表.
 
 Concept

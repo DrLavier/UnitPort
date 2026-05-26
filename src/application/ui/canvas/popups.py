@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.popups — Popup 工厂调度 / Popup factory dispatchers.
 
 ParamRow 触发就地编辑时调用本模块的 ``open_*_popup`` 工厂；工厂只负责：

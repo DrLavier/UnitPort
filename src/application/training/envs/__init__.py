@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.envs — Generic MuJoCo + Gymnasium env package.
 
 Stage 6 — brand-neutral training env. The env is driven entirely by

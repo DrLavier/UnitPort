@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Policy → bridge action envelope. Fields are mutually exclusive: the
 # consumer picks based on `space`.
 #

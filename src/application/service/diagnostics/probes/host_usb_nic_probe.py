@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HostUsbNicProbe — verify the USB NCM tether interface is up on the host.
 
 When a Mangdang / mini_pupper is plugged in via USB, the robot exposes

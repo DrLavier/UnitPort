@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Command → motion_tag routing for command-conditioned AMP sampling.
 
 Connects the Training Motion Node's design intent (each task_item binds a

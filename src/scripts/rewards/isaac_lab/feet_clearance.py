@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Feet Clearance — Reward for swing-foot height reaching a target clearance above ground."""
 
 from __future__ import annotations
@@ -40,6 +43,6 @@ ENTRY = reward_item(
     algorithms=frozenset({ALG_ALL}),
     il_func='_unitport_foot_clearance_reward',
     il_module=IL_MOD_INLINE,
-    il_params='"asset_cfg": SceneEntityCfg("robot"), "target_height": 0.1, "std": 0.05, "tanh_mult": 2.0',
+    il_params='"asset_cfg": SceneEntityCfg("robot", body_names={ir:feet}), "target_height": 0.1, "std": 0.05, "tanh_mult": 2.0',
     il_inline=INLINE_SOURCE,
 )

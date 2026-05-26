@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Cross-platform native ROS2 detection helper.
 
 Prints a single JSON object to stdout so batch/bash callers can parse with a

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """PD parameterization dataclasses.
 
 The canonical control surface for the sim2sim PD framework. Everything

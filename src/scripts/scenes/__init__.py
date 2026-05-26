@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Scene presets — sub-folder aggregator.
 
 The single source of truth lives in :mod:`scripts.scenes.registry`,

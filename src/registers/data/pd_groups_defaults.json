@@ -1,12 +1,12 @@
 {
   "version": "1.0.0",
   "schema": "pd_groups/defaults",
-  "_doc": "Family-default (omega_n, zeta) per joint group. omega_n is in rad/s, zeta is dimensionless. Values follow the recipe in knowledge_base/sim2sim_mass-matrix-adaptive.yaml lines 76-99. Users override per-canvas on the ActuatorPDNode -- never modify this file at runtime. Per-user persistent overrides live in <USER_CONFIG_DIR>/registers/pd_groups_custom.json (merged on RegistryHub load).",
+  "_doc": "Family-default (omega_n, zeta) per joint group. omega_n is in rad/s, zeta is dimensionless. Values follow the family sim2sim PD recipe. Users override per-canvas on the ActuatorPDNode -- never modify this file at runtime. Per-user persistent overrides live in <USER_CONFIG_DIR>/registers/pd_groups_custom.json (merged on RegistryHub load).",
   "families": {
     "quadruped": {
       "hip_x": { "omega_n": 25.0, "zeta": 1.0 },
       "hip_y": { "omega_n": 35.0, "zeta": 0.8 },
-      "knee":  { "omega_n": 35.0, "zeta": 0.8 }
+      "knee":  { "omega_n": 62.0, "zeta": 0.8 }
     },
     "biped": {
       "hip_x":          { "omega_n": 30.0, "zeta": 1.0 },

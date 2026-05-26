@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """One-shot migration: robots_canonical.json → per-format schema.
 
 Old shape:

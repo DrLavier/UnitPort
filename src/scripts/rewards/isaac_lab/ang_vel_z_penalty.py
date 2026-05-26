@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Ang Vel Z Penalty — L2 penalty on yaw angular velocity — unconditional."""
 
 from __future__ import annotations

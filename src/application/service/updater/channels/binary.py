@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """BinaryInstallerChannel — stub for the (future) packaged-build update path.
 
 Today this channel is never available: ``sys.frozen`` is False under

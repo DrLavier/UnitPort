@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Pitch Threshold — Terminate when pitch exceeds the allowed upright margin."""
 
 from __future__ import annotations

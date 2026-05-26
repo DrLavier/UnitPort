@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Convert an Isaac Lab / RSL-RL checkpoint to a self-contained ``policy.onnx``.
 
 Background

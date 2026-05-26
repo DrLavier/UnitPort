@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.rows — Node 内部行控件 / Node-internal row widgets.
 
 DEMO 对应（``bin/nodes/node_ui_rows.py`` + ``training_node_items.py``）：

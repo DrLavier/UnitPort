@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Illegal Contact — Terminate when net contact force on the configured bodies exceeds this Newton threshold."""
 
 from __future__ import annotations

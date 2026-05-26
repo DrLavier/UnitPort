@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AMP replay buffers — two parallel classes for the two AMP chains.
 
 The two AMP code paths in RELEASE need **different** replay buffer

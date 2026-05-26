@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TrainingStore — per-project runs.json + bundles.json index.
 
 REWRITE-WITH-DEMO-REF from DEMO ``training_workspace_store.py`` +

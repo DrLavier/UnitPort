@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CodeEditorDialog — modal popup that wraps :class:`CodeEditorWidget`."""
 
 from __future__ import annotations

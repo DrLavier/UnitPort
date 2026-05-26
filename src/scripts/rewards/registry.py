@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Reward preset aggregator — SB3 + Isaac Lab.
 
 Each preset lives in its own file under ``sb3/`` or ``isaac_lab/`` and
@@ -69,6 +72,36 @@ RECOMMENDED_LOCOMOTION_REWARD_TERMS: Tuple[str, ...] = (
 )
 
 
+#: IL equivalent of ``RECOMMENDED_LOCOMOTION_REWARD_TERMS``. IL canvases store
+#: IL keys (``alive_reward``, ``flat_orientation``, …), a disjoint namespace
+#: from the SB3 vocabulary, so the validator must pick the list matching the
+#: canvas backend. Migrated from ``task_module_registry`` as part of the
+#: single-source-of-truth unification.
+IL_RECOMMENDED_LOCOMOTION_REWARD_TERMS: Tuple[str, ...] = (
+    "alive_reward",
+    "flat_orientation",
+    "base_height",
+    "action_rate_penalty",
+    "dof_pos_limits",
+    "joint_torque_penalty",
+    "lin_vel_z_penalty",
+)
+
+
+def recommended_reward_terms_for_backend(backend: str) -> Tuple[str, ...]:
+    """Return the recommended-locomotion safety list for a canvas backend.
+
+    ``backend`` is the value of ``spec.algorithm.backend`` (e.g. ``"sb3"`` /
+    ``"sb3_mujoco"`` / ``"isaac_lab"``). Unknown / empty backend falls back to
+    the SB3 list — preserves pre-split behaviour and never surfaces an empty
+    recommendation.
+    """
+    bk = (backend or "").strip().lower()
+    if bk == "isaac_lab":
+        return IL_RECOMMENDED_LOCOMOTION_REWARD_TERMS
+    return RECOMMENDED_LOCOMOTION_REWARD_TERMS
+
+
 def default_reward_terms() -> Dict[str, float]:
     """Default reward set seeded into the SB3 env when no canvas wiring exists."""
     return {
@@ -129,6 +162,8 @@ __all__ = [
     "REWARD_REGISTRY",
     "IL_REWARD_REGISTRY",
     "RECOMMENDED_LOCOMOTION_REWARD_TERMS",
+    "IL_RECOMMENDED_LOCOMOTION_REWARD_TERMS",
+    "recommended_reward_terms_for_backend",
     "reward_registry",
     "il_reward_registry",
     "default_reward_terms",

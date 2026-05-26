@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AMP-PPO trainer — SB3 PPO with adversarial style reward.
 
 Stage 8 D2 decision: **callback-based** disc training (option B from

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CrossUserAuditService — log + review machinery for cross-user file edits.
 
 Phase 1 problem statement

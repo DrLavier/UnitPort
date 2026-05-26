@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.dialogs — Node 弹窗对话框 / Node-internal dialogs.
 
 DEMO 对应（``bin/nodes/training_node_items.py``）：

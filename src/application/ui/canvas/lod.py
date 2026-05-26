@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.lod — LOD tier 工具 / Level-of-detail tier helpers.
 
 4-tier 划分（按 zoom 因子，``view.transform().m11()`` 或 painter world m11）：

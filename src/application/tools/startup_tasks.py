@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TasksManager-compatible Task subclasses used by ``UnitPortMain`` startup.
 
 Three classes are exposed:

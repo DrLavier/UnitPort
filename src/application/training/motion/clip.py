@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MotionClip — in-memory representation of a reference motion trajectory.
 
 DIRECT-MIGRATE from DEMO ``src/system/training/motion/clip.py`` with one

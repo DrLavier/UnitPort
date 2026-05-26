@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SSHSession — paramiko facade used by Phase 3.5 diagnostics & repair.
 
 Ported from ``DEMO/src/system/runtime/ros2/onboarding/ssh_session.py`` with

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """InitPoseSubsection — compact init pose override control for the Simulation card.
 
 Card-side surface (intentionally tight):

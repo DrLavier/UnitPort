@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort Isaac Lab BUNDLE review launcher.
 
 Loads a v1 bundle (manifest.yaml + policy.onnx + deploy_contract) and replays
@@ -69,12 +72,36 @@ parser.add_argument("--scene", type=str, default="flat_ground",
 parser.add_argument("--max_play_steps", type=int, default=3000,
                     help="Hard upper bound on the replay loop. At 50Hz this "
                          "is ~60s. Set to 0 to disable (run until viewport closed).")
+parser.add_argument(
+    "--unitport_headed_experience", type=str, default="",
+    help="Isaac Lab install root. When set (review is always headed), the "
+         "launcher generates a minimal viewport-only experience under "
+         "<root>/apps/ and selects it — avoiding the full Kit GUI "
+         "omni.kit.menu.utils crash.")
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
 # Review = visible viewport. AppLauncher reads --headless from args_cli;
 # we leave it at its default False so the user sees the robot.
+
+# ── Minimal viewport-only experience (same crash fix as training) ──
+# The default headed experience loads the full Kit GUI, which crashes in
+# omni.kit.menu.utils._build_menu. Generate + select a stripped experience
+# under the selected install's apps/. Fail loud — no fallback to the crash.
+if args_cli.unitport_headed_experience and not getattr(args_cli, "headless", False):
+    from pathlib import Path as _Path
+    from application.training.isaac_lab.launcher.headed_experience import (
+        ensure_headed_experience,
+    )
+    args_cli.experience = ensure_headed_experience(
+        _Path(args_cli.unitport_headed_experience)
+    )
+    print(
+        f"[UnitPort][review] using minimal experience "
+        f"'{args_cli.experience}' (full Kit GUI skipped).",
+        flush=True,
+    )
 
 # ── 2. Start Isaac Sim ───────────────────────────────────────────────────
 
@@ -152,45 +179,23 @@ for name, val in (
             f"deploy_contract.{name} length {len(val)} != n_joints {n_joints}"
         )
 
-# Stage I (sim2sim PD framework): when the bundle carries pd_param
-# (schema v2 with ActuatorPDNode wired), re-derive PhysX-side gains via
-# the canonical solver instead of trusting the stored stiffness/damping
-# arrays. Catches the case where the contract has stale gains because
-# someone edited pd_param by hand or pd_param drifted from the derived
-# arrays during a bundle hand-edit. v1 bundles (no pd_param) skip this
-# block silently — their stiffness/damping flow through unchanged.
+# Stage I (sim2sim PD framework): the deploy_contract's stiffness/damping
+# ARE the canonical PhysX-side gains — mass-weighted (kp = m_eff·ωn²) by the
+# env compiler off the same effective inertia the MuJoCo finalizer uses, and
+# cross-checked at export by sim2sim_calibration (physx_kp == mujoco_kp). The
+# review launcher reads them straight from the bundle (§9 portable-artifact);
+# it does NOT re-derive, because re-deriving needs the MJCF mass matrix
+# (mj_fullM) which is unavailable inside the Isaac Sim Kit python and would
+# break the bundle-only contract. (Earlier builds re-ran physx_gain_solver
+# here under the false unit-mass premise kp = ωn²; that path is removed.)
 pd_param_raw = deploy_contract.get("pd_param")
 if isinstance(pd_param_raw, dict) and pd_param_raw:
-    try:
-        from application.physics.pd_param import PDParam as _PDParam
-        from application.physics.physx_gain_solver import solve as _solve_physx
-        _pd_param = _PDParam.from_dict(pd_param_raw)
-        _phys = [str(n) for n in joint_names]
-        # joint_sdk_names ARE IR roles (Phase 5 contract); the IsaacLab
-        # review subprocess maps them onto the USD articulation by name.
-        # For the gain solver we just need parallel arrays.
-        _ir_roles = _phys
-        _gains = _solve_physx(
-            joint_order_physical=_phys,
-            joint_ir_roles=_ir_roles,
-            pd_param=_pd_param,
-        )
-        # Replace the cached arrays with freshly-derived ones; the
-        # ImplicitActuatorCfg below will pick them up.
-        stiffness = list(_gains.kp)
-        damping = list(_gains.kd)
-        print(
-            f"[review] pd_param present — re-derived PhysX gains via "
-            f"physx_gain_solver (family={_pd_param.family!r}, n={n_joints})",
-            flush=True,
-        )
-    except Exception as _exc:
-        print(
-            f"[review] pd_param re-derive failed ({_exc!r}); falling back "
-            f"to stored stiffness/damping arrays. WARN: bundle may have "
-            f"stale gains.",
-            flush=True,
-        )
+    print(
+        f"[review] pd_param present (family={pd_param_raw.get('family')!r}); "
+        f"using bundle stiffness/damping (mass-weighted, calibrated at "
+        f"export).",
+        flush=True,
+    )
 else:
     print(
         f"[review] no pd_param in deploy_contract — legacy v1 bundle. "

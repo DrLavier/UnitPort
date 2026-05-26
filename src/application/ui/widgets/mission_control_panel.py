@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MissionControlPanel -- top-level main work area shell.
 
 This panel is an **overlay** raised above an external CanvasPage. The host
@@ -1029,12 +1032,28 @@ class MissionControlPanel(QWidget):
                 log_warning(f"[mission] bind_run_buttons failed: {exc!r}")
 
     def bind_link_combo(self, combo) -> None:
-        """转发 MainWindow 顶部 [Local/Cloud] combo 给左卡，做双向同步。"""
+        """转发 MainWindow 顶部 [Local(版本)…/Cloud] combo 给左卡引用。"""
         if self._train_config_card is not None:
             try:
                 self._train_config_card.bind_link_combo(combo)
             except Exception as exc:
                 log_warning(f"[mission] bind_link_combo failed: {exc!r}")
+
+    def mirror_link_options(self, opts: list, current_data: str) -> None:
+        """转发：用 MainWindow 同一份选项重建左卡 combo。"""
+        if self._train_config_card is not None:
+            try:
+                self._train_config_card.mirror_link_options(opts, current_data)
+            except Exception as exc:
+                log_warning(f"[mission] mirror_link_options failed: {exc!r}")
+
+    def set_link_current(self, data: str) -> None:
+        """转发：把左卡 combo 选中项对齐到 data 令牌（无回声）。"""
+        if self._train_config_card is not None:
+            try:
+                self._train_config_card.set_link_current(data)
+            except Exception as exc:
+                log_warning(f"[mission] set_link_current failed: {exc!r}")
 
     def top_row_height(self) -> int:
         """Used by the host to size this overlay in compact (TC) mode."""

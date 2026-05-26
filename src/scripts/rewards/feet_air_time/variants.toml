@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 [variant.biped]
 families = ["biped", "humanoid"]
 description = "IL stock feet_air_time_positive_biped — per-foot clamp + command gate; 2-foot summed signal that doesn't spike negative on touchdown."

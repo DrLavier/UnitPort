@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort handshake probe — active side of the bidirectional handshake.
 
 Runs as a long-lived daemon under ``unitport-handshake.service``. Its job:

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """BundleExporter — write v1 policy bundles to ``<project>/training/exported/``.
 
 Phase 3 RELEASE port — minimal subset of DEMO ``bundle_exporter.py`` (1077 LoC)
@@ -332,13 +335,13 @@ def _build_sb3_deploy_contract(
 
     # init_base_pos: only carry when the canvas set a non-default spawn
     # height. ``actor.init_pos_z`` is None when the user didn't override
-    # the spawn height, in which case the deploy stack falls back to
-    # ``RobotSpec.target_height`` (which IS the intended behaviour — the
-    # registry holds the correct height per robot). Omitting the field
-    # here mirrors that. We use ``is None`` explicitly rather than
-    # ``or 0.0`` because the canvas allows the user to spawn AT z=0
-    # (drop the robot from ground level), and ``or 0.0`` would silently
-    # turn that explicit intent into "use registry default".
+    # the spawn height, in which case the deploy stack falls back to the
+    # asset's nominal standing height (MJCF keyframe / qpos0 — the model
+    # holds the correct height per robot). Omitting the field here mirrors
+    # that. We use ``is None`` explicitly rather than ``or 0.0`` because
+    # the canvas allows the user to spawn AT z=0 (drop the robot from
+    # ground level), and ``or 0.0`` would silently turn that explicit
+    # intent into "use asset nominal".
     init_z: Optional[float] = None
     if actor is not None:
         raw_z = getattr(actor, "init_pos_z", None)

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Timeout — Terminate when the task exceeds its allowed duration."""
 
 from __future__ import annotations

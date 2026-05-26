@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RewardsNode — Per-item 奖励配置 / Per-item reward configuration.
 
 v2 颗粒度：rewards 节点输出 ``reward_pipe``（multi）—— 连到

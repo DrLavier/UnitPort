@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MuJoCo + sensor + PD-controller runtime — Phase 1 port from DEMO.
 
 Public surface intended for callers (sim2sim Phase 3, training Phase 4):

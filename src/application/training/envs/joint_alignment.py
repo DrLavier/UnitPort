@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Boot-time verification that env amp_obs fields match the motion clip.
 
 REWRITE-WITH-DEMO-REF from DEMO ``src/system/training/amp/joint_alignment.py``.

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Frozen dataclasses describing a GitHub release payload.
 
 Single source of truth for the shape of the GitHub Releases API response

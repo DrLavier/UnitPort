@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Track Gait Phase — Reward foot contact matching the expected stance/swing phase from a Walk These Ways gait command term."""
 
 from __future__ import annotations

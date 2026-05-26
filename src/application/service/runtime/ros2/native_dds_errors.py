@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Structured errors for NativeDDSBridge.
 
 Every error carries a stable ``code`` string and a ``detail`` dict that gets

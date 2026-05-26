@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Yaw Tracking — Reward matching the target yaw-rate command."""
 
 from __future__ import annotations

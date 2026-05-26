@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.sliders — Node 滑块家族 / Node-internal slider family.
 
 DEMO 对应（``bin/nodes/training_node_items.py`` / ``node_ui_rows.py``）：

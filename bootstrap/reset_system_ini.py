@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Normalize ``src/config/system.ini`` to its factory-shipped state.
 
 Invoked by ``reset.bat`` / ``reset.sh`` as part of a factory reset. Pure

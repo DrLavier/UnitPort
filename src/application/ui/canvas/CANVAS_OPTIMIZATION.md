@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Canvas Optimization Plan
 
 > PyQt6 Canvas 性能优化方案 — 4 层 LOD + 视口剔除 + 选择性 pixmap 缓存。

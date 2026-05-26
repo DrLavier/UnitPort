@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MangdangROS2Adapter — Mini Pupper v2 brand specialisation.
 
 Thin subclass of :class:`BaseROS2Adapter`: every kinematics-agnostic plumbing

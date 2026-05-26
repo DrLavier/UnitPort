@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort Isaac Lab training launcher.
 
 This script mirrors Isaac Lab's ``rsl_rl/train.py`` but adds one critical step:
@@ -334,11 +337,40 @@ parser.add_argument("--unitport_eval_video_dir", type=str, default="",
                          "Metadata-only today — gym.wrappers.RecordVideo "
                          "wrapping is not wired in the eval branch yet.")
 
+parser.add_argument(
+    "--unitport_headed_experience", type=str, default="",
+    help="Isaac Lab install root. When set and the run is headed "
+         "(not --headless) and not --video, the launcher generates a minimal "
+         "viewport-only experience under <root>/apps/ and selects it — "
+         "avoiding the full Kit GUI omni.kit.menu.utils crash.")
+
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 
 if args_cli.video:
     args_cli.enable_cameras = True
+
+# ── Headed run: select a minimal viewport-only experience ──
+# The default headed experience (isaaclab.python.kit) loads the full Kit GUI,
+# which crashes during menu construction (omni.kit.menu.utils._build_menu →
+# Windows access violation) and maps far more buffers through the scarce GPU
+# BAR1 aperture. For a headed (not --headless), non-video run, generate a
+# stripped viewport-only experience under the selected install's apps/ and
+# point AppLauncher at it. Fail loud — never fall back to the crashing default.
+if (not args_cli.headless and not args_cli.video
+        and args_cli.unitport_headed_experience):
+    from application.training.isaac_lab.launcher.headed_experience import (
+        ensure_headed_experience,
+    )
+    args_cli.experience = ensure_headed_experience(
+        _Path(args_cli.unitport_headed_experience)
+    )
+    print(
+        f"[UnitPort][train] Headed run: using minimal experience "
+        f"'{args_cli.experience}' (full Kit GUI skipped to avoid the "
+        f"menu-build crash).",
+        flush=True,
+    )
 
 sys.argv = [sys.argv[0]] + hydra_args
 
@@ -389,10 +421,13 @@ try:
         _carb.set("/rtx/pathtracing/maxBounces", 0)
         _carb.set("/rtx/pathtracing/maxBouncesLights", 0)
 
-        # Half-resolution viewport — quartering pixel count cuts the
-        # rasterizer cost ~4x with negligible UX impact for sanity-check
-        # viewing.
-        _carb.set("/app/viewport/defaultRenderScale", 0.5)
+        # Viewport render scale. 1.0 = render at native viewport resolution
+        # (sharp). The earlier 0.5 (quarter pixel count) was too blurry for a
+        # usable sanity window — rendering at half res and upscaling smears the
+        # whole image, made worse by the fast-forward motion of training. This
+        # only affects viewport cost, never physics/training; lower it (e.g.
+        # 0.75) if the viewport stutters. Future UI: expose as a user knob.
+        _carb.set("/app/viewport/defaultRenderScale", 1.0)
         _carb.set("/app/viewport/grid/enabled", False)
 
         # Drop expensive post-processing

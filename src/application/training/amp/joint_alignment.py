@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Boot-time verification that env amp_obs fields match the motion clip.
 
 This module is the hard mitigation for AMP_design.yaml §7.risks

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """``TasksManager``-compatible wrapper around :class:`IsaacLabInstaller`.
 
 Submitted by ``PostSetupTask._step_isaac_lab`` when the user picked the

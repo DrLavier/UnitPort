@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.training_status_model — 训练状态聚合.
 
 订阅 ``signals.training_run_started / training_metrics / training_run_finished``

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.adapters — Brand semantic boundary for RELEASE.
 
 Adapters translate UnitPort core's brand-agnostic command/sensor/capability

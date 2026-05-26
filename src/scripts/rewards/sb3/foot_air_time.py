@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Foot Air Time — Bonus at each foot touchdown proportional to how long the foot was airborne (capped at 0.5 s)."""
 
 from __future__ import annotations

@@ -431,7 +431,6 @@ desc = Ressource robot + mappage des corps + paramétrage PD
 param.asset_id = ID ressource
 param.active_override = Surcharge active
 param.body_mapping = Mappage corps
-param.target_height = Hauteur cible
 param.pd_param_mode = Mode PD
 param.pd_groups = Groupes PD
 param.pd_effort_limit = Limite effort

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # UnitPort USB link — static address for the robot end of the USB ethernet gadget.
 # Filename sorts AFTER 50-cloud-init.yaml so MangDang's WiFi config is authoritative.
 # Preservation rules (spec §3): usb0 MUST NOT join br0, advertise a default route,

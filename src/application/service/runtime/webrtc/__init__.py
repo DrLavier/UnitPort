@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.runtime.webrtc — WebRTC data-channel bridges.
 
 Sibling of :mod:`application.service.runtime.ros2`. Hosts in-process

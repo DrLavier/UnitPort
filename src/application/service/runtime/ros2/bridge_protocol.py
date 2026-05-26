@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """BridgeProtocol — interface for ROS2 bridge implementations.
 
 In RELEASE Phase 2 only :class:`NativeDDSBridge` implements this Protocol;

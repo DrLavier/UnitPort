@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SimEnvContext — abstract base for any simulation env exposed to a policy.
 
 Carries ``mj_model`` / ``mj_data`` / ``joint_names`` / ``control_frequency_hz``

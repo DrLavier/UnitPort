@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Verify every package listed in requirements.txt is importable in this venv.
 
 Two consumers share this module:

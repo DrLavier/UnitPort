@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """EvalConfigNode — 训练后评估配置.
 
 DEMO 对应：``training_nodes.py:EvalConfigNode``.

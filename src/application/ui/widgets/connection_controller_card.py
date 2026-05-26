@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ConnectionControllerCard — sec3 capability-driven teleop card.
 
 Shown inside RealRobotConnectionCard once the active connection reaches

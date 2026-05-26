@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.items — 画布 Item 类（custom paint，零 ProxyWidget）.
 
 Phase 1a 三件套：
@@ -430,7 +433,9 @@ class NodeItem(QGraphicsItem):
 
         # 7. 选中：1.5px 白色虚线 (alpha=210)（DEMO Training Node 选中样式）
         if self.isSelected():
-            sel_pen = QPen(QColor(255, 255, 255, 210), 1.5)
+            sel_color = QColor(Config.get_color("canvas_selection_highlight", "#FFFFFF"))
+            sel_color.setAlpha(210)
+            sel_pen = QPen(sel_color, 1.5)
             sel_pen.setStyle(Qt.PenStyle.DashLine)
             painter.setPen(sel_pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1077,6 +1082,11 @@ class NodeItem(QGraphicsItem):
                     page._reposition_selection_toolbar()
                 except Exception:  # pragma: no cover
                     pass
+        # 选中态变化 → 刷新接入/输出连线的高亮，使其与节点白色选中边框一致
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedHasChanged:
+            for p in self.iter_ports():
+                for c in tuple(p.connections):
+                    c._refresh_pen()
         return super().itemChange(change, value)
 
     # ---- Undo 去抖：mousePress 记 old pos，mouseRelease 终态 push MoveNodeCmd ----
@@ -2025,6 +2035,9 @@ class ConnectionItem(QGraphicsPathItem):
         self.dst_port.remove_connection(self)
         sc = self.scene()
         if sc is not None:
+            # 清掉 scene 的 hover-to-delete 引用，避免悬挂指向已删边
+            if getattr(sc, "_hovered_edge", None) is self:
+                sc._hovered_edge = None
             sc.removeItem(self)
 
     # ---- LOD-aware paint（覆盖 QGraphicsPathItem 默认 paint）----
@@ -2063,11 +2076,19 @@ class ConnectionItem(QGraphicsPathItem):
     def hoverEnterEvent(self, event):
         self._hover = True
         self._refresh_pen()
+        # 注册为 scene 当前 hover 的边 —— 供 hover + Delete 删除（替代已移除的
+        # 右键删除连线）。CanvasPage.keyPressEvent 读取此引用。
+        sc = self.scene()
+        if sc is not None:
+            sc._hovered_edge = self
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
         self._hover = False
         self._refresh_pen()
+        sc = self.scene()
+        if sc is not None and getattr(sc, "_hovered_edge", None) is self:
+            sc._hovered_edge = None
         super().hoverLeaveEvent(event)
 
     def itemChange(self, change, value):
@@ -2077,10 +2098,27 @@ class ConnectionItem(QGraphicsPathItem):
 
     # ---- 内部 ----
 
+    def _endpoint_node_selected(self) -> bool:
+        """任一端点 NodeItem 处于选中态 → 该边应做白色高亮."""
+        sn = self.src_port.parent_node() if self.src_port else None
+        dn = self.dst_port.parent_node() if self.dst_port else None
+        return bool(
+            (sn is not None and sn.isSelected())
+            or (dn is not None and dn.isSelected())
+        )
+
     def _refresh_pen(self) -> None:
-        active = self._hover or self.isSelected()
-        width = EDGE_PEN_HOVER if active else EDGE_PEN_DATA
-        color = self._color.lighter(140) if active else self._color
+        # 端点节点被选中 → 白色高亮（与 NodeItem 的白色选中边框呼应）；
+        # 否则按边自身 hover / 选中状态着色。
+        if self._endpoint_node_selected():
+            color = QColor(Config.get_color("canvas_selection_highlight", "#FFFFFF"))
+            width = EDGE_PEN_HOVER
+        elif self._hover or self.isSelected():
+            color = self._color.lighter(140)
+            width = EDGE_PEN_HOVER
+        else:
+            color = self._color
+            width = EDGE_PEN_DATA
         pen = QPen(color, width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)

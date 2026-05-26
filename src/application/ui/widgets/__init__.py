@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Reusable composite widgets for the RELEASE application shell.
 
 Currently houses widgets that don't belong inside the SDK (project-specific

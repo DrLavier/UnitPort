@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # usb_link/install.sh — backward-compatibility shim. The full bootstrap
 # (including the USB link stack: gadget, identity daemon, dnsmasq,
 # handshake, netplan, dnsmasq config, dwc2 dr_mode peripheral patch) is

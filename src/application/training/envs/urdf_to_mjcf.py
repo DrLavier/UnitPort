@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """URDF → MJCF asset conversion (Stage 6+ stub).
 
 The Stage 6 env consumes :attr:`RobotSpec.mjcf_path` directly. URDFs are

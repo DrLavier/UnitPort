@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """src.nodes — 出厂第一方节点插件树 / First-party node plugin tree.
 
 每个子目录 ``<node_id>/`` 是一个独立节点包，契约：

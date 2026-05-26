@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ConnectionResult — final verdict of one AutoConnect run.
 
 Phase 3.7 introduced an autonomous repair loop that runs inside

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SDK Task wrapper for the resources downloader.
 
 One ``DownloadResourceTask`` per asset download. The task:

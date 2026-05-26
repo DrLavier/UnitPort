@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Auxiliary-actuator handler registry for the robot-side bridge.
 
 Generic adapters under ``unitport_bridge.adapters.*`` cover the kinematic

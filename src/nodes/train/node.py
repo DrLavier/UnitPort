@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TrainNode — SB3 training execution (passthrough，无 user 参数).
 
 DEMO 对应：``training_nodes.py:TrainNode``.

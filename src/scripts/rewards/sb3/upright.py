@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Upright Bonus — Reward maintaining an upright torso orientation."""
 
 from __future__ import annotations

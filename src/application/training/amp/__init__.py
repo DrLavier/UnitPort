@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort AMP backend — Phase 3 RELEASE layout.
 
 This package holds the AMP algorithm core that BOTH training chains

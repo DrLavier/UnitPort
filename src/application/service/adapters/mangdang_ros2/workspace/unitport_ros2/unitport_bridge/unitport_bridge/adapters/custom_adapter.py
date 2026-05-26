@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Custom adapter — placeholder for robots whose controller isn't in the
 built-in registry. Republish the PolicyAction payload unchanged on a
 single configurable topic so the user can wire up downstream processing."""

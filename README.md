@@ -2,7 +2,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11.9-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE.txt)
-[![Version](https://img.shields.io/badge/Version-1.0.0-brightgreen.svg)](src/config/system.ini)
+[![Version](https://img.shields.io/badge/Version-1.1.0-brightgreen.svg)](src/config/system.ini)
 
 [![Linux](https://img.shields.io/badge/Linux-%E2%9C%94-success)](README.md)
 [![Windows](https://img.shields.io/badge/windows-%E2%9C%94-success)](README.md)
@@ -14,9 +14,9 @@
 *Deutsch, Italiano, Русский, Español, and 日本語 will be added in the next version iteration.*
 
 > [!NOTE]
-> **First stable release (1.0.0).** The training pipeline (SB3 + IsaacLab) is stable and used internally for everyday work. IsaacLab support is present, including PPO and AMP-PPO workflows, but its advanced functions remain experimental. At present, general quadruped robots (e.g. Go2) have the most complete implementation and workflow support. General biped robots currently support a basic motion training pipeline. Robotic manipulators, wheeled/mobile-base platforms, and drones are not yet supported.
+> UnitPort pairs two RL backends — **Stable-Baselines3 + MuJoCo** for stable training and **IsaacLab (PhysX)** for GPU-accelerated PPO / AMP-PPO. The training pipeline is used internally for everyday work; IsaacLab's more advanced functions remain experimental. Robot coverage varies by morphology — see [Robot completeness](#robot-completeness--功能完整性) below.
 > 
-> **首个稳定版本 (1.0.0)**。训练流程（SB3 + IsaacLab）稳定可靠，已在内部用于日常工作。该版本支持 IsaacLab，包括 PPO 和 AMP-PPO 工作流程，但其高级功能仍处于实验阶段。目前，通用四足机器人（例如 Go2）的实现和工作流程支持最为完善。通用双足机器人目前支持基本的运动训练流程。机械臂、轮式/移动式平台和无人机暂不支持。
+> UnitPort 提供两套强化学习后端——**Stable-Baselines3 + MuJoCo** 用于稳定训练，**IsaacLab（PhysX）** 用于 GPU 加速的 PPO / AMP-PPO。训练流程已在内部用于日常工作；IsaacLab 的高级功能仍处于实验阶段。不同形态机器人的支持完整度不同——详见下方的 [功能完整性](#robot-completeness--功能完整性)。
 
 UnitPort is a **FREE** and open‑source Studio for robot behaviour authoring, motion training and sim/real deployment. One canvas, many robots, two simulation engines, one click to a deployable policy bundle.
 UnitPort 是一个**免费**的社区开源机器人行为设计、运动训练和仿真/实战部署工作室。它支持一个画布、多个机器人、两个仿真引擎，只需单击一下即可生成可部署的策略包。

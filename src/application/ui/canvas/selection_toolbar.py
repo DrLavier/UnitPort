@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.selection_toolbar — 选区悬浮工具栏.
 
 单实例 QWidget,parent=CanvasView.viewport(),浮在最靠上选中 item 上方 20px。

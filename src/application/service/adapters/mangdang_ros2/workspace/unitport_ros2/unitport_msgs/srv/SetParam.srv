@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Service backing the Host-side Live PD Tuning panel.
 # Request:
 #   name   — dotted parameter name, e.g. "pd.Kp", "gait.swing_height"

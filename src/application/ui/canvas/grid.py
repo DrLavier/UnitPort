@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Cached QPixmap grid background / 缓存 QPixmap 的栅格背景.
 
 DEMO 的 ``GraphScene.drawBackground()`` 每帧重画整片栅格，无缓存。

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Single entry launch file for the UnitPort robot-side stack.
 
 Semantics:
@@ -6,7 +9,7 @@ Semantics:
 
 The systemd unit always passes ``unitport:=true``; the ``--unitport`` CLI
 convention is the *target* isolation (systemctl isolate unitport.target),
-not the launch arg. See knowledge_base/ROS2_onboarding.yaml Section 4.
+not the launch arg.
 """
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CrossUserOpenChoiceDialog — modal shown before opening another user's
 canvas from the homepage Local Files card.
 

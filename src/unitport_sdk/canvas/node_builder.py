@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.node_builder — 节点构造糖 / Node convenience metaclass.
 
 借鉴 ComfyUI 的 ``INPUT_TYPES`` 风格，让节点作者用紧凑 dict 写完 manifest，

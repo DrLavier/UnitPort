@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 [Unit]
 Description=UnitPort dnsmasq (usb0 DHCP only)
 Documentation=file:///opt/unitport/ros2_ws/src/unitport_ros2/usb_link/README.md

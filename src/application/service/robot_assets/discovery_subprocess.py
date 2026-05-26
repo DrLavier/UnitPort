@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Subprocess dispatcher for the Dump MJCF / Dump USD buttons.
 
 The MJCF path runs in-process via mujoco (already a hard dep of the main

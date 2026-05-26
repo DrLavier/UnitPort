@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """robot_assets.discovery — local asset auto-discovery.
 
 Scans ``custom_mods/models/`` (incl. ``menagerie/`` sparse-checkout) for

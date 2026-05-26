@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 [Unit]
 Description=UnitPort generic bridge node
 After=network.target unitport-estop.service

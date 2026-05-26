@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """USD parser — Isaac venv only.
 
 Per AMP_design.yaml §7.risks.usd_parser_venv_dependency (decision: pin

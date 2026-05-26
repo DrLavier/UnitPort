@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UserPanel — sidebar content for the User key.
 
 Layout:
@@ -32,14 +35,16 @@ from unitport_sdk import (
     i18n_bind,
     log_warning,
     setButton,
+    setComboBox,
     setText,
     tr,
 )
 
 from application.service.auth import UserProfile, get_auth_manager
 from application.service.auth.avatar_cache import make_initials_pixmap, round_pixmap
-from application.service.engines import get_engine_service
+from application.service.engines import format_isaac_install_label, get_engine_service
 from application.ui.dialogs.engine_settings_dialog import EngineSettingsDialog
+from application.ui.dialogs.isaac_installs_dialog import IsaacInstallsDialog
 from application.ui.dialogs.login_dialog import LoginDialog
 from application.ui.widgets.homepage.account_details import AccountDetailsWidget
 
@@ -54,6 +59,11 @@ class _EngineRow(QWidget):
         super().__init__(parent)
         self._engine_id = engine_id
         self._svc = get_engine_service()
+        self._is_isaac = engine_id == "isaac_lab"
+        # Guard so programmatic combo repopulation (refresh) does not re-enter
+        # the user-selection persist path.
+        self._local_syncing = False
+        self._local_combo = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 6, 0, 6)
@@ -73,10 +83,23 @@ class _EngineRow(QWidget):
         local_row.addWidget(setText(
             "user.engines_local", default="Local:", kind="content", size=sz,
         ))
-        self._local_status = QLabel("")
-        self._local_status.setWordWrap(True)
-        self._local_status.setStyleSheet(f"font-size: {sz}px; background: transparent;")
-        local_row.addWidget(self._local_status, 1)
+        # Isaac Lab is the only redirectable engine: its Local cell is a version
+        # picker (drive + version) bound to the user.ini training default. Other
+        # engines keep the plain status label.
+        if self._is_isaac:
+            self._local_combo = setComboBox([], height=24, i18n=False, parent=self)
+            self._local_combo.currentIndexChanged.connect(
+                self._on_local_combo_changed
+            )
+            local_row.addWidget(self._local_combo, 1)
+            self._local_status = QLabel("")
+        else:
+            self._local_status = QLabel("")
+            self._local_status.setWordWrap(True)
+            self._local_status.setStyleSheet(
+                f"font-size: {sz}px; background: transparent;"
+            )
+            local_row.addWidget(self._local_status, 1)
         self._btn_local = setButton(
             f"user.engines_settings.local.{engine_id}",
             22, 22,
@@ -140,7 +163,11 @@ class _EngineRow(QWidget):
         #      the gear button; show path AND version.
         #   3. Generic / unknown — fall back to the registered-root pattern.
         local_root = str(local.get("root", "")) if local else ""
-        if self._engine_id in ("sb3", "sb3_mujoco", "mujoco"):
+        if self._is_isaac:
+            # Local cell is the version picker — fill it from the registry and
+            # restore the user.ini training-default selection.
+            self._refresh_isaac_combo()
+        elif self._engine_id in ("sb3", "sb3_mujoco", "mujoco"):
             if status["available"]:
                 local_text = tr(
                     "engines.local_builtin",
@@ -152,27 +179,10 @@ class _EngineRow(QWidget):
                     "engines.local_missing", "Not installed",
                 )
                 color = warn_color
-        elif self._engine_id == "isaac_lab":
-            if local.get("registered") and local_root:
-                if status["available"]:
-                    ver = status["version"] or "?"
-                    local_text = tr(
-                        "engines.local_registered_with_ver",
-                        "{root} (v{ver})",
-                    ).format(root=local_root, ver=ver)
-                    color = ok_color
-                else:
-                    local_text = tr(
-                        "engines.local_registered_no_module",
-                        "{root} (module not importable)",
-                    ).format(root=local_root)
-                    color = warn_color
-            else:
-                local_text = tr(
-                    "engines.local_isaac_unregistered",
-                    "Not registered — pick install root via the gear",
-                )
-                color = muted
+            self._local_status.setText(local_text)
+            self._local_status.setStyleSheet(
+                f"color: {color}; background: transparent; font-size: {sz}px;"
+            )
         else:
             if local.get("registered") and local_root:
                 if status["available"]:
@@ -187,11 +197,10 @@ class _EngineRow(QWidget):
             else:
                 local_text = tr("engines.local_unregistered", "Not registered")
                 color = muted
-
-        self._local_status.setText(local_text)
-        self._local_status.setStyleSheet(
-            f"color: {color}; background: transparent; font-size: {sz}px;"
-        )
+            self._local_status.setText(local_text)
+            self._local_status.setStyleSheet(
+                f"color: {color}; background: transparent; font-size: {sz}px;"
+            )
 
         # Cloud status
         if not servers:
@@ -209,6 +218,40 @@ class _EngineRow(QWidget):
             f"color: {cloud_color}; background: transparent; font-size: {sz}px;"
         )
 
+    def _refresh_isaac_combo(self) -> None:
+        """Populate the Isaac version picker and restore the user.ini default."""
+        if self._local_combo is None:
+            return
+        installs = self._svc.list_isaac_installations()
+        self._local_syncing = True
+        try:
+            if not installs:
+                self._local_combo.setItems([(
+                    "",
+                    tr("engines.local_isaac_unregistered_short", "Not registered"),
+                )])
+                self._local_combo.setEnabled(False)
+                return
+            self._local_combo.setEnabled(True)
+            self._local_combo.setItems([
+                (str(e.get("root", "")), format_isaac_install_label(e))
+                for e in installs
+            ])
+            active = self._svc.resolve_active_local_isaac()
+            if active is not None:
+                self._local_combo.setCurrentKey(str(active.get("root", "")))
+        finally:
+            self._local_syncing = False
+
+    def _on_local_combo_changed(self, _idx: int) -> None:
+        """User picked a version → persist it as the local training default."""
+        if self._local_syncing or self._local_combo is None:
+            return
+        root = self._local_combo.currentKey()
+        if not root:
+            return
+        self._svc.set_local_selection_root(root)
+
     @pyqtSlot(str)
     def _on_changed(self, engine_id: str) -> None:
         if engine_id and engine_id != self._engine_id:
@@ -220,17 +263,10 @@ class _EngineRow(QWidget):
             # No directory needed — just refresh availability detection.
             self._svc.refresh()
             return
-        if self._engine_id == "isaac_lab":
-            start = self._svc.get_local("isaac_lab").get("root", "") or ""
-            chosen = QFileDialog.getExistingDirectory(
-                self, tr("engines.pick_isaac", "Select Isaac Lab installation root"),
-                start,
-            )
-            if not chosen:
-                return
-            ok = self._svc.register_isaac_local(chosen)
-            if not ok:
-                log_warning(f"[user_panel] Isaac Lab validation failed for {chosen}")
+        if self._is_isaac:
+            # Open the multi-version manager (list / add / unbind / uninstall).
+            IsaacInstallsDialog(parent=self).exec()
+            self.refresh()
             return
         # Generic engine: free-form root pick.
         chosen = QFileDialog.getExistingDirectory(

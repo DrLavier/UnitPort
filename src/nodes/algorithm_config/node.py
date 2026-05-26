@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AlgorithmConfigNode — RL 算法 + 超参 (Layer C).
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:AlgorithmConfigNode``.

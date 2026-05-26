@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.interaction — 画布交互层 / Canvas interaction layer.
 
 托管 drag-to-connect / rubber-band / 键盘 / 右键菜单的状态与协调，避免在

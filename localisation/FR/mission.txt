@@ -33,8 +33,6 @@ btn.hyper_edit = Modifier les hyperparamètres
 field.training_asset = Ressource d'entraînement
 field.active_files = Fichiers de la ressource
 field.body_mapping = body_mapping
-field.target_height = Hauteur cible (m)
-field.target_height_hint = 0 = utiliser la valeur nominale de la ressource
 btn.start = Démarrer
 btn.pause = Pause
 btn.stop = Arrêter

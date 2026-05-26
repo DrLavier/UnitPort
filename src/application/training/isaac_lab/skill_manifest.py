@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SkillManifest — central contract between Mission layer and Behavior layer.
 
 Every behaviour bundle (RL checkpoint, VLA export, HF import, manual script)

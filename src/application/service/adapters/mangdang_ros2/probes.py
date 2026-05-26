@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Mangdang-specific diagnostic probes.
 
 These all require SSH to the robot. They cover the three deployment

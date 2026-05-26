@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.nodes — 节点 discovery facade / Hot-pluggable node discovery.
 
 升级自原 catalog stub。两条扫描路径，共享同一文件夹契约：

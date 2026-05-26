@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Collision Penalty — Penalty for unwanted collisions with the environment or self."""
 
 from __future__ import annotations

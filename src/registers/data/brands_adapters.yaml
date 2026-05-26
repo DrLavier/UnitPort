@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Source: DEMO/runtime/ros2/workspace/unitport_ros2/unitport_bringup/config/adapter_registry.yaml
 # ROS2 桥接 adapter 注册（出厂只读）。Deploy 时 SCP 到 /etc/unitport/adapter_registry.yaml。
 

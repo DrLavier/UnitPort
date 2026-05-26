@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """EulaDialog — modal-blocking three-tab licence acknowledgement.
 
 Surfaced by the InstallConfigWizard when the user selects the

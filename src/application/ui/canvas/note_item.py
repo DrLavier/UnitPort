@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.note_item — Note 注释节点 GraphicsItem.
 
 NoteItem 是非执行节点（schema_id="note"）在画布上的可视化项。与 NodeItem 平级

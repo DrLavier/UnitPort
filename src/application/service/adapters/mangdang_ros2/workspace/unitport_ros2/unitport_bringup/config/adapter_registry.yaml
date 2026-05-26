@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Mirror of src/system/runtime/ros2/onboarding/adapter_registry.yaml —
 # SCP'd to /etc/unitport/adapter_registry.yaml by the host at deploy time.
 

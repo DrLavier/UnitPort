@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AMP discriminator preset aggregator (Isaac Lab only).
 
 Three editable function bodies that drive ``AMPDiscriminator`` behaviour.

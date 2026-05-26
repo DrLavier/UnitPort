@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Contact Impulse — Terminate on excessive impact indicating unstable collapse."""
 
 from __future__ import annotations

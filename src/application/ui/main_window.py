@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MainWindow -- pyramid main console (single shared window).
 
 LoadingScreen and the main UI live in the **same** top-level window:
@@ -479,6 +482,21 @@ class MainWindow(QMainWindow):
             self._sys_monitor.apply_theme()
 
     def closeEvent(self, event) -> None:  # noqa: D401
+        # "Update on exit": if the user armed a deferred apply, run it now
+        # on close. We ignore this close event, open the progress modal and
+        # submit the apply; the progress dialog calls QApplication.quit()
+        # on success, which tears the window down for real. _exit_apply_run
+        # guards against re-entrancy (the modal's own close path).
+        if not getattr(self, "_exit_apply_run", False):
+            from application.service.updater import get_update_service
+            pending = get_update_service().pending_exit_apply()
+            if pending is not None:
+                self._exit_apply_run = True
+                get_update_service().clear_exit_apply()
+                event.ignore()
+                # relaunch=False: the user is exiting, so apply-then-quit.
+                self._launch_update_apply(pending, relaunch=False)
+                return
         if self._sys_monitor is not None:
             self._sys_monitor.stop()
         super().closeEvent(event)
@@ -1956,15 +1974,8 @@ class MainWindow(QMainWindow):
         - Cached release with a body -> open the available-update
           dialog with release notes and the 3-button footer.
         """
-        from application.service.updater import (
-            ApplyUpdateTask,
-            get_update_service,
-        )
-        from .dialogs import (
-            UpdateAvailableDialog,
-            UpdateLatestDialog,
-            UpdateProgressDialog,
-        )
+        from application.service.updater import get_update_service
+        from .dialogs import UpdateLatestDialog
 
         svc = get_update_service()
         release = svc.latest_release()
@@ -1982,18 +1993,40 @@ class MainWindow(QMainWindow):
             UpdateLatestDialog(current_version, parent=self).exec()
             return
 
+        self._open_update_available_dialog(release, current_version)
+
+    def _open_update_available_dialog(self, release, current_version: str) -> None:
+        """Build + show the unified update dialog and wire its 3 buttons.
+
+        Shared by the sidebar Update click and the startup auto-popup
+        (main.py:_show_startup_update_popup).
+        """
+        from .dialogs import UpdateAvailableDialog
+
         avail = UpdateAvailableDialog(release, current_version, parent=self)
-        avail.apply_requested.connect(
-            lambda info: self._launch_update_apply(info)
+        # "Update and restart": apply now, relaunch on success.
+        avail.update_and_restart.connect(
+            lambda info: self._launch_update_apply(info, relaunch=True)
         )
+        # "Update on exit": defer; closeEvent runs the apply on close.
+        avail.update_on_exit.connect(self._arm_update_on_exit)
         avail.exec()
 
-    def _launch_update_apply(self, release) -> None:
+    def _arm_update_on_exit(self, release) -> None:
+        from application.service.updater import get_update_service
+        get_update_service().arm_exit_apply(release)
+
+    def _launch_update_apply(self, release, *, relaunch: bool = False) -> None:
         """Open the progress modal and submit ApplyUpdateTask."""
-        from application.service.updater import ApplyUpdateTask
+        from application.service.updater import ApplyUpdateTask, get_update_service
         from .dialogs import UpdateProgressDialog
 
-        progress = UpdateProgressDialog(release.version, parent=self)
+        # A direct apply supersedes any armed apply-on-exit for this session.
+        get_update_service().clear_exit_apply()
+
+        progress = UpdateProgressDialog(
+            release.version, parent=self, relaunch=relaunch,
+        )
         progress.show()
         try:
             # Submit through the task master if MainWindow owns it via
@@ -2127,6 +2160,8 @@ class MainWindow(QMainWindow):
                     self._start_btn, self._stop_btn
                 )
                 self._mission_control_panel.bind_link_combo(self._target_combo)
+                # Mirror the current option set into the freshly-bound card.
+                self._populate_target_combo()
             except Exception as exc:
                 log_warning(f"[main_window] mission_panel bind failed: {exc!r}")
         return self._main_page
@@ -2322,13 +2357,22 @@ class MainWindow(QMainWindow):
         self._target_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToContents
         )
-        self._target_combo.addItem(
-            tr("progressrow.target.local", "Local"), "local"
-        )
-        self._target_combo.addItem(
-            tr("progressrow.target.cloud", "Cloud"), "cloud"
-        )
+        # Guard so programmatic repopulation does not re-enter the persist path.
+        self._target_syncing = False
+        # Items: one "Local (<drive/ver>)" per registered Isaac install + Cloud,
+        # following the user.ini default. Rebuilt on registry changes.
+        self._populate_target_combo()
         self._target_combo.currentIndexChanged.connect(self._on_target_changed)
+        try:
+            from application.service.engines import get_engine_service
+            get_engine_service().changed.connect(
+                lambda _eid: self._populate_target_combo()
+            )
+            # Rebuild option labels on language switch (labels are localised at
+            # build time, not live-bound, because they embed dynamic versions).
+            I18n.instance().language_changed.connect(self._populate_target_combo)
+        except Exception as exc:                                  # noqa: BLE001
+            log_warning(f"[ui] could not bind engine-service to target combo: {exc!r}")
 
         lay.addWidget(self._start_btn)
         lay.addWidget(self._stop_btn)
@@ -3086,13 +3130,95 @@ class MainWindow(QMainWindow):
                 btn.setIcon(QIcon())
                 btn.setText(fallback)
 
-    def _on_target_changed(self, _index: int) -> None:
+    def _target_selection_token(self) -> str:
+        """The combo data token matching the persisted user.ini selection.
+
+        ``cloud`` / ``local::<root>`` / ``local::__none__`` — see
+        ``application.service.engines.build_local_target_options``.
+        """
+        from application.service.engines import (
+            CLOUD_TOKEN,
+            LOCAL_NONE,
+            LOCAL_PREFIX,
+            get_engine_service,
+        )
+        svc = get_engine_service()
+        if svc.get_link_target() == "cloud":
+            return CLOUD_TOKEN
+        active = svc.resolve_active_local_isaac()
+        if active is not None:
+            return f"{LOCAL_PREFIX}{active.get('root', '')}"
+        return CLOUD_TOKEN if svc.is_no_isaac_prompt_dismissed() else LOCAL_NONE
+
+    def _populate_target_combo(self) -> None:
+        """(Re)build the train-target combo from the install registry + prefs.
+
+        Mirrors the same option set into the Mission-Control card so the two
+        stay identical. Restores the persisted selection by data token.
+        """
         if self._target_combo is None:
+            return
+        from application.service.engines import (
+            build_local_target_options,
+            get_engine_service,
+        )
+        opts = build_local_target_options(get_engine_service())
+        want = self._target_selection_token()
+        self._target_syncing = True
+        try:
+            self._target_combo.clear()
+            sel = 0
+            for i, opt in enumerate(opts):
+                self._target_combo.addItem(opt["label"], opt["data"])
+                if opt["data"] == want:
+                    sel = i
+            if self._target_combo.count() > 0:
+                self._target_combo.setCurrentIndex(sel)
+        finally:
+            self._target_syncing = False
+        # Keep the Mission-Control card combo in lock-step.
+        if self._mission_control_panel is not None:
+            self._mission_control_panel.mirror_link_options(
+                opts, self._target_combo.currentData()
+            )
+
+    def _on_target_changed(self, _index: int) -> None:
+        if self._target_combo is None or self._target_syncing:
             return
         data = str(self._target_combo.currentData() or "").strip()
         if not data:
             return
-        self.backend_changed.emit(data)
+        from application.service.engines import (
+            CLOUD_TOKEN,
+            LOCAL_NONE,
+            LOCAL_PREFIX,
+            get_engine_service,
+            link_kind_for_data,
+        )
+        svc = get_engine_service()
+        if data == LOCAL_NONE:
+            # No local Isaac registered — ask once whether to register or go
+            # cloud-only (the latter is remembered and stops the nag).
+            from application.ui.dialogs.isaac_installs_dialog import (
+                IsaacInstallsDialog,
+                prompt_no_local_isaac,
+            )
+            if prompt_no_local_isaac(self):
+                IsaacInstallsDialog(parent=self).exec()
+            self._populate_target_combo()
+            self.backend_changed.emit(self._target_selection_token().split("::")[0])
+            return
+        # Persist the user's pick (DataManager-safe via Config → user.ini).
+        kind = link_kind_for_data(data)
+        svc.set_link_target(kind)
+        if data.startswith(LOCAL_PREFIX):
+            root = data[len(LOCAL_PREFIX):]
+            if root:
+                svc.set_local_selection_root(root)
+        # Keep the card in sync without re-triggering its own persist.
+        if self._mission_control_panel is not None:
+            self._mission_control_panel.set_link_current(data)
+        self.backend_changed.emit(kind)
 
     def set_training_running(self, running: bool) -> None:
         """Toggle the start/stop pair from outside (training backend).
@@ -3332,6 +3458,63 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Training controls (▶ / ■) — Stage 12 wiring
     # ------------------------------------------------------------------
+    def _bar1_preflight_ok(self, canvas_dict: Dict[str, Any]) -> bool:
+        """GPU BAR1 aperture pre-flight for headed Isaac Lab runs.
+
+        Returns True to proceed with the launch, False to abort. Headless runs
+        and any config-read / GPU-probe failure proceed (this is an advisory
+        check — we never block training because we couldn't read the GPU or the
+        canvas; the failure is logged loudly). For a headed run whose verdict is
+        ``warn`` / ``block``, shows :class:`Bar1RiskDialog` and honors the
+        user's Continue (accept) / Abort (reject) choice.
+
+        SUSPENDED (2026-05-26): investigation showed the "BAR1 saturated"
+        signal is an ``nvidia-smi`` false report — under the Windows WDDM
+        driver model the aperture is pre-mapped so free ≈ 0 regardless of
+        actual VRAM pressure (the artifact already described in
+        ``bar1_preflight`` module docstring). The dialog was firing on healthy
+        machines and misleading users into aborting good runs, so the gate is
+        parked. The verdict logic, :class:`Bar1RiskDialog`, and ``bar1.*``
+        localisation are all left intact — to re-enable, delete the early
+        return below. Tracking: BAR1 free needs a WDDM-aware probe before this
+        is trustworthy.
+        """
+        return True  # noqa: F841 — feature suspended; see docstring above.
+
+        try:  # noqa: W0101 — dead-but-preserved; restore by removing the return
+            from application.compiler.lowering import canvas_to_ir
+            from application.training.spec_compiler import (
+                read_headless_and_num_envs,
+            )
+
+            ir = canvas_to_ir(canvas_dict if isinstance(canvas_dict, dict) else {})
+            headless, num_envs = read_headless_and_num_envs(ir)
+        except Exception as exc:  # noqa: BLE001 — advisory; surface, don't block
+            log_warning(f"[play] BAR1 preflight: could not read run config: {exc!r}")
+            return True
+        if headless:
+            return True
+        try:
+            from application.training.isaac_lab.bar1_preflight import (
+                assess_bar1_risk,
+            )
+
+            verdict = assess_bar1_risk(
+                headless=False, num_envs=int(num_envs), gpu_id=0
+            )
+        except Exception as exc:  # noqa: BLE001 — advisory; surface, don't block
+            log_warning(f"[play] BAR1 preflight probe failed: {exc!r}")
+            return True
+        if verdict.level not in ("warn", "block"):
+            return True
+        from PyQt6.QtWidgets import QDialog
+
+        from application.ui.dialogs import Bar1RiskDialog
+
+        return Bar1RiskDialog(verdict, parent=self).exec() == (
+            QDialog.DialogCode.Accepted
+        )
+
     def _on_start_training(self) -> None:
         if self._active_task_id:
             log_warning(
@@ -3359,6 +3542,15 @@ class MainWindow(QMainWindow):
         # the Robot Node UX is missing today. User explicitly OK'd
         # proceeding ⇒ continue; cancelled ⇒ abort silently.
         if not self._deploy_coverage_preflight_ok(canvas_dict):
+            return
+        # GPU BAR1 aperture pre-flight (headed Isaac Lab runs only). A headed
+        # run renders the viewport through the PCIe BAR1 aperture; if it's too
+        # small (Resizable BAR off) or already saturated, the run aborts deep
+        # inside Kit with an opaque device-lost / access-violation crash. Probe
+        # it now and let the user choose Continue / Abort instead of hitting a
+        # cryptic crash. Headless runs and any read/probe failure proceed
+        # (advisory check — never block on inability to read GPU/canvas).
+        if not self._bar1_preflight_ok(canvas_dict):
             return
         # Clear any leftover danger_zone marks from a previous failed
         # submit so the user only sees marks relevant to THIS attempt.

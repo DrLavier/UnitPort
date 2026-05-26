@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.edit_dialogs — Popup re-exports + Coverage Inspector.
 
 Historical "edit dialog" module. ParamRow editors have all migrated to

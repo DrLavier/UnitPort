@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DEMO model_registry shim — RELEASE has ``registers.robots`` instead.
 
 Why this file exists

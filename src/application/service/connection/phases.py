@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ConnectionPhase enum — all phase IDs the orchestrator emits.
 
 Phase IDs are verbatim copies of DEMO's ``ros2_generic_connector`` phase

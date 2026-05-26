@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Scene asset registry — single source of truth for training playgrounds.
 
 Holds the canonical list of scenes/arenas that the canvas ``PlayGround

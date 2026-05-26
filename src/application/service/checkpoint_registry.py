@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CheckpointRegistry — discover ``.pt`` / ``.zip`` checkpoints under runs/.
 
 REWRITE-WITH-DEMO-REF from DEMO ``checkpoint_watcher.py``, narrowed to

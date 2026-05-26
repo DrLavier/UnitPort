@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.review_backends — Review-engine catalogue (process-local).
 
 DEMO 对应：``DEMO/src/system/training/review_backends.py``.

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.spec_validator — TrainingSpec semantic validation.
 
 Companion to :mod:`application.training.training_spec` and
@@ -763,7 +766,7 @@ def _check_recommended_reward_terms(spec: "TrainingSpec") -> List[ValidationIssu
     if not present:
         return out  # empty terms is its own issue (caught elsewhere)
     try:
-        from application.training.isaac_lab.task_module_registry import (
+        from scripts import (
             recommended_reward_terms_for_backend,
         )
     except Exception:

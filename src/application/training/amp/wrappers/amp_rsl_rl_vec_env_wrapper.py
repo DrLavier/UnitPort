@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AMP vec-env wrapper — subclass of isaaclab_rl's RslRlVecEnvWrapper.
 
 Per AMP_design.yaml §4.amp_backend.vec_env_wrapper.

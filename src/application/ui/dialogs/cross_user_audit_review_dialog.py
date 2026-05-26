@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CrossUserAuditReviewDialog — sign-in-time review of pending audit entries.
 
 Fires from ``MainWindow._on_workspace_changed`` (deferred one event-loop

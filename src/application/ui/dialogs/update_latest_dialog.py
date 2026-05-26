@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UpdateLatestDialog — shown when the Update button is clicked but no
 newer release exists on GitHub. Pure informational + a single OK.
 """

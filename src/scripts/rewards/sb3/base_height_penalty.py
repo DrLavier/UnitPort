@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Base Height Penalty — Penalty for base height deviating from the nominal standing height (~0.32 m)."""
 
 from __future__ import annotations
@@ -30,4 +33,12 @@ ENTRY = reward_item(
     backends=frozenset({BACKEND_SB3}),
     algorithms=frozenset({ALG_ALL}),
     il_inline=INLINE_SOURCE,
+    # Per-item "Value" chip = target standing height (m). 0.0 = auto →
+    # the SB3 env resolves to the model's nominal base z (keyframe-0/qpos0).
+    il_value_label='Target Height',
+    il_value_default=0.0,
+    il_value_min=0.0,
+    il_value_max=5.0,
+    il_value_step=0.01,
+    il_value_unit='m',
 )

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Feet Air Time — Reward for maintaining contact schedule (gait pattern)."""
 
 from __future__ import annotations

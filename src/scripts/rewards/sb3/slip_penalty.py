@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Slip Penalty — Penalty for excessive foot or wheel slip against the ground."""
 
 from __future__ import annotations

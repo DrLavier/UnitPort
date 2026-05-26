@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.scene_registry — Playground scene catalogue.
 
 DEMO 对应：``DEMO/src/system/training/scene_registry.py``.

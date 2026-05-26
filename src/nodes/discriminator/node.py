@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DiscriminatorNode — 独立 AMP 判别器配置 / Standalone AMP discriminator.
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:DiscriminatorNode``.

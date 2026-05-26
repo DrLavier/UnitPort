@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """StageSwitchNode — 时间多路选择器（最多 6 阶段）.
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:StageSwitchNode``.

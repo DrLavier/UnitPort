@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RunSourceSelector — multi-select dropdown for the chart's data source.
 
 Replaces DEMO's flat checkbox column (``training_workspace_window.py`` line

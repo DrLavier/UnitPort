@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Champ adapter — 12-DOF quadrupeds running the champ_controller stack.
 
 Publishes:

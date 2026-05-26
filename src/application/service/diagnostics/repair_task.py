@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RepairTask — apply a list of RepairAction against a DiagnosticContext.
 
 Filters by ``safe_only`` flag, runs sequentially (a repair may depend on

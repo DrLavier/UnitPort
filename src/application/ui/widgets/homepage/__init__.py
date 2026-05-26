@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Homepage — four-card empty-state landing page.
 
 Replaces the legacy ``NewCanvasForm`` as the picker child of ``_MainPanel``

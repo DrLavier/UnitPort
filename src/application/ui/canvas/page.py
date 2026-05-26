@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CanvasPage — Training Ground 画布页面壳 / Canvas page shell.
 
 Phase 0: ``QWidget`` 容器，里面挂 ``CanvasView`` + ``CanvasScene``，仅栅格背景。
@@ -1886,8 +1889,21 @@ class CanvasPage(QWidget):
             event.accept()
             return
 
-        # Delete / Backspace → 删除选中
+        # Delete / Backspace → 删除选中。
+        # hover + Delete 删除连线（替代已移除的右键删除）：当鼠标悬停在一条
+        # 连线上、且当前没有任何选中项时，Delete 只删这条线；否则按常规删除
+        # 选中的节点 / 边。
         if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            hovered = getattr(self._scene, "_hovered_edge", None)
+            if (
+                hovered is not None
+                and hovered.scene() is self._scene
+                and not self._scene.selectedItems()
+            ):
+                self._scene._hovered_edge = None
+                self._user_disconnect_edge(hovered)
+                event.accept()
+                return
             self._delete_selected()
             event.accept()
             return
@@ -2701,14 +2717,16 @@ class CanvasPage(QWidget):
 
         # 找到 NodeItem / ConnectionItem 祖先
         node = self._ancestor_of_type(clicked, NodeItem)
-        edge = self._ancestor_of_type(clicked, ConnectionItem) if node is None else None
-
         if node is not None:
             self._build_node_menu(menu, node)
-        elif edge is not None:
-            self._build_edge_menu(menu, edge)
-        else:
-            self._build_blank_menu(menu, scene_pos)
+            return menu
+
+        # 连线右键不再弹菜单（删除连线改为 hover + Delete；右键删除已移除：太
+        # 容易误触）。命中连线 → 不弹菜单，让右键回落为平移。
+        if self._ancestor_of_type(clicked, ConnectionItem) is not None:
+            return None
+
+        self._build_blank_menu(menu, scene_pos)
         return menu
 
     @staticmethod
@@ -2736,53 +2754,6 @@ class CanvasPage(QWidget):
         act_copy.triggered.connect(lambda: (_focus_only(node), self._copy_selected()))
         act_disc.triggered.connect(lambda: self._disconnect_node(node))
         act_del.triggered.connect(lambda: (_focus_only(node), self._delete_selected()))
-
-    def _build_edge_menu(self, menu: QMenu, edge: ConnectionItem) -> None:
-        act_dis = menu.addAction(tr("canvas.menu.disconnect", "Disconnect"))
-        act_dis.triggered.connect(lambda: self._user_disconnect_edge(edge))
-
-    def _disconnect_edge_via_right_click(self, edge: ConnectionItem) -> None:
-        """边右键直接断开。若该边属于当前多选集合，则同步断开整组并合并为
-        单次 undo macro；否则只断这一条。
-
-        与 :meth:`_user_disconnect_edge` 的区别仅在于"多选 → 批量"的入口。
-        实际的 DisconnectCmd 仍是逐条 push，由 ``QUndoStack.beginMacro`` 合
-        并为一步 redo / undo，避免新增专门的批量命令类。
-        """
-        selected_edges = [
-            it for it in self._scene.selectedItems()
-            if isinstance(it, ConnectionItem)
-        ]
-        if edge in selected_edges and len(selected_edges) > 1:
-            targets = selected_edges
-        else:
-            targets = [edge]
-
-        if len(targets) == 1:
-            self._user_disconnect_edge(targets[0])
-            return
-
-        if self._in_undo:
-            for e in targets:
-                e.disconnect()
-            return
-
-        from .undo import DisconnectCmd
-        self._undo_stack.beginMacro("Disconnect edges")
-        try:
-            for e in targets:
-                sn = e.src_port.parent_node()
-                dn = e.dst_port.parent_node()
-                if sn is None or dn is None:
-                    e.disconnect()
-                    continue
-                self._undo_stack.push(DisconnectCmd(
-                    self, e.edge_id,
-                    sn.node_id, e.src_port.port_name,
-                    dn.node_id, e.dst_port.port_name,
-                ))
-        finally:
-            self._undo_stack.endMacro()
 
     def _user_disconnect_edge(self, edge: ConnectionItem) -> None:
         sn = edge.src_port.parent_node()

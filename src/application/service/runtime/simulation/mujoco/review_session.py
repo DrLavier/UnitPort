@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MuJoCo review subprocess — Export 节点 ▶ Launch Review 的执行端.
 
 DEMO 对应：``DEMO/bin/pages/training/training_workspace_window.py:_on_review_launch_requested``

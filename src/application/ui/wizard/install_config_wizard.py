@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """InstallConfigWizard -- first-launch 3-page setup dialog (PyQt6 port).
 
 Strict naming per the migration plan: ``class InstallConfigWizard``.

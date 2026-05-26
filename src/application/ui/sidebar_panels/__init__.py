@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Sidebar panel factory.
 
 Each top-level rail entry maps to a builder. Lazy imports keep app startup

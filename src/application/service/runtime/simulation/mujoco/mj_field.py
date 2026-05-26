@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MjField — scene composer for the Mission runtime layer.
 
 A field is everything that is NOT the robot: the ground, terrain features,

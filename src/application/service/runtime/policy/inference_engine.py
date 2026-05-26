@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ONNX / TorchScript inference engines — verbatim port from DEMO.
 
 PolicyRunner picks one of these via ``policy_format`` in the bundle

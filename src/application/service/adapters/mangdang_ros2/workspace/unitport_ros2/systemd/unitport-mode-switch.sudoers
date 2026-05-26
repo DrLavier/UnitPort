@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # /etc/sudoers.d/unitport-mode-switch
 #
 # Narrow sudo grant letting the SSH user flip between UnitPort ROS2 mode

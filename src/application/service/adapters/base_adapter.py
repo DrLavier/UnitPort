@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """BaseAdapter — abstract robot adapter contract for RELEASE.
 
 An adapter is the **brand semantic boundary**: it translates UnitPort's

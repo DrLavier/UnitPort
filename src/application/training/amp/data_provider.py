@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Bridge: phase_2 MotionClip → AmpOnPolicyRunner ``amp_data`` contract.
 
 AMPOnPolicyRunner expects its ``amp_data`` object to expose:

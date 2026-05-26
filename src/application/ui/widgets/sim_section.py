@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared section/form widgets for the mission_panel Simulation cards.
 
 Extracted from ``policy_simulation_card.py`` so siblings (the upcoming

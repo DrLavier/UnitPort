@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.compiler.nodes — 节点契约总线 / Node contract bus.
 
 UnitPort 画布节点的强类型契约层：

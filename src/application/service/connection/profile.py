@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ConnectionProfile — full per-connection profile dataclass.
 
 Verbatim 15-field shape ported from DEMO's connector profile (Phase 1,

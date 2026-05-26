@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AMP observation registry — the term-level single source of truth.
 
 REWRITE-WITH-DEMO-REF from DEMO ``src/system/training/amp_obs_terms.py``

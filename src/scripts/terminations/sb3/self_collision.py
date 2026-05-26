@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Self Collision — Terminate when forbidden self-collision is detected."""
 
 from __future__ import annotations

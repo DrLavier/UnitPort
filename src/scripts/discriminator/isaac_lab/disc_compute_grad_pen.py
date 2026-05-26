@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Gradient Penalty — Zero-centered R1 gradient penalty on expert transitions."""
 
 from __future__ import annotations

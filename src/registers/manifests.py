@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.manifests — Skill / Policy / Deployment manifest schemas.
 
 合并自原 manifests/ 子目录 / Merged from former manifests/ subdir:

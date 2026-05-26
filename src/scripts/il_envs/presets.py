@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Isaac Lab environment presets — parameter templates for common tasks.
 
 Each preset is a dict mapping ``node_type`` → ``{param_key: value}``.

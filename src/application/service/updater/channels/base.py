@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UpdateChannel abstract base class.
 
 Each concrete channel knows how to apply a release in one specific

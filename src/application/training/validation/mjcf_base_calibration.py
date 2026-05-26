@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MJCF base spawn-height calibration.
 
 Computes a per-SKU vertical offset that compensates for the **USD↔MJCF base

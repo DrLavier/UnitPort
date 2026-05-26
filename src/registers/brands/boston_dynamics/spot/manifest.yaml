@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+# -----------------------------------------------------------------------------
+# Boston Dynamics Spot - remotized-actuator declaration (brand DATA).
+#
+# DATA ONLY. Declares WHICH joints use a configuration-dependent torque
+# ceiling and WHICH lookup table backs each. It does NOT carry gains: the
+# (kp, kd) for these joints still come from the mass-weighted PD solver
+# (knee group, see registers/data/pd_groups_defaults.json) - remotization
+# only replaces the scalar effort ceiling with the angle-dependent table.
+#
+# Robot identity is the SKU-building (brand, model) pair, resolved to the
+# canonical SKU at consume-time via registers.robots.resolve_to_sku
+# ("boston_dynamics.spot"). We do NOT hardcode the SKU hash here (it is a
+# registry-internal key) nor a free-form display name (CLAUDE.md §7).
+#
+# Consumed by (future steps, not yet wired - Step 2 is pure data prep):
+#   - Step 3: env_cfg_compiler routes matching joints to RemotizedPDActuatorCfg.
+#   - Step 4: PDController builds an angle-aware clamp from the same table.
+# -----------------------------------------------------------------------------
+manifest_version: 1
+
+robot:
+  brand: boston_dynamics
+  model: spot
+
+# Each entry: joints whose physical name matches `joint_pattern` (Python re,
+# fullmatch semantics applied by the consumer) get their torque ceiling from
+# `lookup_table` (path relative to this manifest's directory).
+remotized_joints:
+  # Spot's four knees: fl_kn, fr_kn, hl_kn, hr_kn. Mirrors IsaacLab's
+  # SPOT_CFG actuator expr `.*_kn` (anchored here).
+  - joint_pattern: ".*_kn$"
+    lookup_table: knee_torque_table.yaml

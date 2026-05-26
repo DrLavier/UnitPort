@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Lin Vel Z Penalty — L2 penalty on vertical linear velocity to discourage bouncing."""
 
 from __future__ import annotations

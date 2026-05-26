@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Severity classifier for Isaac Sim subprocess stdout.
 
 Isaac Sim / carb / hydra emit their own ``[Fatal]`` / ``[Error]`` /

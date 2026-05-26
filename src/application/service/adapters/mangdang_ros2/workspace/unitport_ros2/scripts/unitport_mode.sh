@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Switch the UnitPort overlay services on or off — ADDITIVE, never exclusive.
 #
 #   sudo unitport_mode.sh on      # start UnitPort services; leave factory running

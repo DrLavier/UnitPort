@@ -1,0 +1,7 @@
+[default]
+title_block = 训练很可能崩溃（GPU BAR1）
+title_warn = GPU 显存警告（BAR1）
+headline = 有头训练通过 GPU 的 BAR1 显存光圈渲染；当前配置下该光圈似乎过小/已饱和，可能导致 GPU 设备丢失而崩溃。
+btn_continue = 仍然继续
+btn_abort = 终止
+

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SB3 → ONNX export helpers.
 
 Splits the ``_build_ppo_onnx_net`` / ``_build_sac_onnx_net`` / ``export_to_onnx``

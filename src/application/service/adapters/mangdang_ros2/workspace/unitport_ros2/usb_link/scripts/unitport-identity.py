@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort robot-side identity + handshake service.
 
 Authoritative identity record lives at ``/etc/unitport/identity.yaml`` on

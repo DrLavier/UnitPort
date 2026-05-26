@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.compiler.ir — 分层 IR 契约 + 桥/序列化器（单文件）.
 
 合并自原 / Merged from former:

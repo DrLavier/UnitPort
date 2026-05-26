@@ -1,11 +1,17 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CloudSyncService — local USER_CONFIG_DIR ↔ Supabase Storage orchestrator.
 
 Phase 1 scope (matches storage-sync.spec.yaml):
-    - Manual Push: walk local, apply include/exclude + transforms, upload via
+    - Manual Push: walk local, apply include/exclude + transforms, then
+      content-diff against the sync-state etags and upload ONLY the files
+      whose local content differs from the cloud copy via
       SupabaseStorageClient; record etags in a sync-state file.
-    - Manual Pull: list remote tree, download every key into local paths;
-      Phase 1 does not delete local files that no longer exist remotely
-      (soft strategy deferred — see spec.runtime.on_delete).
+    - Manual Pull: list remote tree, content-diff each object's etag against
+      the local copy and download ONLY the keys that differ into local
+      paths; Phase 1 does not delete local files that no longer exist
+      remotely (soft strategy deferred — see spec.runtime.on_delete).
     - Self-check: list-only, used by lifecycle hooks to surface a status
       number without transferring bytes.
 
@@ -171,10 +177,12 @@ class SyncPlan:
     skipped_oversize: List[str] = field(default_factory=list)
     skipped_excluded: int = 0
     skipped_runs_topn: int = 0
-    # Push-only: files whose mtime predates the caller-supplied
-    # ``since_mtime`` cutoff (e.g. process start) and were therefore
-    # filtered out as "unchanged this session". 0 when ``plan_push`` is
-    # called without a cutoff (manual full push).
+    # Files that did NOT need transfer because local and cloud already
+    # agree. Push: content matches the last-uploaded etag (or, with
+    # ``since_mtime``, predates the cutoff). Pull: the local file is
+    # byte-identical to the remote object. This is the counter that proves
+    # the diff is doing its job — only differing files end up in
+    # ``entries``.
     skipped_unchanged: int = 0
 
 
@@ -315,18 +323,34 @@ class CloudSyncService(QObject):
     def plan_push(self, *, since_mtime: Optional[float] = None) -> SyncPlan:
         """Walk USER_CONFIG_DIR, apply include/exclude/transforms.
 
-        Does NOT consult cloud state. When ``since_mtime`` is provided
-        (typically the process start wall-clock), files whose ``st_mtime``
-        predates it are skipped and counted in ``plan.skipped_unchanged``.
-        This is the contract used by the exit auto-push hook so a quit
-        only uploads what the current session actually touched. Manual
-        Push (UserPanel button → CloudSyncTask) leaves ``since_mtime``
-        unset to keep its "force full sync" semantics.
+        Content-diffs against the persisted sync-state: a file is added to
+        the plan ONLY when its local content differs from what we last
+        uploaded for it (``files[rel].etag`` == md5 of the bytes that went
+        to the cloud). Files whose ``(size, mtime)`` still match the last
+        sync are skipped without even hashing; touched-but-identical files
+        are caught by the md5 compare. Both count into
+        ``plan.skipped_unchanged``. This is what keeps Push from re-uploading
+        bytes the cloud already holds.
+
+        When ``since_mtime`` is provided (typically the process start
+        wall-clock), files whose ``st_mtime`` predates it are skipped first
+        (also counted in ``skipped_unchanged``). This is the contract used
+        by the exit auto-push hook so a quit only considers what the current
+        session touched. Manual Push (UserPanel button → CloudSyncTask)
+        leaves ``since_mtime`` unset so it considers the full include set —
+        but it still only uploads the files that actually differ.
+
+        The diff trusts the local sync-state as the record of cloud content
+        (no per-push remote listing — that's a request we avoid). In the
+        single-machine flow this is exact. If the cloud is mutated out of
+        band, deleting ``.cloud_sync_state.json`` forces a full re-push.
         """
         plan = SyncPlan(phase="push")
         base = self._base_dir()
         if base is None:
             return plan
+
+        files_state: dict = dict(self._load_state().get("files", {}) or {})
 
         # 1. Walk all candidate files relative to base, applying include.
         included: List[str] = []
@@ -343,7 +367,8 @@ class CloudSyncService(QObject):
         kept, dropped = self._prune_runs_topn(base, included)
         plan.skipped_runs_topn = dropped
 
-        # 3. Build entries, applying per-file transforms / size limit.
+        # 3. Build entries, applying per-file transforms / size limit /
+        #    content diff.
         for rel_posix in kept:
             absolute = base / Path(*rel_posix.split("/"))
             try:
@@ -355,22 +380,53 @@ class CloudSyncService(QObject):
             if since_mtime is not None and st.st_mtime < since_mtime:
                 plan.skipped_unchanged += 1
                 continue
-            size = int(st.st_size)
-            ext = absolute.suffix.lower()
 
-            # transforms — may rewrite the body before upload
+            ext = absolute.suffix.lower()
+            prior = files_state.get(rel_posix)
+            is_user_ini = rel_posix == "user.ini"
+            is_engines = fnmatch.fnmatch(rel_posix, "engines/*.json")
+
+            # Fast unchanged check for plain (non-transform) files: identical
+            # (size, mtime) to the last sync ⇒ content already in the cloud ⇒
+            # skip without reading/hashing the file. Transform files store the
+            # *transformed* size in state, so their st_size never matches —
+            # they fall through to the md5 compare below (they're tiny).
+            if prior and not is_user_ini and not is_engines:
+                if (
+                    int(st.st_size) == int(prior.get("size", -1))
+                    and float(st.st_mtime) == float(prior.get("local_mtime", -1.0))
+                ):
+                    plan.skipped_unchanged += 1
+                    continue
+
+            # Build the exact bytes that would be uploaded so we can both
+            # size-check and content-diff them. transforms may rewrite the
+            # body before upload.
             body_override: Optional[bytes] = None
-            if rel_posix == "user.ini":
+            if is_user_ini:
                 body_override = self._transform_user_ini_split(absolute)
                 if body_override is None:
                     # All sections were excluded; nothing to upload.
                     continue
-                size = len(body_override)
-            elif fnmatch.fnmatch(rel_posix, "engines/*.json"):
+                payload = body_override
+            elif is_engines:
                 body_override = self._transform_engines_strip_local(absolute)
                 if body_override is None:
                     continue
-                size = len(body_override)
+                payload = body_override
+            else:
+                try:
+                    payload = absolute.read_bytes()
+                except OSError:
+                    continue
+            size = len(payload)
+
+            # Content diff: the recorded etag is the md5 we last uploaded for
+            # this key, i.e. the cloud's current content. Equal ⇒ no-op push.
+            digest = hashlib.md5(payload, usedforsecurity=False).hexdigest()
+            if prior and digest == str(prior.get("etag", "")):
+                plan.skipped_unchanged += 1
+                continue
 
             if size > self._size_limit_bytes:
                 plan.skipped_oversize.append(rel_posix)
@@ -389,7 +445,18 @@ class CloudSyncService(QObject):
         return plan
 
     def plan_pull(self) -> SyncPlan:
-        """List the remote prefix and turn each object into a Pull entry."""
+        """List the remote prefix and turn each *differing* object into a
+        Pull entry.
+
+        Uses the etag the remote ``list`` already returned (no extra
+        request) and compares it against the local copy: if the local file
+        is byte-identical to the cloud object it is skipped (counted in
+        ``plan.skipped_unchanged``). Equality is decided by the local
+        file's md5 — read from the sync-state cache when ``(size, mtime)``
+        still match the last sync, otherwise hashed on the spot. A missing
+        local file, or a remote object whose etag isn't a plain content
+        md5 (e.g. multipart), always downloads.
+        """
         plan = SyncPlan(phase="pull")
         client, user_id, access = self._client_or_none()
         if client is None or not user_id or not access:
@@ -404,6 +471,8 @@ class CloudSyncService(QObject):
             log_error(f"[cloud-sync] plan_pull list failed: {exc}")
             return plan
 
+        files_state: dict = dict(self._load_state().get("files", {}) or {})
+
         prefix = f"{user_id}/"
         for o in objs:
             if not o.name.startswith(prefix):
@@ -411,8 +480,21 @@ class CloudSyncService(QObject):
             rel_posix = o.name[len(prefix):]
             if not rel_posix:
                 continue
+            local_path = base / Path(*rel_posix.split("/"))
+
+            # Content diff: skip the download when the local file already
+            # holds the cloud object's exact bytes.
+            remote_etag = _norm_etag(o.etag)
+            if remote_etag and local_path.exists():
+                local_hash = self._local_md5(
+                    local_path, files_state.get(rel_posix),
+                )
+                if local_hash is not None and local_hash == remote_etag:
+                    plan.skipped_unchanged += 1
+                    continue
+
             plan.entries.append(PlanEntry(
-                local_path=base / Path(*rel_posix.split("/")),
+                local_path=local_path,
                 rel_path=rel_posix,
                 cloud_key=rel_posix,
                 size=o.size,
@@ -730,6 +812,40 @@ class CloudSyncService(QObject):
 
     # ----- helpers --------------------------------------------------------
 
+    def _local_md5(
+        self,
+        path: Path,
+        prior: Optional[dict],
+    ) -> Optional[str]:
+        """md5 hex of ``path``'s current content, or None if unreadable.
+
+        Reuses the recorded etag when the file's ``(size, mtime)`` still
+        match the last sync (the cached etag is exactly that md5), so the
+        common "already up to date" pull never re-reads the file. Falls
+        back to hashing the bytes when the cache is absent or stale.
+        """
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        if prior:
+            try:
+                if (
+                    int(st.st_size) == int(prior.get("size", -1))
+                    and float(st.st_mtime) == float(prior.get("local_mtime", -1.0))
+                ):
+                    etag = str(prior.get("etag", ""))
+                    if etag:
+                        return etag
+            except (TypeError, ValueError):
+                pass
+        try:
+            return hashlib.md5(
+                path.read_bytes(), usedforsecurity=False,
+            ).hexdigest()
+        except OSError:
+            return None
+
     def _base_dir(self) -> Optional[Path]:
         try:
             base = Path(Paths.USER_CONFIG_DIR)
@@ -854,6 +970,22 @@ def _run_dir_for(rel_posix: str) -> Optional[Tuple[str, str]]:
         run_name = parts[5]
         return engine_dir, run_name
     return None
+
+
+def _norm_etag(etag: str) -> str:
+    """Normalise a remote eTag to a bare content md5 for comparison.
+
+    Supabase Storage returns the S3 eTag in object metadata, usually a
+    quoted md5 hex (``"\"d41d8...\""``). Strip the surrounding quotes /
+    whitespace. A multipart eTag carries a ``-<partcount>`` suffix and is
+    NOT a plain content md5 — return ``""`` so the caller treats it as
+    "can't prove equality" and downloads. Our uploads are single-part, so
+    cloud objects we wrote always normalise to a comparable md5.
+    """
+    e = (etag or "").strip().strip('"').strip()
+    if not e or "-" in e:
+        return ""
+    return e.lower()
 
 
 def _safe_mtime(path: Path) -> float:

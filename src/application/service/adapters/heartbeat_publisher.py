@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HeartbeatPublisher — 2 Hz /unitport/heartbeat for robot-side estop watchdog.
 
 The UnitPort robot-side stack (deployed via Phase 4 bootstrap, but already

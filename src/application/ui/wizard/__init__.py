@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.wizard -- the first-launch InstallConfigWizard.
 
 Modal QDialog shown ON TOP of the LoadingScreen on first launch (or

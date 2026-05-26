@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """NativeDDSBridge — in-process cyclonedds-python bridge for ROS2-generic brands.
 
 Phase 2 port from DEMO ``src/system/runtime/ros2/native_dds_bridge.py``.

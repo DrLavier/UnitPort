@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # UnitPort ROS2 Workspace
 
 Robot-side ROS2 packages deployed by the UnitPort host at
@@ -73,5 +78,3 @@ sudo /opt/unitport/ros2_ws/src/unitport_ros2/scripts/unitport_mode.sh off
 - `/etc/unitport/adapter_registry.yaml` — `controller_type` → adapter class
   lookup the bridge uses once a mapping arrives.
 - `/etc/unitport/tunable_params.yaml` — whitelist the param service enforces.
-
-See `knowledge_base/native_dds_bridge_spec.yaml` for the full spec.

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Unitree Go2 Air host-side adapter package.
 
 Unitree does not expose a DDS surface for the Go2 Air SKU; the only

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service — I/O + 状态服务层 / Stateful I/O service layer.
 
 布局（高度集中化，plan §3）/ Layout (highly consolidated):

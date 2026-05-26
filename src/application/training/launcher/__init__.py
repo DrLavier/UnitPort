@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.launcher — SB3 subprocess launcher (Stage 10).
 
 Wraps :func:`application.training.sb3_trainer.train_sb3` in a

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """User workspace (``USER_CONFIG_DIR``) management.
 
 Ground rules (per product owner):

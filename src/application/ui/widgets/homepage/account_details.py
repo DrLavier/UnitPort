@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AccountDetailsWidget — sign-in methods + Cloud Sync block.
 
 Sidebar-only consumer:

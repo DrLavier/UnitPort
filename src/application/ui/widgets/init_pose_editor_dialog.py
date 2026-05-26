@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """InitPoseEditorDialog — modal editor for base position + joint angles.
 
 Opened from the Simulation card's Init Pose subsection. Renders the

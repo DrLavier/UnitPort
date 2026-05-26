@@ -33,8 +33,6 @@ btn.hyper_edit = 编辑超参数
 field.training_asset = 训练资产
 field.active_files = 资源文件
 field.body_mapping = body 映射
-field.target_height = 目标高度 (m)
-field.target_height_hint = 0 = 跟随资产标称值
 btn.start = 开始
 btn.pause = 暂停
 btn.stop = 停止

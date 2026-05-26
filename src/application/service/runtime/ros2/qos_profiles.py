@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Canonical QoS profile presets for ROS2 topic subscriptions/publications.
 
 These are **descriptor dicts** — not rclpy or cyclonedds QoS objects. The

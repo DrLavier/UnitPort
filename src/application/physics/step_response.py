@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Per-joint step-response simulator for sim2sim calibration.
 
 Locks every joint except one at its nominal pose, commands a position
@@ -375,8 +378,7 @@ class StepResponseComparison:
     verdict: str   # "pass" / "warn" / "fail"
 
 
-# Default tolerance thresholds (mirror knowledge_base/sim2sim_mass-matrix-adaptive.yaml
-# lines 181-188).
+# Default tolerance thresholds.
 DEFAULT_RISE_TIME_RELATIVE_DIFF = 0.15
 DEFAULT_OVERSHOOT_ABSOLUTE_DIFF = 0.05  # = 5 percentage points
 DEFAULT_SS_ERROR_RAD_ABS = 0.005

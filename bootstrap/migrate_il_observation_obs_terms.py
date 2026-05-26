@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """One-shot canvas migrator: il_observation obs_terms → strict scale form.
 
 Phase: the il_observation node was redesigned so that each entry in

@@ -1,0 +1,7 @@
+[default]
+title_block = L'entraînement risque de planter (BAR1 GPU)
+title_warn = Avertissement mémoire GPU (BAR1)
+headline = L'entraînement avec affichage effectue le rendu via l'ouverture BAR1 du GPU, qui semble trop petite / saturée pour cette exécution. Il peut planter avec une erreur de perte de périphérique GPU.
+btn_continue = Continuer quand même
+btn_abort = Abandonner
+

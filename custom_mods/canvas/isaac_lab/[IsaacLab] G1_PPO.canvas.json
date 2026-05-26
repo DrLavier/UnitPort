@@ -4,9 +4,9 @@
   "robot_id": "6f3ea19141c4",
   "metadata": {
     "view": {
-      "zoom": 0.4998737717575792,
-      "center_x": -1498.3782753123485,
-      "center_y": 266.06717038256653
+      "zoom": 0.4998737717575798,
+      "center_x": -1852.4676674756113,
+      "center_y": 114.02878730681408
     }
   },
   "nodes": [
@@ -37,15 +37,15 @@
         }
       },
       "ui": {
-        "x": -2982.168566909383,
-        "y": -485.570546028501,
+        "x": -3354.4364613969224,
+        "y": -487.31011562891,
         "width": 324.0,
         "height": 88.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#1A4F6B"
+      "color_override": "#174963"
     },
     {
       "id": "1001",
@@ -194,10 +194,19 @@
         "termination_conditions": {
           "name": "termination_conditions",
           "value": {
-            "illegal_contact": 1.0,
-            "base_height": 0.55,
-            "bad_orientation": 0.7,
-            "time_out": 20.0
+            "illegal_contact": {
+              "weight": 1.0,
+              "grace_period_s": 1.0
+            },
+            "base_height": {
+              "weight": 0.55,
+              "grace_period_s": 2.0
+            },
+            "bad_orientation": {
+              "weight": 0.7,
+              "grace_period_s": 1.5
+            },
+            "time_out": 30.0
           },
           "param_type": "json"
         },
@@ -226,7 +235,7 @@
         "x": -1192.3768500374242,
         "y": 805.0404608721699,
         "width": 324.0,
-        "height": 328.0,
+        "height": 343.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -420,8 +429,8 @@
         }
       },
       "ui": {
-        "x": -1193.5256850754934,
-        "y": -768.6928462924081,
+        "x": -1200.4274274651164,
+        "y": -632.9585792964899,
         "width": 324.0,
         "height": 746.0,
         "collapsed": false
@@ -462,9 +471,6 @@
             "ang_vel_xy_penalty": {
               "weight": -0.05
             },
-            "base_height": {
-              "weight": -1.0
-            },
             "joint_deviation_l1": {
               "weight": -0.1
             },
@@ -480,14 +486,8 @@
             "action_rate_penalty": {
               "weight": -0.005
             },
-            "alive_reward": {
-              "weight": 0.15
-            },
             "undesired_contacts": {
               "weight": -1.0
-            },
-            "termination_penalty": {
-              "weight": -200.0
             }
           },
           "param_type": "json"
@@ -507,7 +507,7 @@
         "x": -2486.975084751713,
         "y": -476.94958525035804,
         "width": 324.0,
-        "height": 696.0,
+        "height": 615.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -539,9 +539,6 @@
               "weight": -0.2
             },
             "flat_orientation": {
-              "weight": -5.0
-            },
-            "base_height": {
               "weight": -5.0
             },
             "joint_deviation_l1": {
@@ -583,10 +580,10 @@
         }
       },
       "ui": {
-        "x": -2482.0453056036063,
-        "y": 291.80246635798795,
+        "x": -2484.929658842016,
+        "y": 152.70701794709308,
         "width": 324.0,
-        "height": 632.0,
+        "height": 615.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -602,9 +599,6 @@
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "alive_reward": {
-              "weight": 1.0
-            },
             "track_ang_vel_z": {
               "weight": 1.5
             },
@@ -618,9 +612,6 @@
               "weight": -0.05
             },
             "flat_orientation": {
-              "weight": -1.0
-            },
-            "base_height": {
               "weight": -1.0
             },
             "joint_deviation_l1": {
@@ -649,9 +640,6 @@
             },
             "undesired_contacts": {
               "weight": -1.0
-            },
-            "termination_penalty": {
-              "weight": -200.0
             }
           },
           "param_type": "json"
@@ -671,7 +659,7 @@
         "x": -2085.2623128775917,
         "y": -477.0322993884513,
         "width": 324.0,
-        "height": 696.0,
+        "height": 615.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -687,9 +675,6 @@
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "alive_reward": {
-              "weight": 1.0
-            },
             "track_lin_vel_xy": {
               "weight": 1.5
             },
@@ -703,9 +688,6 @@
               "weight": -0.05
             },
             "flat_orientation": {
-              "weight": -2.0
-            },
-            "base_height": {
               "weight": -2.0
             },
             "joint_deviation_l1": {
@@ -734,9 +716,6 @@
             },
             "undesired_contacts": {
               "weight": -1.5
-            },
-            "termination_penalty": {
-              "weight": -200.0
             }
           },
           "param_type": "json"
@@ -753,10 +732,10 @@
         }
       },
       "ui": {
-        "x": -2091.6371875930827,
-        "y": 290.618285400605,
+        "x": -2078.5084073354938,
+        "y": 158.13695734675304,
         "width": 324.0,
-        "height": 696.0,
+        "height": 615.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -811,10 +790,10 @@
         }
       },
       "ui": {
-        "x": -1186.1511461101343,
-        "y": 236.2667490558802,
+        "x": -1193.9350079229343,
+        "y": 219.83415189552514,
         "width": 324.0,
-        "height": 556.0,
+        "height": 571.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -908,8 +887,8 @@
         }
       },
       "ui": {
-        "x": -1567.1932878434739,
-        "y": -810.8661657745477,
+        "x": -1584.5324478355515,
+        "y": -619.4656715655393,
         "width": 324.0,
         "height": 280.0,
         "collapsed": false
@@ -1071,7 +1050,7 @@
         "x": -1580.0751171612167,
         "y": 229.2573203272113,
         "width": 324.0,
-        "height": 900.0,
+        "height": 915.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -1098,10 +1077,10 @@
           "value": "{\"body_names\": [\"left_hand_index_0_link\", \"left_hand_index_1_link\", \"left_hand_middle_0_link\", \"left_hand_middle_1_link\", \"left_hand_thumb_0_link\", \"left_hand_thumb_1_link\", \"left_hand_thumb_2_link\", \"left_hand_palm_link\", \"pelvis\", \"left_hip_pitch_link\", \"left_hip_roll_link\", \"left_hip_yaw_link\", \"left_knee_link\", \"left_ankle_pitch_link\", \"left_ankle_roll_link\", \"right_hip_pitch_link\", \"right_hip_roll_link\", \"right_hip_yaw_link\", \"right_knee_link\", \"right_ankle_pitch_link\", \"right_ankle_roll_link\", \"waist_yaw_link\", \"waist_roll_link\", \"torso_link\", \"left_shoulder_pitch_link\", \"left_shoulder_roll_link\", \"left_shoulder_yaw_link\", \"left_elbow_link\", \"left_wrist_roll_link\", \"left_wrist_pitch_link\", \"left_wrist_yaw_link\", \"right_shoulder_pitch_link\", \"right_shoulder_roll_link\", \"right_shoulder_yaw_link\", \"right_elbow_link\", \"right_wrist_roll_link\", \"right_wrist_pitch_link\", \"right_wrist_yaw_link\", \"right_hand_index_0_link\", \"right_hand_index_1_link\", \"right_hand_middle_0_link\", \"right_hand_middle_1_link\", \"right_hand_thumb_0_link\", \"right_hand_thumb_1_link\", \"right_hand_thumb_2_link\", \"right_hand_palm_link\"], \"family\": \"humanoid\", \"roles\": {\"base\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"pelvis\": {\"body\": \"pelvis\", \"manual\": false, \"auto_from_asset\": true}, \"torso\": {\"body\": \"torso_link\", \"manual\": false, \"auto_from_asset\": false}, \"waist\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"head\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"waist_yaw\": {\"body\": \"waist_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"waist_roll\": {\"body\": \"waist_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"waist_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck_yaw\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"neck_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"head_pitch\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"hip_pitch_L\": {\"body\": \"left_hip_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_pitch_R\": {\"body\": \"right_hip_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_roll_L\": {\"body\": \"left_hip_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_roll_R\": {\"body\": \"right_hip_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_yaw_L\": {\"body\": \"left_hip_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"hip_yaw_R\": {\"body\": \"right_hip_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"knee_L\": {\"body\": \"left_knee_link\", \"manual\": false, \"auto_from_asset\": false}, \"knee_R\": {\"body\": \"right_knee_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ankle_pitch_L\": {\"body\": \"left_ankle_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_pitch_R\": {\"body\": \"right_ankle_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_roll_L\": {\"body\": \"left_ankle_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"ankle_roll_R\": {\"body\": \"right_ankle_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"foot_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"foot_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"shoulder_pitch_L\": {\"body\": \"left_shoulder_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_pitch_R\": {\"body\": \"right_shoulder_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_roll_L\": {\"body\": \"left_shoulder_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_roll_R\": {\"body\": \"right_shoulder_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_yaw_L\": {\"body\": \"left_shoulder_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"shoulder_yaw_R\": {\"body\": \"right_shoulder_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"elbow_L\": {\"body\": \"left_elbow_link\", \"manual\": false, \"auto_from_asset\": false}, \"elbow_R\": {\"body\": \"right_elbow_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"wrist_roll_L\": {\"body\": \"left_wrist_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_roll_R\": {\"body\": \"right_wrist_roll_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_pitch_L\": {\"body\": \"left_wrist_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_pitch_R\": {\"body\": \"right_wrist_pitch_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_yaw_L\": {\"body\": \"left_wrist_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"wrist_yaw_R\": {\"body\": \"right_wrist_yaw_link\", \"manual\": false, \"auto_from_asset\": false}, \"hand_L\": {\"body\": \"left_hand_palm_link\", \"manual\": false, \"auto_from_asset\": false}, \"hand_R\": {\"body\": \"right_hand_palm_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_0_L\": {\"body\": \"left_hand_thumb_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_0_R\": {\"body\": \"right_hand_thumb_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_1_L\": {\"body\": \"left_hand_thumb_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_1_R\": {\"body\": \"right_hand_thumb_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_2_L\": {\"body\": \"left_hand_thumb_2_link\", \"manual\": false, \"auto_from_asset\": false}, \"thumb_2_R\": {\"body\": \"right_hand_thumb_2_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_0_L\": {\"body\": \"left_hand_index_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_0_R\": {\"body\": \"right_hand_index_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_1_L\": {\"body\": \"left_hand_index_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"index_1_R\": {\"body\": \"right_hand_index_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_0_L\": {\"body\": \"left_hand_middle_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_0_R\": {\"body\": \"right_hand_middle_0_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_1_L\": {\"body\": \"left_hand_middle_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"middle_1_R\": {\"body\": \"right_hand_middle_1_link\", \"manual\": false, \"auto_from_asset\": false}, \"ring_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_0_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_0_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_1_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_1_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"thumb_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"index_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"middle_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"ring_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_tip_L\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"little_tip_R\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_imu\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_lidar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_camera\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_radar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_gps\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_sonar\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"sensor_depth\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}, \"misc\": {\"body\": null, \"manual\": false, \"auto_from_asset\": false}}, \"unmapped_bodies\": [], \"out_of_scope_bodies\": []}",
           "param_type": "json"
         },
-        "target_height": {
-          "name": "target_height",
-          "value": 0.78,
-          "param_type": "float"
+        "_mjcf_base_offset_status": {
+          "name": "_mjcf_base_offset_status",
+          "value": "",
+          "param_type": "string"
         },
         "pd_param_mode": {
           "name": "pd_param_mode",
@@ -1112,16 +1091,6 @@
           "name": "pd_groups",
           "value": "{}",
           "param_type": "json"
-        },
-        "pd_effort_limit": {
-          "name": "pd_effort_limit",
-          "value": 30.0,
-          "param_type": "float"
-        },
-        "pd_velocity_limit": {
-          "name": "pd_velocity_limit",
-          "value": 30.0,
-          "param_type": "float"
         },
         "pd_resolve_at_reset": {
           "name": "pd_resolve_at_reset",
@@ -1140,15 +1109,15 @@
         }
       },
       "ui": {
-        "x": -2979.64351676644,
-        "y": -370.97120758004246,
+        "x": -3351.911411253979,
+        "y": -372.7107771804515,
         "width": 324.0,
         "height": 1256.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#1A4F6B"
+      "color_override": "#174963"
     },
     {
       "id": "1010",
@@ -1326,15 +1295,15 @@
         }
       },
       "ui": {
-        "x": -1562.3399973531007,
-        "y": -489.03555213855225,
+        "x": -2994.0057784897617,
+        "y": -363.7865409090995,
         "width": 324.0,
         "height": 626.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#6A3F2D"
+      "color_override": "#174963"
     },
     {
       "id": "1003",
@@ -1507,9 +1476,124 @@
       "opaque_code": null,
       "disabled": false,
       "color_override": "#5B0A0A"
+    },
+    {
+      "id": "rewards_1",
+      "schema_id": "rewards",
+      "kind": "custom",
+      "params": {
+        "reward_terms": {
+          "name": "reward_terms",
+          "value": {
+            "base_height": {
+              "weight": -5.0,
+              "value": 0.6
+            },
+            "termination_penalty": {
+              "weight": -200.0
+            },
+            "alive_reward": {
+              "weight": 1.0
+            }
+          },
+          "param_type": "json"
+        },
+        "std": {
+          "name": "std",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "threshold": {
+          "name": "threshold",
+          "value": "0.4",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -2485.1698617391326,
+        "y": 791.599708498965,
+        "width": 324.0,
+        "height": 263.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Public Rewards"
     }
   ],
   "edges": [
+    {
+      "id": "e_9c9dfca8d2f3",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__walk",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_9b58df35c565",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_3e2d2a0a7793",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_1a5a24dd505d",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_40e8a9d56fa1",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_3da1dd9c5842",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__pace",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_ee522dc88511",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_slow",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_1da553113d11",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_fast",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_7b496a8eee3e",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__backward",
+      "edge_type": "flow"
+    },
     {
       "id": "e_875a8148d992",
       "source_node": "1009",
@@ -1717,14 +1801,13 @@
       "title": "Enviroment Settings",
       "members": [
         "1005",
-        "1009",
-        "1010"
+        "1009"
       ],
       "rect": {
-        "x": -1595.1932878434739,
-        "y": -853.8661657745477,
+        "x": -1602.0950302330968,
+        "y": -718.1318987786294,
         "w": 741.490615565117,
-        "h": 1008.9611979376511
+        "h": 880.2330475073803
       },
       "color_override": "#6A3F2D"
     },
@@ -1733,15 +1816,16 @@
       "title": "Start",
       "members": [
         "1002",
-        "1011"
+        "1011",
+        "1010"
       ],
       "rect": {
-        "x": -3028.8588083230256,
-        "y": -528.570546028501,
-        "w": 408.18021083560507,
+        "x": -3401.126702810565,
+        "y": -530.31011562891,
+        "w": 749.1358525157821,
         "h": 1435.7527031692966
       },
-      "color_override": "#14484E"
+      "color_override": "#174963"
     },
     {
       "id": "2fcc9d18d835",
@@ -1750,7 +1834,8 @@
         "1007",
         "1013",
         "1014",
-        "1015"
+        "1015",
+        "rewards_1"
       ],
       "rect": {
         "x": -2514.975084751713,

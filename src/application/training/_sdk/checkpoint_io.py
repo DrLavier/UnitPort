@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Atomic IO helpers for training checkpoints + bundle artifacts.
 
 Routes everything through the SDK to honour the "no business open()" rule:

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.spec_compiler — IR → TrainingSpec assembly.
 
 Stage 3.B/C surface: takes a :class:`WorkflowIR` (the canvas IR contract from
@@ -222,6 +225,20 @@ def _p(node: Optional["IRNode"], key: str, default: Any = None) -> Any:
         return default
     val = getattr(p, "value", default)
     return val if val is not None else default
+
+
+def read_headless_and_num_envs(ir: "WorkflowIR") -> Tuple[bool, int]:
+    """Read the ``(headless, num_envs)`` an Isaac Lab run will use straight
+    from the canvas IR, via the *same* node/param reads the compiler uses
+    (``il_ppo_trainer``/``amp_trainer``.``headless`` and
+    ``env_assembler``.``n_envs``). The UI BAR1 preflight calls this so its
+    risk verdict matches the config that will actually launch — rather than
+    re-deriving param keys (which would silently drift from the compiler)."""
+    by_id = {n.schema_id: n for n in ir.nodes}
+    il_node = by_id.get("il_ppo_trainer") or by_id.get("amp_trainer")
+    headless = _as_bool(_p(il_node, "headless"), True)
+    num_envs = _as_int(_p(by_id.get("env_assembler"), "n_envs"), 8)
+    return headless, num_envs
 
 
 def _as_int(v: Any, default: int) -> int:
@@ -450,7 +467,6 @@ def _populate_robot(
         # silent return here lets the topology issue carry the error.
         return
     asset_id = _as_str(_p(n, "asset_id"), "")
-    target_height = _as_float(_p(n, "target_height", 0.0), 0.0)
     active_override = _as_str(_p(n, "active_override", "auto"), "auto")
     if not asset_id:
         _emit_issue(ValidationIssue(
@@ -527,7 +543,7 @@ def _populate_robot(
         return
 
     spec.robot = RobotSpecRef.from_registry(
-        rs, target_height=target_height, active_format=active_format,
+        rs, active_format=active_format,
     )
 
 
@@ -680,9 +696,12 @@ def _compile_pd_param(
     """Build the canonical PDParam from the ActuatorPDNode + family defaults.
 
     Returns ``(pd_param, effort_limit, velocity_limit, resolve_at_reset,
-    calibration_blocking, skip_calibration)``; every field is ``None``
-    when no ActuatorPDNode is present (engine compilers then fall back
-    to the legacy ``ActuatorConfig.stiffness/damping`` scalar path).
+    calibration_blocking, skip_calibration)``; ``pd_param`` and the three
+    toggles come from RobotNode, while ``effort_limit`` / ``velocity_limit``
+    are read from the ActorSetting node (their single canvas source of
+    truth — de-duplicated off RobotNode). Every field is ``None`` when no
+    PD config is present (engine compilers then fall back to the legacy
+    ``ActuatorConfig.stiffness/damping`` scalar path).
 
     Validation that fails fast here:
       * ``robot`` node missing — falls back silently (older canvases).
@@ -700,7 +719,7 @@ def _compile_pd_param(
     # params; treat that as "no PD configured" and let legacy scalars
     # take over via the ActorSetting.actuator path.
     if not any(_p(pd_node, k, None) is not None for k in (
-        "pd_groups", "pd_param_mode", "pd_effort_limit",
+        "pd_groups", "pd_param_mode",
     )):
         return None, None, None, None, None, None
 
@@ -789,10 +808,16 @@ def _compile_pd_param(
         ))
         return None, None, None, None, None, None
 
+    # effort_limit / velocity_limit live ONLY on the ActorSetting node
+    # (§4 Actuator overrides). They were de-duplicated off RobotNode
+    # (ex pd_effort_limit / pd_velocity_limit) so there is one canvas
+    # source of truth and both engines agree. The PD-process toggles
+    # below stay on RobotNode alongside the (omega_n, zeta) source.
+    actor_node = by_id.get("actor_setting")
     return (
         pd_param,
-        _as_float(_p(pd_node, "pd_effort_limit", 30.0), 30.0),
-        _as_float(_p(pd_node, "pd_velocity_limit", 30.0), 30.0),
+        _as_float(_p(actor_node, "effort_limit", 30.0), 30.0) if actor_node is not None else None,
+        _as_float(_p(actor_node, "velocity_limit", 30.0), 30.0) if actor_node is not None else None,
         _as_bool(_p(pd_node, "pd_resolve_at_reset", True), True),
         _as_bool(_p(pd_node, "pd_calibration_blocking", True), True),
         _as_bool(_p(pd_node, "pd_skip_calibration", False), False),
@@ -835,9 +860,9 @@ def _populate_actor(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
 
     # init_pose: migrated onto actor_setting (init_pose node deleted).
     # ``base_height`` and ``custom_qpos`` are intentionally not exposed —
-    # base_height duplicates init_pos_z / Robot.target_height; custom_qpos
-    # was unused by any canvas. Re-add as actor_setting params later if a
-    # concrete need surfaces.
+    # base_height duplicates init_pos_z / the model's nominal base z;
+    # custom_qpos was unused by any canvas. Re-add as actor_setting params
+    # later if a concrete need surfaces.
     actor.init_pose = InitPoseConfig(
         mode=_as_str(_p(n, "init_pose_mode"), "default"),
         noise_scale=_as_float(_p(n, "init_pose_noise_scale"), 0.05),

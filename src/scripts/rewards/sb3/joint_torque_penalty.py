@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Joint Torque Penalty — L2 penalty on applied joint torques for energy efficiency."""
 
 from __future__ import annotations

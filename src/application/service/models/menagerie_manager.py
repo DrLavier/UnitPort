@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MuJoCo Menagerie sparse-checkout manager (port of DEMO 1:1).
 
 Single source of truth for both:

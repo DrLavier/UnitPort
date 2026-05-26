@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Mangdang Mini Pupper v2 host-side adapter package.
 
 Module-load registers the brand's full topic table with

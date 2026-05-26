@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """QuadrupedTeleopWidget — capability-driven teleop sub-widget.
 
 Renders the 2D quadruped teleop layout (vx / vy / vyaw + Estop) when the

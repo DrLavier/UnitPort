@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Live system monitor — CPU% / RAM / GPU% / VRAM with ' | ' separators.
 
 Ported from DEMO ``bin/pages/training/training_workspace_window.py:SysMonitorWidget``.

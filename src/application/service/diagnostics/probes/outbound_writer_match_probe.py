@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """OutboundWriterMatchProbe — verify our cmd writers have a robot subscriber.
 
 Phase 3.6 reproduces DEMO's ``handoff_probe`` "estop_racing_zeros" check at

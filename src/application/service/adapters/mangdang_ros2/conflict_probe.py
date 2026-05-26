@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MangdangServiceConflictProbe — detect mini_pupper_web racing /cmd_vel.
 
 The Mini Pupper factory image ships ``mini_pupper_web.service``: a Flask

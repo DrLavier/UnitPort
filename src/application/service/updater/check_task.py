@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CheckUpdateTask — TasksManager wrapper around ``UpdateService.check()``.
 
 Submitted at Stage 2 of the boot pipeline alongside ``data_load`` so

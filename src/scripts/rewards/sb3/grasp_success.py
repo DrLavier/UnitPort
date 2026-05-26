@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Grasp Success — Sparse success bonus for stable grasp or task completion."""
 
 from __future__ import annotations

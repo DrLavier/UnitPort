@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Joint Deviation L1 — L1 penalty on joint positions deviating from the asset's default pose."""
 
 from __future__ import annotations
@@ -21,8 +24,7 @@ def _unitport_joint_deviation_l1(env, asset_cfg=SceneEntityCfg("robot")):
     """
     import torch
     asset = env.scene[asset_cfg.name]
-    angle = asset.data.joint_pos[:, asset_cfg.joint_ids] - \\
-            asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    angle = asset.data.joint_pos[:, asset_cfg.joint_ids] -             asset.data.default_joint_pos[:, asset_cfg.joint_ids]
     return torch.sum(torch.abs(angle), dim=1)
 '''
 

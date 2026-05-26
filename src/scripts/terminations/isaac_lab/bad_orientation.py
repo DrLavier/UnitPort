@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Bad Orientation — Terminate when the base tilts beyond this projected-gravity deviation (rad)."""
 
 from __future__ import annotations

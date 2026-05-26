@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """TrainingMotionNode — 统一 training-motion 节点 (替代 TrainingCommandsNode + ReferenceMotionNode).
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:TrainingMotionNode``.

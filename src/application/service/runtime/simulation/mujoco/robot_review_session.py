@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Robot-only review session — preview a robot asset in MuJoCo without a policy.
 
 Pure MJCF viewer: load the asset, write either the home keyframe pose or

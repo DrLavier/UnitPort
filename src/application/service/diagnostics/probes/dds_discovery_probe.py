@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DdsDiscoveryProbe — confirm a peer participant exists.
 
 This probe exercises the DDS wire via the **active bridge** that the

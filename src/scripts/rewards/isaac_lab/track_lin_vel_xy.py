@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Track Lin Vel XY — Exponential tracking reward for commanded XY linear velocity."""
 
 from __future__ import annotations

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Assemble the UnitPort USB Ethernet gadget as a CDC-NCM function.
 # Runs under unitport-usb-gadget.service as a oneshot at boot.
 #

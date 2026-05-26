@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RegistryModuleEditorPanel — 统一注册模块编辑器 / Unified registry-module editor.
 
 DEMO 对应：

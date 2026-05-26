@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Non-joint actuator command — LED, LCD, speaker, button-rumble, etc.
 #
 # Published by the host on /unitport/aux_command. The generic bridge node

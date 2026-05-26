@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Deep-link + single-instance plumbing for ``unitport://`` URLs.
 
 When the user clicks a ``unitport://auth-callback?code=...`` link:

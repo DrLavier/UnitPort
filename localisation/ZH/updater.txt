@@ -12,13 +12,20 @@ channel = 更新通道
 no_release_notes = （该版本未提供版本说明）
 latest_body = 当前 UnitPort v{current},GitHub 上未发现更新版本。
 restart_prompt = 已应用 v{version}。UnitPort 即将关闭,请通过 start.bat 或 start.sh 重新启动。
+restarting = 已应用 v{version}。正在重启 UnitPort…
 
 [btn]
 apply = 应用更新
-skip = 跳过此版本
+skip = 跳过本次更新
 later = 稍后
 ok = 好的
 close = 关闭 UnitPort
+update_restart = 更新并重启
+update_on_exit = 退出时更新
+
+[notice]
+title = 更新须知
+ok = 知道了
 
 [progress]
 checking = 正在检查更新

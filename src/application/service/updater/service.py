@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UpdateService — singleton orchestrator for the in-app update flow.
 
 Responsibilities:
@@ -69,6 +72,10 @@ class UpdateService:
         self._lock = threading.Lock()
         self._latest: Optional[ReleaseInfo] = None
         self._channel: Optional[UpdateChannel] = None
+        # "Update on exit": the user chose to defer the apply until they
+        # close the app. In-memory only — a session-scoped intent, not
+        # persisted state (closing the app discards it, which is correct).
+        self._exit_apply: Optional[ReleaseInfo] = None
 
     # ------------------------------------------------------------------
     # State accessors
@@ -321,6 +328,29 @@ class UpdateService:
         """User dismissed a specific version via the Skip button."""
         Config.set_value("App", "update_skipped_version", str(version or ""))
         log_info(f"[updater] user skipped version {version!r}")
+
+    # ------------------------------------------------------------------
+    # Update-on-exit (deferred apply)
+    # ------------------------------------------------------------------
+    def arm_exit_apply(self, release: ReleaseInfo) -> None:
+        """Remember to apply ``release`` when the app is closed.
+
+        Set by the "Update on exit" button. MainWindow.closeEvent reads
+        ``pending_exit_apply()`` and runs the normal apply flow on close.
+        """
+        with self._lock:
+            self._exit_apply = release
+        log_info(f"[updater] armed update-on-exit for {release.tag}")
+
+    def pending_exit_apply(self) -> Optional[ReleaseInfo]:
+        """The release armed for apply-on-exit, or None."""
+        with self._lock:
+            return self._exit_apply
+
+    def clear_exit_apply(self) -> None:
+        """Disarm the pending apply-on-exit (e.g. apply already started)."""
+        with self._lock:
+            self._exit_apply = None
 
 
 _singleton: Optional[UpdateService] = None

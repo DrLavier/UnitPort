@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Robot Asset Self-Check — boot-time scan + auto-dump pipeline.
 
 Runs as part of the ``_data_load_body`` startup stage. Two **independent**

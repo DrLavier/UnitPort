@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ConnectionDiagnosticsDialog — read-only findings detail view.
 
 Phase 3.7 stripped this dialog down to a passive "show me what the probes

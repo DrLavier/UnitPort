@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Gait Rhythm — Periodic gait reward — encourages regular alternating footfalls with a target period and phase offset."""
 
 from __future__ import annotations
@@ -15,7 +18,19 @@ from scripts.task_module import (
 INLINE_SOURCE = '''
 def _unitport_feet_gait(env, period=0.8, offset=None, sensor_cfg=None,
                          threshold=0.5, command_name=None):
-    """Enforce periodic gait patterns for legged robots."""
+    """Enforce periodic gait patterns for legged robots.
+
+    Per-leg contribution is +1 when the leg's contact state matches the
+    expected stance/swing phase, and -1 when it mismatches. This makes
+    "freeze all 4 legs while a velocity command is active" actively
+    penalised (= -N_legs) rather than merely unrewarded (= 0), which
+    was the prior behaviour and let policies skip gait collection to
+    cheat e.g. track_ang_vel_z by twisting joints in place.
+
+    The command_norm gate keeps gait inactive on zero-command stances
+    (stand motion), so this stricter shaping does not collide with the
+    intent to stay still when commanded.
+    """
     import torch
     if offset is None:
         offset = [0.0, 0.5, 0.5, 0.0]
@@ -29,10 +44,11 @@ def _unitport_feet_gait(env, period=0.8, offset=None, sensor_cfg=None,
     reward = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
     for i in range(len(sensor_cfg.body_ids)):
         is_stance = leg_phase[:, i] < threshold
-        reward += ~(is_stance ^ is_contact[:, i])
+        match = ~(is_stance ^ is_contact[:, i])
+        reward += match.float() * 2.0 - 1.0
     if command_name is not None:
         cmd_norm = torch.norm(env.command_manager.get_command(command_name), dim=1)
-        reward *= cmd_norm > 0.1
+        reward *= (cmd_norm > 0.1).float()
     return reward
 '''
 

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Thread-safe key-value scalar store used by all input sources.
 
 The bus carries a flat ``str -> float`` snapshot. Keys map to:

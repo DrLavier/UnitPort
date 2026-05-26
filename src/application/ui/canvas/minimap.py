@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CanvasMiniMap — 画布右下角浮层小地图（DEMO 复刻 / verbatim port）.
 
 复刻自 ``DEMO/bin/pages/canvas/graph_view.py:17-195``。尺寸、布局、绘制

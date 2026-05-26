@@ -1,3 +1,6 @@
+REM SPDX-FileCopyrightText: 2026 SU CHANG
+REM SPDX-License-Identifier: Apache-2.0
+
 @echo off
 setlocal
 set "ROOT=%~dp0"

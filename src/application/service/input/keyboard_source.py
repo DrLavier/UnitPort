@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """KeyboardInputSource — Qt key codes -> command axes published on a CommandBus.
 
 The Controller sidebar panel installs a global ``QApplication.installEventFilter``

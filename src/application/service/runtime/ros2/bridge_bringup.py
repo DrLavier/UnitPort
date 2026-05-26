@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """bridge_bringup — minimal native-bridge factory for Phase 2.
 
 Thin replacement for DEMO's ``bridge_factory.py``: Phase 2 only supports the

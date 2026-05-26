@@ -9,6 +9,7 @@ no_canvas = (no canvas)
 [target]
 cloud = Cloud
 local = Local
+local_ver = Local ({short})
 
 [tooltip]
 new = Open the new-canvas picker

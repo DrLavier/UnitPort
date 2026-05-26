@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.training_spec — Canvas → backend training contract.
 
 This module defines :class:`TrainingSpec`, the canonical typed payload that
@@ -596,8 +599,6 @@ class DomainRandSb3Config:
     friction_range: Tuple[float, float] = (0.5, 1.5)
     # Stage H — replaces motor_strength_range / joint_damping_range.
     # Bounds in linear scale (sampler picks log-uniformly inside).
-    # Defaults match knowledge_base/sim2sim_mass-matrix-adaptive.yaml
-    # lines 103-105.
     omega_n_log_uniform: Tuple[float, float] = (0.8, 1.25)
     zeta_log_uniform: Tuple[float, float] = (0.9, 1.11)
     obs_noise_std: float = 0.01
@@ -760,7 +761,6 @@ class RobotSpecRef:
     urdf_path: Optional[str] = None
     usd_path: Optional[str] = None
     capabilities: Dict[str, Any] = field(default_factory=dict)
-    target_height: float = 0.0           # robot.target_height override
 
     @property
     def num_joints(self) -> int:
@@ -815,7 +815,7 @@ class RobotSpecRef:
 
     @classmethod
     def from_registry(
-        cls, rs: Any, target_height: float = 0.0, active_format: str = "",
+        cls, rs: Any, active_format: str = "",
     ) -> "RobotSpecRef":
         # active_format defaults to the registry RobotSpec's preferred_format
         # so legacy callers that don't yet wire it through (Stage 2 -> 3
@@ -879,7 +879,6 @@ class RobotSpecRef:
             urdf_path=rs.urdf_path,
             usd_path=rs.usd_path,
             capabilities=dict(rs.capabilities),
-            target_height=float(target_height),
         )
 
 

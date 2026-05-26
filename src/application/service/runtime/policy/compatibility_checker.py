@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Bundle ↔ env compatibility checker (Phase 3 port from DEMO).
 
 Verbatim port of ``CompatibilityChecker.check`` (the bundle/env shape +

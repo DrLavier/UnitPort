@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Named, ordered joint reference frames — verbatim port from DEMO.
 
 This module is the **single source of truth** for joint ordering in the

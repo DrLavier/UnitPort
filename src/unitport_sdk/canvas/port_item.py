@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.port_item — Training Node 端口图元.
 
 DEMO 对应（``bin/pages/canvas/graph_scene.py``）：

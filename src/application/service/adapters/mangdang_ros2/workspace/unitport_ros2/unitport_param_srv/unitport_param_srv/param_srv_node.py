@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """param_srv_node — whitelist-gated live parameter update service.
 
 Serves unitport_msgs/srv/SetParam. For each accepted request, publishes the

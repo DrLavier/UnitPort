@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.connection — real-robot connection layer (Phase 1+).
 
 Phase 1 ships type-only contracts: ``transport.base`` (Transport Protocol +

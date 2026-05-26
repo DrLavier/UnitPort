@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.compiler.lowering — 画布 ↔ IR 双向转换 / Canvas ↔ IR roundtrip.
 
 合并自 DEMO ``src/system/compiler/lowering/{canvas_to_ir.py, ir_to_canvas.py}``。

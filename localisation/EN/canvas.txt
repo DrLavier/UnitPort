@@ -106,3 +106,14 @@ health.title = Robot dump health
 mjcf_offset.not_applicable = not applicable
 mjcf_offset.uncalibrated = uncalibrated
 
+[inline]
+col_grace = Grace
+col_item = Item
+col_maxspeed = Max Spd
+col_name = Name
+col_param = Value
+col_scale = Scale
+col_threshold = Threshold
+col_value = Value
+col_weight = Weight
+

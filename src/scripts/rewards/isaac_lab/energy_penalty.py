@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Energy Penalty — L2 penalty on torque × velocity product — minimises mechanical energy expenditure."""
 
 from __future__ import annotations

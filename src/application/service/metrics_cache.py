@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MetricsCache — process-level in-memory training metrics buffer.
 
 The Mission Control chart panel needs three things that don't quite live

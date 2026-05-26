@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.widgets — 主题化输入控件 / Themed input widgets.
 
 补 ``unitport_sdk/ui.py`` 缺的三类 QWidget 包装：

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Joint Pos Limits — Penalty when joint positions approach or exceed soft limits."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.physics — Engine-agnostic gain math for the (omega_n, zeta) PD framework.
 
 This package holds the mass-matrix-adaptive PD solvers that translate the

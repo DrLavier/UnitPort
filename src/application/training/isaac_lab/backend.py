@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IsaacLabBackend — external subprocess orchestrator for Isaac Lab training.
 
 Ported from DEMO ``src/system/training/isaac_lab_backend.py`` with these
@@ -481,6 +484,13 @@ class IsaacLabBackend:
             env["PYTHONUNBUFFERED"] = "1"
             env.setdefault("OMNI_KIT_ACCEPT_EULA", "YES")
             env.setdefault("PYTHONIOENCODING", "utf-8")
+
+            # NOTE: BAR1 aperture preflight runs on the UI thread before this
+            # task is submitted (MainWindow._on_start_training → Bar1RiskDialog),
+            # so the user can interactively choose Continue / Abort. It is
+            # deliberately NOT repeated here — a worker-thread block after the
+            # user already chose "Continue" would contradict that choice. The
+            # pure logic lives in bar1_preflight.assess_bar1_risk.
 
             attempt = 0
             max_attempts = 2

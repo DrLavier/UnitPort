@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """sys.py — SDK 系统/运行时基础设施。
 
 整合四块原本分散的能力，按 class 划分：

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Ang Vel XY Penalty — L2 penalty on roll/pitch angular velocity."""
 
 from __future__ import annotations

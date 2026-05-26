@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Motion task-tag labelling — manifest files + filename auto-inference.
 
 AMP training requires that the discriminator sees only motion clips

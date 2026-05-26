@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ObsBuilder — runtime observation vector builder (verbatim port from DEMO).
 
 Phase 3 RELEASE port. Two adjustments to the file content:

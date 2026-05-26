@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CodeEditorWidget — reusable code editor with line numbers, smart indent,
 syntax highlighting, auto-completion popup, and DataManager-backed file I/O.
 

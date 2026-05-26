@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Task subclasses that adapt menagerie_manager's pure-Python surface.
 
 Three workers cover the sidebar Menagerie browser dialog's lifecycle:

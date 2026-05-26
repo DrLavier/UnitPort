@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """PolicySimulationCard — mission_panel 中卡片：策略仿真.
 
 横向 1 个子区段：

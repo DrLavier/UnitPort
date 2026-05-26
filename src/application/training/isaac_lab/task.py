@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IsaacLabTrainingTask — TrainingTask wrapper around IsaacLabBackend.
 
 Submitted via ``get_tasks_manager().submit(task)`` from

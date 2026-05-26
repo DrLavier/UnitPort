@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Joint Velocity Tracking — Gaussian reward for joint velocities matching the reference (finite-diff of reference frames)."""
 
 from __future__ import annotations

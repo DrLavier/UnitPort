@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IsaacSim review subprocess driver — Export 节点 ▶ Launch Review (review_backend=isaac_sim).
 
 Architecture:
@@ -161,14 +164,17 @@ class IsaacSimReviewTask(Task):
         # shape as IsaacLabConfig._build_launcher_cmd so isaaclab.bat
         # quoting works on Windows. We piggy-back on a private method
         # rather than duplicate the .bat wrapper logic.
-        cmd = cfg._build_launcher_cmd(
-            str(review_launcher),
-            [
-                "--bundle", str(self._bundle_path),
-                "--scene", self._scene_id,
-                "--max_play_steps", str(self._max_play_steps),
-            ],
-        )
+        review_args = [
+            "--bundle", str(self._bundle_path),
+            "--scene", self._scene_id,
+            "--max_play_steps", str(self._max_play_steps),
+        ]
+        # Headed replay → minimal viewport-only experience (avoids the full
+        # Kit GUI omni.kit.menu.utils crash; see headed_experience.py). Hand
+        # the launcher the install root so it generates/selects it.
+        if cfg.isaac_lab_path:
+            review_args += ["--unitport_headed_experience", cfg.isaac_lab_path]
+        cmd = cfg._build_launcher_cmd(str(review_launcher), review_args)
 
         log_info(
             f"[isaac_sim_review] launching: bundle={self._bundle_path.name} "

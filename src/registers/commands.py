@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.commands — 训练指令模板注册表 / Training-command (velocity-template) registry.
 
 Holds the catalog of trainable behavior patterns (Stand / Walk / Turn /

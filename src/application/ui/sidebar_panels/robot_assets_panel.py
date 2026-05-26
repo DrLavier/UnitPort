@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RobotAssetsPanel — registry-driven asset browser AND register editor.
 
 Sidebar's Robot Asset panel is the **canonical entrypoint for editing the

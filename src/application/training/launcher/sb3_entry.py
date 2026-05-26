@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SB3 child-process entry script.
 
 Spawned by :class:`SB3SubprocessBackend.run_blocking`. Reads a JSON

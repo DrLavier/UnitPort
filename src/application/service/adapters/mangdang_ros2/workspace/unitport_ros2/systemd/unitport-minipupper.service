@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 [Unit]
 Description=UnitPort Mini Pupper factory stack (CHAMP + servo_interface)
 # CHAMP + servo_interface only need the network up. The e-stop and bridge
@@ -15,8 +18,7 @@ Wants=unitport-estop.service
 # PCA9685 I2C bus; servo_interface here also needs exclusive I2C. They
 # cannot coexist. systemd auto-stops the Flask unit the moment we start
 # (and vice-versa via the unitport-conflicts.conf drop-in shipped into
-# <flask-unit>.d/). See knowledge_base/mini_pupper_v2_ros2_cmdvel_debug.yaml
-# for the root-cause trace.
+# <flask-unit>.d/).
 Conflicts=mini_pupper_web.service
 # StartLimit* directives belong in [Unit] per systemd >= 230. Some distros
 # accept them in [Service] as a legacy alias, others (Mangdang's Ubuntu 22.04

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Run-id-prefixed logging helpers so CmdLogWidget can filter by run.
 
 Use these from inside ``TrainingTask.run`` and from the Isaac Lab

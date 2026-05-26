@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """DiagnosticContext — runtime resources passed to every probe / repair.
 
 Probes never construct their own SSH session, transport, or bridge handles.

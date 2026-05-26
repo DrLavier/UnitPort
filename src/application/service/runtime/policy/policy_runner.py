@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """PolicyRunner — bundle → ObsBuilder/ActionApplier → run_episode (port from DEMO).
 
 Phase 3 RELEASE port. Adjustments:

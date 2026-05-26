@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Transport implementations for the resources downloader.
 
 A transport knows how to materialise a single asset (one ``ResourceEntry``)

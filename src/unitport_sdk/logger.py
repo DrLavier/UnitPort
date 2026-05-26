@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """logger.py — 纯日志 API（无 Qt widget 依赖）。
 
 整合在一个文件内的三类东西：

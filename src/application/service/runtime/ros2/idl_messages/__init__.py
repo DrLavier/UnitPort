@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort core ROS2 message set for NativeDDSBridge.
 
 Hand-written and reviewed by the UnitPort team. Custom user messages are not

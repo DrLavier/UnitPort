@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Mission Control segmented switch (Training / Script / Control).
 
 Thin wrapper over the SDK ``SliderSwitch`` that fixes the option set used

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MenagerieBrowserDialog — sidebar entry to browse and download Menagerie packages.
 
 All git/network logic lives in :mod:`application.service.models.menagerie_manager`;

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.brands — Per-brand 运行时包容器 / Per-brand package container.
 
 来源 / Source: DEMO/src/system/brand_packages/

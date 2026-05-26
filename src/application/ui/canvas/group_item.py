@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.group_item — 视觉分组框 GraphicsItem.
 
 GroupItem 把若干 NodeItem / NoteItem 视觉上包在一个带 title 的圆角矩形里。约束：

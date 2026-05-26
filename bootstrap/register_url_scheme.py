@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Register the ``unitport://`` URL scheme with the OS.
 
 Called once at install time (via install.bat / install.sh). The scheme

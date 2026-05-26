@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Episode Timeout — Terminate when episode wall-clock duration (s) exceeds this limit."""
 
 from __future__ import annotations

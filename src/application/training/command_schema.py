@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CommandSchema — unified training / sim / sim2real command contract.
 
 Single source of truth for the ``command`` sub-vector that enters the

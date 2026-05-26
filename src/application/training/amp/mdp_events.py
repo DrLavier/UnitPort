@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AMP Reference-State Initialization (RSI) — Isaac Lab MDP event.
 
 RSI resets each env to a randomly sampled frame of the expert mocap

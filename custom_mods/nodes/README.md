@@ -1,3 +1,8 @@
+<!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # UnitPort 三方节点插件目录 / Custom Nodes Directory
 
 把社区节点放到本目录的子文件夹里，**重启 UnitPort** 后即被发现并加入调色板。

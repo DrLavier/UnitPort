@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UnitPort Isaac Lab POSE-ONLY review launcher.
 
 Sibling of :mod:`il_review_launcher` for a strictly bundle-free use case:

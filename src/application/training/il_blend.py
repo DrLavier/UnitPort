@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IL+RL fusion — Phase 2 BC blend during RL fine-tune.
 
 REWRITE-WITH-DEMO-REF from DEMO ``BCBlendCallback`` in

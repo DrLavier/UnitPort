@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.widgets.tc_tool_buttons — Training Canva 工具row 左侧按钮组.
 
 仅 TC 模式下出现在 MissionControlPanel 工具row 左侧的 3 按钮集合:

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IdlStruct definitions for ROS2 ``rosgraph_msgs`` (Clock)."""
 
 from dataclasses import dataclass, field

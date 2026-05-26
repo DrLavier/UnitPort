@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CloudFileOpTask — single-file cloud operation worker.
 
 Distinct from :class:`CloudSyncTask` (which orchestrates batch push /

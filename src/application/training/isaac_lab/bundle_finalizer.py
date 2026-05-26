@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IL bundle finalizer — turn a finished Isaac Lab training run into a
 RELEASE v1 bundle on disk.
 
@@ -730,6 +733,9 @@ def _derive_mujoco_pd_gains_for_bundle(
         from application.physics.pd_param import PDParam
         from application.training.joint_ir import JointIRResolver
         from application.training.training_spec import RobotSpecRef
+        from application.training.validation.sim2sim_calibration import (
+            run_calibration as _run_calibration,
+        )
     except Exception as exc:
         raise RuntimeError(
             f"[bundle_finalizer] failed to import physics helpers: {exc}"
@@ -755,7 +761,7 @@ def _derive_mujoco_pd_gains_for_bundle(
     # raise pattern previously here blocked bundle export entirely,
     # which the user pushed back on as overly restrictive — the
     # IsaacSim-only bundle is still a valid artifact.
-    spec_ref = RobotSpecRef.from_registry(rs, target_height=0.0, active_format="MJCF")
+    spec_ref = RobotSpecRef.from_registry(rs, active_format="MJCF")
     resolver = JointIRResolver(spec_ref, active_format="MJCF")
     physical_names: List[str] = []
     missing_in_mjcf: List[str] = []
@@ -788,10 +794,20 @@ def _derive_mujoco_pd_gains_for_bundle(
             ),
         }
 
-    # Build a nominal qpos: 7-dof free root + per-joint defaults. The
-    # MJCF's keyframe may exist; if so we use it via nominal_qpos=None,
-    # which the solver auto-resolves. Otherwise we synthesize.
-    nominal_qpos = None  # solver will use model.key_qpos[0] or model.qpos0
+    # Nominal stance for mj_fullM. MUST be the byte-identical stance the env
+    # compiler used when it mass-weighted the PhysX gains, else the two
+    # m_eff diverge and the bug is only reshaped. The compiler stamps the
+    # exact qpos_ref + its sha256 into deploy_meta.unitport_pd_param
+    # .m_eff_source; we PIN to that array (not just nominal_qpos=None) so a
+    # later MJCF keyframe edit cannot silently desync the two derivations
+    # (CLAUDE.md §10).
+    m_eff_src = pd_block.get("m_eff_source") or {}
+    stored_qpos_ref = m_eff_src.get("qpos_ref")
+    stored_qpos_sha = m_eff_src.get("qpos_sha256")
+    stored_m_eff = m_eff_src.get("m_eff")
+    # Pass the stored qpos as a plain list — the solver coerces it via
+    # np.asarray and validates shape against model.nq.
+    nominal_qpos = list(stored_qpos_ref) if stored_qpos_ref else None
 
     gains = _mj_solve(
         mjcf_path=Path(mjcf_path),
@@ -801,17 +817,203 @@ def _derive_mujoco_pd_gains_for_bundle(
         pd_param=pd_param,
     )
 
+    # Cross-process parity guard: the finalizer's per-joint m_eff MUST equal
+    # the compiler's stored m_eff. This is the byte-identical-stance assert
+    # the two solvers cannot share in memory (separate processes). A
+    # mismatch means the MJCF / its inertia changed between training and
+    # export — the PhysX gains baked into the policy no longer correspond to
+    # what MuJoCo will apply, so fail loud (§8) rather than ship a desynced
+    # bundle.
+    finalizer_m_eff = [
+        float(e["m_eff"]) for e in gains.derivation.get("per_joint", [])
+    ]
+    if stored_m_eff is not None:
+        if len(stored_m_eff) != len(finalizer_m_eff):
+            raise RuntimeError(
+                f"[bundle_finalizer] m_eff length mismatch vs compiler "
+                f"(stored {len(stored_m_eff)} != finalizer "
+                f"{len(finalizer_m_eff)}) — joint set drifted; re-train."
+            )
+        rels = [
+            abs(f - s) / max(abs(s), 1e-9)
+            for f, s in zip(finalizer_m_eff, stored_m_eff)
+        ]
+        worst = max(rels) if rels else 0.0
+        if worst > 1e-6:
+            raise RuntimeError(
+                f"[bundle_finalizer] effective-inertia desync between train "
+                f"compile and bundle export: max relative m_eff diff "
+                f"{worst:.3e} (>1e-6). The robot's MJCF or its <inertial> "
+                f"tags changed since training, so the PhysX gains baked into "
+                f"the policy no longer match what MuJoCo would apply. Re-dump "
+                f"the MJCF and re-train, or export from the matching commit."
+            )
+
     log_info(
-        f"[bundle_finalizer] MuJoCo PD gains derived (mj_fullM @ nominal): "
+        f"[bundle_finalizer] MuJoCo PD gains derived (mj_fullM @ "
+        f"{gains.derivation.get('nominal_qpos_source')}): "
         f"family={pd_block.get('primary_family')} "
         f"kp_range=[{min(gains.kp):.2f}, {max(gains.kp):.2f}] "
-        f"kd_range=[{min(gains.kd):.2f}, {max(gains.kd):.2f}]"
+        f"kd_range=[{min(gains.kd):.2f}, {max(gains.kd):.2f}] "
+        f"(m_eff parity vs compiler OK)"
     )
+
+    # ----- Align the compiler's PhysX gains to the FINALIZER's joint order.
+    # The compiler emitted physx_gains in its own resolver order; the MuJoCo
+    # `gains` here are in joint_names_ir order. Comparing them element-wise
+    # would silently mis-pair joints — exactly the ordering-bug class that
+    # caused the original sim2sim regression. Re-key by IR role and rebuild
+    # parallel to joint_names_ir so every downstream array lines up by NAME.
+    physx_gains = pd_block.get("physx_gains") or {}
+    _px_roles = list(physx_gains.get("joint_ir_roles") or [])
+    _px_kp_by_role = dict(zip(_px_roles, physx_gains.get("kp") or []))
+    _px_kd_by_role = dict(zip(_px_roles, physx_gains.get("kd") or []))
+    try:
+        physx_kp_aligned = [float(_px_kp_by_role[r]) for r in joint_names_ir]
+        physx_kd_aligned = [float(_px_kd_by_role[r]) for r in joint_names_ir]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"[bundle_finalizer] PhysX gains in deploy_meta do not cover IR "
+            f"role {exc!s} that the bundle ships. The compiler and finalizer "
+            f"disagree on the trained joint set — re-train."
+        ) from exc
+
+    # ----- Export-time STRICT calibration gate (CLAUDE.md §10). Runs BEFORE
+    # any bundle bytes are written (the caller invokes this in step F, ahead
+    # of BundleExporter.export_from_artifacts), so a fail aborts cleanly with
+    # no partial bundle on disk. This is the strict sibling (1e-3 cross-engine
+    # torque + (ωn,ζ) round-trip on hardcoded canary joints) of the looser
+    # load-time guard in DeployContract.from_dict (1%). The thresholds are
+    # intentionally NOT unified — see run_calibration's comment.
+    skip_calibration = bool(pd_block.get("skip_calibration", False))
+    calibration_blocking = bool(pd_block.get("calibration_blocking", True))
+    calibration_verdict = "skipped" if skip_calibration else None
+    if skip_calibration:
+        log_warning(
+            "[bundle_finalizer] skip_calibration=True on the ActuatorPDNode "
+            "— BYPASSING the export-time PD calibration gate. The skip is "
+            "recorded in pd_derivation.calibration for provenance (CLAUDE.md "
+            "§10). Gains are shipped UNVERIFIED."
+        )
+    else:
+        import numpy as _np
+        # Step 5: hand the calibration gate the remotized lookup tables (role →
+        # inline table dict, re-keyed from the physical-name-keyed provenance
+        # the compiler stashed) so it can run the multi-point angle-swept
+        # cross-engine torque check in addition to the (ωn,ζ) round-trip. None
+        # for non-remotized robots (the gate then runs unchanged).
+        _remotized_meta = pd_block.get("remotized_joints")
+        _remotized_tables = None
+        if isinstance(_remotized_meta, dict) and isinstance(
+            _remotized_meta.get("joints"), dict
+        ):
+            _remotized_tables = {}
+            for _entry in _remotized_meta["joints"].values():
+                _r = (_entry or {}).get("ir_role")
+                _t = (_entry or {}).get("table")
+                if _r and _t is not None:
+                    _remotized_tables[_r] = _t
+        report = _run_calibration(
+            mjcf_path=Path(mjcf_path),
+            pd_param=pd_param,
+            joint_order_physical=list(physical_names),
+            joint_ir_roles=list(joint_names_ir),
+            kp_array=_np.asarray(gains.kp, dtype=float),
+            kd_array=_np.asarray(gains.kd, dtype=float),
+            family=str(pd_param.family),
+            nominal_qpos=nominal_qpos,
+            physx_kp_array=_np.asarray(physx_kp_aligned, dtype=float),
+            physx_kd_array=_np.asarray(physx_kd_aligned, dtype=float),
+            remotized_tables=_remotized_tables,
+        )
+        calibration_verdict = report.verdict
+        if report.verdict == "fail":
+            if calibration_blocking:
+                raise RuntimeError(
+                    "[bundle_finalizer] PD calibration FAILED — aborting "
+                    "export (no bundle written). The PhysX training gains and "
+                    "the MuJoCo deploy gains do not produce matching torque, "
+                    "or the (omega_n, zeta) round-trip is off. This is the "
+                    "Spot-knee-65x class of bug; the policy would not transfer."
+                    "\n\n" + report.markdown
+                )
+            log_warning(
+                "[bundle_finalizer] PD calibration verdict=fail but "
+                "calibration_blocking=False — shipping anyway (NOT "
+                "recommended). Report:\n" + report.markdown
+            )
+        elif report.verdict == "warn":
+            log_warning(
+                "[bundle_finalizer] PD calibration verdict=warn:\n"
+                + report.markdown
+            )
+        else:
+            log_info("[bundle_finalizer] PD calibration verdict=pass.")
+
+    # ----- pd_derivation provenance (CLAUDE.md §10): a single block someone
+    # can read in 30s to retrace a gain. m_eff source (mjcf + qpos hash),
+    # (ωn, ζ) inputs per group, and final kp/kd outputs for BOTH engines.
+    #
+    # ARRAY ORDERING — read before trusting any index here. Every per-joint
+    # array in this block (m_eff, inputs.joint_*, outputs.*) is in IR-role
+    # order: position i is the joint named by ``inputs.joint_ir_roles[i]``
+    # (and ``inputs.joint_physical_names[i]``, which is parallel). This is
+    # the pre-permutation order. It is DELIBERATELY NOT reordered by the
+    # top-level ``joint_permutation`` that re-sorts the deploy_contract's
+    # stiffness/damping/mujoco_pd_gains into Isaac-Lab actuator order. So:
+    # to line a pd_derivation entry up against the deploy_contract arrays,
+    # match by joint NAME, never by raw index. The ``array_ordering`` field
+    # below records this contract explicitly — the last sim2sim bug was
+    # exactly "two arrays in different orders, nobody remembered the
+    # convention"; don't let it recur.
+    pd_derivation = {
+        "method": "full_mass_matrix",
+        "formula_kp": "m_eff * omega_n ** 2",
+        "formula_kd": "2 * zeta * sqrt(kp * m_eff)",
+        "array_ordering": "ir_roles",  # all arrays parallel to inputs.joint_ir_roles; NOT joint_permutation order
+        "calibration": {
+            "verdict": calibration_verdict,
+            "blocking": calibration_blocking,
+            "skipped": skip_calibration,
+        },
+        "m_eff_source": {
+            "mjcf_path": str(mjcf_path),
+            "nominal_qpos_source": gains.derivation.get("nominal_qpos_source"),
+            "qpos_sha256": stored_qpos_sha,
+            "m_eff": finalizer_m_eff,
+        },
+        "inputs": {
+            "joint_ir_roles": list(joint_names_ir),
+            "joint_physical_names": list(physical_names),
+            "pd_param": pd_param.to_dict(),
+        },
+        "outputs": {
+            # physx_* re-keyed to joint_names_ir order (see alignment above)
+            # so they're parallel to mujoco_* and to inputs.joint_ir_roles.
+            "physx_kp": list(physx_kp_aligned),
+            "physx_kd": list(physx_kd_aligned),
+            "mujoco_kp": [float(v) for v in gains.kp],
+            "mujoco_kd": [float(v) for v in gains.kd],
+        },
+    }
+
+    # Remotized-actuator provenance (Step 3.2): pass through the section the
+    # env_cfg compiler stashed (per remotized joint: ir_role, group, table
+    # sha256, peak/min torque, and the inline table payload). The embedded
+    # table is the SINGLE copy Step 4 reuses for the bundle's
+    # ``mujoco_torque_lookups`` — keyed by joint NAME, tagged
+    # ``array_ordering: ir_roles`` (the table's own monotonic-axis ordering
+    # lives inside each table payload, a separate convention). Absent for
+    # non-remotized robots.
+    _remotized = pd_block.get("remotized_joints")
+    if _remotized is not None:
+        pd_derivation["remotized_joints"] = _remotized
 
     return {
         "pd_param": pd_param.to_dict(),
         "mujoco_pd_gains": [float(v) for v in gains.kp],
         "mujoco_pd_damping": [float(v) for v in gains.kd],
+        "pd_derivation": pd_derivation,         # persisted into deploy_contract
         "_solver_derivation": gains.derivation,  # dropped before manifest write
     }
 
@@ -1162,6 +1364,29 @@ def finalize_isaac_lab_bundle(
                 deploy_contract_dict["pd_param"] = pd_payload["pd_param"]
                 deploy_contract_dict["mujoco_pd_gains"] = pd_payload["mujoco_pd_gains"]
                 deploy_contract_dict["mujoco_pd_damping"] = pd_payload["mujoco_pd_damping"]
+                # pd_derivation provenance (CLAUDE.md §10): retrace any gain
+                # in 30s — m_eff source (mjcf + qpos hash), (ωn,ζ) inputs,
+                # kp/kd outputs for both engines. Absent on coverage-gap
+                # payloads (mujoco arrays None).
+                if pd_payload.get("pd_derivation") is not None:
+                    deploy_contract_dict["pd_derivation"] = pd_payload["pd_derivation"]
+                    # Step 4.2: build the MuJoCo runtime lookup map. Re-key
+                    # the provenance block from physical joint name → IR role
+                    # (the name space joint_sdk_names / PDController use), and
+                    # REUSE the same inline table payload — one copy, so it
+                    # cannot drift from pd_derivation (World B lesson). Keyed
+                    # by name, NOT index, so the joint_permutation below (which
+                    # reorders the gain ARRAYS) leaves this dict untouched.
+                    _rj = pd_payload["pd_derivation"].get("remotized_joints")
+                    if isinstance(_rj, dict) and isinstance(_rj.get("joints"), dict):
+                        _lookups = {}
+                        for _phys, _entry in _rj["joints"].items():
+                            _role = (_entry or {}).get("ir_role")
+                            _tbl = (_entry or {}).get("table")
+                            if _role and _tbl is not None:
+                                _lookups[_role] = _tbl   # same dict object, no copy
+                        if _lookups:
+                            deploy_contract_dict["mujoco_torque_lookups"] = _lookups
                 # MuJoCo-unsupported marker, when MJCF coverage gap forced
                 # the derivation to return None for the engine-specific
                 # arrays. Runtime loader (mj_actor / pd_controller) checks

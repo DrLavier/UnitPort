@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.ui.canvas.port_palette — 兼容 re-export / Backward-compat shim.
 
 端口类型 → 颜色字典已迁到 ``unitport_sdk.canvas.port_palette``。本文件保留

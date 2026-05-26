@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.training_context — TrainingContext (validation + compat).
 
 DEMO 对应：``DEMO/src/system/training/training_context.py``.

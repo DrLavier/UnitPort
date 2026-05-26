@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Transport ABC + shared helpers.
 
 Each transport implements ``fetch(ctx)`` which downloads the asset

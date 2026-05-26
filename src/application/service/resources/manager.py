@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ResourceManager — singleton glue between UI, index, transports, scanners.
 
 Responsibilities:

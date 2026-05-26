@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Observation/action normalization (verbatim port from DEMO).
 
 If stats are absent the operation is a no-op except dtype coercion to

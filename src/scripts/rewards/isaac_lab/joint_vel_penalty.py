@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Joint Vel Penalty — L2 penalty on joint velocities — discourages overly fast joint motion."""
 
 from __future__ import annotations

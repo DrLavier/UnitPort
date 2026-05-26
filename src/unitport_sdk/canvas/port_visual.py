@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.port_visual — PortSpec → 视觉描述 dict.
 
 把"端口长什么样"也变成工厂分发——保持端口 / 参数行的「自动转换」对称：

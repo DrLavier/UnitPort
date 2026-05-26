@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.inputs — Node 输入 / 编辑触发 widget.
 
 DEMO 对应（``bin/nodes/training_node_items.py`` / ``node_ui_rows.py``）：

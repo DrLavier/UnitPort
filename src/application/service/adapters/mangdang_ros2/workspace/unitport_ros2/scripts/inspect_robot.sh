@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # Diagnostic helper — run on the robot to quickly dump what the inspector
 # will see. Useful for debugging Layer A off-host.
 #

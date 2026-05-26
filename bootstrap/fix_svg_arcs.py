@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """One-shot fixer for SVG path arc commands that were minified with a buggy
 optimizer which dropped the ``ry`` parameter when ``rx == ry``.
 

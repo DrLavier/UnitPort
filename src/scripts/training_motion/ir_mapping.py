@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Motion clip ↔ IR layer contract — static role tables.
 
 Single source of truth for "which IR role does clip joint index N correspond

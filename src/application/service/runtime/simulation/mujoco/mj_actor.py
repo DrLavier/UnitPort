@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MjActor — MJCF embodiment loader for Mission runtime.
 
 Owns the robot side of an MjSimEnv: an MJCF file path, the loaded

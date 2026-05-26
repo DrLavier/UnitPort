@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HomepageCommunityCard — top-right homepage card.
 
 Replaces the legacy "News" placeholder. Two-column body split by a 1-px

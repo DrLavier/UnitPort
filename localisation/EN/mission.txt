@@ -33,8 +33,6 @@ btn.hyper_edit = Edit Hyperparameters
 field.training_asset = Training Asset
 field.active_files = Asset Files
 field.body_mapping = body_mapping
-field.target_height = Target Height (m)
-field.target_height_hint = 0 = use asset nominal
 btn.start = Start
 btn.pause = Pause
 btn.stop = Stop

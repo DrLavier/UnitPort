@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.training.trainer_runtime — Trainer-node submit helper.
 
 Stage 4 lifted ``ILPPOTrainerNode.execute`` and ``AMPTrainerNode.execute``

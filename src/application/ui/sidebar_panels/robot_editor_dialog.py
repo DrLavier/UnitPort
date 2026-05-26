@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RobotEditorDialog — add / edit a user-layer robot register entry.
 
 Opened from RobotAssetsPanel via the "+" button (new) or per-card "Edit"

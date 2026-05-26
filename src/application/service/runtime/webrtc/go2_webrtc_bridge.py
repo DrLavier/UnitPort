@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Go2WebRTCBridge — synchronous asyncio↔Qt facade over RoboVerse go2_webrtc.
 
 Sibling of :class:`application.service.runtime.ros2.native_dds_bridge.NativeDDSBridge`.

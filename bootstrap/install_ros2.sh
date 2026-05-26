@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # install_ros2.sh — Linux ROS2 bridge setup.
 #
 # Checks that Docker Engine is available, pulls the base ROS2 Humble

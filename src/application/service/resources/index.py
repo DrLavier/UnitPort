@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ResourceIndex — read/write ``custom_mods/.resources.json``.
 
 The index is **metadata-only**: it records where each downloaded asset came

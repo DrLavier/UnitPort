@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """UpdateProgressDialog — modal progress display for ApplyUpdateTask.
 
 Subscribes to ``AppSignals.update_apply_progress`` / ``update_apply_complete``.
@@ -13,7 +16,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -37,10 +40,15 @@ class UpdateProgressDialog(QDialog):
         self,
         target_version: str,
         parent: Optional[QWidget] = None,
+        *,
+        relaunch: bool = False,
     ) -> None:
         super().__init__(parent)
         self._target_version = target_version
         self._terminal = False
+        # When True, a successful apply auto-relaunches the app (the
+        # "Update and restart" path) instead of prompting a manual restart.
+        self._relaunch = bool(relaunch)
 
         self.setModal(True)
         self.setMinimumWidth(460)
@@ -138,13 +146,24 @@ class UpdateProgressDialog(QDialog):
                 self, "setWindowTitle",
                 "updater.dialog.title_complete", "Update applied",
             )
-            self._status.setText(
-                tr(
-                    "updater.label.restart_prompt",
-                    "Update to v{version} applied. UnitPort will close now — "
-                    "please relaunch via start.bat or start.sh.",
-                ).replace("{version}", self._target_version)
-            )
+            if self._relaunch:
+                # "Update and restart": auto-relaunch shortly after showing
+                # the success state, so the user sees the bar fill first.
+                self._status.setText(
+                    tr(
+                        "updater.label.restarting",
+                        "Update to v{version} applied. Restarting UnitPort…",
+                    ).replace("{version}", self._target_version)
+                )
+                QTimer.singleShot(800, self._do_relaunch_and_quit)
+            else:
+                self._status.setText(
+                    tr(
+                        "updater.label.restart_prompt",
+                        "Update to v{version} applied. UnitPort will close now — "
+                        "please relaunch via start.bat or start.sh.",
+                    ).replace("{version}", self._target_version)
+                )
         else:
             self._bar.setValue(0)
             self._status.setText(
@@ -163,6 +182,12 @@ class UpdateProgressDialog(QDialog):
         # cleanly on the new code. On failure, we just close the dialog
         # and let the user keep using the old version.
         QApplication.quit() if self._was_successful() else self.accept()
+
+    def _do_relaunch_and_quit(self) -> None:
+        """Spawn a fresh process on the updated code, then quit this one."""
+        from application.service.updater import relaunch_app
+        relaunch_app()
+        QApplication.quit()
 
     def _was_successful(self) -> bool:
         return self._bar.value() == 1000

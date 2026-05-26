@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Init pose presets — factory baselines + user-saved custom poses.
 
 Exports the service singleton and the data models. Importers should

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Engine runtime contracts (minimal Phase 3 port).
 
 DEMO ``src/system/engine/contracts.py`` carries an extensive set of

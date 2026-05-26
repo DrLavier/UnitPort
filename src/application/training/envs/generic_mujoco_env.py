@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Generic MuJoCo + Gymnasium env — brand-neutral.
 
 REWRITE-WITH-DEMO-REF from the DEMO brand-coupled gym env (the ~2.8k-line
@@ -270,10 +273,9 @@ class _Defaults:
     pd_kd: float = 0.5
     init_pos_x: float = 0.0
     init_pos_y: float = 0.0
-    init_pos_z: float = 0.0  # 0 falls through to target_height
+    init_pos_z: float = 0.0  # 0 falls through to the model's nominal base z
     track_sigma: float = 0.25
     term_base_z: float = 0.18
-    target_height: float = 0.32
 
 
 class GenericMujocoEnv(_GymEnvBase):
@@ -363,7 +365,6 @@ class GenericMujocoEnv(_GymEnvBase):
                     d.pd_kp = stiff
                 if damp > 0.0:
                     d.pd_kd = damp
-        d.target_height = float(getattr(robot_spec, "target_height", 0.0)) or d.target_height
         self._d = d
 
         # ── Load MJCF ──
@@ -391,6 +392,22 @@ class GenericMujocoEnv(_GymEnvBase):
             self._model.opt.gravity[:] = (0.0, 0.0, float(scene_config.gravity_z))
         self._data = mujoco.MjData(self._model)
         self._mujoco = mujoco
+
+        # Nominal standing base z (m): the model's first keyframe qpos[2]
+        # (Menagerie "home" pose) if declared, else qpos0[2]. Same source the
+        # PD gain solver uses. This brand-neutral height is BOTH the spawn
+        # fallback (when actor init_pos_z is unset) AND the base_height
+        # reward's "auto" target (when its Value chip is 0). It replaces the
+        # retired Robot-node ``target_height`` (CLAUDE.md decouple) — no
+        # silent 0.32 magic (§8).
+        if self._model.nq >= 3:
+            _nom_src = (
+                self._model.key_qpos[0] if self._model.nkey > 0
+                else self._model.qpos0
+            )
+            self._nominal_base_z = float(_nom_src[2])
+        else:
+            self._nominal_base_z = 0.0
 
         # ── Joint mapping: RobotSpec.joint_order vs MJCF actuators ──
         self._action_dim = int(self._model.nu)
@@ -657,9 +674,9 @@ class GenericMujocoEnv(_GymEnvBase):
         self._apply_domain_randomization()
 
         # Place base at the canvas-set spawn pose. ``init_pos_z`` falling back
-        # to ``target_height`` keeps the legacy behaviour for canvases that
-        # leave the actor_setting Z at the dataclass default 0.4 while
-        # honoring an explicit user override (e.g. 0.7 for tall humanoids).
+        # to the model's nominal base z (keyframe/qpos0) — NOT to a reward
+        # target — keeps spawn height a pure asset/actor concern (CLAUDE.md
+        # decouple; the retired Robot-node target_height used to sit here).
         # USD↔MJCF anchor offset: the user's init_pos_z is authored
         # against USD/IsaacLab semantics; in MJCF the same value drops
         # the trunk too low (穿地). The per-SKU calibration overlay
@@ -667,7 +684,7 @@ class GenericMujocoEnv(_GymEnvBase):
         # curious-nibbling-plum.md and
         # application.training.validation.mjcf_base_calibration.
         if self._model.nq >= 7:
-            spawn_z = self._d.init_pos_z if self._d.init_pos_z > 0 else self._d.target_height
+            spawn_z = self._d.init_pos_z if self._d.init_pos_z > 0 else self._nominal_base_z
             sku = str(getattr(self._robot, "sku", "") or "")
             if sku:
                 from application.service.robot_assets.runtime import (

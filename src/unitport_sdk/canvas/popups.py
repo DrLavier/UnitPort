@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.popups — Node 用 frameless popup 组件 / Frameless popup widgets.
 
 ParamRow 触发就地编辑时**绝不**弹 modal QDialog——而是按 DEMO 行为弹一个

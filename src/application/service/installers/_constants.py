@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Pinned manifest for the in-app Isaac Lab installer.
 
 Isaac Sim 5.x is officially distributed through NVIDIA's PyPI index
@@ -43,6 +46,22 @@ class IsaacSimRelease:
     # ``--extra-index-url``; the default PyPI index is still consulted
     # for transitive deps that NVIDIA does not mirror.
     pypi_extra_index: str = "https://pypi.nvidia.com"
+    # pip constraint pinning h5py to the version whose *bundled* HDF5
+    # runtime (``h5py/hdf5.dll``) is ABI-compatible with the HDF5 this
+    # Isaac Sim release ships under
+    # ``isaacsim/.../generic_model_output/``. WHY this must be pinned:
+    # ``isaaclab_rl`` declares a bare ``h5py`` (no version), so a fresh
+    # install pulls whatever is latest on PyPI. The training launcher
+    # imports h5py *before* Isaac Sim boots (il_train_launcher.py pins
+    # HDF5 into the process early to avoid a symbol-table race), which
+    # makes h5py's bundled HDF5 win the base-name resolution for Isaac
+    # Sim's own sensor DLLs. h5py 3.16 bundles a newer HDF5 whose exports
+    # diverge from Isaac Sim 5.1's, so ``hdf5_cpp.dll`` fails to load with
+    # "entry point H5Tdecode not found". 3.13.0 ships the HDF5 1.14.x
+    # build Isaac Sim 5.1.0.0 expects (verified against the working
+    # external install). Bump alongside ``pip_spec`` whenever NVIDIA
+    # changes the HDF5 Isaac Sim vendors.
+    h5py_pin: str = "h5py==3.13.0"
 
 
 @dataclass(frozen=True)

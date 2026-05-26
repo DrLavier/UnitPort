@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.robots — 机器人模板注册表（含 joints + bodies + sensors）/ Canonical robot register.
 
 合并自原 robots/ + sensor_catalog/（plan §11.3 / §11.5）/ Merged from former:

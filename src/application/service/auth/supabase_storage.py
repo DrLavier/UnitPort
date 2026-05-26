@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Thin REST wrapper around the Supabase Storage REST API.
 
 Mirrors ``supabase_client.SupabaseClient`` in shape (no Qt, no global

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MjSimEnv — concrete SimEnvContext for the Mission runtime layer.
 
 Subclasses :class:`application.service.runtime.policy.sim_env_context.SimEnvContext`

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Predict AMP Reward — Disc score → style reward."""
 
 from __future__ import annotations
@@ -7,15 +10,14 @@ from scripts.task_module import (
 )
 
 
-INLINE_SOURCE = '''\
-def predict_amp_reward(self, state, next_state, normalizer=None):
+INLINE_SOURCE = '''def predict_amp_reward(self, state, next_state, normalizer=None):
     """Compute the AMP style reward for a batch of policy transitions.
 
     Default body: ``r = coef * softplus(d.clamp(max=logit_clamp_max))``
-    -- Peng 2021's BCE-paired formulation. Override to switch to
+    — Peng 2021's BCE-paired formulation. Override to switch to
     LSGAN-style ``-(d-1)^2``, sigmoid-based, etc.
 
-    Returns (style_reward, disc_score) -- first is the per-step reward,
+    Returns (style_reward, disc_score) — first is the per-step reward,
     second is the raw logit for logging.
     """
     import torch

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.runtime.ros2 — Native DDS bridge + IDL infra.
 
 Phase 2 port from DEMO ``src/system/runtime/ros2/``. Hosts:

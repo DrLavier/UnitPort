@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ExampleNode — 三方节点起步样例 / Community node starter.
 
 最小三件套样例：声明一个 ``message`` 字符串参数。``BaseNode.execute`` 默认

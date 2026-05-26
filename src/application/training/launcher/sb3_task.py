@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SB3TrainingTask — SDK Task wrapper around :class:`SB3SubprocessBackend`.
 
 Submitted via ``get_tasks_manager().submit(task)`` from

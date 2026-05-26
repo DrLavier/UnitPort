@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Robot-side UnitPort state banner — LCD + LED on mode transitions.
 
 Called by systemd from ``unitport-banner.service``:

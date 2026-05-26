@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.signals — 全局应用级信号总线 / App-level signal bus.
 
 把"registers 内容变了""当前后端引擎切换了"这类跨模块事件挂到一个 ``QObject``

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """EmailIdentityDialog — start the email-verification flow for sign-in password.
 
 Triggered by clicking the [Email] status button in UserPanel's

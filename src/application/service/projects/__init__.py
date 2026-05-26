@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Project store -- directory-level scanner + per-project file listings."""
 
 from __future__ import annotations

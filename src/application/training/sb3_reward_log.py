@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SB3 callback that pipes the env's per-term / per-item reward breakdown
 into the SB3 logger so it lands in TensorBoard.
 

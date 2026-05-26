@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """VariantCreateDialog — create a new user variant under (kind, key).
 
 Triggered from the per-key fold-out in the sidebar Scripts panels

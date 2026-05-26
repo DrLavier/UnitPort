@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
+<!--
   UnitPort Fast-DDS profile — restricts UDPv4 transport to the usb0 address
   (192.168.55.1). `is_default_profile="true"` on the participant makes this
   binding apply to every participant created under RMW Fast-DDS unless a

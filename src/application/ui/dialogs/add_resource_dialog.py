@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """AddResourceDialog — gather download parameters for a new third-party asset.
 
 Triggered from ``ResourcesPanel`` by the "Add resource…" button. The

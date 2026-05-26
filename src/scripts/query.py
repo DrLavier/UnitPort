@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Cross-cutting query helpers for preset registries.
 
 Migrated from the tail of ``DEMO/src/system/training/task_module_registry.py``.

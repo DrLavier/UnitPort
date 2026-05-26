@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """USD body / joint name dump — runs inside the Isaac Lab venv.
 
 Used by the Robot Asset card's "Dump USD" button to harvest the actual

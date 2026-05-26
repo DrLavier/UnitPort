@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """HistoryMenu -- main_row [History ▾] popup with per-row delete + Clear All.
 
 Replaces the previous QMenu-of-QActions list (MainWindow._populate_history_menu)

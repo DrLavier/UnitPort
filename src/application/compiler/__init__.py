@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.compiler — 编译期产物层 / Compile-time artifact layer.
 
 合并自原 application/tools/{ir,compiler,behavior,nodes,policy,skill}/ —

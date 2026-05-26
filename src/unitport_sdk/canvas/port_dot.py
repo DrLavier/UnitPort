@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.port_dot — 端口圆点 paint helper.
 
 替换 DEMO ``TrainingNodePort.paint``（graph_scene.py:3429）的视觉契约：

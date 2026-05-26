@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """SshCredentialPromptDialog — modal credential collector for AutoConnect.
 
 Phase 3.7 forbids the silent-skip path that earlier diagnostics took when

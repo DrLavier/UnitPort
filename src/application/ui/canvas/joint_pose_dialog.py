@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """JointPoseEditorDialog — slider-driven init pose editor for ActorSettingNode.
 
 Opened from ``JointPoseTableRow._handle_click`` (canvas) when the upstream

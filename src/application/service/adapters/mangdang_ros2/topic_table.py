@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Mangdang Mini Pupper v2 — declared topic table.
 
 Every topic the host-side adapter subscribes to or publishes is declared

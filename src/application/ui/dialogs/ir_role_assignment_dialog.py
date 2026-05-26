@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IR-Role Assignment Dialog — boot-time bulk mapping fix-up.
 
 Opened from :meth:`UnitPortMain._maybe_open_ir_assignment_dialog` after

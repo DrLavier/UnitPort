@@ -4,9 +4,9 @@
   "robot_id": "b1f3e435aabe",
   "metadata": {
     "view": {
-      "zoom": 0.8108288332162116,
-      "center_x": -637.6191605684296,
-      "center_y": 92.49794398961744
+      "zoom": 1.0,
+      "center_x": -1084.0,
+      "center_y": 49.0
     }
   },
   "nodes": [
@@ -35,11 +35,6 @@
           "value": "",
           "param_type": "string"
         },
-        "target_height": {
-          "name": "target_height",
-          "value": "0.40",
-          "param_type": "float"
-        },
         "pd_param_mode": {
           "name": "pd_param_mode",
           "value": "natural_freq",
@@ -49,16 +44,6 @@
           "name": "pd_groups",
           "value": "{}",
           "param_type": "json"
-        },
-        "pd_effort_limit": {
-          "name": "pd_effort_limit",
-          "value": 30.0,
-          "param_type": "float"
-        },
-        "pd_velocity_limit": {
-          "name": "pd_velocity_limit",
-          "value": 30.0,
-          "param_type": "float"
         },
         "pd_resolve_at_reset": {
           "name": "pd_resolve_at_reset",
@@ -77,15 +62,15 @@
         }
       },
       "ui": {
-        "x": -2854.5468504853316,
-        "y": -208.01596651871128,
+        "x": -3159.98335158095,
+        "y": -237.86149252273643,
         "width": 324.0,
-        "height": 680.0,
+        "height": 656.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#1A6B3B"
+      "color_override": "#1F295A"
     },
     {
       "id": "1014",
@@ -104,25 +89,12 @@
         },
         "init_pos_z": {
           "name": "init_pos_z",
-          "value": "0.42",
+          "value": 0.38,
           "param_type": "float"
         },
         "init_joint_angles": {
           "name": "init_joint_angles",
-          "value": {
-            "hip_FL": 0.0,
-            "hip_FR": 0.0,
-            "hip_RL": 0.0,
-            "hip_RR": 0.0,
-            "thigh_FL": 0.9,
-            "calf_FL": -1.8,
-            "thigh_FR": 0.9,
-            "calf_FR": -1.8,
-            "thigh_RL": 0.9,
-            "calf_RL": -1.8,
-            "thigh_RR": 0.9,
-            "calf_RR": -1.8
-          },
+          "value": "{\"hip_FL\": 0.1, \"thigh_FL\": 0.8, \"calf_FL\": -1.5, \"hip_FR\": -0.1, \"thigh_FR\": 0.8, \"calf_FR\": -1.5, \"hip_RL\": 0.1, \"thigh_RL\": 1.0, \"calf_RL\": -1.5, \"hip_RR\": -0.1, \"thigh_RR\": 1.0, \"calf_RR\": -1.5}",
           "param_type": "json"
         },
         "init_pose_mode": {
@@ -232,15 +204,15 @@
         }
       },
       "ui": {
-        "x": -2373.168421338719,
-        "y": -343.58676294886334,
+        "x": -2801.5540718826987,
+        "y": -295.1994543632097,
         "width": 324.0,
         "height": 626.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#6A3A2D"
+      "color_override": "#1F295A"
     },
     {
       "id": "1013",
@@ -329,15 +301,15 @@
         }
       },
       "ui": {
-        "x": -2372.8988884501287,
-        "y": 296.31776102233886,
+        "x": -2314.6173196468835,
+        "y": -311.1867669105393,
         "width": 324.0,
         "height": 280.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#6A3A2D"
+      "color_override": "#2D6A53"
     },
     {
       "id": "1012",
@@ -346,226 +318,7 @@
       "params": {
         "training_items": {
           "name": "training_items",
-          "value": {
-            "backward": {
-              "enabled": true,
-              "speed": [
-                0.0,
-                1.0
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_backward.txt",
-              "advanced": {
-                "command_overrides": {
-                  "ang_vel_z": [
-                    0.0,
-                    0.0
-                  ],
-                  "lin_vel_x": [
-                    -1.2,
-                    0.0
-                  ],
-                  "lin_vel_y": [
-                    0.0,
-                    0.0
-                  ]
-                }
-              }
-            },
-            "forward_fast": {
-              "enabled": true,
-              "speed": [
-                1.0,
-                1.5
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_forward_fast.txt",
-              "advanced": {
-                "command_overrides": {
-                  "ang_vel_z": [
-                    0.0,
-                    0.0
-                  ],
-                  "lin_vel_x": [
-                    1.0,
-                    1.5
-                  ],
-                  "lin_vel_y": [
-                    0.0,
-                    0.0
-                  ]
-                }
-              }
-            },
-            "forward_slow": {
-              "enabled": true,
-              "speed": [
-                0.0,
-                1.0
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_forward.txt",
-              "advanced": {
-                "command_overrides": {
-                  "ang_vel_z": [
-                    0.0,
-                    0.0
-                  ],
-                  "lin_vel_x": [
-                    0.0,
-                    1.0
-                  ],
-                  "lin_vel_y": [
-                    0.0,
-                    0.0
-                  ]
-                }
-              }
-            },
-            "pace": {
-              "enabled": false,
-              "speed": [
-                0.0,
-                1.2000000000000002
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_forward_faster.txt",
-              "advanced": {
-                "command_overrides": {
-                  "lin_vel_x": [
-                    -0.5,
-                    1.2000000000000002
-                  ]
-                }
-              }
-            },
-            "stand": {
-              "enabled": true,
-              "speed": [
-                0.0,
-                0.0
-              ],
-              "clip": null,
-              "advanced": {}
-            },
-            "strafe_left": {
-              "enabled": true,
-              "speed": [
-                0.0,
-                0.8
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_left_fast.txt",
-              "advanced": {
-                "command_overrides": {
-                  "ang_vel_z": [
-                    0.0,
-                    0.0
-                  ],
-                  "lin_vel_x": [
-                    0.0,
-                    0.0
-                  ],
-                  "lin_vel_y": [
-                    -0.8,
-                    0.8
-                  ]
-                }
-              }
-            },
-            "strafe_right": {
-              "enabled": true,
-              "speed": [
-                0.0,
-                0.8
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_right_fast.txt",
-              "advanced": {
-                "command_overrides": {
-                  "ang_vel_z": [
-                    0.0,
-                    0.0
-                  ],
-                  "lin_vel_x": [
-                    0.0,
-                    0.0
-                  ],
-                  "lin_vel_y": [
-                    -0.8,
-                    0.8
-                  ]
-                }
-              }
-            },
-            "turn": {
-              "enabled": false,
-              "speed": [
-                0.0,
-                1.0
-              ],
-              "clip": null,
-              "advanced": {}
-            },
-            "turn_left": {
-              "enabled": true,
-              "speed": [
-                0.3,
-                1.0
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_turn_left_fast.txt",
-              "advanced": {
-                "command_overrides": {
-                  "ang_vel_z": [
-                    0.3,
-                    1.0
-                  ],
-                  "lin_vel_x": [
-                    0.0,
-                    0.5
-                  ],
-                  "lin_vel_y": [
-                    0.0,
-                    0.0
-                  ]
-                }
-              }
-            },
-            "turn_right": {
-              "enabled": true,
-              "speed": [
-                0.3,
-                1.0
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_turn_right_fast.txt",
-              "advanced": {
-                "command_overrides": {
-                  "ang_vel_z": [
-                    -1.0,
-                    -0.3
-                  ],
-                  "lin_vel_x": [
-                    0.0,
-                    0.5
-                  ],
-                  "lin_vel_y": [
-                    0.0,
-                    0.0
-                  ]
-                }
-              }
-            },
-            "walk": {
-              "enabled": false,
-              "speed": [
-                0.0,
-                1.0
-              ],
-              "clip": "pack:amp_go2:go2_motion/go2_forward_fast.txt",
-              "advanced": {
-                "command_overrides": {
-                  "lin_vel_x": [
-                    -0.35000000000000003,
-                    1.0
-                  ]
-                }
-              }
-            }
-          },
+          "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_backward.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [-1.2, 0.0], \"lin_vel_y\": [0.0, 0.0]}}}, \"forward_fast\": {\"enabled\": true, \"speed\": [1.0, 1.5], \"clip\": \"pack:amp_go2:go2_motion/go2_forward_fast.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [1.0, 1.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_forward.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 1.0], \"lin_vel_y\": [0.0, 0.0]}}}, \"pace\": {\"enabled\": false, \"speed\": [0.0, 1.2000000000000002], \"clip\": \"pack:amp_go2:go2_motion/go2_forward_fast.txt\", \"advanced\": {\"command_overrides\": {\"lin_vel_x\": [-0.5, 1.2000000000000002]}}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": \"pack:amp_go2:go2_motion/go2_stance.txt\", \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 0.8], \"clip\": \"pack:amp_go2:go2_motion/go2_left.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 0.0], \"lin_vel_y\": [-0.8, 0.8]}}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 0.8], \"clip\": \"pack:amp_go2:go2_motion/go2_right.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 0.0], \"lin_vel_y\": [-0.8, 0.8]}}}, \"turn\": {\"enabled\": false, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_left_fast.txt\", \"advanced\": {}}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_left.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.3, 1.0], \"lin_vel_x\": [0.0, 0.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_right.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.0, -0.3], \"lin_vel_x\": [0.0, 0.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"walk\": {\"enabled\": false, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_forward.txt\", \"advanced\": {\"command_overrides\": {\"lin_vel_x\": [-0.35000000000000003, 1.0]}}}}",
           "param_type": "json"
         },
         "mapping_mode": {
@@ -705,15 +458,15 @@
         }
       },
       "ui": {
-        "x": -691.4876400019649,
-        "y": -364.54636294767045,
+        "x": -662.0109062723798,
+        "y": -441.5244836609231,
         "width": 324.0,
-        "height": 852.0,
+        "height": 867.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#381B5E"
+      "color_override": "#581938"
     },
     {
       "id": "1011",
@@ -762,15 +515,15 @@
         }
       },
       "ui": {
-        "x": -6.5059081108689725,
-        "y": -110.14480648843335,
+        "x": -315.9798366934384,
+        "y": -106.26266946555896,
         "width": 324.0,
-        "height": 556.0,
+        "height": 571.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#381B5E"
+      "color_override": "#581938"
     },
     {
       "id": "1010",
@@ -804,16 +557,16 @@
         }
       },
       "ui": {
-        "x": -1164.7438531466894,
-        "y": -487.50532338648304,
+        "x": -1131.6385885884702,
+        "y": 365.0544429867307,
         "width": 324.0,
-        "height": 248.0,
+        "height": 263.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
       "display_name_override": "Basic Moves Delta",
-      "color_override": "#22656A"
+      "color_override": "#2D6A30"
     },
     {
       "id": "1016",
@@ -840,9 +593,6 @@
             },
             "flat_orientation": {
               "weight": -10.0
-            },
-            "base_height": {
-              "weight": -8.0
             },
             "joint_deviation_l1": {
               "weight": -2.0
@@ -880,16 +630,16 @@
         }
       },
       "ui": {
-        "x": -1542.6568324762604,
-        "y": -486.8825829331139,
+        "x": -1139.8024635057664,
+        "y": -533.7648538431379,
         "width": 324.0,
-        "height": 600.0,
+        "height": 583.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
       "display_name_override": "Stand Rewards",
-      "color_override": "#22656A"
+      "color_override": "#2D6A30"
     },
     {
       "id": "1017",
@@ -920,16 +670,16 @@
         }
       },
       "ui": {
-        "x": -1543.3302107744187,
-        "y": 425.84745423502113,
+        "x": -1502.7420885057663,
+        "y": 91.90986875846835,
         "width": 324.0,
-        "height": 216.0,
+        "height": 231.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
       "display_name_override": "Turn Delta",
-      "color_override": "#22656A"
+      "color_override": "#2D6A30"
     },
     {
       "id": "1018",
@@ -966,16 +716,16 @@
         }
       },
       "ui": {
-        "x": -1546.755475321492,
-        "y": 132.8577639623589,
+        "x": -1133.6746972132337,
+        "y": 57.32883365686175,
         "width": 324.0,
-        "height": 280.0,
+        "height": 295.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
       "display_name_override": "Pace/Strafe Delta",
-      "color_override": "#22656A"
+      "color_override": "#2D6A30"
     },
     {
       "id": "1009",
@@ -1009,15 +759,15 @@
         }
       },
       "ui": {
-        "x": -348.212894099619,
-        "y": -365.62621111848887,
+        "x": -319.7979558011514,
+        "y": -441.30265577684816,
         "width": 324.0,
-        "height": 328.0,
+        "height": 343.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#381B5E"
+      "color_override": "#581938"
     },
     {
       "id": "1008",
@@ -1206,15 +956,15 @@
         }
       },
       "ui": {
-        "x": -2010.4984483186872,
-        "y": -341.0691657593856,
+        "x": -1934.9637822885843,
+        "y": -327.7698983333773,
         "width": 324.0,
         "height": 746.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#6A3A2D"
+      "color_override": "#2D6A53"
     },
     {
       "id": "1007",
@@ -1303,15 +1053,15 @@
         }
       },
       "ui": {
-        "x": -351.1475413751298,
-        "y": -17.758341931776215,
+        "x": 43.33213879057337,
+        "y": -233.73859491037993,
         "width": 324.0,
         "height": 482.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#381B5E"
+      "color_override": "#581938"
     },
     {
       "id": "1006",
@@ -1340,15 +1090,15 @@
         }
       },
       "ui": {
-        "x": -0.767973094493982,
-        "y": -364.22737623379817,
+        "x": 43.30594235956082,
+        "y": -438.9168676118149,
         "width": 324.0,
         "height": 194.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#381B5E"
+      "color_override": "#581938"
     },
     {
       "id": "1005",
@@ -1512,8 +1262,8 @@
         }
       },
       "ui": {
-        "x": 446.7262696976304,
-        "y": -434.6293252788146,
+        "x": 498.7132920407962,
+        "y": -350.84486878850083,
         "width": 324.0,
         "height": 1076.0,
         "collapsed": false
@@ -1548,15 +1298,15 @@
         }
       },
       "ui": {
-        "x": -2851.091958667371,
-        "y": -311.2736256150691,
+        "x": -3162.4891856014,
+        "y": -335.7245929290996,
         "width": 324.0,
         "height": 88.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
-      "color_override": "#1A6B3B"
+      "color_override": "#1F295A"
     },
     {
       "id": "1001",
@@ -1650,8 +1400,8 @@
         }
       },
       "ui": {
-        "x": 868.8142549416784,
-        "y": -68.42874324392939,
+        "x": 908.1939745759801,
+        "y": 35.3666138801661,
         "width": 324.0,
         "height": 537.0,
         "collapsed": false
@@ -1684,9 +1434,6 @@
             },
             "flat_orientation": {
               "weight": -3.0
-            },
-            "base_height": {
-              "weight": -2.0
             },
             "joint_deviation_l1": {
               "weight": -0.3
@@ -1727,96 +1474,270 @@
         }
       },
       "ui": {
-        "x": -1168.9274375037323,
-        "y": -219.13535910386864,
+        "x": -1501.8415687499996,
+        "y": -536.0,
         "width": 324.0,
-        "height": 632.0,
+        "height": 615.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
       "display_name_override": "Locomotion Base Rewards",
-      "color_override": "#22656A"
+      "color_override": "#2D6A30"
+    },
+    {
+      "id": "rewards_1",
+      "schema_id": "rewards",
+      "kind": "custom",
+      "params": {
+        "reward_terms": {
+          "name": "reward_terms",
+          "value": {
+            "base_height": {
+              "weight": -10.0,
+              "value": 0.28
+            },
+            "termination_penalty": -200.0
+          },
+          "param_type": "json"
+        },
+        "std": {
+          "name": "std",
+          "value": "0.5",
+          "param_type": "float"
+        },
+        "threshold": {
+          "name": "threshold",
+          "value": "0.5",
+          "param_type": "float"
+        }
+      },
+      "ui": {
+        "x": -1505.7420885057663,
+        "y": 346.8098687584684,
+        "width": 324.0,
+        "height": 231.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "display_name_override": "Base Rewards"
     }
   ],
   "edges": [
     {
-      "id": "e_a01a4c5e000b",
-      "source_node": "1017",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e000a",
-      "source_node": "1017",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0009",
-      "source_node": "1018",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0008",
-      "source_node": "1018",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0007",
-      "source_node": "1016",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__stand",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0006",
-      "source_node": "1010",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_slow",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0005",
-      "source_node": "1010",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_fast",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0004",
-      "source_node": "1010",
+      "id": "e_9f69290f56bb",
+      "source_node": "rewards_1",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__backward",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0002",
+      "id": "e_f106904e06d8",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_fast",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_6d60fcc2c005",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_slow",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_03ce94aeda4e",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__stand",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_ac9ea5005307",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_71d048d3c79a",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_6cea80d15204",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_d10dbf0e350d",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_e1b9a70e4df4",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_9871e7446304",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_be925b5a2f3d",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_c9bcaaf7f2f1",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__backward",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_cf44822080d8",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_fast",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_aba28c7e7062",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_slow",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_5bbf03b7cfec",
+      "source_node": "1004",
+      "source_port": "checkpoint",
+      "target_node": "1005",
+      "target_port": "checkpoint",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_60c83179c4a7",
+      "source_node": "1005",
+      "source_port": "train_pipe",
+      "target_node": "1001",
+      "target_port": "train_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_a7907c5a1106",
+      "source_node": "1006",
+      "source_port": "policy",
+      "target_node": "1005",
+      "target_port": "policy",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_8e9aa3942f9d",
+      "source_node": "1007",
+      "source_port": "discriminator_config",
+      "target_node": "1005",
+      "target_port": "discriminator_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_253df76f48fa",
+      "source_node": "1008",
+      "source_port": "domain_rand_config",
+      "target_node": "1005",
+      "target_port": "domain_rand_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_d3b4df4c8b95",
+      "source_node": "1009",
+      "source_port": "termination_config",
+      "target_node": "1005",
+      "target_port": "termination_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_b170d007263a",
+      "source_node": "1011",
+      "source_port": "obs_vector",
+      "target_node": "1005",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_46494f5b7b1b",
+      "source_node": "1011",
+      "source_port": "obs_vector",
+      "target_node": "1006",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_9d4549ded747",
+      "source_node": "1012",
+      "source_port": "reference_motion_config",
+      "target_node": "1007",
+      "target_port": "reference_motion_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_6db33846f3d8",
       "source_node": "1012",
       "source_port": "command_pipe",
-      "target_node": "1005",
+      "target_node": "1011",
       "target_port": "command_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0001",
+      "id": "e_18d0aea373f0",
+      "source_node": "1013",
+      "source_port": "scene_pipe",
+      "target_node": "1005",
+      "target_port": "scene_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_960112f23b62",
       "source_node": "1014",
       "source_port": "actor_pipe",
-      "target_node": "1012",
+      "target_node": "1008",
+      "target_port": "actor_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_ec41dd06b526",
+      "source_node": "1014",
+      "source_port": "actor_pipe",
+      "target_node": "1011",
       "target_port": "actor_pipe",
       "edge_type": "flow"
     },
@@ -1829,163 +1750,83 @@
       "edge_type": "flow"
     },
     {
-      "id": "e_ec41dd06b526",
+      "id": "e_a01a4c5e0001",
       "source_node": "1014",
       "source_port": "actor_pipe",
-      "target_node": "1011",
+      "target_node": "1012",
       "target_port": "actor_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_960112f23b62",
-      "source_node": "1014",
-      "source_port": "actor_pipe",
-      "target_node": "1008",
-      "target_port": "actor_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_18d0aea373f0",
-      "source_node": "1013",
-      "source_port": "scene_pipe",
-      "target_node": "1005",
-      "target_port": "scene_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_6db33846f3d8",
+      "id": "e_a01a4c5e0002",
       "source_node": "1012",
       "source_port": "command_pipe",
-      "target_node": "1011",
+      "target_node": "1005",
       "target_port": "command_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_9d4549ded747",
-      "source_node": "1012",
-      "source_port": "reference_motion_config",
-      "target_node": "1007",
-      "target_port": "reference_motion_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_46494f5b7b1b",
-      "source_node": "1011",
-      "source_port": "obs_vector",
-      "target_node": "1006",
-      "target_port": "obs_vector",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_b170d007263a",
-      "source_node": "1011",
-      "source_port": "obs_vector",
-      "target_node": "1005",
-      "target_port": "obs_vector",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_d3b4df4c8b95",
-      "source_node": "1009",
-      "source_port": "termination_config",
-      "target_node": "1005",
-      "target_port": "termination_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_253df76f48fa",
-      "source_node": "1008",
-      "source_port": "domain_rand_config",
-      "target_node": "1005",
-      "target_port": "domain_rand_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_8e9aa3942f9d",
-      "source_node": "1007",
-      "source_port": "discriminator_config",
-      "target_node": "1005",
-      "target_port": "discriminator_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a7907c5a1106",
-      "source_node": "1006",
-      "source_port": "policy",
-      "target_node": "1005",
-      "target_port": "policy",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_60c83179c4a7",
-      "source_node": "1005",
-      "source_port": "train_pipe",
-      "target_node": "1001",
-      "target_port": "train_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_5bbf03b7cfec",
-      "source_node": "1004",
-      "source_port": "checkpoint",
-      "target_node": "1005",
-      "target_port": "checkpoint",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_aba28c7e7062",
-      "source_node": "1019",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_slow",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_cf44822080d8",
-      "source_node": "1019",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_fast",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_c9bcaaf7f2f1",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0004",
+      "source_node": "1010",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__backward",
       "edge_type": "flow"
     },
     {
-      "id": "e_be925b5a2f3d",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0005",
+      "source_node": "1010",
       "source_port": "reward_pipe",
       "target_node": "1012",
-      "target_port": "reward_in__turn_left",
+      "target_port": "reward_in__forward_fast",
       "edge_type": "flow"
     },
     {
-      "id": "e_9871e7446304",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0006",
+      "source_node": "1010",
       "source_port": "reward_pipe",
       "target_node": "1012",
-      "target_port": "reward_in__turn_right",
+      "target_port": "reward_in__forward_slow",
       "edge_type": "flow"
     },
     {
-      "id": "e_e1b9a70e4df4",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0007",
+      "source_node": "1016",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__stand",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_a01a4c5e0008",
+      "source_node": "1018",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__strafe_left",
       "edge_type": "flow"
     },
     {
-      "id": "e_d10dbf0e350d",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0009",
+      "source_node": "1018",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_a01a4c5e000a",
+      "source_node": "1017",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_a01a4c5e000b",
+      "source_node": "1017",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_right",
       "edge_type": "flow"
     }
   ],
@@ -1995,31 +1836,31 @@
       "title": "Starter",
       "members": [
         "1015",
+        "1014",
         "1004"
       ],
       "rect": {
-        "x": -2883.9091780145955,
-        "y": -342.23057724700726,
-        "w": 391.79711013795986,
-        "h": 835.9972194239481
+        "x": -3190.4891856014,
+        "y": -378.7245929290996,
+        "w": 726.3623275292639,
+        "h": 860.8406976848177
       },
-      "color_override": "#1A6B3B"
+      "color_override": "#1F295A"
     },
     {
       "id": "d9ac8c903c20",
       "title": "Env Setting",
       "members": [
-        "1014",
         "1013",
         "1008"
       ],
       "rect": {
-        "x": -2407.0173196468845,
-        "y": -376.14945436320977,
+        "x": -2344.9173196468846,
+        "y": -366.9494543632098,
         "w": 763.9906186083001,
-        "h": 977.0126874526705
+        "h": 805.6626874526705
       },
-      "color_override": "#6A3A2D"
+      "color_override": "#2D6A53"
     },
     {
       "id": "d46b5256a2b4",
@@ -2029,15 +1870,16 @@
         "1016",
         "1017",
         "1018",
-        "1019"
+        "1019",
+        "rewards_1"
       ],
       "rect": {
-        "x": -1562.5886656010096,
-        "y": -533.2402177763591,
-        "w": 745.8126935332383,
-        "h": 1197.2377277508185
+        "x": -1539.9806518327987,
+        "y": -567.1522384286751,
+        "w": 760.5896250000001,
+        "h": 1206.0534951833629
       },
-      "color_override": "#22656A"
+      "color_override": "#2D6A30"
     },
     {
       "id": "64ad5cbe07c6",
@@ -2050,12 +1892,12 @@
         "1006"
       ],
       "rect": {
-        "x": -719.4876400019649,
-        "y": -407.54636294767045,
-        "w": 1077.7099407241758,
-        "h": 917.8502065582112
+        "x": -677.3609062723799,
+        "y": -483.37448366092315,
+        "w": 1075.2211763129533,
+        "h": 1013.1279562500001
       },
-      "color_override": "#381B5E"
+      "color_override": "#581938"
     }
   ]
 }

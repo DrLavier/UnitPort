@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.telemetry — 事件总线 + 数据契约 + 主线程 marshaller（单文件）.
 
 合并自原 / Merged from former application/service/telemetry/ subdir:

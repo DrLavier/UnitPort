@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Motion clip validator — structural + RobotSpec / IR cross-check.
 
 REWRITE-WITH-DEMO-REF from DEMO ``src/system/training/motion/validator.py``.

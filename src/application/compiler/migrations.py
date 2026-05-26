@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.compiler.migrations — 加载前 IR 与 manifest 一致性校验.
 
 ``validate_against_manifests(ir_dict) -> list[str]``：在 ``CanvasPage.from_workflow_dict``

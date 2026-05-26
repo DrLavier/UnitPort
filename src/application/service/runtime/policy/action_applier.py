@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """ActionApplier — raw policy output → control vector (verbatim port from DEMO).
 
 Phase 3 RELEASE port. Adjustments:

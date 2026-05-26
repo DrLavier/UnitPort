@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """MuJoCo-specific actor/field/env wrappers.
 
 Phase 1 ports DEMO's ``mj_actor`` / ``mj_field`` / ``mj_sim_env`` /

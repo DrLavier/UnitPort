@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Path helpers for the installer namespace.
 
 Two small primitives shared by every installer (currently only Isaac Lab):

@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Frameless RGB / HSV color picker popup for chart line overrides.
 
 Used by ``TrainingChartPanel`` — clicking a per-series palette swatch

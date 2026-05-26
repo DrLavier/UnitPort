@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.runtime — live MuJoCo / ROS2 / input I/O subtree.
 
 Distinct from ``src/runtime/`` (the on-disk cache directory pointed to by

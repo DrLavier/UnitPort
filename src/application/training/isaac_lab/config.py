@@ -1,11 +1,17 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """IsaacLabConfig — pure data describing one Isaac Lab training run.
 
 Ported from DEMO ``src/system/training/isaac_lab_config.py`` with two
 RELEASE-specific changes:
 
 1. ``isaac_lab_path`` / ``isaac_lab_python`` / ``isaac_lab_launcher``
-   default to whatever ``registers.backends._detect_isaac_lab()``
-   discovered at engine refresh time. Callers can override per-run.
+   default to the user's **active selection**
+   (``application.service.engines.service.resolve_active_local_isaac`` —
+   the user.ini[Training].local_isaac_root pin, with loud fallback to base).
+   The launcher must start the install the user picked, not the
+   auto-discovered base. Callers can override per-run.
 
 2. **No stock-task fallback.** ``_train_script()`` and
    ``build_command()`` both raise when ``unitport_launcher_path`` /
@@ -141,20 +147,35 @@ class IsaacLabConfig:
         """Build a config pre-populated with the registered Isaac Lab
         installation (root + python + launcher).
 
-        Reads ``<USER_CONFIG_DIR>/engines/isaac_lab.json`` via
-        ``registers.backends._detect_isaac_lab`` to discover the root, then
-        derives launcher (``isaaclab.bat|sh``) and python paths under it.
-        """
-        from registers.backends import _detect_isaac_lab, _find_isaac_python
+        Resolves the install root via the **user's active selection**
+        (``application.service.engines.service.resolve_active_local_isaac`` —
+        user.ini[Training].local_isaac_root pin → base → first → loud fallback),
+        then derives launcher (``isaaclab.bat|sh``) and python paths under it.
 
-        det = _detect_isaac_lab()
-        root_str = det.get("path") or ""
-        if not root_str:
+        This MUST route through the same resolver the User panel writes:
+        the training launcher has to start the Isaac install the user picked,
+        not the auto-discovered base. The prior ``_detect_isaac_lab()`` path
+        read only ``backends_installed.json::local_root`` and silently launched
+        the base regardless of the user's choice (CLAUDE.md §8 — surface the
+        selection, never silently wrong).
+        """
+        from registers.backends import _find_isaac_python
+        from application.service.engines.service import resolve_active_local_isaac
+
+        active = resolve_active_local_isaac()
+        if not active or not str(active.get("root") or "").strip():
             raise RuntimeError(
-                "Isaac Lab not registered — call EngineService."
-                "register_isaac_local(<root>) or import_isaac_lab_path_from_demo() first"
+                "Isaac Lab not registered — register an install via the User "
+                "panel (EngineService.register_isaac_local(<root>)) or "
+                "import_isaac_lab_path_from_demo() first"
             )
-        root = Path(root_str)
+        if not active.get("exists", True):
+            raise RuntimeError(
+                f"Selected Isaac Lab root {active.get('root')!r} no longer has "
+                "markers (isaaclab.sh|isaaclab.bat + source/). Re-select an "
+                "install in the User panel before training."
+            )
+        root = Path(str(active["root"]))
         launcher = ""
         for name in ("isaaclab.bat", "isaaclab.sh"):
             p = root / name
@@ -746,6 +767,16 @@ class IsaacLabConfig:
         if self.unitport_launcher_path:
             if self.robot_asset_id:
                 args.extend(["--unitport_robot_asset_id", self.robot_asset_id])
+
+            # Headed run → hand the launcher the install root so it can
+            # generate a minimal viewport-only experience under <root>/apps/
+            # and select it, avoiding the full-GUI ``omni.kit.menu.utils``
+            # crash and cutting GPU BAR1 pressure. The launcher itself gates
+            # on ``not --video``. Headless runs pass nothing (no viewport).
+            if not self.headless and self.isaac_lab_path:
+                args.extend(
+                    ["--unitport_headed_experience", self.isaac_lab_path]
+                )
 
             if self.algorithm == "AMP_PPO":
                 args.extend([

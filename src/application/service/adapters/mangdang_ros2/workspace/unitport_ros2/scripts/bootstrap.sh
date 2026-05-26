@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 # bootstrap.sh — UnitPort robot-side full bootstrap. ONE script. ALWAYS
 # idempotent. Replaces the historical install_robot.sh + usb_link/install.sh
 # split that left mask state, daemon constants, and partial installs as

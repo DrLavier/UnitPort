@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Base Height — Terminate when the robot base drops below this minimum height (m)."""
 
 from __future__ import annotations

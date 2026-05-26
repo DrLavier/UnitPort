@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """unitport_sdk.canvas.edit_button — 编辑按钮 paint helper.
 
 替换 DEMO ``CodeEdit`` 按钮（training_node_items.py:1341-1470）+ Path 浏览

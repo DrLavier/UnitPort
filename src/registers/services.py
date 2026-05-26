@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """registers.services — 运行时服务/绑定/检查点/路由/存储通道 一站式注册.
 
 合并自 5 个原子目录 / Merged from 5 former subdirs:

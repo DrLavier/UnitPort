@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """application.service.projects.paths — canvas / training path helpers.
 
 Per RELEASE/CLAUDE.md §1.4: project-internal artifacts (canvas DAGs, training

@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
+SPDX-FileCopyrightText: 2026 SU CHANG
+SPDX-License-Identifier: Apache-2.0
+-->
+
+<!--
   UnitPort Cyclone DDS profile — pins participant to usb0 only.
   Sourced via CYCLONEDDS_URI when active.env points at usb_only.env.
 -->

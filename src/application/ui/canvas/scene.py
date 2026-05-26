@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """CanvasScene — Training Ground 画布场景 / canvas scene.
 
 Phase 0: 仅栅格背景 + 空场景。
@@ -73,6 +76,9 @@ class CanvasScene(QGraphicsScene):
         self._context_menu_provider: Optional[
             "Callable[[QGraphicsSceneContextMenuEvent], Optional[QMenu]]"
         ] = None
+        # 当前 hover 的连线（ConnectionItem hoverEnter/Leave 维护）——
+        # 供 CanvasPage.keyPressEvent 实现 "hover + Delete 删除连线"。
+        self._hovered_edge = None
         self.apply_theme()
 
     # ---- Phase 2 公开访问 ----

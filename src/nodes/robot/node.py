@@ -1,13 +1,17 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """RobotNode — 机器人资产 / Robot asset (information display).
 
 DEMO 对应：``src/system/nodes/sys_nodes/training_nodes.py:RobotNode``.
 
 Single source of truth for robot IDENTITY and STRUCTURAL metadata. ``asset_id``
-is the only user-editable identity field (plus ``active_override`` toggle and
-``target_height`` per-project override); everything else displayed on the
-canvas (joint list, init pose default, actuator defaults) is a read-only
-projection of the selected asset. Settings live on the paired
-:class:`ActorSettingNode`.
+is the only user-editable identity field (plus the ``active_override`` toggle);
+everything else displayed on the canvas (joint list, init pose default, actuator
+defaults) is a read-only projection of the selected asset. Settings live on the
+paired :class:`ActorSettingNode`. (The base_height reward target moved to the
+Rewards node's per-item "Value" chip; spawn height comes from actor init_pos_z /
+the asset nominal — see CLAUDE.md decouple.)
 
 Phase 2 frontend skeleton — ``execute()`` 留接口给 Stage C 后端 wiring。
 """
@@ -74,12 +78,6 @@ class RobotNode(BaseNode):
                 widget="mjcf_offset_badge",
                 description="MJCF 落地偏移 / MJCF base spawn-Z offset (auto-calibrated; read-only status)",
             ),
-            ParamSpec(
-                key="target_height", type="float", default=0.0,
-                widget="range",
-                description="目标高度 (0 = 跟随资产 nominal_height) / Standing-height override",
-                meta={"min": 0.0, "max": 5.0, "step": 0.01},
-            ),
             # ── PD parameterization (sim2sim_mass-matrix-adaptive) ──
             # Merged from ex-ActuatorPDNode (which lived as a separate
             # canvas node for one iteration before consolidating onto
@@ -103,18 +101,11 @@ class RobotNode(BaseNode):
                 description="按关节组覆盖 (omega_n, zeta)；空 {} = 全用 family 默认 / Per-group overrides; empty = family defaults",
                 meta={"language": "json"},
             ),
-            ParamSpec(
-                key="pd_effort_limit", type="float", default=30.0,
-                widget="range",
-                description="扭矩上限 / Effort (torque) limit (N·m)",
-                meta={"min": 0.0, "max": 200.0, "step": 1.0},
-            ),
-            ParamSpec(
-                key="pd_velocity_limit", type="float", default=30.0,
-                widget="range",
-                description="速度上限 / Joint velocity limit (rad/s)",
-                meta={"min": 0.0, "max": 100.0, "step": 0.5},
-            ),
+            # effort_limit / velocity_limit intentionally NOT defined here.
+            # The single canvas source of truth is the ActorSetting node
+            # (§4 Actuator overrides); de-duplicated off RobotNode so both
+            # engines read one value. RobotNode owns only (omega_n, zeta)
+            # + the PD-process toggles below.
             ParamSpec(
                 key="pd_resolve_at_reset", type="bool", default=True,
                 description="每次 reset 重算 PD / Re-solve gains after each DR reset",
@@ -285,6 +276,5 @@ class RobotNode(BaseNode):
                 "body_mapper": mapper,
                 "body_mapping": mapping_dict,
                 "ir_family": mapper.family,
-                "target_height": float(params.get("target_height", 0.0) or 0.0),
             },
         }

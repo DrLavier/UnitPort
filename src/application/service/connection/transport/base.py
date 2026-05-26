@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+
 """Transport protocol — polymorphic I/O channel for the connection layer.
 
 Ported verbatim from DEMO ``src/system/service/connection/transport/base.py``
