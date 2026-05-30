@@ -25,10 +25,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-# Bucket IR roles that are not actuated joints (catch-all mounts/sensors).
-_BUCKET_PREFIXES = ("sensor",)
-_BUCKET_EXACT = {"misc", "__out_of_scope__"}
-
 
 class PDPreviewError(RuntimeError):
     """Raised when the preview cannot be computed (fail-loud, §1.8)."""
@@ -70,12 +66,6 @@ class PDPreview:
     joints: List[PDPreviewJoint] = field(default_factory=list)
 
 
-def _is_bucket(ir_role: str) -> bool:
-    return ir_role in _BUCKET_EXACT or any(
-        ir_role.startswith(p) for p in _BUCKET_PREFIXES
-    )
-
-
 def compute_pd_preview(
     sku: str,
     *,
@@ -97,7 +87,7 @@ def compute_pd_preview(
             missing, or the solver fails. Every failure is surfaced (the panel
             shows it) rather than substituting a default.
     """
-    from registers.robots import get_robot
+    from registers.robots import get_robot, is_actuated_ir_role
     from registers import brands as _brands_reg
     from registers.pd_groups import find_group_for_role
 
@@ -125,6 +115,12 @@ def compute_pd_preview(
             f"'Dump MJCF' in the Robot Asset card. The mass-weighted PD "
             f"solver needs the MJCF joint table."
         )
+    # Only actuated joints get PD gains. The free-floating base joint
+    # (ir_role 'base'), sensor mounts, misc and out-of-scope roles are NOT
+    # actuated — feeding them to the mass-weighted solver makes it fail-loud
+    # ("does not cover joint role 'base'"). Use the registry's single
+    # authoritative predicate (the same one the resolver / RobotSpecRef /
+    # deploy-coverage use) rather than a narrower local copy.
     ir_roles: List[str] = []
     physical: List[str] = []
     seen: set = set()
@@ -133,7 +129,7 @@ def compute_pd_preview(
             continue
         ir = str(jspec.get("ir_role", "") or "")
         name = str(jspec.get("name", "") or "")
-        if not ir or not name or _is_bucket(ir) or ir in seen:
+        if not ir or not name or not is_actuated_ir_role(ir) or ir in seen:
             continue
         ir_roles.append(ir)
         physical.append(name)

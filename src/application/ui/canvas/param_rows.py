@@ -8075,10 +8075,10 @@ class PDParamTableRow(CodeRow):
         if not sku:
             QMessageBox.warning(
                 parent_widget,
-                tr("dialog.pd_table_unavailable", default="无法打开 PD 面板"),
+                tr("dialog.pd_table_unavailable", default="Cannot open PD panel"),
                 tr("dialog.pd_table_no_sku",
-                   default="Robot Node 尚未绑定有效机型 (asset_id)。请先在 Robot "
-                           "Asset 卡片选择机型。"),
+                   default="The Robot Node has no valid robot bound (asset_id). "
+                           "Select a robot in the Robot Asset card first."),
             )
             return True
 
@@ -8133,7 +8133,7 @@ class PDParamTableRow(CodeRow):
         if err is not None or preview is None:
             QMessageBox.warning(
                 parent_widget,
-                tr("dialog.pd_table_unavailable", default="无法打开 PD 面板"),
+                tr("dialog.pd_table_unavailable", default="Cannot open PD panel"),
                 str(err) if err is not None else "unknown error",
             )
             return True

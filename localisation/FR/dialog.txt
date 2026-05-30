@@ -6,8 +6,8 @@ replace_canvas_title = Remplacer le contenu du canevas
 review_pose_unavailable = Impossible de lancer Review Pose
 unsaved_text = {name} contient des modifications non enregistrées. Enregistrer avant de continuer ?
 unsaved_title = Modifications non enregistrées
-pd_table_no_sku = Robot Node 尚未绑定有效机型 (asset_id)。请先在 Robot Asset 卡片选择机型。
-pd_table_unavailable = 无法打开 PD 面板
+pd_table_no_sku = Aucun robot valide n'est associé au Robot Node (asset_id). Sélectionnez d'abord un robot dans la carte Robot Asset.
+pd_table_unavailable = Impossible d'ouvrir le panneau PD
 registry_preset_apply_failed = Preset 应用失败
 registry_preset_picker_empty = 该家族没有可选 preset
 registry_preset_picker_empty_detail = family={family} 在 registry={registry} 里没有声明 preset。
