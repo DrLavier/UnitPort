@@ -4,6 +4,7 @@ venv/
 .claude/
 CLAUDE.md
 .gitignore
+.pytest_cache/
 
 # pip temp + cache (redirected by install.bat/install.sh onto the project drive)
 .pip-tmp/
