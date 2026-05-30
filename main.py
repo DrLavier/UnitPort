@@ -259,6 +259,12 @@ class UnitPortMain:
         # finish_loading. List[PendingAssignment]; default empty so _finalize
         # never NoneType-faceplants if data_load raised before populating it.
         self._pending_ir_assignments: list = []
+        # Populated by ``_data_load_body`` via IsaacLabBodyAutoDumpTask. The
+        # task's report tells ``_finalize`` whether to open the cloud-Isaac
+        # dump prompt (set when local IsaacLab is absent but cloud servers
+        # are configured). Optional[AutoDumpReport]; default None so
+        # ``_finalize`` no-ops cleanly if data_load raised before populating.
+        self._isaac_dump_report: Any = None
         self._fatal: bool = False
 
         # Parallel wizard + provisioning gating. Both must finish before
@@ -529,18 +535,22 @@ class UnitPortMain:
         except Exception as exc:
             log_warning(f"[boot] input shutdown raised: {exc}")
 
-        # Cloud-sync auto-push on shutdown. Runs only when both
-        #   (a) the user is signed in, AND
-        #   (b) the auto-push toggle in user.ini[Cloud] auto_push is on.
-        # Scope: ONLY files whose mtime is at-or-after ``_SESSION_START_TS``
-        # (process module-import wall clock). The manual Push button still
-        # uploads the full include set; this hook is the "save my deltas
-        # before I quit" path and must never re-upload bytes that haven't
-        # changed since this launch began. Synchronous: the TasksManager
-        # is about to be cancelled so we cannot submit a CloudSyncTask.
+        # Cloud-sync lifecycle hooks on shutdown. Two INDEPENDENT, separately-
+        # gated behaviours, both requiring the user to be signed in (guests
+        # skip). Synchronous: the TasksManager is about to be cancelled so we
+        # cannot submit a CloudSyncTask.
+        #   (1) auto-push  — user.ini[Cloud] auto_push (default off). Uploads
+        #       ONLY files whose mtime is at-or-after ``_SESSION_START_TS``
+        #       (this session's deltas). The manual Push button still uploads
+        #       the full include set; this is the "save my deltas before I
+        #       quit" path and must never re-upload unchanged bytes.
+        #   (2) self-check — system.ini[CloudSync] self_check_on_shutdown
+        #       (default on). List-only status/quota refresh, no transfer —
+        #       the symmetric partner of the startup self-check. Previously
+        #       this flag was declared in system.ini but read by NO code; it
+        #       is now consumed here.
         # plan_push catches IO errors internally and execute() reports
-        # per-file failures in its summary rather than raising. Guest
-        # sessions skip both checks.
+        # per-file failures in its summary rather than raising.
         try:
             from application.service.auth import get_auth_manager
             if get_auth_manager().is_signed_in():
@@ -588,8 +598,22 @@ class UnitPortMain:
                             f"failed={int(summary.get('failed', 0) or 0)} "
                             f"skipped={int(summary.get('skipped', 0) or 0)}"
                         )
+                # (2) shutdown self-check — list-only status/quota refresh,
+                # symmetric with the startup self-check. Gated by its own
+                # system.ini flag (default on); independent of auto_push.
+                if Config.get_value(
+                    "CloudSync", "self_check_on_shutdown", True, value_type=bool,
+                ):
+                    from application.service.cloud_sync import (
+                        get_cloud_sync_service,
+                    )
+                    rows = get_cloud_sync_service().list_remote()
+                    log_info(
+                        f"[cloud-sync] exit self-check: {len(rows)} remote "
+                        f"object(s)"
+                    )
         except Exception as exc:
-            log_warning(f"[boot] cloud auto-push at shutdown raised: {exc}")
+            log_warning(f"[boot] cloud shutdown hooks raised: {exc}")
 
         # Cancel any in-flight auth worker QThread + armed restore-retry
         # timer. AuthManager's _AuthWorker threads belong to the auth
@@ -791,11 +815,36 @@ class UnitPortMain:
         # PRESERVES the keyring entry so the next launch retries.
         QTimer.singleShot(0, auth_mgr.try_restore_session)
 
-        # Cloud-sync passive self-check. Deferred ~1.2 s so the session
-        # restore has a chance to land (it runs on the next tick + a
-        # network round-trip). The check just lists the user's cloud
-        # prefix; no files are transferred. Guest accounts no-op.
-        QTimer.singleShot(1200, self._cloud_self_check_on_startup)
+        # Cloud-sync passive self-check — SIGNAL-DRIVEN, not timer-driven.
+        # The old code fired a fixed 1200 ms QTimer hoping the async session
+        # restore (next tick + a network round-trip) had landed by then; on a
+        # cold/slow network the timer won every time and the self-check
+        # silently no-op'd because is_signed_in() was still False. Connecting
+        # to ``authenticated`` runs the check exactly when the session truly
+        # lands (restore OR a later manual sign-in), eliminating the race.
+        auth_mgr.authenticated.connect(self._on_authenticated_cloud_self_check)
+        # Edge case: a session that is already live at wire-time (e.g. a
+        # synchronous restore) would have emitted before we connected — cover
+        # it with a one-shot direct call on the next tick.
+        if auth_mgr.is_signed_in():
+            QTimer.singleShot(0, self._cloud_self_check_on_startup)
+
+        # Wire the SDK's cloud channel to the application transport so
+        # ``push_data(..., channel="cloud")`` reaches Supabase via
+        # CloudSyncService.push_single instead of raising "no transport".
+        # The SDK stays frozen — it never imports application code; we inject
+        # the bridge here (dependency inversion, CLAUDE.md §4).
+        try:
+            from unitport_sdk import Storage
+            from application.service.cloud_sync import get_cloud_sync_service
+
+            Storage.register_cloud_transport(
+                lambda rel, value, **kw: get_cloud_sync_service().push_single(
+                    rel, value, **kw
+                )
+            )
+        except Exception as exc:                                  # noqa: BLE001
+            log_warning(f"[boot] cloud transport registration failed: {exc}")
 
         # Isaac Lab installer signal wiring is already done at Stage 1
         # (right after MainWindow). The progress dialog now uses
@@ -824,6 +873,15 @@ class UnitPortMain:
         # likely hasn't landed yet at this point, so connect a one-shot
         # handler to the check-complete signal rather than polling.
         self._wire_startup_update_popup()
+
+        # Cloud-IsaacLab USD body dump prompt — opens iff
+        # IsaacLabBodyAutoDumpTask (in _data_load_body) detected no
+        # local IsaacLab installation but found at least one cloud
+        # IsaacLab server configured. The dialog's action button is a
+        # §8 fail-loud no-op stub (cloud-dump RPC pending); the dialog
+        # framework is in place so the action handler can be wired
+        # later without touching the trigger logic.
+        self._maybe_open_cloud_isaac_dump_prompt()
 
         # IR-role assignment pop-up — opens iff RobotAssetSelfCheckTask
         # (in _data_load_body) found entries whose tokeniser couldn't
@@ -1203,14 +1261,57 @@ class UnitPortMain:
         dlg = IRRoleAssignmentDialog(pending, parent=self._main_window)
         dlg.exec()
 
+    def _maybe_open_cloud_isaac_dump_prompt(self) -> None:
+        """Open :class:`CloudIsaacDumpPromptDialog` iff
+        :class:`IsaacLabBodyAutoDumpTask` returned
+        ``requires_cloud_prompt=True`` (Route B: no local IsaacLab + cloud
+        servers present). The dialog's action handler is a §8 fail-loud
+        no-op stub today — the cloud-dump RPC is pending; the dialog
+        framework is in place so the eventual wire-up is handler-only.
+        """
+        report = getattr(self, "_isaac_dump_report", None)
+        if report is None or not getattr(report, "requires_cloud_prompt", False):
+            return
+        try:
+            from application.ui.dialogs.cloud_isaac_dump_prompt_dialog import (
+                CloudIsaacDumpPromptDialog,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                f"[boot] cloud isaac dump prompt import failed: {exc}"
+            )
+            return
+        log_info(
+            "[boot] opening cloud IsaacLab dump prompt (Route B: no "
+            "local install, cloud servers configured)"
+        )
+        dlg = CloudIsaacDumpPromptDialog(parent=self._main_window)
+        dlg.exec()
+
+    def _on_authenticated_cloud_self_check(self, _user_profile=None) -> None:
+        """Slot for AuthManager.authenticated → run the startup self-check.
+
+        Ignores the emitted UserProfile; the self-check resolves credentials
+        itself. Fires whenever a session lands (restore-on-startup OR a later
+        manual sign-in), which is the desired "refresh cloud status on auth".
+        """
+        self._cloud_self_check_on_startup()
+
     def _cloud_self_check_on_startup(self) -> None:
         """Submit a CloudSyncTask("self_check") if the user is signed in.
 
-        List-only — no files are transferred. Guest sessions skip; failed
-        list calls log a warning inside CloudSyncService and surface zero
-        objects, which is the desired UX (silent fallback, no popup).
+        List-only — no files are transferred. Gated by
+        ``system.ini[CloudSync].self_check_on_startup`` (default True); when the
+        user disables it the check is skipped. Guest sessions skip. Failed list
+        calls log a warning inside CloudSyncService and surface zero objects.
         """
         try:
+            from unitport_sdk import Config
+            if not Config.get_value(
+                "CloudSync", "self_check_on_startup", True, value_type=bool,
+            ):
+                log_info("[boot] cloud self-check disabled (self_check_on_startup=false)")
+                return
             from application.service.auth import get_auth_manager
             if not get_auth_manager().is_signed_in():
                 return
@@ -1330,6 +1431,38 @@ class UnitPortMain:
         # ensure_default_backends is idempotent.
         from application.training.backend import ensure_default_backends
         ensure_default_backends()
+
+        # Isaac Lab USD body auto-dump — populates FACTORY_BUILD_DIR's
+        # robots_factory_build.json with the per-SKU USD body tables for
+        # every canonical SKU whose USD data is still absent (after the
+        # SDK ship + factory_build + user overlay three-layer merge). This
+        # is the §9 portable-artifacts seam: USD body topology for
+        # standard robots is a factory fact, not per-user state, so it
+        # must live in the install-shared factory_build layer rather than
+        # USER_CONFIG_DIR. Runs BEFORE RobotAssetSelfCheckTask so the
+        # self-check sees the freshly-dumped tables and won't re-prompt
+        # the IR-role dialog for entries the dump auto-tokenised.
+        #
+        # The task reports back ``isaac_status``:
+        #   - "local_available" → Route A ran (dumps written to factory_build)
+        #   - "cloud_only"      → Route B: cloud prompt fires in _finalize
+        #   - "no_isaac"        → no Isaac at all; R5 fail-loud surfaces later
+        from application.tools.isaac_lab_body_dump_task import (
+            IsaacLabBodyAutoDumpTask,
+        )
+        try:
+            self._isaac_dump_report = IsaacLabBodyAutoDumpTask().run()
+        except Exception as exc:  # noqa: BLE001
+            import traceback as _tb
+            log_error(
+                f"[data] isaac_lab USD body auto-dump crashed — standard "
+                f"SKU USD body tables may be incomplete in the "
+                f"factory_build layer. Any subsequent R5 ⊆ check that "
+                f"needs USD body data for a missing SKU will surface the "
+                f"gap loudly per §8. Exception: {type(exc).__name__}: "
+                f"{exc}\n{_tb.format_exc()}"
+            )
+            self._isaac_dump_report = None
 
         # Robot Asset Self-Check — auto-dump any robot whose enabled MJCF/USD
         # per-format table is empty, then collect entries where the tokeniser

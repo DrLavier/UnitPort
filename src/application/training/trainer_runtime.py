@@ -89,22 +89,28 @@ def compute_deploy_coverage(sku: str) -> DeployCoverageReport:
         return report
 
     from registers import robots as _r
+    from registers.robots import is_actuated_ir_role
 
     entry = _r.get_robot(sku) or {}
     report.robot_name = entry.get("name") or sku
     joints_pf = entry.get("joints_per_format") or {}
 
+    # Only actuated motion joints count toward cross-format coverage. Bucket
+    # roles (sensor/misc/base) and the parked '__out_of_scope__' sentinel
+    # legitimately repeat or differ across formats (MJCF freejoint the USD
+    # articulation collapses into its root, cosmetic shells, IMU mounts) — they
+    # must NOT register as a deploy-coverage gap. Shared predicate (same one
+    # the RobotSpecRef actuated-joint filter and JointIRResolver use).
     def _ir_role_set(fmt: str) -> Optional[frozenset]:
         block = joints_pf.get(fmt)
         if not isinstance(block, dict) or not block:
             return None
         return frozenset(
-            str((spec or {}).get("ir_role") or "").strip()
+            role
             for spec in block.values()
             if isinstance(spec, dict)
-            and str((spec or {}).get("ir_role") or "").strip()
-            and not str((spec or {}).get("ir_role") or "").strip().startswith("sensor")
-            and str((spec or {}).get("ir_role") or "").strip() not in ("misc", "base")
+            for role in (str((spec or {}).get("ir_role") or "").strip(),)
+            if is_actuated_ir_role(role)
         )
 
     mjcf_set = _ir_role_set("MJCF")
@@ -418,6 +424,7 @@ def submit_canvas_training(
         ensure_default_backends,
         select_backend,
     )
+    from application.service.engines.service import get_engine_service
     from application.training.spec_compiler import compile_training_spec
     from application.training.spec_validator import raise_if_errors
 
@@ -447,7 +454,6 @@ def submit_canvas_training(
 
     ensure_default_backends()
     pref = (getattr(ir, "backend", None) or BACKEND_AUTO).strip() or BACKEND_AUTO
-    backend = select_backend(pref)
 
     rid = run_id or _make_run_id("canvas", schema_id="play")
     # Stash the source canvas dict on spec.meta so the IsaacLab backend can
@@ -455,7 +461,8 @@ def submit_canvas_training(
     # IsaacLabTrainingTask.__init__ → env_cfg_compiler.compile_env_cfg_to_file).
     # SB3 backend ignores this key. The canvas dict is JSON-clean (loaded
     # from canvas .json or produced by CanvasPage.to_workflow_dict), so it
-    # survives ``TrainingSpec.to_dict()``'s asdict round-trip.
+    # survives ``TrainingSpec.to_dict()``'s asdict round-trip. MUST happen
+    # before ``spec.to_dict()`` below (both local and cloud paths read it).
     try:
         if not isinstance(spec.meta, dict):
             spec.meta = {}
@@ -463,11 +470,32 @@ def submit_canvas_training(
             spec.meta["__canvas_dict__"] = canvas_dict
     except Exception:
         pass
+
+    # Train target: "local" (default) vs "cloud". This is ORTHOGONAL to the
+    # engine preference — cloud answers "where it runs", the engine
+    # (isaac_lab / sb3_mujoco) answers "what runs it". We never fold cloud into
+    # select_backend (that would poison its local is_available() chain); the
+    # fork lives here, the orchestration layer. A misconfigured cloud target
+    # raises in build_task and surfaces in the Play button's dialog — there is
+    # NO silent fallback to a local run (CLAUDE.md §8).
+    target = get_engine_service().get_link_target()
+    if target == "cloud":
+        from application.training.remote_backend import (
+            ensure_remote_backends,
+            select_remote_backend,
+        )
+
+        ensure_remote_backends()
+        engine_name = _resolve_cloud_engine_name(pref)
+        backend = select_remote_backend(engine_name)
+    else:
+        backend = select_backend(pref)
+
     task = backend.build_task(spec.to_dict(), run_id=rid)
     tid = get_tasks_manager().submit(task)
 
     log_info(
-        f"[play] submit run_id={rid} backend={backend.name} "
+        f"[play] submit run_id={rid} target={target} backend={backend.name} "
         f"algo={spec.algorithm.algorithm} pref={pref}"
     )
 
@@ -488,7 +516,34 @@ def submit_canvas_training(
         "backend": backend.name,
         "algorithm": spec.algorithm.algorithm,
         "issues": issues_out,
+        "target": target,
     }
+
+
+def _resolve_cloud_engine_name(pref: str) -> str:
+    """Fold a backend preference to a concrete engine name for cloud submission.
+
+    Unlike the local :func:`select_backend`, this does NOT probe local
+    ``is_available()`` — the job runs on the remote host, which need not have
+    the engine installed in this machine's venv. ``"auto"`` folds to Isaac Lab
+    (mirrors the head of the local ``_AUTO_PREFERENCE``). Unknown preferences
+    raise rather than silently defaulting (CLAUDE.md §8).
+    """
+    from application.training.backend import (
+        BACKEND_AUTO,
+        BACKEND_ISAAC_LAB,
+        BACKEND_SB3_MUJOCO,
+    )
+
+    p = (pref or BACKEND_AUTO).strip().lower()
+    if p in ("", BACKEND_AUTO):
+        return BACKEND_ISAAC_LAB
+    if p in (BACKEND_ISAAC_LAB, BACKEND_SB3_MUJOCO):
+        return p
+    raise ValueError(
+        f"Unknown backend preference {pref!r} for cloud target; valid: "
+        f"{BACKEND_AUTO!r}, {BACKEND_ISAAC_LAB!r}, {BACKEND_SB3_MUJOCO!r}."
+    )
 
 
 __all__ = [

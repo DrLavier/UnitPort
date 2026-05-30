@@ -3,21 +3,35 @@
 
 """application.training.motion — Reference-motion pipeline.
 
-Stage 5 — receive, validate, and surface reference motion clips for the
-AMP-PPO consumer (Stage 8) and the tracking reward path. Two file
-formats supported out of the box: ``unitport_npy`` (legacy joint-pos
-trajectories) and ``amp_legged_gym`` (DeepMimic-style 61-float frames).
+Receive, validate, and surface reference motion clips for the AMP-PPO
+consumer and the tracking reward path. Two file formats supported out
+of the box: ``unitport_npy`` (legacy joint-pos trajectories) and
+``amp_legged_gym`` (DeepMimic-style 61-float frames).
 
 Public surface:
-    * :class:`MotionClip` / :exc:`MotionClipError`
-    * :class:`MotionLoader` + :func:`get_loader` factory
-    * :func:`validate_clip` (clip-only) and :func:`validate_clip_against_robot`
-      (cross-check vs ``registers.robots.RobotSpec``)
-    * Filename → task-tag inference helpers
+    * :class:`MotionClip` / :exc:`MotionClipError` — numeric payload.
+    * :class:`ReferenceMotionContract` — schema wrapping a clip with
+      ``consumption_mode`` + ``source_info`` + optional target binding.
+    * :class:`MotionLoader` / :data:`LOADER_REGISTRY` /
+      :func:`register_loader` / :func:`list_loader_formats` /
+      :func:`get_loader` — loader registration + dispatch.
+    * :func:`validate_clip` and :func:`validate_clip_against_robot`
+      (clip-side structural / cross-robot checks).
+    * :func:`validate_contract` (contract-side schema checks).
+    * Filename → task-tag inference helpers.
 """
 from __future__ import annotations
 
 from application.training.motion.clip import MotionClip, MotionClipError
+from application.training.motion.contract import (
+    ALLOWED_CONSUMPTION_MODES,
+    CONTRACT_SCHEMA_VERSION,
+    H0_CONSUMPTION_MODES,
+    ReferenceMotionContract,
+    ReferenceMotionContractError,
+    SourceInfo,
+    validate_contract,
+)
 from application.training.motion.labels import (
     infer_task_tag,
     list_available_tags,
@@ -25,13 +39,16 @@ from application.training.motion.labels import (
     load_manifest_weights,
     resolve_task_tags,
 )
-from application.training.motion.loader import (
+from application.training.motion.loaders import (
     AMPLegGymLoader,
+    LOADER_REGISTRY,
     LoaderError,
     MotionLoader,
     NpyLoader,
     get_loader,
+    list_loader_formats,
     mirror_motion_clip,
+    register_loader,
 )
 from application.training.motion.validator import (
     MotionValidationError,
@@ -43,10 +60,21 @@ __all__ = [
     # clip
     "MotionClip",
     "MotionClipError",
+    # contract
+    "ALLOWED_CONSUMPTION_MODES",
+    "CONTRACT_SCHEMA_VERSION",
+    "H0_CONSUMPTION_MODES",
+    "ReferenceMotionContract",
+    "ReferenceMotionContractError",
+    "SourceInfo",
+    "validate_contract",
     # loader
     "MotionLoader",
     "NpyLoader",
     "AMPLegGymLoader",
+    "LOADER_REGISTRY",
+    "register_loader",
+    "list_loader_formats",
     "get_loader",
     "LoaderError",
     "mirror_motion_clip",

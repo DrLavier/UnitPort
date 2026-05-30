@@ -87,6 +87,13 @@ class MjActor:
         # kp/kv was the root cause of the Spot "robot flies away" sim2sim
         # regression. See _neutralize_mjcf_actuators below for details.
         _neutralize_mjcf_actuators(mj_model, mjcf_label=str(path))
+        # Apply the USD→MJCF mass/inertia calibration overlay (if any) to the
+        # in-memory model BEFORE building MjData, so the corrected base
+        # mass/inertia (closing the sim2sim gap, CLAUDE.md §1.10 base-property
+        # variant) is what the simulation sees. Keyed by SKU; a bare from_path
+        # with a non-SKU robot_id simply finds no overlay and is a no-op.
+        if robot_id:
+            _apply_inertia_overlay(mj_model, str(robot_id), mjcf_label=str(path))
         mj_data = mujoco.MjData(mj_model)
         joint_names = _extract_joint_names(mj_model)
 
@@ -263,6 +270,99 @@ def _neutralize_mjcf_actuators(mj_model: Any, mjcf_label: str = "") -> None:
             sample_kp,
             sample_kv,
             preview,
+        )
+
+
+def _apply_inertia_overlay(mj_model: Any, sku: str, mjcf_label: str = "") -> None:
+    """Patch ``mj_model`` body mass/inertia/COM from the USD→MJCF overlay.
+
+    Reads the per-SKU overlay via
+    :func:`application.service.robot_assets.runtime.read_mjcf_inertia_overlay`
+    (opt-in: absent overlay is a silent no-op; stale overlay WARNs but still
+    applies — §8(c)). Mutates only the four dynamics arrays ``body_mass`` /
+    ``body_inertia`` / ``body_iquat`` / ``body_ipos`` in place; ``mj_data`` (built
+    by the caller afterwards) picks up the corrected values on the next forward.
+
+    The overlay's ``fields_applied`` token ``"inertia"`` writes ``body_inertia``
+    **and** ``body_iquat`` together — they jointly define the inertia tensor in
+    the body frame and must never be split.
+    """
+    try:
+        from application.service.robot_assets.runtime import (
+            read_mjcf_inertia_overlay,
+        )
+        overlay = read_mjcf_inertia_overlay(sku)
+    except Exception as exc:
+        log.warning(
+            "MjActor: inertia overlay read failed for sku=%r (%s); "
+            "model left uncorrected.", sku, exc,
+        )
+        return
+    if not overlay:
+        return
+    body_overrides = overlay.get("body_overrides") or {}
+    if not body_overrides:
+        return
+
+    import mujoco
+    import numpy as np
+
+    applied = 0
+    for mjcf_body, ov in body_overrides.items():
+        if not isinstance(ov, dict):
+            continue
+        bid = int(mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, str(mjcf_body)))
+        if bid < 0:
+            log.warning(
+                "MjActor: inertia overlay body %r not found in model %s; skipped",
+                mjcf_body, mjcf_label or "?",
+            )
+            continue
+        fields = list(ov.get("fields_applied") or [])
+        changes: List[str] = []
+
+        if "mass" in fields and isinstance(ov.get("mass"), dict):
+            to = ov["mass"].get("to")
+            if to is not None:
+                old = float(mj_model.body_mass[bid])
+                mj_model.body_mass[bid] = float(to)
+                changes.append(f"mass {old:.4f}→{float(to):.4f}")
+
+        if "inertia" in fields:
+            diag_to = (ov.get("diaginertia") or {}).get("to")
+            iquat_to = (ov.get("iquat") or {}).get("to")
+            if diag_to is not None:
+                old = [float(v) for v in mj_model.body_inertia[bid]]
+                mj_model.body_inertia[bid] = np.asarray(diag_to, dtype=np.float64)
+                changes.append(
+                    f"diaginertia {[round(v, 4) for v in old]}→"
+                    f"{[round(float(v), 4) for v in diag_to]}"
+                )
+            if iquat_to is not None:
+                q = np.asarray(iquat_to, dtype=np.float64)
+                n = float(np.linalg.norm(q))
+                if n > 1e-9:
+                    q = q / n
+                mj_model.body_iquat[bid] = q
+                changes.append("iquat updated")
+
+        if "com" in fields and isinstance(ov.get("com"), dict):
+            to = ov["com"].get("to")
+            if to is not None:
+                mj_model.body_ipos[bid] = np.asarray(to, dtype=np.float64)
+                changes.append("com updated")
+
+        if changes:
+            applied += 1
+            log.info("MjActor: inertia overlay · body %r ← %s",
+                     mjcf_body, "; ".join(changes))
+
+    if applied:
+        log.info(
+            "MjActor: applied USD→MJCF inertia overlay to %d body(ies) for "
+            "sku=%r (source MJCF: %s). Original asset unmodified; overlay is "
+            "the source of truth.",
+            applied, sku, mjcf_label or "?",
         )
 
 

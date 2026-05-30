@@ -7288,6 +7288,46 @@ def _upstream_robot_sku(actor_node: "NodeItem") -> str:
     )
 
 
+def _upstream_robot_family(actor_node: "NodeItem") -> str:
+    """Resolve the upstream RobotNode's family for ``actor_node``.
+
+    Walks the same ``robot_pipe`` edge as :func:`_upstream_robot_sku`,
+    then dereferences the canonical SKU into the first declared family
+    via :func:`registers.robots.get_robot_spec`. Used by
+    :class:`RegistryPresetPickerRow` to dispatch the family-keyed
+    registry lookup (init_pose_presets / gait_presets).
+
+    Raises ``RuntimeError`` with a user-facing description (caught by
+    :class:`RegistryPresetPickerRow._handle_click` and surfaced via
+    QMessageBox) when:
+        - actor_node has no ``robot_pipe`` input port / it is not connected
+          (propagated from :func:`_upstream_robot_sku`)
+        - the upstream RobotNode's SKU does not resolve
+          (propagated from :func:`_upstream_robot_sku`)
+        - the canonical entry for the SKU has no ``families`` declared
+          (the SKU is registered but family-less, which makes a
+          family-keyed preset dropdown undefined; the user is told to
+          fill the families field)
+
+    PRINCIPLES R7: the first key is ``families[0]`` (NOT brand / SKU).
+    Mirrors :func:`application.training.isaac_lab.env_cfg_compiler.
+    _resolve_gait_spec` and
+    :func:`application.training.command_schema._build_gait_channels`
+    so widget-side and training-side family dispatch agree.
+    """
+    sku = _upstream_robot_sku(actor_node)  # may raise; same diagnostics
+    from registers.robots import get_robot_spec
+    spec = get_robot_spec(sku)
+    families = list(getattr(spec, "families", []) or [])
+    if not families:
+        raise RuntimeError(
+            f"上游 Robot 节点的 SKU={sku!r} 在 registers 中没有 families 声明 — "
+            f"无法按家族过滤 preset。请打开 robots_canonical.json 把该 SKU "
+            f"的 families 字段填全。"
+        )
+    return str(families[0])
+
+
 def _reconcile_actor_init_joint_angles(actor_node: "NodeItem") -> bool:
     """Reconcile an ActorSetting node's ``init_joint_angles`` against the
     upstream Robot Node's authoritative IR-role set.
@@ -7422,6 +7462,15 @@ def _reconcile_downstream_actor_settings(robot_node: "NodeItem") -> None:
     Best-effort — never raises; an exception in one downstream's
     reconcile must not block reconciling the others.
     """
+    # The actuator caps (effort/velocity) now live on the RobotNode itself,
+    # so reconcile them once here (not per-downstream).
+    try:
+        _reconcile_robot_actuator_params(robot_node)
+    except Exception as exc:
+        log_warning(
+            f"[robot] actuator-caps reconcile failed for {robot_node!r}: {exc}"
+        )
+
     out_ports = getattr(robot_node, "_out_ports", None) or []
     for port in out_ports:
         if getattr(getattr(port, "spec", None), "name", "") != "robot_pipe":
@@ -7443,89 +7492,80 @@ def _reconcile_downstream_actor_settings(robot_node: "NodeItem") -> None:
                     f"upstream Robot Node failed for downstream "
                     f"{dst_node!r}: {exc}"
                 )
-            try:
-                _reconcile_actor_actuator_params(dst_node)
-            except Exception as exc:
-                log_warning(
-                    f"[actor_setting] actuator_params reconcile from "
-                    f"upstream Robot Node failed for downstream "
-                    f"{dst_node!r}: {exc}"
-                )
 
 
-# Canvas ActorSetting param keys that mirror RobotSpec.default_actuator_params
-# entries. Names match the ActorSetting ParamSpec keys exactly (see
-# src/nodes/actor_setting/node.py §4 Actuator overrides). If the canvas
-# param key set changes, update this tuple in lockstep.
+# RobotNode hidden param keys that mirror RobotSpec.default_actuator_params
+# entries. effort_limit / velocity_limit moved from ActorSetting to RobotNode
+# in 2026-05 (stiffness/damping were dropped — gains derive from (omega_n,
+# zeta), §10). Names match the RobotNode ParamSpec keys exactly.
 _ACTUATOR_PARAM_KEYS: tuple = (
-    "stiffness",
-    "damping",
     "effort_limit",
     "velocity_limit",
 )
 
 
-def _reconcile_actor_actuator_params(actor_node: "NodeItem") -> bool:
-    """Reconcile ActorSetting actuator-PD params against upstream Robot SKU.
+def _reconcile_robot_actuator_params(robot_node: "NodeItem") -> bool:
+    """Reconcile the RobotNode's effort_limit / velocity_limit against its SKU.
 
-    Canvas-derived-keys rule: the set of joint-control fields a robot
-    needs (stiffness/damping/effort_limit/velocity_limit) is fixed at
-    the ActorSetting schema level, but the VALUES belong to the upstream
-    Robot Node's SKU — a 42 kg Spot needs Kp~500 while a 15 kg Go2 needs
-    Kp~25, and forcing the user to memorise / re-enter these per SKU is
-    the same bug class as init_joint_angles drift. Returns True iff any
-    value mutated.
+    Canvas-derived-keys rule: the actuator caps belong to the bound robot — a
+    42 kg Spot and a 15 kg Go2 want different ceilings, and forcing the user to
+    re-enter them per SKU is the same bug class as init_joint_angles drift.
+    Called when the RobotNode's ``asset_id`` changes. Returns True iff mutated.
 
-    No upstream Robot Node (or SKU has no default_actuator_params in
-    registry) → no-op so canvas keeps whatever values the user has set.
-    Each per-key write is independent: SKU declaring only ``stiffness``
-    leaves the other three untouched.
+    Source = the SAME resolver the AUTO button uses
+    (``pd_preview.resolve_recommended_actuators``): brand manifest official
+    caps → else MJCF authored force limit → else nothing. This deliberately
+    REPLACES the old ``registry default_actuator_params`` read, which held
+    Go2-residual values for some SKUs (e.g. Spot's stale 80/20) and was the
+    source of the wrong on-canvas defaults.
+
+    effort_limit / velocity_limit are HIDDEN params (no ParamRow — edited via
+    the pd_param_table panel), so they are written directly to
+    ``robot_node.params`` + ``on_param_changed`` (the hidden-param write path).
+    Each write is independent; an unresolved cap (None) leaves the existing
+    value untouched.
     """
-    rows_by_key: Dict[str, Any] = {}
-    for r in getattr(actor_node, "_param_rows", []) or []:
-        spec_key = str(getattr(getattr(r, "spec", None), "key", "") or "")
-        if spec_key in _ACTUATOR_PARAM_KEYS:
-            rows_by_key[spec_key] = r
-    if not rows_by_key:
+    raw_id = str((robot_node.params or {}).get("asset_id", "") or "").strip()
+    if not raw_id:
         return False
-
     try:
-        sku = _upstream_robot_sku(actor_node)
-    except RuntimeError:
+        from registers.robots import resolve_to_sku
+        from application.physics.pd_preview import resolve_recommended_actuators
+        sku = resolve_to_sku(raw_id)
+    except Exception:  # noqa: BLE001
+        return False
+    if not sku:
+        return False
+    rec = resolve_recommended_actuators(sku)
+    if rec is None:
         return False
 
-    from registers.robots import get_robot_spec
-    rs = get_robot_spec(sku)
-    if rs is None:
-        return False
-    dap = getattr(rs, "default_actuator_params", None) or {}
-    if not isinstance(dap, dict) or not dap:
-        return False
-
+    caps = {"effort_limit": rec.effort_limit, "velocity_limit": rec.velocity_limit}
+    notify = getattr(robot_node, "on_param_changed", None)
     mutated = False
     applied: Dict[str, float] = {}
-    for key, row in rows_by_key.items():
-        if key not in dap:
+    for key in _ACTUATOR_PARAM_KEYS:
+        new_val = caps.get(key)
+        if new_val is None:
             continue
-        try:
-            new_val = float(dap[key])
-        except (TypeError, ValueError):
-            continue
-        current = (actor_node.params or {}).get(key)
+        new_val = float(new_val)
+        current = (robot_node.params or {}).get(key)
         try:
             current_f = float(current) if current is not None else None
         except (TypeError, ValueError):
             current_f = None
         if current_f is not None and abs(current_f - new_val) < 1e-9:
             continue
-        row.set_value(new_val)
+        robot_node.params[key] = new_val
+        if callable(notify):
+            notify(key, new_val)
         applied[key] = new_val
         mutated = True
 
     if mutated:
         log_info(
-            f"[actor_setting] reconciled actuator params from upstream "
-            f"Robot SKU={sku!r}: {applied}"
+            f"[robot] reconciled actuator caps from SKU={sku!r} "
+            f"(source={rec.source_caps}): {applied}"
         )
     return mutated
 
@@ -8010,6 +8050,137 @@ class JointPoseTableRow(CodeRow):
         return True
 
 
+class PDParamTableRow(CodeRow):
+    """``widget="pd_param_table"`` — per-joint PD / actuator panel (RobotNode).
+
+    Inline paint inherits CodeRow (single-line JSON preview of ``pd_groups``);
+    click opens :class:`PDParamTableDialog`, which shows the live per-joint
+    kp/kd derived from (omega_n, zeta) + the MJCF mass matrix (CLAUDE.md §10).
+    Editing (omega_n, zeta) writes back into ``pd_groups`` (this bound param);
+    ``effort_limit`` / ``velocity_limit`` are written to the RobotNode's hidden
+    sibling params (no ParamRow → direct ``params`` write + on_param_changed).
+
+    Failure (no bound SKU, missing MJCF, solver error) surfaces as a
+    ``QMessageBox.warning`` — never a silent fallback (§1.8).
+    """
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        view = _view_of(event)
+        parent_widget = view.window() if view is not None else None
+
+        from registers.robots import resolve_to_sku, get_robot
+
+        raw_id = str((self._owner.params or {}).get("asset_id", "") or "").strip()
+        sku = resolve_to_sku(raw_id) if raw_id else ""
+        if not sku:
+            QMessageBox.warning(
+                parent_widget,
+                tr("dialog.pd_table_unavailable", default="无法打开 PD 面板"),
+                tr("dialog.pd_table_no_sku",
+                   default="Robot Node 尚未绑定有效机型 (asset_id)。请先在 Robot "
+                           "Asset 卡片选择机型。"),
+            )
+            return True
+
+        # Parse current pd_groups overrides (may be a JSON string from disk or
+        # a dict after a prior dialog round-trip).
+        overrides: Dict[str, Dict[str, float]] = {}
+        v = self._value
+        if isinstance(v, str) and v.strip():
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, dict):
+                    v = parsed
+            except (json.JSONDecodeError, ValueError):
+                v = {}
+        if isinstance(v, dict):
+            for gid, vals in v.items():
+                if isinstance(vals, dict):
+                    overrides[str(gid)] = dict(vals)
+
+        # Hidden sibling caps (default 30.0 mirrors the RobotNode ParamSpec).
+        params = self._owner.params or {}
+
+        def _cap(key: str) -> float:
+            try:
+                return float(params.get(key, 30.0) or 30.0)
+            except (TypeError, ValueError):
+                return 30.0
+
+        effort = _cap("effort_limit")
+        velocity = _cap("velocity_limit")
+
+        from application.physics.pd_preview import (
+            compute_pd_preview,
+            PDPreviewError,
+        )
+        from PyQt6.QtWidgets import QApplication
+
+        preview = None
+        err: Optional[Exception] = None
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        try:
+            preview = compute_pd_preview(
+                sku,
+                pd_groups_overrides=overrides,
+                effort_limit=effort,
+                velocity_limit=velocity,
+            )
+        except PDPreviewError as exc:
+            err = exc
+        finally:
+            QApplication.restoreOverrideCursor()
+        if err is not None or preview is None:
+            QMessageBox.warning(
+                parent_widget,
+                tr("dialog.pd_table_unavailable", default="无法打开 PD 面板"),
+                str(err) if err is not None else "unknown error",
+            )
+            return True
+
+        entry = get_robot(sku) or {}
+        display_name = str(entry.get("name", "") or sku)
+
+        from .pd_param_dialog import PDParamTableDialog
+
+        dialog = PDParamTableDialog(
+            sku=sku,
+            sku_display_name=display_name,
+            preview=preview,
+            initial_overrides=overrides,
+            parent=parent_widget,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            # pd_groups is this row's bound param.
+            self.set_value(dict(dialog.result_pd_groups))
+            # effort/velocity → hidden sibling params on the RobotNode.
+            self._write_sibling("effort_limit", float(dialog.result_effort_limit))
+            self._write_sibling("velocity_limit", float(dialog.result_velocity_limit))
+        return True
+
+    def _write_sibling(self, key: str, value: float) -> None:
+        """Write a sibling param on the owner node + notify.
+
+        effort_limit / velocity_limit are hidden params (no ParamRow), so they
+        take the direct-write path (param_rows StartPointRow precedent). If a
+        row ever exists for the key, route through it instead.
+        """
+        rows_by_key = {
+            str(getattr(getattr(r, "spec", None), "key", "") or ""): r
+            for r in (getattr(self._owner, "_param_rows", []) or [])
+        }
+        sib = rows_by_key.get(key)
+        if sib is not None:
+            sib.set_value(value)
+            return
+        if self._owner.params.get(key) == value:
+            return
+        self._owner.params[key] = value
+        notify = getattr(self._owner, "on_param_changed", None)
+        if callable(notify):
+            notify(key, value)
+
+
 class ActorReviewPoseButtonRow(ParamRow):
     """``widget="actor_review_pose_button"`` — full-width teal Review Pose.
 
@@ -8099,6 +8270,299 @@ class ActorReviewPoseButtonRow(ParamRow):
 
 
 # =============================================================================
+# RegistryPresetPickerRow —— canvas widget that filters presets by the
+# upstream RobotNode's family from a family-keyed registry, then writes
+# the selected preset name into the bound param. Optionally cascades
+# sibling fields (init pose preset selection also fills init_pos_{x,y,z}
+# + init_joint_angles on the same ActorSetting node).
+# =============================================================================
+#
+# Adapter dispatch (PRINCIPLES R4 / R1):
+#   - The widget itself carries no ``if registry == ...`` /
+#     ``if family == ...`` branch. It looks up the bound registry
+#     adapter from ``meta.registry`` (a single dispatch keyed by the
+#     registry id string) and calls the adapter's two-method contract:
+#       * ``list_names(family) -> list[str]``: choices for the popup
+#       * ``on_select(owner, name, family) -> None``: side-effects
+#         (sibling field population for init pose; no-op for gait)
+#   - Both adapters route their data through a family-keyed registry
+#     API (init_pose_presets.list_presets /
+#     gait_presets.default_presets_for_family) -- no literal family
+#     compare anywhere on the dispatch path.
+
+
+class _PresetAdapter:
+    """Two-method contract for a family-keyed preset registry.
+
+    Concrete subclasses know which registry to query and what
+    side-effects to perform on selection. The widget dispatches by
+    ``meta.registry`` (a string id) through
+    :data:`_PRESET_ADAPTERS`.
+    """
+
+    def list_names(self, family: str) -> List[str]:
+        """Return preset names available for ``family`` in display order."""
+        raise NotImplementedError
+
+    def on_select(
+        self, owner: "NodeItem", preset_name: str, family: str,
+    ) -> None:  # default: no sibling side-effect
+        """Optional sibling-param cascade fired AFTER the bound param
+        was set to ``preset_name``. Default is no-op (the bound param
+        already carries the preset name; sibling fields are only
+        populated when the registry semantically owns more than one
+        field on the node)."""
+
+
+class _InitPosePresetAdapter(_PresetAdapter):
+    """Adapter for the ``init_pose_presets`` family-keyed registry.
+
+    list: family-default preset names from the registry (no SKU
+    filtering -- the dropdown shows every name the family declares;
+    selecting one whose SKU has no override fails loud at apply).
+
+    on_select: looks up the three-layer-merged preset via
+    :class:`InitPoseService` (family-default <- SKU-override <- user)
+    and cascades the selected pose into the sibling fields
+    ``init_pos_{x,y,z}`` + ``init_joint_angles`` via
+    :func:`_write_sibling_param` (which routes through the sibling
+    row's ``set_value`` to trigger the standard canvas reactive update
+    -- repaint + on_param_changed fan-out + undo stack). When the SKU
+    has no SKU-override for the selected name, ``joint_pos_by_ir`` is
+    empty and we raise rather than write zeros (§8: init pose joint
+    angles are per-robot physical quantities; the registry
+    intentionally has nothing to fall back to).
+    """
+
+    def list_names(self, family: str) -> List[str]:
+        from registers import init_pose_presets
+        return [p.name for p in init_pose_presets.list_presets(family)]
+
+    def on_select(
+        self, owner: "NodeItem", preset_name: str, family: str,
+    ) -> None:
+        sku = _upstream_robot_sku(owner)  # may raise; same diagnostics
+        from application.service.robot_init_poses import (
+            get_init_pose_service,
+        )
+        service = get_init_pose_service()
+        preset = None
+        for p in service.list_presets(sku):
+            if p.name == preset_name:
+                preset = p
+                break
+        if preset is None:
+            raise RuntimeError(
+                f"Preset {preset_name!r} 在 SKU={sku!r} 的合并 preset 列表里"
+                f"找不到（已查询 family-default + SKU-override + user 三层）。"
+                f"请确认 init_pose_presets / robots_canonical / user "
+                f"preset state 任一层已声明该 preset。"
+            )
+        if not preset.joint_pos_by_ir:
+            raise RuntimeError(
+                f"Preset {preset_name!r} 在家族 {family!r} 注册表中只有 "
+                f"base_pos 没有关节角；该 SKU={sku!r} 在 robots_canonical "
+                f"中也没有对应的 SKU-override 关节角条目。init pose 关节角"
+                f"是 per-robot 物理量，无法静默填空 — 请在 robots_canonical "
+                f"中补 SKU 的 init_pose_presets 条目，或在 User Preset 中"
+                f"保存一份关节角。"
+            )
+        bx, by, bz = preset.base_pos
+        _write_sibling_param(owner, "init_pos_x", float(bx))
+        _write_sibling_param(owner, "init_pos_y", float(by))
+        _write_sibling_param(owner, "init_pos_z", float(bz))
+        _write_sibling_param(
+            owner, "init_joint_angles",
+            {str(k): float(v) for k, v in preset.joint_pos_by_ir.items()},
+        )
+
+
+class _GaitPresetAdapter(_PresetAdapter):
+    """Adapter for the bundled gait presets keyed by family.
+
+    list: preset names from
+    :func:`application.training.isaac_lab.gait_presets.default_presets_for_family`.
+    Aliased families (humanoid -> biped) resolve through the same
+    helper so the dropdown shows the biped names for a humanoid SKU.
+
+    on_select: no sibling side-effect. The bound param
+    ``gait_presets`` carries the selected name; the canvas node's
+    other gait fields (gait_enabled / gait_frequency_range / etc) stay
+    user-controlled. Gait selection writes only the name -- the
+    canvas-level explicit range fields stay authoritative.
+    """
+
+    def list_names(self, family: str) -> List[str]:
+        from application.training.isaac_lab.gait_presets import (
+            default_presets_for_family,
+        )
+        return [p.name for p in default_presets_for_family(family)]
+
+
+_PRESET_ADAPTERS: Dict[str, _PresetAdapter] = {
+    "init_pose_presets": _InitPosePresetAdapter(),
+    "gait_presets": _GaitPresetAdapter(),
+}
+
+
+def _write_sibling_param(
+    owner: "NodeItem", key: str, value: Any,
+) -> None:
+    """Write ``value`` to ``owner.params[key]`` and propagate the
+    standard canvas reactive update.
+
+    Mirrors :meth:`PDParamTableRow._write_sibling`: prefers routing
+    through the sibling ``ParamRow.set_value`` (which fires repaint +
+    on_param_changed + scene fan-out + undo push) when a row exists for
+    the key; falls back to direct dict mutation + ``on_param_changed``
+    for hidden params (no ParamRow).
+    """
+    rows_by_key = {
+        str(getattr(getattr(r, "spec", None), "key", "") or ""): r
+        for r in (getattr(owner, "_param_rows", []) or [])
+    }
+    sib = rows_by_key.get(key)
+    if sib is not None:
+        sib.set_value(value)
+        return
+    if owner.params.get(key) == value:
+        return
+    owner.params[key] = value
+    notify = getattr(owner, "on_param_changed", None)
+    if callable(notify):
+        notify(key, value)
+
+
+class RegistryPresetPickerRow(ParamRow):
+    """``widget="registry_preset_picker"`` -- family-filtered preset
+    dropdown backed by a family-keyed registry adapter.
+
+    Meta keys:
+        * ``registry`` (str, required) -- adapter key in
+          :data:`_PRESET_ADAPTERS`. Currently:
+          ``"init_pose_presets"`` (cascades into init_pos_{x,y,z} +
+          init_joint_angles on selection) or ``"gait_presets"``
+          (writes the selected name only).
+        * ``family_source`` (str, optional) -- where the family comes
+          from. Currently the only supported value is ``"robot_pipe"``
+          (walk the upstream RobotNode connection -- mirrors
+          :class:`IRRolePickerRow`).
+
+    The bound param value is the selected preset name (string).
+    Selecting nothing (empty string) is legal -- the apply-side
+    consumers treat empty as "preset not selected; use canvas-level
+    explicit fields".
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _dropdown_rect(self) -> QRectF:
+        rect = self._value_rect()
+        return QRectF(
+            rect.left() + 4, rect.top() + 3,
+            rect.width() - 8, rect.height() - 6,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._value_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        text = str(self._value or "") or tr(
+            "canvas.row.preset_unselected", "—",
+        )
+        box = self._dropdown_rect()
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        draw_choice_dropdown(
+            painter,
+            box,
+            text,
+            hover=self._is_hovering(box),
+            font=font,
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        view = _view_of(event)
+        parent_widget = view.window() if view is not None else None
+        meta = self.spec.meta or {}
+        registry_key = str(meta.get("registry", "") or "")
+        adapter = _PRESET_ADAPTERS.get(registry_key)
+        if adapter is None:
+            QMessageBox.warning(
+                parent_widget,
+                tr("dialog.registry_preset_picker_unavailable",
+                   default="无法打开 Preset 选单"),
+                tr("dialog.registry_preset_picker_unknown",
+                   default="未知 registry={key!r}；支持的 registry: {keys}").replace(
+                    "{key!r}", repr(registry_key),
+                ).replace(
+                    "{keys}", ", ".join(sorted(_PRESET_ADAPTERS.keys())),
+                ),
+            )
+            return True
+        try:
+            family = _upstream_robot_family(self._owner)
+        except RuntimeError as exc:
+            QMessageBox.warning(
+                parent_widget,
+                tr("dialog.registry_preset_picker_unavailable",
+                   default="无法打开 Preset 选单"),
+                str(exc),
+            )
+            return True
+        try:
+            choices = list(adapter.list_names(family))
+        except Exception as exc:
+            QMessageBox.warning(
+                parent_widget,
+                tr("dialog.registry_preset_picker_unavailable",
+                   default="无法打开 Preset 选单"),
+                str(exc),
+            )
+            return True
+        # Empty preset list -- soft no-op: family declared no presets.
+        if not choices:
+            QMessageBox.information(
+                parent_widget,
+                tr("dialog.registry_preset_picker_empty",
+                   default="该家族没有可选 preset"),
+                tr("dialog.registry_preset_picker_empty_detail",
+                   default="family={family} 在 registry={registry} 里"
+                   "没有声明 preset。").replace(
+                    "{family}", family,
+                ).replace(
+                    "{registry}", registry_key,
+                ),
+            )
+            return True
+
+        def _commit(selected) -> None:
+            name = str(selected or "")
+            self.set_value(name)
+            if not name:
+                return
+            try:
+                adapter.on_select(self._owner, name, family)
+            except Exception as exc:  # fail-loud surface to the user
+                QMessageBox.warning(
+                    parent_widget,
+                    tr("dialog.registry_preset_apply_failed",
+                       default="Preset 应用失败"),
+                    str(exc),
+                )
+
+        open_choice_popup(
+            view=view,
+            row=self,
+            choices=choices,
+            current=str(self._value or ""),
+            multi=False,
+            on_commit=_commit,
+        )
+        return True
+
+
+# =============================================================================
 # Factory / dispatcher —— 节点脚本 → 图形的「自动转换」入口
 # =============================================================================
 
@@ -8122,6 +8586,7 @@ WIDGET_DISPATCH = {
     "picker_obs_components":      ObsComponentsRow,
     "registry_module":            RegistryModuleInlineRow,
     "training_items":             TrainingItemsInlineRow,
+    "registry_preset_picker":     RegistryPresetPickerRow,
     "stage_editor":               StageEditorRow,
     "curve":                      CurveRow,
     "buffer_size":                BufferSizeRow,
@@ -8138,6 +8603,8 @@ WIDGET_DISPATCH = {
     # ActorSettingNode — joint pose slider table + Review Pose button
     "joint_pose_table":           JointPoseTableRow,
     "actor_review_pose_button":   ActorReviewPoseButtonRow,
+    # RobotNode — per-joint PD / actuator panel
+    "pd_param_table":             PDParamTableRow,
     # ActorSettingNode — IR-role multi-select pickers (joints / bodies)
     "ir_joint_picker":            IRRolePickerRow,
     "ir_body_picker":             IRRolePickerRow,
@@ -8287,6 +8754,8 @@ __all__ = [
     # ActorSettingNode init pose slider editor + Review Pose button
     "JointPoseTableRow",
     "ActorReviewPoseButtonRow",
+    # RobotNode per-joint PD / actuator panel
+    "PDParamTableRow",
     # factory + 分发表
     "create_param_row",
     "validate_param_spec",

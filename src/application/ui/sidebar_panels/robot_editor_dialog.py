@@ -322,15 +322,45 @@ class RobotEditorDialog(QDialog):
         form.addLayout(self._labelled("robot_editor.model", "Model", self._model))
         form.addLayout(self._labelled("robot_editor.name", "Name", self._name))
 
-        # Families (TagInput)
+        # Families — closed-list select (driven by the registered IR family
+        # catalog). Free-text input is intentionally disabled: every family
+        # id must round-trip through ``registers.ir.list_roles_for_families``
+        # for the joint-mapping table below to populate. The "+" button opens
+        # :class:`FamilyRegisterDialog` to add a new entry to the user
+        # overlay; that dialog reloads the registry on save and we refresh
+        # the dropdown options here.
         self._families = TagInput(
-            mode="input",
+            mode="select",
+            options=self._list_family_options(),
             placeholder_key="robot_editor.family_placeholder",
-            placeholder=tr("robot_editor.family_placeholder", "Add family (humanoid, quadruped, …)"),
+            placeholder=tr("robot_editor.family_placeholder", "Select family…"),
         )
-        self._families.set_values(list((existing or {}).get("families", []) or []))
+        # Pre-fill any existing chips, even if the value is not in the
+        # current canonical list (e.g. a legacy entry whose family string
+        # predates the lock-down). TagInput.add_value preserves arbitrary
+        # values as chips; the user must re-pick on next save.
+        for fam in list((existing or {}).get("families", []) or []):
+            self._families.add_value(str(fam))
         self._families.changed.connect(self._on_families_changed)
-        form.addLayout(self._labelled("robot_editor.families", "Families", self._families))
+
+        families_row = QHBoxLayout()
+        families_row.setSpacing(4)
+        families_row.addWidget(self._families, 1)
+        self._btn_add_family = setButton(
+            "robot_editor.add_family_btn", 22, 22,
+            kind="light", spec="none",
+            icon="icon_setting", icon_only=True, default="",
+        )
+        i18n_bind(
+            self._btn_add_family, "setToolTip",
+            "robot_editor.add_family_tip",
+            "Register a new family in the user overlay",
+        )
+        self._btn_add_family.clicked.connect(self._on_register_new_family)
+        families_row.addWidget(self._btn_add_family)
+        form.addLayout(self._labelled_layout(
+            "robot_editor.families", "Families", families_row,
+        ))
 
         # Adapter
         adapter_items = self._adapter_items((existing or {}).get("adapter", ""))
@@ -424,6 +454,66 @@ class RobotEditorDialog(QDialog):
         row.addWidget(label)
         row.addWidget(widget, 1)
         return row
+
+    def _labelled_layout(self, i18n_key: str, default: str, inner: QHBoxLayout) -> QHBoxLayout:
+        """Same as :meth:`_labelled`, but accepts a pre-built inner layout
+        (used for the Families row that hosts TagInput + "+" button)."""
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        label = setText(i18n_key, default=f"{default}:",
+                        kind="content", size=_ss())
+        label.setMinimumWidth(80)
+        row.addWidget(label)
+        row.addLayout(inner, 1)
+        return row
+
+    @staticmethod
+    def _list_family_options() -> List[str]:
+        """All currently-loaded IR families (canonical + user overlay).
+
+        Sorted alphabetically so the dropdown is stable across reloads.
+        ``humanoid`` is intentionally retained alongside its base ``biped``
+        because callers (and saved robots) reference both interchangeably.
+        """
+        try:
+            from registers import ir as _ir
+            return sorted(_ir.list_families())
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[robot_editor] list_families failed: {exc}")
+            return []
+
+    def _refresh_family_options(self) -> None:
+        """Refresh the TagInput's dropdown after a new family is registered.
+
+        TagInput is a closed widget — rebuild its underlying QComboBox in
+        place by clearing items and re-inserting the new option list,
+        while keeping the chips the user already picked.
+        """
+        try:
+            from PyQt6.QtWidgets import QComboBox
+            inner = getattr(self._families, "_input_widget", None)
+            if not isinstance(inner, QComboBox):
+                return
+            inner.blockSignals(True)
+            inner.clear()
+            inner.addItem("")
+            for opt in self._list_family_options():
+                inner.addItem(str(opt))
+            inner.setCurrentIndex(0)
+            inner.blockSignals(False)
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[robot_editor] refresh family options failed: {exc}")
+
+    def _on_register_new_family(self) -> None:
+        """Open :class:`FamilyRegisterDialog` and append the saved family
+        to the current chip list on success."""
+        from application.ui.sidebar_panels.family_register_dialog import (
+            FamilyRegisterDialog,
+        )
+        dlg = FamilyRegisterDialog(parent=self)
+        if dlg.exec() == QDialog.DialogCode.Accepted and dlg.saved_family_id:
+            self._refresh_family_options()
+            self._families.add_value(dlg.saved_family_id)
 
     def _adapter_items(self, current: str) -> List[tuple]:
         try:

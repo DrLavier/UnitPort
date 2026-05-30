@@ -137,8 +137,9 @@ meta = { conditional_on = { key = "gait_enabled", op = "==", value = true }, min
 key = "gait_presets"
 type = "string"
 default = ""
-description = "gait 预设名"
-meta = { conditional_on = { key = "gait_enabled", op = "==", value = true } }
+widget = "registry_preset_picker"
+description = "gait 预设名 / Gait preset (family-filtered)"
+meta = { registry = "gait_presets", family_source = "robot_pipe", conditional_on = { key = "gait_enabled", op = "==", value = true } }
 
 # ---------------------------------------------------------------------------
 # Parameters — §3.5 Command velocity gains (sim2real envelope)
@@ -214,10 +215,9 @@ meta = { min = 0.0, max = 1.0, step = 0.001 }
 # ---------------------------------------------------------------------------
 
 [[parameters]]
-key = "consumer_mode"
+key = "consumption_mode"
 type = "enum"
-default = "amp"
-choices = ["tracking", "amp", "both"]
+choices = ["amp_discriminator", "tracking_target", "hybrid"]
 description = "Reference clip 消费模式"
 
 [[parameters]]

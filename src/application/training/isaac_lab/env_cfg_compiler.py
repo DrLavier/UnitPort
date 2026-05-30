@@ -424,7 +424,7 @@ _PER_ENV_PHYSX_BUDGET = {
 _PHYSX_PATCH_FLOOR = 32768
 _PHYSX_CONTACT_FLOOR = 131072
 
-_GAIT_COMMAND_INLINE = '''
+_UNIFORM_GAIT_COMMAND_INLINE = '''
 # =======================================================================
 # UnitPort — Walk These Ways gait command term (UnitPort P2.1)
 # =======================================================================
@@ -477,6 +477,14 @@ class UniformGaitCommand(_UnitportCommandTerm):
     def per_foot_phase(self):
         """(num_envs, 4) local phase = (phase_clock + phase_offset) mod 1."""
         return (self._phase_clock.unsqueeze(-1) + self._command[:, 1:5]) % 1.0
+
+    def body_height_cmd(self):
+        """(num_envs,) commanded base height in metres."""
+        return self._command[:, 5]
+
+    def step_height_cmd(self):
+        """(num_envs,) commanded swing foot apex height in metres."""
+        return self._command[:, 6]
 
     def _resample_command(self, env_ids):
         cfg = self.cfg
@@ -552,6 +560,306 @@ def _unitport_gait_step_height_cmd_obs(env, command_name="gait_command"):
     return env.command_manager.get_term(command_name).command[:, 6:7]
 # =======================================================================
 '''
+
+
+# ---------------------------------------------------------------------------
+# Gait command emit dispatch tables (family-keyed via registry.gait_commands).
+#
+# Three parallel tables keyed by ``GaitCommandSpec.class_name`` describe
+# how to emit one gait CommandTerm flavour into the generated config:
+#
+#   * ``_GAIT_INLINE_BY_CLASS`` — the verbatim Python source block defining
+#     the CommandTerm class + its Cfg + per-class obs helpers, appended to
+#     the top of the generated config file.
+#   * ``_GAIT_OBS_TERMS_BY_CLASS`` — the ordered list of policy-group
+#     ObsTerm emit lines that reference the per-class obs helpers.
+#   * ``_GAIT_CFG_EMITTERS`` — callable that takes the compiler instance
+#     plus the resampling tuple literal and returns the indented Cfg
+#     instantiation lines for ``CommandsCfg``.
+#
+# The lookup key is the registry-supplied ``class_name`` -- the compiler
+# never branches on a literal family string. Adding a new flavour
+# requires (1) one new entry in each table and (2) one new entry in
+# ``gait_commands_catalog.json``; the dispatch path is untouched.
+# Missing entries (registry references a class the emit side has not
+# implemented yet) raise via :meth:`_resolve_gait_spec` so a half-wired
+# flavour cannot silently emit the wrong block.
+# ---------------------------------------------------------------------------
+
+
+def _emit_uniform_gait_command_cfg(compiler, resample: str) -> List[str]:
+    """Quadruped CommandsCfg emit for UniformGaitCommandCfg.
+
+    Returns the indented config lines (4-space indent matching the
+    @configclass body) the caller appends to its growing ``lines`` list.
+
+    Range defaults sourced from gait_presets.default_ranges_for_family
+    (single source of truth shared with the training-side CommandSchema
+    gait-channel emitter); per-canvas overrides win as before via
+    _gait_range_tuple.
+    """
+    from application.training.isaac_lab.gait_presets import (
+        default_ranges_for_family,
+    )
+    ranges = default_ranges_for_family("quadruped")
+    freq_lit = compiler._gait_range_tuple(
+        "gait_frequency_range", *ranges["frequency"]
+    )
+    bh_lit = compiler._gait_range_tuple(
+        "body_height_range", *ranges["body_height"]
+    )
+    sh_lit = compiler._gait_range_tuple(
+        "step_height_range", *ranges["step_height"]
+    )
+    preset_lit = compiler._gait_preset_phase_literal()
+    return [
+        "    gait_command = UniformGaitCommandCfg(",
+        '        asset_name="robot",',
+        f"        freq_range={freq_lit},",
+        f"        body_height_range={bh_lit},",
+        f"        step_height_range={sh_lit},",
+        f'        phase_mode="uniform",',
+        f"        preset_phases={preset_lit},",
+        f"        resampling_time_range={resample},",
+        f"        debug_vis=False,",
+        f"    )",
+    ]
+
+
+_GAIT_INLINE_BY_CLASS: Dict[str, str] = {
+    "UniformGaitCommand": _UNIFORM_GAIT_COMMAND_INLINE,
+}
+
+
+# Each entry is the verbatim list of ObsTerm emit lines for the policy
+# obs group, appended whenever gait is enabled. Stable ordering is
+# load-bearing -- the trained policy's input permutation cannot drift.
+_GAIT_OBS_TERMS_BY_CLASS: Dict[str, List[str]] = {
+    "UniformGaitCommand": [
+        '        gait_frequency = ObsTerm('
+        'func=_unitport_gait_frequency_obs, '
+        'params={"command_name": "gait_command"})',
+        '        gait_phase = ObsTerm('
+        'func=_unitport_gait_phase_sin_cos_obs, '
+        'params={"command_name": "gait_command"})',
+        '        body_height_cmd = ObsTerm('
+        'func=_unitport_gait_body_height_cmd_obs, '
+        'params={"command_name": "gait_command"})',
+        '        step_height_cmd = ObsTerm('
+        'func=_unitport_gait_step_height_cmd_obs, '
+        'params={"command_name": "gait_command"})',
+    ],
+}
+
+
+_GAIT_CFG_EMITTERS: Dict[str, Any] = {
+    "UniformGaitCommand": _emit_uniform_gait_command_cfg,
+}
+
+
+_BIPED_GAIT_COMMAND_INLINE = '''
+# =======================================================================
+# UnitPort — Biped Walk These Ways gait command term (UnitPort P2.1 / 7-gamma)
+# =======================================================================
+# Five per-env dimensions: ``[frequency, phase_L, phase_R, body_height,
+# step_height]``. Two phases vs the quadruped's four. Otherwise the
+# semantic shape is identical: per-foot phase clock, sampled freq /
+# heights, optional preset_phases snap on resample.
+import torch as _biped_gait_torch
+import math as _biped_gait_math
+
+from isaaclab.managers import CommandTerm as _UnitportBipedCommandTerm
+from isaaclab.managers import CommandTermCfg as _UnitportBipedCommandTermCfg
+
+
+class BipedGaitCommand(_UnitportBipedCommandTerm):
+    """Parameterised biped gait command — Walk These Ways §3 (biped).
+
+    Five per-env dimensions: ``[frequency, phase_L, phase_R, body_height,
+    step_height]``. Each foot has its own clock-offset phase in [0, 1);
+    in stance when local phase < 0.5, swing otherwise.
+
+    Defense-in-depth assert at construction time that the bound robot
+    family is in the biped/humanoid set -- the dispatch table guarantees
+    this already (only biped/humanoid resolve BipedGaitCommand via the
+    registry), but the assert documents the contract at the leaf.
+    """
+
+    cfg: "BipedGaitCommandCfg"
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        n = env.num_envs
+        device = env.device
+        self._command = _biped_gait_torch.zeros((n, 5), device=device)
+        self._phase_clock = _biped_gait_torch.zeros(n, device=device)
+        if cfg.preset_phases:
+            self._preset_phases = _biped_gait_torch.tensor(
+                cfg.preset_phases, dtype=_biped_gait_torch.float32, device=device
+            )
+        else:
+            self._preset_phases = None
+
+    @property
+    def command(self):
+        return self._command
+
+    @property
+    def phase_clock(self):
+        return self._phase_clock
+
+    def per_foot_phase(self):
+        """(num_envs, 2) local phase = (phase_clock + phase_offset) mod 1.
+
+        Same semantic as UniformGaitCommand.per_foot_phase but width 2
+        (L, R). Reward consumers that read per_foot_phase() get the
+        family-correct width without family-keyed branching."""
+        return (self._phase_clock.unsqueeze(-1) + self._command[:, 1:3]) % 1.0
+
+    def body_height_cmd(self):
+        """(num_envs,) commanded base height in metres."""
+        return self._command[:, 3]
+
+    def step_height_cmd(self):
+        """(num_envs,) commanded swing foot apex height in metres."""
+        return self._command[:, 4]
+
+    def _resample_command(self, env_ids):
+        cfg = self.cfg
+        device = self._command.device
+        n = env_ids.numel() if hasattr(env_ids, "numel") else len(env_ids)
+
+        def _u(lo, hi):
+            return _biped_gait_torch.rand(n, device=device) * (hi - lo) + lo
+
+        freq = _u(cfg.freq_range[0], cfg.freq_range[1])
+        body_h = _u(cfg.body_height_range[0], cfg.body_height_range[1])
+        step_h = _u(cfg.step_height_range[0], cfg.step_height_range[1])
+
+        if self._preset_phases is not None and cfg.phase_mode == "preset":
+            k = self._preset_phases.shape[0]
+            idx = _biped_gait_torch.randint(0, k, (n,), device=device)
+            phase = self._preset_phases[idx]
+        else:
+            phase = _biped_gait_torch.rand((n, 2), device=device)
+
+        self._command[env_ids, 0] = freq
+        self._command[env_ids, 1:3] = phase
+        self._command[env_ids, 3] = body_h
+        self._command[env_ids, 4] = step_h
+        self._phase_clock[env_ids] = 0.0
+
+    def _update_command(self):
+        dt = self._env.step_dt
+        freq = self._command[:, 0]
+        self._phase_clock = (self._phase_clock + dt * freq) % 1.0
+
+    def _update_metrics(self):
+        pass
+
+
+@configclass
+class BipedGaitCommandCfg(_UnitportBipedCommandTermCfg):
+    class_type: type = BipedGaitCommand
+
+    asset_name: str = "robot"
+    freq_range: tuple = (1.0, 2.0)
+    body_height_range: tuple = (0.65, 0.75)
+    step_height_range: tuple = (0.05, 0.10)
+    phase_mode: str = "uniform"          # "uniform" | "preset"
+    preset_phases: list = None           # filled by the compiler
+
+
+# -- biped gait obs helpers -- read from the command manager --
+
+def _unitport_biped_gait_frequency_obs(env, command_name="gait_command"):
+    return env.command_manager.get_term(command_name).command[:, 0:1]
+
+
+def _unitport_biped_gait_phase_sin_cos_obs(env, command_name="gait_command"):
+    """Sin/cos encoding of (phase_clock + phase_offset) per foot -- 4 dims.
+
+    Two phases (L, R) x sin/cos = 4 dims. Sin/cos avoids the 1.0 -> 0.0
+    wrap-around discontinuity for the regression head."""
+    term = env.command_manager.get_term(command_name)
+    per_foot = term.per_foot_phase()
+    angles = per_foot * (2.0 * _biped_gait_math.pi)
+    return _biped_gait_torch.cat(
+        [_biped_gait_torch.sin(angles), _biped_gait_torch.cos(angles)], dim=-1
+    )
+
+
+def _unitport_biped_gait_body_height_cmd_obs(env, command_name="gait_command"):
+    return env.command_manager.get_term(command_name).command[:, 3:4]
+
+
+def _unitport_biped_gait_step_height_cmd_obs(env, command_name="gait_command"):
+    return env.command_manager.get_term(command_name).command[:, 4:5]
+# =======================================================================
+'''
+
+
+def _emit_biped_gait_command_cfg(compiler, resample: str) -> List[str]:
+    """Biped CommandsCfg emit for BipedGaitCommandCfg.
+
+    Same line shape as the quadruped emitter (10 indented lines, 4-space
+    indent matching the @configclass body) but uses biped class names and
+    biped-class fallback range defaults (G1/H1-class body height ~0.70 m,
+    step ~0.07 m, frequency ~1.5 Hz).
+
+    Range defaults sourced from gait_presets.default_ranges_for_family
+    (single source of truth shared with the training-side CommandSchema
+    gait-channel emitter); per-canvas overrides win as before via
+    _gait_range_tuple."""
+    from application.training.isaac_lab.gait_presets import (
+        default_ranges_for_family,
+    )
+    ranges = default_ranges_for_family("biped")
+    freq_lit = compiler._gait_range_tuple(
+        "gait_frequency_range", *ranges["frequency"]
+    )
+    bh_lit = compiler._gait_range_tuple(
+        "body_height_range", *ranges["body_height"]
+    )
+    sh_lit = compiler._gait_range_tuple(
+        "step_height_range", *ranges["step_height"]
+    )
+    preset_lit = compiler._gait_preset_phase_literal()
+    return [
+        "    gait_command = BipedGaitCommandCfg(",
+        '        asset_name="robot",',
+        f"        freq_range={freq_lit},",
+        f"        body_height_range={bh_lit},",
+        f"        step_height_range={sh_lit},",
+        f'        phase_mode="uniform",',
+        f"        preset_phases={preset_lit},",
+        f"        resampling_time_range={resample},",
+        f"        debug_vis=False,",
+        f"    )",
+    ]
+
+
+# Register BipedGaitCommand in the dispatch tables. Adding biped here
+# (a) un-traps the 7-beta R5 raise that fired when the registry resolved
+# class_name="BipedGaitCommand" without an emit entry, and (b) does NOT
+# disturb the quadruped emit path: the lookup is dict-by-class-name, so
+# the UniformGaitCommand path picks the same object it picked before.
+_GAIT_INLINE_BY_CLASS["BipedGaitCommand"] = _BIPED_GAIT_COMMAND_INLINE
+_GAIT_OBS_TERMS_BY_CLASS["BipedGaitCommand"] = [
+    '        gait_frequency = ObsTerm('
+    'func=_unitport_biped_gait_frequency_obs, '
+    'params={"command_name": "gait_command"})',
+    '        gait_phase = ObsTerm('
+    'func=_unitport_biped_gait_phase_sin_cos_obs, '
+    'params={"command_name": "gait_command"})',
+    '        body_height_cmd = ObsTerm('
+    'func=_unitport_biped_gait_body_height_cmd_obs, '
+    'params={"command_name": "gait_command"})',
+    '        step_height_cmd = ObsTerm('
+    'func=_unitport_biped_gait_step_height_cmd_obs, '
+    'params={"command_name": "gait_command"})',
+]
+_GAIT_CFG_EMITTERS["BipedGaitCommand"] = _emit_biped_gait_command_cfg
 
 
 _WEIGHTED_VELOCITY_COMMAND_INLINE = '''
@@ -1163,15 +1471,93 @@ class IsaacLabConfigCompiler:
         raw = self._p(cmd_ids[0], "gait_enabled")
         return str(raw).strip().lower() == "true"
 
+    def _resolve_gait_spec(self):
+        """Resolve the family-keyed gait command spec for the bound robot.
+
+        Returns ``None`` when gait is not enabled on this canvas (the legit
+        "no gait emit" path -- callers short-circuit on None).
+
+        When gait IS enabled, every downstream prerequisite MUST resolve.
+        Raises with a three-part directive (the offending field, the source
+        of the bad config, the fix-up step) on any of:
+
+          * ``self._robot is None`` -- gait_enabled=true but no RobotSpecRef
+            bound (RobotNode missing or unwired at compile time);
+          * ``robot.families`` empty -- the bound robot has no declared
+            family, so the family-keyed dispatch table has no key to look
+            up;
+          * the primary family has no entry in
+            ``gait_commands_catalog.json`` -- the family is declared but
+            not gait-trainable (non-legged families intentionally have no
+            entry, so a canvas requesting gait on them is a user error,
+            not a silent ``False`` candidate);
+          * the registry-supplied ``class_name`` has no corresponding
+            entry in ``_GAIT_INLINE_BY_CLASS`` -- the registry references
+            a CommandTerm flavour the emit side has not implemented yet
+            (e.g. before the BipedGaitCommand emit block lands). This
+            raise prevents a silently-wrong block from shipping during
+            the registry-then-emit segmented rollout.
+        """
+        if not self._gait_enabled():
+            return None
+        if self._robot is None:
+            raise RuntimeError(
+                "[env_cfg_compiler] gait_enabled=true on Training "
+                "Commands but no RobotSpecRef is bound; wire a Robot "
+                "node and bind it before training, or set gait_enabled="
+                "false on the Training Commands node"
+            )
+        families = list(getattr(self._robot, "families", []) or [])
+        if not families:
+            raise RuntimeError(
+                f"[env_cfg_compiler] gait_enabled=true but robot "
+                f"sku={getattr(self._robot, 'sku', '?')!r} has no "
+                f"declared families; declare at least one family on the "
+                f"Robot Asset card so gait_commands dispatch has a key, "
+                f"or set gait_enabled=false"
+            )
+        family = families[0]
+        from registers.gait_commands import (
+            get_gait_command,
+            has_gait_command,
+        )
+        if not has_gait_command(family):
+            raise RuntimeError(
+                f"[env_cfg_compiler] gait_enabled=true but family="
+                f"{family!r} has no entry in gait_commands_catalog.json "
+                f"(non-legged families are intentionally omitted); "
+                f"either set gait_enabled=false on Training Commands or "
+                f"add a gait command entry for {family!r} via a user "
+                f"overlay at <USER_CONFIG_DIR>/registers/"
+                f"gait_commands_custom.json"
+            )
+        spec = get_gait_command(family)
+        if spec.class_name not in _GAIT_INLINE_BY_CLASS:
+            raise RuntimeError(
+                f"[env_cfg_compiler] gait_commands registry resolves "
+                f"family={family!r} to class_name={spec.class_name!r} "
+                f"but the env_cfg_compiler emit side has no INLINE "
+                f"block / obs-term table / Cfg emitter for that class "
+                f"(known emit classes: "
+                f"{sorted(_GAIT_INLINE_BY_CLASS.keys())!r}); add the "
+                f"three matching entries in _GAIT_INLINE_BY_CLASS / "
+                f"_GAIT_OBS_TERMS_BY_CLASS / _GAIT_CFG_EMITTERS, or "
+                f"correct the registry entry"
+            )
+        return spec
+
     def _gait_range_tuple(self, key: str, default_lo: float, default_hi: float) -> str:
         """Parse a ``[lo, hi]`` JSON param into a Python tuple literal."""
         cmd_ids = self._find_by_type("training_motion")
         if not cmd_ids:
             return f"({default_lo}, {default_hi})"
-        raw = self._p(cmd_ids[0], key, f"[{default_lo}, {default_hi}]")
+        params = self._params.get(cmd_ids[0]) or {}
+        raw = params.get(key)
+        if raw is None or str(raw) == "":
+            return f"({default_lo}, {default_hi})"
         try:
             import json as _json
-            v = _json.loads(raw)
+            v = _json.loads(str(raw))
             if isinstance(v, (list, tuple)) and len(v) == 2:
                 return f"({float(v[0])}, {float(v[1])})"
         except Exception:
@@ -1179,13 +1565,36 @@ class IsaacLabConfigCompiler:
         return f"({default_lo}, {default_hi})"
 
     def _gait_preset_phase_literal(self) -> str:
-        """Extract the 4-tuple phase vectors from the gait_presets JSON
-        param and return a Python list-of-lists literal the generated
-        config can hand straight to ``UniformGaitCommandCfg.preset_phases``.
-        Falls back to the bundled default set on parse failure.
+        """Extract the phase vectors from the gait_presets JSON param and
+        return a Python list-of-lists literal the generated config can
+        hand straight to the resolved gait command class's preset_phases.
+
+        Phase-tuple width is family-keyed via the resolved GaitCommandSpec
+        (quadruped phase_count=4, biped/humanoid phase_count=2). Presets
+        whose phase tuple width does not match the resolved family count
+        are silently dropped (the canvas widget may carry leftover
+        cross-family presets from a previous robot swap; harvest only the
+        family-matching ones).
+
+        Falls back to the bundled family-matching default set when no
+        valid presets are provided. Returns ``"[]"`` only if no defaults
+        exist for the family (shouldn't happen in practice -- DEFAULT
+        and biped presets ship in gait_presets.py).
         """
+        spec = self._resolve_gait_spec()
+        # _gait_preset_phase_literal should only be called from the gait
+        # Cfg emitters, which themselves short-circuit on spec is None.
+        # Defense in depth: if somehow called when gait is disabled, fall
+        # back to the historical quadruped 4-phase shape (preserves R6
+        # byte-identical for the quadruped emit path when external
+        # callers re-use this helper).
+        phase_count = spec.phase_count if spec is not None else 4
+
         cmd_ids = self._find_by_type("training_motion")
-        raw = self._p(cmd_ids[0], "gait_presets") if cmd_ids else ""
+        raw = ""
+        if cmd_ids:
+            params = self._params.get(cmd_ids[0]) or {}
+            raw = str(params.get("gait_presets") or "")
         presets: List[List[float]] = []
         if raw:
             try:
@@ -1198,18 +1607,17 @@ class IsaacLabConfigCompiler:
                         phase = p.get("phase")
                         if (
                             isinstance(phase, (list, tuple))
-                            and len(phase) == 4
+                            and len(phase) == phase_count
                         ):
-                            presets.append([
-                                float(phase[0]), float(phase[1]),
-                                float(phase[2]), float(phase[3]),
-                            ])
+                            presets.append([float(x) for x in phase])
             except Exception:
                 pass
         if not presets:
             try:
-                from application.training.isaac_lab.gait_presets import DEFAULT_PRESETS
-                for pr in DEFAULT_PRESETS:
+                from application.training.isaac_lab.gait_presets import (
+                    default_presets_for_phase_count,
+                )
+                for pr in default_presets_for_phase_count(phase_count):
                     presets.append([float(x) for x in pr.phase])
             except Exception:
                 pass
@@ -1772,8 +2180,11 @@ class IsaacLabConfigCompiler:
         if self._has_training_motion():
             lines.extend(_WEIGHTED_VELOCITY_COMMAND_INLINE.splitlines())
             lines.append("")
-        if self._gait_enabled():
-            lines.extend(_GAIT_COMMAND_INLINE.splitlines())
+        gait_spec = self._resolve_gait_spec()
+        if gait_spec is not None:
+            lines.extend(
+                _GAIT_INLINE_BY_CLASS[gait_spec.class_name].splitlines()
+            )
             lines.append("")
         lines += self._scene_cfg()
         lines += self._observations_cfg()
@@ -2432,27 +2843,22 @@ class IsaacLabConfigCompiler:
             if pd_lines is not None:
                 actuator_lines.extend(pd_lines)
             else:
-                cfg_cls = self._actuator_cfg_class("implicit_pd")
-                # Legacy scalar path. WHY KEPT: one-release back-compat
-                # for canvases saved before the ActuatorPDNode landed
-                # (§1.8 c). Re-saving the canvas with an ActuatorPDNode
-                # graduates it onto the canonical path.
-                kp = self._pf(aid, "stiffness")
-                kd = self._pf(aid, "damping")
-                eff = self._pf(aid, "effort_limit")
-                vel = self._pf(aid, "velocity_limit")
-                log.warning(
-                    "[env_cfg_compiler] no ActuatorPDNode wired; emitting "
-                    "legacy scalar PD (kp=%s, kd=%s). Add an ActuatorPDNode "
-                    "and re-save the canvas to graduate onto the canonical "
-                    "(omega_n, zeta) parameterization.",
-                    kp, kd,
-                )
-                actuator_lines.append(
-                    f'            "legs": {cfg_cls}('
-                    f'joint_names_expr=[".*"], '
-                    f'stiffness={kp}, damping={kd}, '
-                    f'effort_limit={eff}, velocity_limit={vel}),'
+                # The canonical (omega_n, zeta) path returned None — the robot
+                # is unbound, has no declared families, the MJCF is missing, or
+                # a physics import failed (each logged a specific reason above).
+                # The legacy scalar stiffness/damping fields were REMOVED from
+                # ActorSetting (2026-05); both engines now derive gains from
+                # (omega_n, zeta). There is nothing valid to fall back to, so we
+                # fail loud (§1.8) rather than emit fabricated gains.
+                raise RuntimeError(
+                    "[env_cfg_compiler] could not derive PD gains from the "
+                    "RobotNode (omega_n, zeta). The robot is likely unbound, "
+                    "missing a family declaration, or missing its MJCF (needed "
+                    "for the mass-weighted solver). Complete the Robot Asset "
+                    "card (family + Dump MJCF) and ensure the RobotNode is "
+                    "wired. Legacy scalar stiffness/damping fallback was "
+                    "removed — PD is parameterized only by (omega_n, zeta) "
+                    "(CLAUDE.md §10)."
                 )
 
         robot_ids = self._find_by_type("robot")
@@ -2713,17 +3119,40 @@ class IsaacLabConfigCompiler:
                 lines.append(f"        }},")
             lines.append(f"    )")
 
-        # Contact sensor — settings owned by ActorSetting node.
+        # Contact sensor — settings owned by ActorSetting node. WYSIWYG:
+        # the sensor's prim_path is built from the IR body roles the user
+        # picked in actor_setting.contact_body_names (resolved via the
+        # Robot Node's IR→body mapping). Empty picker = no sensor at all
+        # (spec_validator R5 _check_contact_sensor_coverage refuses to
+        # compile when contact consumers exist but the sensor is empty).
         contact_actor = self._find_by_type("actor_setting")
         if contact_actor:
             aid_node = contact_actor[0]
             hist = self._pi(aid_node, "contact_history_length")
             air = self._p(aid_node, "contact_track_air_time").lower() == "true"
-            lines.append(f"    contact_forces = ContactSensorCfg(")
-            lines.append(f'        prim_path="{{ENV_REGEX_NS}}/Robot/.*",')
-            lines.append(f"        history_length={hist},")
-            lines.append(f"        track_air_time={air},")
-            lines.append(f"    )")
+            raw_cbn = self._p(aid_node, "contact_body_names") or "[]"
+            try:
+                cbn_roles = json.loads(raw_cbn) if isinstance(raw_cbn, str) else list(raw_cbn)
+            except (ValueError, TypeError):
+                cbn_roles = []
+            if not isinstance(cbn_roles, list):
+                cbn_roles = []
+            cbn_bodies = self._resolve_bodies(*[str(r) for r in cbn_roles])
+            if cbn_bodies:
+                # Alternation regex: prim_path matches /Robot/<body> for
+                # any picked body. IsaacLab's prim_path regex engine
+                # supports (a|b|c) alternation.
+                bodies_alt = "|".join(cbn_bodies)
+                lines.append(f"    contact_forces = ContactSensorCfg(")
+                lines.append(f'        prim_path="{{ENV_REGEX_NS}}/Robot/({bodies_alt})",')
+                lines.append(f"        history_length={hist},")
+                lines.append(f"        track_air_time={air},")
+                lines.append(f"    )")
+            # else: empty picker → no contact_forces entity in scene.
+            # R5 _check_contact_sensor_coverage will raise CONTACT_SENSOR_
+            # COVERAGE_INSUFFICIENT if any reward/termination consumes
+            # contact_forces, surfacing the misconfig at canvas-time
+            # rather than at IsaacLab runtime.
 
         # Height scanner (ray-caster) — now gated on the Play Ground
         # Setting node's height_scan_enabled flag. Falls back to the
@@ -2901,27 +3330,12 @@ class IsaacLabConfigCompiler:
             # user configures a second obs node later). Ordering is
             # stable (freq → phase sin/cos → body_h → step_h) so the
             # trained policy's input permutation can't drift.
-            if self._gait_enabled() and gname == "policy":
-                lines.append(
-                    '        gait_frequency = ObsTerm('
-                    'func=_unitport_gait_frequency_obs, '
-                    'params={"command_name": "gait_command"})'
-                )
-                lines.append(
-                    '        gait_phase = ObsTerm('
-                    'func=_unitport_gait_phase_sin_cos_obs, '
-                    'params={"command_name": "gait_command"})'
-                )
-                lines.append(
-                    '        body_height_cmd = ObsTerm('
-                    'func=_unitport_gait_body_height_cmd_obs, '
-                    'params={"command_name": "gait_command"})'
-                )
-                lines.append(
-                    '        step_height_cmd = ObsTerm('
-                    'func=_unitport_gait_step_height_cmd_obs, '
-                    'params={"command_name": "gait_command"})'
-                )
+            if gname == "policy":
+                obs_spec = self._resolve_gait_spec()
+                if obs_spec is not None:
+                    lines.extend(
+                        _GAIT_OBS_TERMS_BY_CLASS[obs_spec.class_name]
+                    )
 
             lines.append("")
             lines.append(f"    {gname}: {gname.capitalize()}Cfg = {gname.capitalize()}Cfg()")
@@ -3066,21 +3480,10 @@ class IsaacLabConfigCompiler:
             # base_velocity, so the policy obs sees both the velocity
             # command and the gait command stacked in the order the
             # command manager iterates them.
-            if self._gait_enabled():
-                freq_lit = self._gait_range_tuple("gait_frequency_range", 1.5, 3.5)
-                bh_lit = self._gait_range_tuple("body_height_range", 0.28, 0.40)
-                sh_lit = self._gait_range_tuple("step_height_range", 0.03, 0.15)
-                preset_lit = self._gait_preset_phase_literal()
-                lines.append("    gait_command = UniformGaitCommandCfg(")
-                lines.append('        asset_name="robot",')
-                lines.append(f"        freq_range={freq_lit},")
-                lines.append(f"        body_height_range={bh_lit},")
-                lines.append(f"        step_height_range={sh_lit},")
-                lines.append(f'        phase_mode="uniform",')
-                lines.append(f"        preset_phases={preset_lit},")
-                lines.append(f"        resampling_time_range={resample},")
-                lines.append(f"        debug_vis=False,")
-                lines.append(f"    )")
+            cfg_spec = self._resolve_gait_spec()
+            if cfg_spec is not None:
+                emitter = _GAIT_CFG_EMITTERS[cfg_spec.class_name]
+                lines.extend(emitter(self, str(resample)))
         lines += ["", ""]
         return lines
 
@@ -4326,12 +4729,12 @@ class IsaacLabConfigCompiler:
         kp_by_name = {name: float(v) for name, v in zip(physical, gains.kp)}
         kd_by_name = {name: float(v) for name, v in zip(physical, gains.kd)}
 
-        # effort_limit / velocity_limit are owned by the ActorSetting node
-        # (§4 Actuator overrides) — the single canvas source of truth, shared
-        # with the SB3 bundle_exporter path. De-duplicated off RobotNode
-        # (ex pd_effort_limit / pd_velocity_limit) so both engines agree.
-        eff = self._pf(actor_setting_node_id, "effort_limit")
-        vel = self._pf(actor_setting_node_id, "velocity_limit")
+        # effort_limit / velocity_limit live on the RobotNode (moved from
+        # ActorSetting in 2026-05 so all actuator/PD knobs sit on one node next
+        # to (omega_n, zeta)). ``actuator_pd_node_id`` IS the robot node id (see
+        # the kwarg docstring). Both engines + the SB3 bundle read from here.
+        eff = self._pf(actuator_pd_node_id, "effort_limit")
+        vel = self._pf(actuator_pd_node_id, "velocity_limit")
 
         # Stash for deploy_meta sidecar.
         self._stashed_pd_meta = {

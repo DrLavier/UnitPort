@@ -37,12 +37,18 @@ from registers import robots as _robots_registry
 # Same root list as RobotAssetService._canonical_asset_roots — kept in
 # sync deliberately so a relative path discovered here resolves through
 # the same lookup chain that resolve() uses.
-def _scan_roots() -> List[Path]:
+def scan_roots() -> List[Path]:
     return [
         Paths.CUSTOM_MODS_DIR / "models",
         Paths.PROJECT_ROOT.parent / "DEMO" / "custom_mods" / "models",
         Paths.ASSETS_DIR,
     ]
+
+
+# Deprecated underscore alias kept until 2026-07 in case external callers
+# imported the private name. WHY KEPT (§8 (c)): consistent rename without
+# breaking forward imports during the same release cycle.
+_scan_roots = scan_roots
 
 
 def _pick_usd(dir_: Path) -> Optional[Path]:
@@ -91,7 +97,7 @@ def _resolve_dir_to_sku(dir_name: str) -> Optional[str]:
     return _robots_registry.resolve_id(dir_name)
 
 
-def _enumerate_candidate_dirs(root: Path) -> List[Path]:
+def enumerate_candidate_dirs(root: Path) -> List[Path]:
     """Top-level subdirs that look like robot packages.
 
     Includes ``<root>/menagerie/<robot>/`` (the common case after
@@ -113,6 +119,29 @@ def _enumerate_candidate_dirs(root: Path) -> List[Path]:
     return candidates
 
 
+# Deprecated underscore alias — see ``scan_roots`` for the rename rationale.
+_enumerate_candidate_dirs = enumerate_candidate_dirs
+
+
+def has_robot_description_file(dir_: Path) -> bool:
+    """True iff ``dir_`` contains at least one MJCF / USD / URDF file.
+
+    Used by :meth:`RobotAssetService.scan_unregistered_packages` to filter
+    out non-robot directories (pure asset libraries, image-only previews,
+    nested geometry packs) when scanning all ``custom_mods/models/*`` subdirs
+    for unregistered packages. A robot package without any of these three
+    is not actionable for the registration editor.
+    """
+    if not dir_.is_dir():
+        return False
+    # Single-level glob; nested files don't count — the registration
+    # editor needs a top-level scene/usd/urdf file to pre-fill from.
+    for ext in ("*.xml", "*.usd", "*.usda", "*.urdf"):
+        for _ in dir_.glob(ext):
+            return True
+    return False
+
+
 def discover_local_assets() -> Dict[str, Dict[str, str]]:
     """Scan all canonical roots for USD/URDF/XACRO files belonging to known SKUs.
 
@@ -129,10 +158,10 @@ def discover_local_assets() -> Dict[str, Dict[str, str]]:
     out: Dict[str, Dict[str, str]] = {}
     seen_pairs: Set[str] = set()
 
-    for root in _scan_roots():
+    for root in scan_roots():
         if not root.exists():
             continue
-        for cand_dir in _enumerate_candidate_dirs(root):
+        for cand_dir in enumerate_candidate_dirs(root):
             try:
                 sku = _resolve_dir_to_sku(cand_dir.name)
             except Exception as exc:  # noqa: BLE001
@@ -159,4 +188,15 @@ def discover_local_assets() -> Dict[str, Dict[str, str]]:
     return out
 
 
-__all__ = ["discover_local_assets"]
+__all__ = [
+    "discover_local_assets",
+    "scan_roots",
+    "enumerate_candidate_dirs",
+    "has_robot_description_file",
+    "_to_rel_posix",
+]
+
+
+# Re-export the path-relativiser too so the service can reuse it when
+# building hint dicts for unregistered packages without duplicating the
+# resolve/relpath fallback logic.

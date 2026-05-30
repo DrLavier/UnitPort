@@ -960,12 +960,11 @@ class CanvasPage(QWidget):
                 and str(getattr(dst_node.manifest, "id", "") or "")
                     == "actor_setting"
             ):
-                from .param_rows import (
-                    _reconcile_actor_init_joint_angles,
-                    _reconcile_actor_actuator_params,
-                )
+                from .param_rows import _reconcile_actor_init_joint_angles
                 _reconcile_actor_init_joint_angles(dst_node)
-                _reconcile_actor_actuator_params(dst_node)
+                # Actuator caps (effort/velocity) moved to the RobotNode and
+                # are reconciled there on asset_id change — not on this
+                # actor_setting connect (2026-05).
         except Exception as exc:
             log_warning(
                 f"[ui.canvas] connect: actor_setting reconcile after "

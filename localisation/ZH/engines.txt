@@ -1,6 +1,7 @@
 [default]
 add_server = 添加...
 cloud_none = 没有服务器
+cloud_submit_error_title = 云端训练
 cloud_summary = {n} 个服务器；默认：{d}
 confirm_remove_text = 移除服务器 {name}？
 confirm_remove_title = 移除服务器

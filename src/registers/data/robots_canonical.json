@@ -445,11 +445,12 @@
         "Unitree G1"
       ],
       "families": [
-        "humanoid"
+        "humanoid",
+        "biped"
       ],
       "canonical_version": "1.1.0",
       "assets": {
-        "MJCF": "menagerie/unitree_g1/scene_with_hands.xml",
+        "MJCF": "menagerie/unitree_g1/scene.xml",
         "URDF": null,
         "USD": null,
         "USD_URL": "nucleus:Robots/Unitree/G1/g1.usd",
@@ -762,7 +763,8 @@
         "Unitree H1"
       ],
       "families": [
-        "humanoid"
+        "humanoid",
+        "biped"
       ],
       "canonical_version": "1.1.0",
       "assets": {
@@ -956,56 +958,6 @@
         "URDF": null
       },
       "model_family": "h1",
-      "variant_label": "Standard"
-    },
-    "905dc346eee7": {
-      "sku": "905dc346eee7",
-      "name": "Unitree H1-2",
-      "brand": "unitree",
-      "model": "h1_2",
-      "aliases": [
-        "h1_2",
-        "H1-2",
-        "H12",
-        "Unitree H1-2"
-      ],
-      "families": [
-        "humanoid"
-      ],
-      "canonical_version": "1.0.0",
-      "assets": {
-        "MJCF": null,
-        "URDF": null,
-        "USD": null,
-        "XACRO": null
-      },
-      "sensors": {},
-      "capabilities": {
-        "max_vx": 1.2,
-        "gait": "walk",
-        "control_mode": [
-          "position",
-          "velocity",
-          "torque"
-        ]
-      },
-      "adapter": "unitree_sdk2",
-      "sdk_paths": [
-        "unitree_sdk2_python",
-        "unitree_mujoco"
-      ],
-      "_note": "biped catalog needs multi-DOF roles",
-      "joints_per_format": {
-        "MJCF": null,
-        "USD": null,
-        "URDF": null
-      },
-      "bodies_per_format": {
-        "MJCF": null,
-        "USD": null,
-        "URDF": null
-      },
-      "model_family": "h1_2",
       "variant_label": "Standard"
     },
     "daade5b5dcf4": {

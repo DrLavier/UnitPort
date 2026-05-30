@@ -33,7 +33,7 @@ import numpy as np
 import torch
 
 from application.training.motion.clip import MotionClip
-from application.training.motion.loader import AMPLegGymLoader, mirror_motion_clip
+from application.training.motion.loaders import AMPLegGymLoader, mirror_motion_clip
 
 
 # ---------------------------------------------------------------------------
@@ -53,11 +53,24 @@ class MotionAmpData:
       build at mixing time).
     - At least one clip must have ``has_amp_payload() == True``
       (tracking-only clips cannot produce discriminator transitions).
+
+    ``term_names`` is the ordered list of AMP obs term names every
+    ``sample_transitions`` call against the wrapped clips will request.
+    It is required (no default) so the caller MUST plumb a concrete
+    family-keyed term list resolved via
+    :func:`registers.amp_obs_templates.get_obs_template`. Refusing to
+    accept ``None`` here mirrors the same refusal at
+    :meth:`MotionClip._sample_amp_obs_batch` and catches a missing
+    plumb at the constructor instead of deep inside disc training.
     """
 
     clips: List[MotionClip]
     device: torch.device
     transition_dt: float
+    #: Ordered AMP obs term names this data source emits. Tuple shape
+    #: locks immutability — the term order is load-bearing for
+    #: field-order alignment between motion and env sides.
+    term_names: Tuple[str, ...] = field(default_factory=tuple)
     #: Clip-level sampling probabilities, derived from MotionClip.motion_weight.
     clip_weights: np.ndarray = field(default_factory=lambda: np.zeros(0))
     #: Cache of preloaded transitions; populated lazily when the
@@ -79,6 +92,26 @@ class MotionAmpData:
     def __post_init__(self) -> None:
         if not self.clips:
             raise ValueError("MotionAmpData requires at least one MotionClip")
+        # Normalise term_names to a tuple so the immutability contract
+        # holds regardless of what the caller passed in (list / tuple /
+        # generator). An empty tuple is rejected — the caller MUST
+        # provide the family-keyed term list explicitly.
+        self.term_names = tuple(self.term_names) if self.term_names else tuple()
+        if not self.term_names:
+            raise ValueError(
+                "MotionAmpData: term_names must be non-empty. The caller "
+                "is responsible for resolving the AMP obs term list via "
+                "registers.amp_obs_templates.get_obs_template(family).template_terms "
+                "and threading it through build_amp_data / "
+                "build_amp_data_from_files. Refusing to substitute a "
+                "hardcoded quadruped default."
+            )
+        for tn in self.term_names:
+            if not isinstance(tn, str) or not tn.strip():
+                raise ValueError(
+                    f"MotionAmpData: every term_names entry must be a "
+                    f"non-empty string; got {tn!r} in {self.term_names!r}"
+                )
         dims = {c.amp_obs_dim for c in self.clips}
         if len(dims) != 1:
             raise ValueError(
@@ -227,6 +260,7 @@ class MotionAmpData:
             sub[tag_id] = build_amp_data(
                 clip_list,
                 transition_dt=self.transition_dt,
+                term_names=self.term_names,
                 device=self.device,
             )
             if num_preload_transitions > 0:
@@ -344,7 +378,10 @@ class MotionAmpData:
             k = int(mask.sum())
             if k == 0:
                 continue
-            s_t, s_tp1 = clip.sample_transitions(k, self.transition_dt, rng=rng)
+            s_t, s_tp1 = clip.sample_transitions(
+                k, self.transition_dt,
+                term_names=self.term_names, rng=rng,
+            )
             s_out[mask] = s_t
             s_next_out[mask] = s_tp1
         return s_out, s_next_out
@@ -359,6 +396,7 @@ def build_amp_data(
     clips: Sequence[MotionClip],
     *,
     transition_dt: float,
+    term_names: Sequence[str],
     device: Union[str, torch.device] = "cpu",
 ) -> MotionAmpData:
     """Wrap an existing list of ``MotionClip`` objects into a ``MotionAmpData``.
@@ -366,12 +404,18 @@ def build_amp_data(
     Use this when the caller has already loaded and validated clips (as
     in unit tests). The launcher typically uses
     :func:`build_amp_data_from_files` instead.
+
+    ``term_names`` is keyword-only required and forwarded to the
+    :class:`MotionAmpData` constructor, which carries it through every
+    sampling call so the wrapped clips emit the canonical family-keyed
+    AMP obs vector layout.
     """
     dev = torch.device(device)
     return MotionAmpData(
         clips=list(clips),
         device=dev,
         transition_dt=float(transition_dt),
+        term_names=tuple(term_names),
     )
 
 
@@ -379,6 +423,9 @@ def build_amp_data_from_files(
     paths: Sequence[Union[Path, str]],
     *,
     transition_dt: float,
+    robot_sku: str,
+    robot_family: str,
+    term_names: Sequence[str],
     device: Union[str, torch.device] = "cpu",
     format_id: str = "amp_legged_gym",
     task_filter: str = "",
@@ -393,6 +440,24 @@ def build_amp_data_from_files(
 
     Parameters
     ----------
+    robot_sku, robot_family:
+        Canonical robot SKU + primary family slug for the policy this
+        AMP dataset is being prepared for. Forwarded to
+        :meth:`AMPLegGymLoader.load` so every produced
+        ``ReferenceMotionContract`` records the target robot. Both
+        are keyword-only and required — the loader's contract
+        (``__post_init__``) refuses empty strings; the caller must
+        plumb explicit values from the subprocess CLI / canvas
+        compile, never synthesise an empty placeholder.
+    term_names:
+        Ordered AMP obs term names the wrapped clips will emit. Resolved
+        by the caller via
+        :func:`registers.amp_obs_templates.get_obs_template(family).template_terms`
+        (typically once at launcher boot, then threaded into both this
+        data-builder and the env-side AMP obs extractor so the
+        discriminator's expert and policy distributions share field
+        order). Keyword-only required — there is no hardcoded
+        ``DEFAULT_QUADRUPED_TERMS`` fallback at this boundary.
     task_filter:
         When non-empty, only clips whose ``task_tag`` matches this
         value are kept. Tags are resolved via the motion label system
@@ -429,7 +494,13 @@ def build_amp_data_from_files(
     loader = AMPLegGymLoader()
     clips: List[MotionClip] = []
     for p in resolved_paths:
-        clip = loader.load(p)
+        # Loader returns a ReferenceMotionContract; AMP consumes only
+        # the wrapped MotionClip payload. target_sku / target_family
+        # are required keyword-only — propagated from the caller's
+        # explicit ``robot_sku`` / ``robot_family`` parameters.
+        clip = loader.load(
+            p, target_sku=robot_sku, target_family=robot_family,
+        ).clip
         # Priority: canvas override > manifest > auto-inferred (from loader)
         canvas_tag = overrides.get(clip.name, "")
         manifest_tag = tag_map.get(str(p), "")
@@ -464,7 +535,10 @@ def build_amp_data_from_files(
         )
         clips = filtered
 
-    return build_amp_data(clips, transition_dt=transition_dt, device=device)
+    return build_amp_data(
+        clips, transition_dt=transition_dt,
+        term_names=term_names, device=device,
+    )
 
 
 # ---------------------------------------------------------------------------

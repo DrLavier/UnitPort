@@ -31,7 +31,7 @@ gradients; ``BundleExporter.export_bundle`` produces a valid policy.onnx.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -210,6 +210,7 @@ def _make_amp_rollout_collector():
             normalizer,
             expert_clip,
             wrapper,
+            amp_obs_terms: Sequence[str],
             disc_lr: float = 1e-4,
             grad_pen_lambda: float = 10.0,
             label_smoothing: float = 0.9,
@@ -223,6 +224,13 @@ def _make_amp_rollout_collector():
             self.normalizer = normalizer
             self.expert_clip = expert_clip
             self.wrapper = wrapper
+            self.amp_obs_terms: Tuple[str, ...] = tuple(amp_obs_terms)
+            if not self.amp_obs_terms:
+                raise ValueError(
+                    "AmpRolloutCollector: amp_obs_terms must be non-empty. "
+                    "Resolve it via registers.amp_obs_templates."
+                    "get_obs_template(family).template_terms."
+                )
             self.disc_lr = float(disc_lr)
             self.grad_pen_lambda = float(grad_pen_lambda)
             self.label_smoothing = float(label_smoothing)
@@ -255,6 +263,7 @@ def _make_amp_rollout_collector():
                 pol_s, pol_sn = self.buf.sample(self.disc_batch_size)
                 exp_s, exp_sn = self.expert_clip.sample_transitions(
                     self.disc_batch_size, dt=self.expert_clip.frame_dt,
+                    term_names=self.amp_obs_terms,
                 )
                 self.normalizer.update(exp_s)
 
@@ -356,6 +365,7 @@ def train_amp_ppo(
     spec,
     expert_clip,
     *,
+    amp_obs_terms: Sequence[str],
     total_timesteps: Optional[int] = None,
     callback=None,
     run_dir: Optional["Path"] = None,
@@ -366,6 +376,15 @@ def train_amp_ppo(
         spec: populated :class:`TrainingSpec` (algorithm.training_mode
             should be ``"AMP_PPO"``).
         expert_clip: a :class:`MotionClip` with AMP payload.
+        amp_obs_terms: ordered AMP obs term names the discriminator's
+            expert + policy distributions both produce. Keyword-only
+            required — the caller (canvas-side / SB3 entry) resolves
+            it via
+            ``registers.amp_obs_templates.get_obs_template(family).template_terms``
+            and threads the same list into both the env-side AMP wrapper
+            and this trainer so the two distributions share field
+            order. There is no hardcoded quadruped fallback at this
+            boundary.
         total_timesteps: override ``spec.algorithm.total_timesteps``.
         callback: optional extra SB3 callback (e.g. progress IPC). The
             AMP rollout collector is always installed; user callbacks
@@ -389,7 +408,6 @@ def train_amp_ppo(
 
     from application.training.amp.algorithms.discriminator import AMPDiscriminator
     from application.training.amp.obs_terms import (
-        DEFAULT_QUADRUPED_TERMS,
         compute_amp_obs_dim,
     )
     from application.training.amp.storage.replay_buffer import AmpReplayBuffer
@@ -408,6 +426,14 @@ def train_amp_ppo(
         raise ValueError(
             "train_amp_ppo: expert_clip lacks AMP payload "
             "(use format_id='amp_legged_gym')"
+        )
+    amp_obs_terms = tuple(amp_obs_terms)
+    if not amp_obs_terms:
+        raise ValueError(
+            "train_amp_ppo: amp_obs_terms must be non-empty. Resolve it "
+            "via registers.amp_obs_templates.get_obs_template(family)."
+            "template_terms and pass it as a keyword argument; the "
+            "hardcoded DEFAULT_QUADRUPED_TERMS fallback has been removed."
         )
 
     # ── Force PPO + AMP-PPO mode ──
@@ -432,9 +458,18 @@ def train_amp_ppo(
 
     # ── Disc + normalizer + buffer ──
     num_dofs = int(spec.robot.num_joints if hasattr(spec.robot, "num_joints") else len(spec.robot.joint_order))
+    # AMP obs dim resolves from the caller-injected term list against the
+    # robot morphology. ``num_feet`` is conditional: only ``toe_pos_local``
+    # consumes it, so we add it to ctx ONLY when that term is requested
+    # — keeps the SB3 quadruped path on the historical 4-feet value while
+    # letting upper-body-only families (biped/humanoid) omit the field
+    # entirely (their templates exclude toe_pos_local).
+    amp_obs_ctx: Dict[str, int] = {"num_dofs": num_dofs}
+    if "toe_pos_local" in amp_obs_terms:
+        amp_obs_ctx["num_feet"] = 4
     amp_obs_dim = compute_amp_obs_dim(
-        DEFAULT_QUADRUPED_TERMS,
-        context={"num_dofs": num_dofs, "num_feet": 4},
+        amp_obs_terms,
+        context=amp_obs_ctx,
     )
     disc = AMPDiscriminator(
         input_dim=2 * amp_obs_dim,  # (s, s') concat
@@ -455,6 +490,7 @@ def train_amp_ppo(
         normalizer=normalizer,
         expert_clip=expert_clip,
         wrapper=vec_env,
+        amp_obs_terms=amp_obs_terms,
         disc_lr=spec.il.amp.disc_lr,
         grad_pen_lambda=spec.il.amp.disc.disc_grad_penalty,
         label_smoothing=spec.il.amp.disc.disc_label_smoothing,
@@ -537,9 +573,10 @@ class AmpPpoTrainer:
     Stage 7's :class:`SB3Trainer`-style API. Most callers use the
     function form."""
 
-    def __init__(self, spec, expert_clip) -> None:
+    def __init__(self, spec, expert_clip, *, amp_obs_terms: Sequence[str]) -> None:
         self.spec = spec
         self.expert_clip = expert_clip
+        self.amp_obs_terms: Tuple[str, ...] = tuple(amp_obs_terms)
 
     def run(
         self,
@@ -551,6 +588,7 @@ class AmpPpoTrainer:
         return train_amp_ppo(
             self.spec,
             self.expert_clip,
+            amp_obs_terms=self.amp_obs_terms,
             total_timesteps=total_timesteps,
             callback=callback,
             run_dir=run_dir,

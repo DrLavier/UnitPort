@@ -167,14 +167,18 @@ def _build_sb3_deploy_contract(
     control_dt: float,
     frame_stack: int = 1,
 ) -> Dict[str, Any]:
-    """Compose a schema-v1 deploy_contract for an SB3-trained bundle.
+    """Compose a schema-v2 deploy_contract for an SB3-trained bundle.
 
     Phase 5 IR-only joint contract: ``joint_sdk_names`` carries IR role
     names; the deploy stack resolves to physical names via ``robot_sku``.
-    Per-joint scalar lists (stiffness / damping / effort_limit) broadcast
-    the scalar canvas knobs from ``spec.actor.actuator``. ``default_joint_pos``
-    is translated from ``spec.actor.joint_init`` (IR-keyed → IR-order list)
-    so the deploy spawn pose matches the policy's training distribution.
+    PD gains are mass-weighted from the RobotNode's canonical (omega_n, zeta)
+    via ``mujoco_gain_solver`` (CLAUDE.md §10) — the contract carries
+    ``pd_param`` (source) plus per-joint ``mujoco_pd_gains`` / ``mujoco_pd_damping``
+    (and mirrors them into ``stiffness`` / ``damping`` for v1 readers).
+    ``effort_limit`` is the RobotNode scalar broadcast per joint.
+    ``default_joint_pos`` is translated from ``spec.actor.joint_init``
+    (IR-keyed → IR-order list) so the deploy spawn pose matches the policy's
+    training distribution.
 
     The observation block mirrors :class:`GenericMujocoEnv._build_obs`
     layout: ``base_ang_vel(3) + projected_gravity(3) + joint_pos(N) +
@@ -183,64 +187,80 @@ def _build_sb3_deploy_contract(
     """
     n = int(action_dim)
     actor = getattr(spec, "actor", None)
-    actuator = getattr(actor, "actuator", None) if actor is not None else None
     obs_action = getattr(spec, "obs_action", None)
 
-    # CLAUDE.md §1.8 + §1.10: PD gains MUST come from a wired actuator
-    # node — never from fabricated Go2-class defaults. The legacy chain
-    # ``float(getattr(actuator, X, default) or default) if actuator else default``
-    # silently substituted stiffness=25 / damping=0.5 / effort=30 /
-    # velocity=0 whenever the canvas had no actuator node or any field
-    # was missing, producing bundles whose deploy_contract PD values
-    # didn't match what training used. For SB3 the actuator block is
-    # spec.actor.actuator; for IL the bundle finalizer reads pd_param
-    # from deploy_meta (a separate path that already raises on missing).
+    # CLAUDE.md §1.8 + §10: PD gains are derived from the canonical
+    # (omega_n, zeta) on the RobotNode via the mass-weighted MuJoCo solver
+    # — never from fabricated Go2-class defaults and never from raw scalar
+    # kp/kd. SB3 deploys on MuJoCo, so it uses the SAME effective inertia
+    # the IL finalizer / env_cfg compiler use (mjcf nominal stance), giving
+    # per-joint kp = m_eff·omega_n² that match what training applied.
     if actor is None:
         raise ValueError(
             "[bundle_exporter] spec.actor is missing — cannot build "
             "deploy_contract for an SB3 bundle without the canvas "
-            "ActorSetting node. Wire ActorSetting and connect its "
-            "actuator field before exporting. (CLAUDE.md §1.8 forbids "
-            "fabricating Go2-class PD defaults.)"
+            "ActorSetting node. Wire ActorSetting before exporting. "
+            "(CLAUDE.md §1.8 forbids fabricating Go2-class PD defaults.)"
         )
-    if actuator is None:
+
+    pd_param = getattr(actor, "pd_param", None)
+    if pd_param is None:
         raise ValueError(
-            "[bundle_exporter] spec.actor.actuator is missing — cannot "
-            "build deploy_contract PD arrays without the canvas actuator "
-            "node. For SB3 wire an actuator node to ActorSetting; for IL "
-            "wire an ActuatorPDNode (per CLAUDE.md §1.10). Refusing to "
-            "substitute Go2-class defaults (stiffness=25, damping=0.5, "
-            "effort=30) that would silently corrupt deploy dynamics."
+            "[bundle_exporter] spec.actor.pd_param is missing — cannot derive "
+            "per-joint PD gains. This means the RobotNode has no resolvable "
+            "(omega_n, zeta) (typically the bound robot has no declared "
+            "families). Complete the Robot Asset card's family selection and "
+            "ensure the RobotNode is wired. PD is parameterized only by "
+            "(omega_n, zeta) (CLAUDE.md §10) — refusing to substitute scalar "
+            "Go2-class defaults that would silently corrupt deploy dynamics."
         )
 
-    def _required_actuator_field(field: str) -> float:
-        val = getattr(actuator, field, None)
-        if val is None:
-            raise ValueError(
-                f"[bundle_exporter] spec.actor.actuator.{field} is missing. "
-                f"This is required for the deploy_contract; refusing to "
-                f"substitute a hardcoded default (CLAUDE.md §1.8). Fix the "
-                f"canvas actuator node's {field} parameter."
-            )
-        try:
-            return float(val)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"[bundle_exporter] spec.actor.actuator.{field}={val!r} is "
-                f"not a number."
-            ) from exc
+    # effort_limit / velocity_limit come from the RobotNode (spec.actor.*,
+    # populated by spec_compiler._compile_pd_param). velocity 0.0 = no limit.
+    eff_raw = getattr(actor, "effort_limit", None)
+    if eff_raw is None:
+        raise ValueError(
+            "[bundle_exporter] spec.actor.effort_limit is missing — set it on "
+            "the RobotNode (pd_param_table panel). Refusing a hardcoded "
+            "default (CLAUDE.md §1.8)."
+        )
+    effort_val = float(eff_raw)
+    vel_raw = getattr(actor, "velocity_limit", None)
+    velocity_val = float(vel_raw) if vel_raw is not None else 0.0
 
-    stiffness_val = _required_actuator_field("stiffness")
-    damping_val = _required_actuator_field("damping")
-    effort_val = _required_actuator_field("effort_limit")
-    # velocity_limit is genuinely optional in the legacy schema (0.0 = no
-    # limit). Keep getattr-default but with explicit-None pass-through so
-    # downstream can distinguish "user set 0" from "field missing".
-    velocity_raw = getattr(actuator, "velocity_limit", None)
-    velocity_val = float(velocity_raw) if velocity_raw is not None else 0.0
+    # Resolve MJCF + physical joint order, then mass-weight the gains.
+    sku = str(getattr(spec.robot, "sku", "") or "")
+    if not sku:
+        raise ValueError(
+            "[bundle_exporter] spec.robot.sku is empty — cannot resolve the "
+            "MJCF needed for the mass-weighted PD solver (CLAUDE.md §7/§10)."
+        )
+    from application.service.robot_assets.service import get_robot_asset_service
+    from application.training.joint_ir import JointIRResolver
+    from application.physics.mujoco_gain_solver import solve as solve_mujoco
 
-    stiffness_arr = [stiffness_val] * n
-    damping_arr = [damping_val] * n
+    asset = get_robot_asset_service().resolve(sku)
+    mjcf_path = getattr(asset, "mjcf_path", None) if asset else None
+    if mjcf_path is None or not Path(mjcf_path).is_file():
+        raise ValueError(
+            f"[bundle_exporter] robot sku={sku!r} has no on-disk MJCF "
+            f"(mjcf_path={str(mjcf_path) if mjcf_path else None!r}). The "
+            f"(omega_n, zeta) PD parameterization derives gains as "
+            f"kp = m_eff·omega_n² from the MJCF mass matrix. Open the Robot "
+            f"Asset card and run 'Dump MJCF' before exporting."
+        )
+    resolver = JointIRResolver(spec.robot)
+    physical = [resolver.to_physical(r) for r in joint_ir_roles]
+    gains = solve_mujoco(
+        mjcf_path=Path(mjcf_path),
+        joint_order_physical=physical,
+        joint_ir_roles=list(joint_ir_roles),
+        nominal_qpos=None,  # MJCF keyframe-0 / qpos0 — same m_eff as IL finalizer
+        pd_param=pd_param,
+    )
+    # gains.kp / gains.kd are aligned with joint_ir_roles order by construction.
+    stiffness_arr = [float(v) for v in gains.kp]
+    damping_arr = [float(v) for v in gains.kd]
     effort_arr = [effort_val] * n
 
     # default_joint_pos in IR-role order. spec.actor.joint_init is an
@@ -314,10 +334,17 @@ def _build_sb3_deploy_contract(
     # divergence. Runtime callers (PolicyRunner / CompatibilityChecker)
     # plumb the manifest SKU into ``joint_spaces_from_deploy_contract``
     # explicitly. See ``deploy_contract.DeployContract`` class docstring.
+    # Schema v2 (CLAUDE.md §10): carry pd_param (source) + the MuJoCo-derived
+    # per-joint gains so loaders prefer pd_param and re-derive (catches stale
+    # hand-edited arrays). stiffness/damping mirror mujoco_pd_gains/damping for
+    # v1 readers; PDController.from_deploy_contract prefers mujoco_pd_gains.
     contract: Dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "joint_sdk_names": list(joint_ir_roles),
         "joint_ids_map": list(range(n)),
+        "pd_param": pd_param.to_dict(),
+        "mujoco_pd_gains": list(stiffness_arr),
+        "mujoco_pd_damping": list(damping_arr),
         "stiffness": stiffness_arr,
         "damping": damping_arr,
         "effort_limit": effort_arr,

@@ -34,8 +34,9 @@ History: this solver previously used the unit-mass form ``kp = omega_n**2``
 on the false premise that "PhysX renormalizes by articulation inertia."
 IsaacLab does no such thing; that asymmetry (unit-mass PhysX vs mass-weighted
 MuJoCo) silently scaled low-inertia joints — Spot's knee 65x softer in
-MuJoCo than in training — and collapsed transferred policies. See
-CLAUDE.md §10.
+MuJoCo than in training — and collapsed transferred policies. The
+mass-weighted formula in both engines is the project's mass-matrix-adaptive
+PD invariant.
 """
 
 from __future__ import annotations

@@ -18,18 +18,21 @@ explicitly called that footgun out: "我训练开始的时候没有看到 MJCF �
 支持的声明，结果 simulation 说不支持" — bundles burned compute then
 failed at deploy time. This dialog closes that gap.
 
-Read-only widget; modifying the registry happens through the Robot
-Asset card's Dump buttons or the canvas Robot Node body-mapping
-table. The dialog points the user at those edit entrypoints when it
-detects a problem.
+The IR-role column is an **editable dropdown**: changing a row's role
+persists immediately to the user-overlay registry via
+:meth:`RobotAssetService.update_ir_role` and live-re-tints the matched /
+orphan / unmapped status across both formats. (Wholesale re-dumping still
+happens through the Robot Asset card's Dump buttons; the canvas Robot Node
+body-mapping table remains the place to edit *body* IR roles.)
 """
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPalette
+from PyQt6.QtGui import QBrush, QColor, QPalette
 from PyQt6.QtWidgets import (
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -97,6 +100,7 @@ class JointMappingHealth:
         *,
         sku: str,
         robot_name: str,
+        family: str = "",
         mjcf_rows: List[Dict[str, str]],
         usd_rows: List[Dict[str, str]],
         mjcf_asset_path: str,
@@ -109,6 +113,7 @@ class JointMappingHealth:
     ) -> None:
         self.sku = sku
         self.robot_name = robot_name
+        self.family = family
         self.mjcf_rows = mjcf_rows
         self.usd_rows = usd_rows
         self.mjcf_asset_path = mjcf_asset_path
@@ -136,6 +141,8 @@ class JointMappingHealth:
 
         entry = _r.get_robot(sku) or {}
         robot_name = str(entry.get("name") or sku)
+        families = list(entry.get("families") or [])
+        family = str(families[0]) if families else ""
         assets = entry.get("assets") or {}
         joints_pf = entry.get("joints_per_format") or {}
 
@@ -160,7 +167,7 @@ class JointMappingHealth:
             if not isinstance(block, dict):
                 return []
             rows: List[Dict[str, str]] = []
-            for spec in block.values():
+            for uid, spec in block.items():
                 if not isinstance(spec, dict):
                     continue
                 name = str(spec.get("name") or "")
@@ -176,6 +183,9 @@ class JointMappingHealth:
                 rows.append({
                     "name": name,
                     "ir_role": ir_role or "—",
+                    "ir_role_raw": ir_role,   # "" when unmapped — for the combo
+                    "uid": str(uid),           # registry key — for update_ir_role
+                    "fmt": fmt,
                     "status": status,
                 })
             return rows
@@ -203,6 +213,7 @@ class JointMappingHealth:
         return cls(
             sku=sku,
             robot_name=robot_name,
+            family=family,
             mjcf_rows=mjcf_rows,
             usd_rows=usd_rows,
             mjcf_asset_path=mjcf_asset_path,
@@ -232,12 +243,40 @@ class JointMappingDialog(QDialog):
     def __init__(self, health: JointMappingHealth, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._health = health
+        # Per-format editable-row registry: fmt -> [(uid, combo, name_item)].
+        # Populated by _build_table; used by _retint_all to recompute the
+        # matched/orphan/unmapped status live as the user edits combos.
+        self._row_meta: Dict[str, List[Tuple[str, QComboBox, QTableWidgetItem]]] = {}
+        # Canonical IR-role choices for this robot's family (dropdown items).
+        self._role_choices: List[str] = self._compute_role_choices(health.family)
         self.setWindowTitle(tr(
             "joint_mapping.title",
             "Joint mapping — {name} (sku={sku})",
         ).format(name=health.robot_name, sku=health.sku))
         self.setMinimumSize(820, 560)
         self._build_ui()
+
+    def _compute_role_choices(self, family: str) -> List[str]:
+        """Canonical IR role_ids for ``family`` (dropdown options). Empty on
+        any failure — the combo then offers just the current value + clear."""
+        if not family:
+            return []
+        try:
+            from application.training.body_ir import get_canonical_roles
+            out: List[str] = []
+            seen: set = set()
+            for r in get_canonical_roles(family):
+                rid = str(getattr(r, "role_id", "") or "")
+                if rid and rid not in seen:
+                    out.append(rid)
+                    seen.add(rid)
+            return out
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                f"[joint_mapping] role catalog load failed for family "
+                f"{family!r}: {exc!r}"
+            )
+            return []
 
     @classmethod
     def open_for(cls, parent: Optional[QWidget], sku: str) -> "JointMappingDialog":
@@ -424,6 +463,8 @@ class JointMappingDialog(QDialog):
         ])
         table.verticalHeader().setVisible(False)
         table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        # Editing is via the per-row IR-role combo cell-widget, not in-cell
+        # item editing — so leave item edit-triggers off.
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setAlternatingRowColors(False)
         h = table.horizontalHeader()
@@ -431,22 +472,111 @@ class JointMappingDialog(QDialog):
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
+        fmt = str(rows[0].get("fmt", "")) if rows else ""
+        meta: List[Tuple[str, QComboBox, QTableWidgetItem]] = []
         for i, row in enumerate(rows):
             name_item = QTableWidgetItem(str(row["name"]))
-            ir_item = QTableWidgetItem(str(row["ir_role"]))
+            name_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             tint = self._row_tint(row["status"])
             if tint is not None:
                 name_item.setBackground(tint)
-                ir_item.setBackground(tint)
-            # Tooltip explains the row's status so users don't need to
-            # cross-reference the legend.
             tooltip = self._row_tooltip(row["status"])
             if tooltip:
                 name_item.setToolTip(tooltip)
-                ir_item.setToolTip(tooltip)
             table.setItem(i, 0, name_item)
-            table.setItem(i, 1, ir_item)
+
+            raw = str(row.get("ir_role_raw", "") or "")
+            uid = str(row.get("uid", "") or "")
+            combo = self._make_role_combo(raw)
+            # Connect AFTER the initial index is set inside _make_role_combo,
+            # so the programmatic preselect doesn't fire a spurious persist.
+            combo.currentIndexChanged.connect(
+                lambda _i, f=fmt, u=uid, c=combo: self._on_ir_changed(f, u, c)
+            )
+            table.setCellWidget(i, 1, combo)
+            meta.append((uid, combo, name_item))
+
+        if fmt:
+            self._row_meta[fmt] = meta
         return table
+
+    def _make_role_combo(self, current: str) -> QComboBox:
+        """Themed IR-role dropdown. Item 0 = empty (clear/unmapped); then the
+        canonical role_ids. The current value is preselected — and prepended
+        if it isn't a canonical role (e.g. a bucket role like ``misc`` or a
+        legacy value) so editing never silently drops it."""
+        combo = QComboBox()
+        combo.addItem("", userData="")
+        choices = list(self._role_choices)
+        if current and current not in choices:
+            choices = [current] + choices
+        for rid in choices:
+            combo.addItem(rid, userData=rid)
+        idx = combo.findData(current or "")
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+        bg = Config.get_color("bg_2")
+        fg = Config.get_color("main_t1")
+        border = Config.get_color("border_1")
+        sel = Config.get_color("row_1")
+        combo.setStyleSheet(
+            f"QComboBox {{ background: {bg}; color: {fg}; "
+            f"border: 1px solid {border}; padding: 2px 6px; }}"
+            f"QComboBox QAbstractItemView {{ background: {bg}; color: {fg}; "
+            f"selection-background-color: {sel}; }}"
+        )
+        return combo
+
+    def _on_ir_changed(self, fmt: str, uid: str, combo: QComboBox) -> None:
+        """Persist a single IR-role edit immediately, then re-tint live."""
+        data = combo.currentData()
+        role = data if isinstance(data, str) else ""
+        try:
+            from application.service.robot_assets import get_robot_asset_service
+            ok = get_robot_asset_service().update_ir_role(
+                self._health.sku, fmt, "joint", uid, role,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_warning(
+                f"[joint_mapping] update_ir_role raised sku={self._health.sku!r} "
+                f"fmt={fmt!r} uid={uid!r} role={role!r}: {exc!r}"
+            )
+            ok = False
+        if not ok:
+            log_warning(
+                f"[joint_mapping] update_ir_role failed sku={self._health.sku!r} "
+                f"fmt={fmt!r} uid={uid!r} role={role!r}"
+            )
+        self._retint_all()
+
+    def _retint_all(self) -> None:
+        """Recompute matched/orphan/unmapped status for every row from the
+        live combo selections (both formats) and re-tint the name cells."""
+        live: Dict[str, set] = {}
+        for fmt, meta in self._row_meta.items():
+            s: set = set()
+            for _uid, combo, _name_item in meta:
+                d = combo.currentData()
+                v = d.strip() if isinstance(d, str) else ""
+                if v and not _is_bucket(v):
+                    s.add(v)
+            live[fmt] = s
+        for fmt, meta in self._row_meta.items():
+            opp = live.get("USD" if fmt == "MJCF" else "MJCF", set())
+            for _uid, combo, name_item in meta:
+                d = combo.currentData()
+                v = d.strip() if isinstance(d, str) else ""
+                if _is_bucket(v):
+                    status = _STATUS_BUCKET
+                elif not v:
+                    status = _STATUS_UNMAPPED
+                elif v in opp:
+                    status = _STATUS_MATCHED
+                else:
+                    status = _STATUS_ORPHAN
+                tint = self._row_tint(status)
+                name_item.setBackground(tint if tint is not None else QBrush())
+                name_item.setToolTip(self._row_tooltip(status) or "")
 
     @staticmethod
     def _row_tint(status: str) -> Optional[QColor]:

@@ -83,7 +83,9 @@ _SB3_DEFAULTS: Dict[str, Any] = {
     "enabled": True,
     "mass_range": "[0.8, 1.2]",
     "friction_range": "[0.5, 1.5]",
-    # Stage H defaults.
+    # Stage H mass-matrix-adaptive PD: log-uniform multiplicative jitter
+    # on (omega_n, zeta) per training step. Bounds chosen so a 1.25x omega_n
+    # excursion remains within (0.1, 2.0) zeta dynamic range.
     "omega_n_log_uniform": "[0.8, 1.25]",
     "zeta_log_uniform": "[0.9, 1.11]",
     "obs_noise_std": 0.01,

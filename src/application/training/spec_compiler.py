@@ -72,7 +72,10 @@ from application.training.training_spec import (
     RobotSpecRef,
     RoughTerrainConfig,
     SceneConfig,
+    DistillLossSpec,
+    StageEntry,
     StageScheduleConfig,
+    validate_stage_entry_h0,
     TaskConfig,
     TerminationConfig,
     TrainingSpec,
@@ -696,12 +699,11 @@ def _compile_pd_param(
     """Build the canonical PDParam from the ActuatorPDNode + family defaults.
 
     Returns ``(pd_param, effort_limit, velocity_limit, resolve_at_reset,
-    calibration_blocking, skip_calibration)``; ``pd_param`` and the three
-    toggles come from RobotNode, while ``effort_limit`` / ``velocity_limit``
-    are read from the ActorSetting node (their single canvas source of
-    truth — de-duplicated off RobotNode). Every field is ``None`` when no
-    PD config is present (engine compilers then fall back to the legacy
-    ``ActuatorConfig.stiffness/damping`` scalar path).
+    calibration_blocking, skip_calibration)`` — ALL read from the RobotNode
+    (effort/velocity moved there from ActorSetting in 2026-05; all PD knobs now
+    sit on one node next to (omega_n, zeta)). Every field is ``None`` when the
+    robot has no PD config / no families; the scalar stiffness/damping fallback
+    was removed (§10), so downstream raises rather than fabricating gains.
 
     Validation that fails fast here:
       * ``robot`` node missing — falls back silently (older canvases).
@@ -808,16 +810,14 @@ def _compile_pd_param(
         ))
         return None, None, None, None, None, None
 
-    # effort_limit / velocity_limit live ONLY on the ActorSetting node
-    # (§4 Actuator overrides). They were de-duplicated off RobotNode
-    # (ex pd_effort_limit / pd_velocity_limit) so there is one canvas
-    # source of truth and both engines agree. The PD-process toggles
-    # below stay on RobotNode alongside the (omega_n, zeta) source.
-    actor_node = by_id.get("actor_setting")
+    # effort_limit / velocity_limit live on the RobotNode (moved here from
+    # ActorSetting in 2026-05 so all actuator/PD knobs sit on one node next to
+    # (omega_n, zeta)). Both engines read them from RobotNode; the values are
+    # edited via the RobotNode pd_param_table panel.
     return (
         pd_param,
-        _as_float(_p(actor_node, "effort_limit", 30.0), 30.0) if actor_node is not None else None,
-        _as_float(_p(actor_node, "velocity_limit", 30.0), 30.0) if actor_node is not None else None,
+        _as_float(_p(pd_node, "effort_limit", 30.0), 30.0),
+        _as_float(_p(pd_node, "velocity_limit", 30.0), 30.0),
         _as_bool(_p(pd_node, "pd_resolve_at_reset", True), True),
         _as_bool(_p(pd_node, "pd_calibration_blocking", True), True),
         _as_bool(_p(pd_node, "pd_skip_calibration", False), False),
@@ -837,12 +837,10 @@ def _populate_actor(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
             history_length=_as_int(_p(n, "contact_history_length"), 3),
             track_air_time=_as_bool(_p(n, "contact_track_air_time"), True),
         ),
-        actuator=ActuatorConfig(
-            stiffness=_as_float(_p(n, "stiffness"), 25.0),
-            damping=_as_float(_p(n, "damping"), 0.5),
-            effort_limit=_as_float(_p(n, "effort_limit"), 30.0),
-            velocity_limit=_as_float(_p(n, "velocity_limit"), 30.0),
-        ),
+        # effort/velocity populated below from the RobotNode (via
+        # _compile_pd_param); stiffness/damping no longer exist — gains derive
+        # from (omega_n, zeta) in both engines (§10).
+        actuator=ActuatorConfig(),
         action_joint_names_expr=list(_as_json(_p(n, "action_joint_names_expr"), [])),
         action_scale=_as_float(_p(n, "action_scale"), 0.25),
         action_use_default_offset=_as_bool(_p(n, "action_use_default_offset"), True),
@@ -886,6 +884,12 @@ def _populate_actor(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
     actor.resolve_at_reset = pd_resolve_at_reset
     actor.calibration_blocking = pd_cal_blocking
     actor.skip_calibration = pd_cal_skip
+    # Keep the nested ActuatorConfig in sync with the RobotNode-sourced caps
+    # so any reader of spec.actor.actuator sees the same effort/velocity.
+    if pd_eff is not None:
+        actor.actuator.effort_limit = pd_eff
+    if pd_vel is not None:
+        actor.actuator.velocity_limit = pd_vel
 
     spec.actor = actor
 
@@ -1330,8 +1334,48 @@ def _populate_motion(
             clip_paths[item_id] = str(resolved)
         else:
             clip_paths[item_id] = raw
+    # consumption_mode is canvas-required (no compiler default). Missing
+    # value emits MISSING_CONSUMPTION_MODE and skips populating motion_ref;
+    # downstream validators / IsaacLab config handle ``motion_ref is None``
+    # cleanly. Substituting ``"amp_discriminator"`` here would silently
+    # route tracking-target clips through the AMP discriminator, which is
+    # the exact silent-fallback pattern CLAUDE.md §1.8 forbids.
+    raw_consumption_mode = _p(n, "consumption_mode")
+    if raw_consumption_mode is None or not str(raw_consumption_mode).strip():
+        _emit_issue(ValidationIssue(
+            code=IssueCode.MISSING_CONSUMPTION_MODE,
+            severity=Severity.ERROR,
+            node_id=n.id,
+            field="consumption_mode",
+            message=(
+                "training_motion.consumption_mode is required (allowed: "
+                "'amp_discriminator' / 'tracking_target' / 'hybrid'). "
+                "Set it on the canvas training_motion node — the "
+                "compiler refuses to substitute an AMP discriminator "
+                "default that would silently mis-route tracking clips."
+            ),
+        ))
+        return
+    cm_str = str(raw_consumption_mode).strip()
+    from application.training.motion.contract import ALLOWED_CONSUMPTION_MODES
+    if cm_str not in ALLOWED_CONSUMPTION_MODES:
+        allowed_sorted = sorted(ALLOWED_CONSUMPTION_MODES)
+        _emit_issue(ValidationIssue(
+            code=IssueCode.INVALID_CONSUMPTION_MODE,
+            severity=Severity.ERROR,
+            node_id=n.id,
+            field="consumption_mode",
+            message=(
+                f"training_motion.consumption_mode={cm_str!r} is not a "
+                f"valid enum value. Allowed: {allowed_sorted}. Fix the "
+                f"value on the canvas training_motion node — the compiler "
+                f"refuses to accept unknown enum values that would "
+                f"silently pass through to downstream consumers."
+            ),
+        ))
+        return
     spec.il.motion_ref = MotionRefConfig(
-        consumer_mode=_as_str(_p(n, "consumer_mode"), "amp"),
+        consumption_mode=cm_str,
         phase_mode=_as_str(_p(n, "phase_mode"), "loop"),
         motion_fps=_as_float(_p(n, "motion_fps"), 50.0),
         random_start_phase=_as_bool(_p(n, "random_start_phase"), True),
@@ -1356,7 +1400,7 @@ def _validate_motion_clips(
     """Load each clip and run :func:`validate_clip_against_robot`; emit ERROR
     issues for load failures and IR-role / dof mismatches (CLAUDE.md §1.2)."""
     from pathlib import Path
-    from application.training.motion.loader import LoaderError, get_loader
+    from application.training.motion.loaders import LoaderError, get_loader
     from application.training.motion.validator import (
         MotionValidationError,
         validate_clip_against_robot,
@@ -1384,7 +1428,18 @@ def _validate_motion_clips(
             continue
 
         try:
-            clip = get_loader(format_id).load(clip_path)
+            # loader.load returns a ReferenceMotionContract; the
+            # robot-side IR validator below operates on the wrapped
+            # MotionClip. ``target_sku`` / ``target_family`` are
+            # required keyword-only — passed from the canvas robot
+            # via the documented ``families[0] = primary_family``
+            # contract (registers/families.py).
+            _target_family = str(robot.families[0]) if robot.families else ""
+            clip = get_loader(format_id).load(
+                clip_path,
+                target_sku=str(robot.sku),
+                target_family=_target_family,
+            ).clip
         except (LoaderError, FileNotFoundError, OSError) as exc:
             _emit_issue(ValidationIssue(
                 code=IssueCode.INVALID_MOTION_CLIP,
@@ -1545,9 +1600,43 @@ def _populate_stage_schedule(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> 
         sched.stage1_ratio = _as_float(_p(multi, "stage1_ratio"), 1.5)
     sw = by_id.get("stage_switch")
     if sw is not None:
-        sched.stages = list(_as_json(_p(sw, "stages_config"), []))
+        raw_stages = list(_as_json(_p(sw, "stages_config"), []))
+        sched.stages = [_stage_entry_from_raw(raw) for raw in raw_stages]
         sched.checkpoint_strategy = _as_str(_p(sw, "checkpoint_strategy"), "both")
     spec.stage_schedule = sched
+
+
+def _stage_entry_from_raw(raw: Any) -> StageEntry:
+    """Build a :class:`StageEntry` from a canvas-supplied dict.
+
+    Runs the H0 lock (:func:`validate_stage_entry_h0`) before construction
+    so any non-default ``role`` / ``obs_profile`` / ``init_from`` /
+    ``distill_loss.enabled`` (or non-dict ``overrides`` /
+    ``distill_loss``) raises at compile time with the three-part
+    directive — the dataclass instance is never constructed from a
+    payload that would be rejected downstream by the consumer guards.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"stage_schedule.stages entry must be a dict, "
+            f"got {type(raw).__name__}."
+        )
+    validate_stage_entry_h0(raw)
+    distill_raw = raw.get("distill_loss") or {}
+    distill = DistillLossSpec(
+        enabled=bool(distill_raw.get("enabled", False)),
+        teacher_stage=distill_raw.get("teacher_stage"),
+        loss_type=distill_raw.get("loss_type"),
+    )
+    return StageEntry(
+        name=str(raw.get("name", "")),
+        role=str(raw.get("role", "trainable")),
+        iterations=int(raw.get("iterations", 0) or 0),
+        obs_profile=str(raw.get("obs_profile", "default")),
+        init_from=raw.get("init_from"),
+        distill_loss=distill,
+        overrides=dict(raw.get("overrides") or {}),
+    )
 
 
 def _populate_env(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:

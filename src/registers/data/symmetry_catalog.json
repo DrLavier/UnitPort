@@ -1,0 +1,98 @@
+{
+  "version": "1.0.0",
+  "schema": "symmetry/catalog",
+  "_doc": "Symmetry mirror op declarative data. Partitions every IR role in each family's slice into role_swaps (L<->R bilateral pairs), role_self_map (centerline / self-symmetric), or role_unmapped (non-policy: sensors, decorative misc). RegistryHub.validate enforces partition closure. obs_channel_sign_flips / action_channel_sign_flips fields exist as empty arrays today and are filled by consumers (AMP obs / gait command). alias_of (humanoid -> biped) means 'data identity' at load time, mirroring ir_canonical and pd_groups_definitions; this is distinct from families_catalog.json's inherits_from (dispatch fallback chain).",
+  "families": {
+    "quadruped": {
+      "alias_of": null,
+      "role_swaps": [
+        ["hip_FL",   "hip_FR"],
+        ["hip_RL",   "hip_RR"],
+        ["thigh_FL", "thigh_FR"],
+        ["thigh_RL", "thigh_RR"],
+        ["calf_FL",  "calf_FR"],
+        ["calf_RL",  "calf_RR"],
+        ["foot_FL",  "foot_FR"],
+        ["foot_RL",  "foot_RR"]
+      ],
+      "role_self_map": ["base"],
+      "role_unmapped": [
+        "sensor", "sensor_imu", "sensor_lidar", "sensor_camera",
+        "sensor_radar", "sensor_gps", "sensor_sonar", "sensor_depth",
+        "misc"
+      ],
+      "obs_channel_sign_flips": [],
+      "action_channel_sign_flips": []
+    },
+    "biped": {
+      "alias_of": null,
+      "role_swaps": [
+        ["hip_L",            "hip_R"],
+        ["hip_pitch_L",      "hip_pitch_R"],
+        ["hip_roll_L",       "hip_roll_R"],
+        ["hip_yaw_L",        "hip_yaw_R"],
+        ["knee_L",           "knee_R"],
+        ["ankle_L",          "ankle_R"],
+        ["ankle_pitch_L",    "ankle_pitch_R"],
+        ["ankle_roll_L",     "ankle_roll_R"],
+        ["foot_L",           "foot_R"],
+        ["shoulder_L",       "shoulder_R"],
+        ["shoulder_pitch_L", "shoulder_pitch_R"],
+        ["shoulder_roll_L",  "shoulder_roll_R"],
+        ["shoulder_yaw_L",   "shoulder_yaw_R"],
+        ["elbow_L",          "elbow_R"],
+        ["wrist_L",          "wrist_R"],
+        ["wrist_roll_L",     "wrist_roll_R"],
+        ["wrist_pitch_L",    "wrist_pitch_R"],
+        ["wrist_yaw_L",      "wrist_yaw_R"],
+        ["hand_L",           "hand_R"],
+        ["thumb_0_L",        "thumb_0_R"],
+        ["thumb_1_L",        "thumb_1_R"],
+        ["thumb_2_L",        "thumb_2_R"],
+        ["index_0_L",        "index_0_R"],
+        ["index_1_L",        "index_1_R"],
+        ["middle_0_L",       "middle_0_R"],
+        ["middle_1_L",       "middle_1_R"],
+        ["ring_0_L",         "ring_0_R"],
+        ["ring_1_L",         "ring_1_R"],
+        ["little_0_L",       "little_0_R"],
+        ["little_1_L",       "little_1_R"],
+        ["thumb_tip_L",      "thumb_tip_R"],
+        ["index_tip_L",      "index_tip_R"],
+        ["middle_tip_L",     "middle_tip_R"],
+        ["ring_tip_L",       "ring_tip_R"],
+        ["little_tip_L",     "little_tip_R"]
+      ],
+      "role_self_map": [
+        "base", "pelvis", "torso", "waist", "head", "neck",
+        "waist_yaw", "waist_roll", "waist_pitch",
+        "neck_yaw", "neck_pitch", "head_pitch"
+      ],
+      "role_unmapped": [
+        "sensor", "sensor_imu", "sensor_lidar", "sensor_camera",
+        "sensor_radar", "sensor_gps", "sensor_sonar", "sensor_depth",
+        "misc"
+      ],
+      "obs_channel_sign_flips": [],
+      "action_channel_sign_flips": []
+    },
+    "humanoid": {
+      "alias_of": "biped"
+    },
+    "wheeled": {
+      "alias_of": null,
+      "role_swaps": [
+        ["wheel_FL", "wheel_FR"],
+        ["wheel_RL", "wheel_RR"]
+      ],
+      "role_self_map": ["base"],
+      "role_unmapped": [
+        "sensor", "sensor_imu", "sensor_lidar", "sensor_camera",
+        "sensor_radar", "sensor_gps", "sensor_sonar", "sensor_depth",
+        "misc"
+      ],
+      "obs_channel_sign_flips": [],
+      "action_channel_sign_flips": []
+    }
+  }
+}

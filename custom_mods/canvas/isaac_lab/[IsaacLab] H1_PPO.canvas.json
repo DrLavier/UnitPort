@@ -990,9 +990,9 @@
           "value": "0.05",
           "param_type": "float"
         },
-        "consumer_mode": {
-          "name": "consumer_mode",
-          "value": "tracking",
+        "consumption_mode": {
+          "name": "consumption_mode",
+          "value": "tracking_target",
           "param_type": "enum"
         },
         "phase_mode": {
@@ -1191,7 +1191,7 @@
         },
         "contact_body_names": {
           "name": "contact_body_names",
-          "value": "[\"ankle_roll_L\", \"ankle_roll_R\"]",
+          "value": "[\"pelvis\", \"hip_yaw_L\", \"hip_roll_L\", \"hip_pitch_L\", \"knee_L\", \"ankle_L\", \"hip_yaw_R\", \"hip_roll_R\", \"hip_pitch_R\", \"knee_R\", \"ankle_R\", \"torso\", \"shoulder_pitch_L\", \"shoulder_roll_L\", \"shoulder_yaw_L\", \"elbow_L\", \"shoulder_pitch_R\", \"shoulder_roll_R\", \"shoulder_yaw_R\", \"elbow_R\"]",
           "param_type": "json"
         },
         "contact_history_length": {

@@ -39,6 +39,14 @@ dump_format_mismatch =
 	⚠ {larger_fmt} has {larger_n} joints but {smaller_fmt} has {smaller_n}. Training is unaffected, but {affected} won't be available for bundles trained against the {larger_fmt}-side joint set. If you need both deploy targets, repoint the {smaller_fmt} asset to a matching variant (e.g. for G1 use scene_with_hands.xml alongside g1.usd) and re-Dump.
 view_mapping = View joint mapping
 view_mapping_error_title = Joint mapping unavailable
+ignore_package = Ignore
+ignore_package_tip = Skip this directory on future Refresh sweeps
+inertia_calib_done = Inertia overlay {status}: {n} body override(s) written to {rel}.
+inertia_calib_done_title = Inertia calibration complete
+inertia_calib_error_title = Inertia calibration failed
+inertia_calib_ignored = {n} body(ies) below tolerance — see the overlay's ignored_bodies audit list.
+inertia_calib_offer_body = Compare the training USD's per-body mass / inertia against the MuJoCo MJCF and write a non-destructive overlay (the original MJCF is never changed). This closes the IsaacLab→MuJoCo sim2sim gap for robots whose MJCF ships placeholder inertia. The USD harvest may take 5–30 s.
+inertia_calib_offer_title = Calibrate inertia from USD?
 
 [status]
 cloud = cloud

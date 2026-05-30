@@ -35,6 +35,7 @@ false = Faux
 no_items = (aucun élément)
 bool_check = ✔
 ir_picker_all = Tous (par défaut)
+preset_unselected = —
 
 [body_mapping]
 col_current = Actuel
@@ -105,6 +106,16 @@ health.single = Seul {present} est dumpé — la cible de déploiement {missing}
 health.title = État du dump robot
 mjcf_offset.not_applicable = non applicable
 mjcf_offset.uncalibrated = non calibré
+pd_table.dialog_title = PD / Actionneur
+pd_table.header = Gains PD par articulation (kp = m_eff·ωn²) — dérivés en direct de la matrice de masse MJCF. Modifiez (ωn, ζ) par groupe ; kp/kd sont en lecture seule.
+pd_table.remotized_note = Les articulations remotisées (à tringlerie) affichent dans Effort le PIC de leur table de couple dépendant de l'angle, et non le plafond scalaire.
+pd_table.remotized_tooltip = Pic de la table de couple dépendant de l'angle (articulation remotisée)
+pd_table.auto_button = AUTO ⤓
+pd_table.auto_tooltip = Remplir le préréglage officiel recommandé (ωn, ζ) + effort/vitesse. Ordre de résolution : manifeste de marque → paramètres de drive USD (mis en cache par Dump USD) → valeurs par défaut de la famille.
+pd_table.auto_none = Aucun préréglage recommandé disponible pour ce robot.
+pd_table.redump_button = Re-dumper USD
+pd_table.redump_tooltip = Dumper l'asset USD pour rafraîchir les paramètres de drive mis en cache, puis re-remplir AUTO à partir des valeurs dumpées.
+pd_table.redump_failed = Échec du re-dump USD : {error}
 
 [inline]
 col_grace = Tolérance

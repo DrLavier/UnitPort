@@ -1,0 +1,30 @@
+[default]
+title_new = Register new family
+title_edit = Edit family
+intro = Register a custom IR family. Pick a base family to inherit its roles, or add extra roles below — both are layered into a single role list for joint mapping.
+id_label = Family id
+id_ph = e.g. quadruped_with_tail
+label_label = Label
+label_ph = Display name
+alias_of_label = Base family (alias_of)
+alias_none = (none)
+roles_section = Extra roles
+add_role = + Role
+del_role = − Role
+col_id = Role id
+col_category = Category
+col_label = Label
+col_position = Position
+col_required = Required
+save = Save
+cancel = Cancel
+delete = Delete
+error_title = Invalid input
+error_slug = Family id must be lower-case ASCII letters / digits / underscores and start with a letter (e.g. 'quadruped_with_tail').
+error_duplicate = Family id {fid!r} is already registered (canonical or user-layer).
+error_role_slug = Role id {rid!r} must match [a-z][a-z0-9_]*.
+error_role_duplicate = Role id {rid!r} appears more than once.
+confirm_delete_title = Delete family
+confirm_delete_body = Remove the user-overlay family {fid!r}? Canonical families are not affected. Robots that reference this family will block the delete.
+cascade_title = Cannot delete
+

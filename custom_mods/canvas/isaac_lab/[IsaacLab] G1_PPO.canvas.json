@@ -990,9 +990,9 @@
           "value": "0.05",
           "param_type": "float"
         },
-        "consumer_mode": {
-          "name": "consumer_mode",
-          "value": "tracking",
+        "consumption_mode": {
+          "name": "consumption_mode",
+          "value": "tracking_target",
           "param_type": "enum"
         },
         "phase_mode": {
@@ -1215,7 +1215,7 @@
         },
         "contact_body_names": {
           "name": "contact_body_names",
-          "value": "[\"ankle_roll_L\", \"ankle_roll_R\"]",
+          "value": "[\"pelvis\", \"hip_pitch_L\", \"hip_roll_L\", \"hip_yaw_L\", \"knee_L\", \"ankle_pitch_L\", \"ankle_roll_L\", \"hip_pitch_R\", \"hip_roll_R\", \"hip_yaw_R\", \"knee_R\", \"ankle_pitch_R\", \"ankle_roll_R\", \"waist_yaw\", \"waist_roll\", \"torso\", \"shoulder_pitch_L\", \"shoulder_roll_L\", \"shoulder_yaw_L\", \"elbow_L\", \"wrist_roll_L\", \"wrist_pitch_L\", \"wrist_yaw_L\", \"shoulder_pitch_R\", \"shoulder_roll_R\", \"shoulder_yaw_R\", \"elbow_R\", \"wrist_roll_R\", \"wrist_pitch_R\", \"wrist_yaw_R\"]",
           "param_type": "json"
         },
         "contact_history_length": {

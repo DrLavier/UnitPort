@@ -53,6 +53,7 @@ type = "enum"
 default = "none"
 choices = ["none", "linear"]
 description = "DR 强度调度 [SB3-only: Isaac Lab Event system 不支持 runtime params mutation；IL 路径下永远满强度]"
+meta = { conditional_on = { key = "backend", op = "==", value = "sb3" } }
 
 [[parameters]]
 key = "rand_schedule_start_step"
@@ -60,7 +61,7 @@ type = "int"
 default = 0
 widget = "index"
 description = "DR 激活起始全局步 [SB3-only]"
-meta = { min = 0, max = 1000000000 }
+meta = { conditional_on = { key = "backend", op = "==", value = "sb3" }, min = 0, max = 1000000000 }
 
 [[parameters]]
 key = "rand_schedule_end_step"
@@ -68,7 +69,7 @@ type = "int"
 default = 500000
 widget = "index"
 description = "DR 达到满强度的全局步 [SB3-only]"
-meta = { min = 0, max = 1000000000 }
+meta = { conditional_on = { key = "backend", op = "==", value = "sb3" }, min = 0, max = 1000000000 }
 
 # ---------------------------------------------------------------------------
 # Parameters — SB3 backend (visible only when backend == "sb3")

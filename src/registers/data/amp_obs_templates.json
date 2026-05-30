@@ -1,0 +1,38 @@
+{
+  "version": "1.0.0",
+  "schema": "amp_obs_templates/catalog",
+  "_doc": "Per-family AMP discriminator observation template. Each template_terms entry is an ordered list of obs term names registered in application.training.amp.obs_terms; the consumer walks the list in order to assemble the discriminator obs vector (motion side and env side use the same list to guarantee field-order alignment). Term-name order is load-bearing -- a permutation of the same terms produces a different vector layout that the discriminator separates trivially on index drift. Term names are NOT IR roles: per-DoF dimensionality resolves from the obs-term registry's dim_fn against live morphology (num_dofs / num_feet ctx); this catalog has no opinion on per-joint membership. humanoid declares alias_of: biped (data identity), mirroring the four-layer alignment already present in ir_canonical, pd_groups_definitions, symmetry_catalog, and pd_calibration_canaries -- five layers in total. Manipulator / wheeled / generic declare empty arrays to opt out of AMP training loud-and-clear (the validate A4 soft warning then does not fire). User overlays at <USER_CONFIG_DIR>/registers/amp_obs_templates_custom.json can add new families or override existing ones; the same L1-L5 schema rules apply at merge time.",
+  "families": {
+    "quadruped": {
+      "template_terms": [
+        "joint_pos",
+        "toe_pos_local",
+        "base_lin_vel_local",
+        "base_ang_vel_local",
+        "joint_vel",
+        "root_height"
+      ]
+    },
+    "biped": {
+      "template_terms": [
+        "joint_pos",
+        "base_lin_vel_local",
+        "base_ang_vel_local",
+        "joint_vel",
+        "root_height"
+      ]
+    },
+    "humanoid": {
+      "alias_of": "biped"
+    },
+    "manipulator": {
+      "template_terms": []
+    },
+    "wheeled": {
+      "template_terms": []
+    },
+    "generic": {
+      "template_terms": []
+    }
+  }
+}

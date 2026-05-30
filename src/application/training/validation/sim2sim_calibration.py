@@ -102,23 +102,14 @@ class CalibrationReport:
         os.replace(str(tmp), str(path))
 
 
-# Canary-group recipe per family. HARDCODED ON PURPOSE — never load this
-# from a user-editable yaml: a user editing the canary list could otherwise
-# silently exempt the very joints (knee, hip_y) most sensitive to the
-# mass-matrix mismatch and slip a broken bundle through the gate. The list
-# selects GROUP IDS (resolved to joints via pd_param's ir_role_regex), and
-# `knee` + `hip_y` MUST stay in every legged entry — they carry the largest
-# off-diagonal coupling and are where the Spot-knee-65× bug first showed.
-# (The cross-engine TORQUE check in run_calibration runs over ALL joints
-# regardless; this canary list only scopes the (ωn,ζ) round-trip check.)
-_CANARY_GROUPS: Dict[str, List[str]] = {
-    "quadruped": ["knee", "hip_y"],
-    "biped": ["knee", "hip_y", "ankle_pitch"],
-    "humanoid": ["knee", "hip_y", "ankle_pitch"],
-    "manipulator": ["elbow", "wrist"],
-    "wheeled": [],
-    "generic": [],
-}
+# Canary-group recipe per family is sourced from
+# ``registers.pd_calibration_canaries`` — the registry enforces an
+# asymmetric overlay rule (user overlays can only EXTEND a family's
+# canary list, never SHRINK it), so a user-side configuration error
+# cannot silently exempt the joints (knee, hip_y on legged platforms)
+# most sensitive to mass-matrix mismatch. The cross-engine TORQUE check
+# in run_calibration runs over ALL joints regardless; the canary list
+# only scopes the (ωn, ζ) round-trip check.
 
 
 def _verdict_per_joint(
@@ -161,7 +152,10 @@ def _select_canary_joint_indices(
     family: str,
     pd_param: Any,
 ) -> List[int]:
-    canary_groups = _CANARY_GROUPS.get(family, [])
+    from registers import pd_calibration_canaries as _pd_canaries
+    if not _pd_canaries.has_canaries(family):
+        return []
+    canary_groups = list(_pd_canaries.get_canaries(family).canary_groups)
     if not canary_groups:
         return []
     from application.physics.joint_group_resolver import expand_groups_to_joints
@@ -417,7 +411,12 @@ def run_calibration(
                     f"(max rel {w.rel_error:.3e} < 1e-3)."
                 )
 
-    canary_groups = _CANARY_GROUPS.get(family, [])
+    from registers import pd_calibration_canaries as _pd_canaries
+    canary_groups = (
+        list(_pd_canaries.get_canaries(family).canary_groups)
+        if _pd_canaries.has_canaries(family)
+        else []
+    )
     md_lines = [
         f"# Sim2Sim PD Calibration Report",
         "",

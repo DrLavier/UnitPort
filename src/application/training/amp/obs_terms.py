@@ -176,47 +176,76 @@ def compute_amp_obs_from_env(term_names: Sequence[str], wrapper: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _missing_field_raise(clip: Any, field: str, term: str) -> None:
+    """Raise on an absent clip field with the three-part fix-up directive.
+
+    Replaces the historical ``return np.zeros(...)`` silent fallback. A
+    clip that lacks a required field produces a degenerate zero vector
+    that the discriminator separates trivially on index position — the
+    exact failure mode the AMP pipeline was already trying to defend
+    against elsewhere. Substituting zeros here defeats those defenses
+    silently, so the slice fns now fail loud with:
+
+    (a) the clip identity (what's missing),
+    (b) the source contract (which loader / what payload key produces
+        this field),
+    (c) the fix-up directive (re-export with the matching loader, or
+        pick an obs term list that excludes this field).
+    """
+    name = str(getattr(clip, "name", "<unnamed>"))
+    fmt = str(getattr(clip, "format_id", "<unknown>"))
+    raise ValueError(
+        f"[amp.obs_terms.{term}] MotionClip {name!r} "
+        f"(format_id={fmt!r}) does not carry the required field "
+        f"{field!r}. The discriminator expert side cannot be built "
+        f"without it — refusing to substitute a zero vector (silent "
+        f"zeros poison the disc accuracy on field-shape mismatch). "
+        f"Either (a) re-export the clip via a loader that populates "
+        f"{field!r}, or (b) remove {term!r} from the family's AMP "
+        f"obs template at registers/data/amp_obs_templates.json so "
+        f"the consumer never asks for it."
+    )
+
+
 def _joint_pos_slice(clip: Any, idx: np.ndarray) -> np.ndarray:
     arr = getattr(clip, "joint_pos", None)
     if arr is None:
-        dof = int(getattr(clip, "dof", 0))
-        return np.zeros((len(idx), dof), dtype=np.float32)
+        _missing_field_raise(clip, "joint_pos", "joint_pos")
     return arr[idx]
 
 
 def _joint_vel_slice(clip: Any, idx: np.ndarray) -> np.ndarray:
     arr = getattr(clip, "joint_vel", None)
     if arr is None:
-        dof = int(getattr(clip, "dof", 0))
-        return np.zeros((len(idx), dof), dtype=np.float32)
+        _missing_field_raise(clip, "joint_vel", "joint_vel")
     return arr[idx]
 
 
 def _toe_pos_local_slice(clip: Any, idx: np.ndarray) -> np.ndarray:
     arr = getattr(clip, "toe_pos_local", None)
     if arr is None:
-        return np.zeros((len(idx), 12), dtype=np.float32)
+        _missing_field_raise(clip, "toe_pos_local", "toe_pos_local")
     return arr[idx]
 
 
 def _lin_vel_slice(clip: Any, idx: np.ndarray) -> np.ndarray:
     arr = getattr(clip, "lin_vel", None)
     if arr is None:
-        return np.zeros((len(idx), 3), dtype=np.float32)
+        _missing_field_raise(clip, "lin_vel", "base_lin_vel_local")
     return arr[idx]
 
 
 def _ang_vel_slice(clip: Any, idx: np.ndarray) -> np.ndarray:
     arr = getattr(clip, "ang_vel", None)
     if arr is None:
-        return np.zeros((len(idx), 3), dtype=np.float32)
+        _missing_field_raise(clip, "ang_vel", "base_ang_vel_local")
     return arr[idx]
 
 
 def _root_height_slice(clip: Any, idx: np.ndarray) -> np.ndarray:
     arr = getattr(clip, "root_pos", None)
     if arr is None:
-        return np.zeros((len(idx), 1), dtype=np.float32)
+        _missing_field_raise(clip, "root_pos", "root_height")
     # Shape (T, 3) → take z column, reshape to (B, 1).
     return arr[idx, 2:3].astype(np.float32, copy=False)
 
@@ -251,7 +280,8 @@ def _robot_data(wrapper: Any) -> Any:
 
 #: Canonical quadruped leg order. Public — this is the shared contract
 #: between the motion loader (``_reorder_quad_legs`` /
-#: ``_reorder_quad_feet`` in ``application/training/motion/loader.py``)
+#: ``_reorder_quad_feet`` in
+#: ``application/training/motion/loaders/amp_legged_gym.py``)
 #: and the policy-side env extraction below. Both producers MUST emit
 #: joint / foot tensors in ``CANONICAL_QUAD_LEGS × CANONICAL_QUAD_JOINT_SLOTS``
 #: order or the discriminator trivially separates them on index position,
@@ -302,6 +332,30 @@ _CANONICAL_QUAD_IR_ROLES: tuple = (
     "hip_RL",   "thigh_RL", "calf_RL",
     "hip_RR",   "thigh_RR", "calf_RR",
 )
+
+
+def _load_humanoid_ir_role_order() -> tuple:
+    """Lazy import of the humanoid IR role order from motion_ir_mapping.
+
+    Keeping this resolution lazy avoids pulling motion_ir_mapping
+    transitively into the obs_terms module-load path (which is hit
+    eagerly by ``application.training.amp`` re-exports). The humanoid
+    table is only consulted from the preflight + env-side joint perm
+    resolution paths, both runtime-invoked.
+
+    Single source of truth: the same list backs the loco_mujoco loader's
+    source→IR reorder (loader writes joint_pos columns in this order)
+    and the env-side AMP obs joint permutation (env reads joint_pos
+    columns in this order). Sharing one tuple guarantees the two sides
+    cannot drift independently.
+    """
+    from application.training.motion_ir_mapping import (
+        LOCO_MUJOCO_UNITREE_H1_IR_ROLES,
+    )
+    return tuple(LOCO_MUJOCO_UNITREE_H1_IR_ROLES)
+
+
+_CANONICAL_HUMANOID_IR_ROLES: Optional[tuple] = None  # resolved on first preflight call
 
 
 def resolve_canonical_joint_perm(articulation: Any) -> List[int]:
@@ -589,12 +643,137 @@ DEFAULT_QUADRUPED_TERMS: List[str] = [
 
 
 # ---------------------------------------------------------------------------
-# Launcher-level preflight
+# Family-keyed humanoid joint permutation
 # ---------------------------------------------------------------------------
 
 
-def preflight_canonical_mapping(wrapper: Any) -> Dict[str, Any]:
-    """Eagerly resolve joint permutation + canonical foot ids.
+def resolve_humanoid_joint_perm(articulation: Any) -> List[int]:
+    """Return the permutation from articulation-native joint order to
+    the canonical humanoid IR-role order.
+
+    The override registered via :func:`set_canonical_joint_perm_override`
+    (``{ir_role: joint_name}``) is consulted first; without it the IR
+    role itself is used as the joint-name probe (which works when the
+    robot's articulation joint_names already match the IR role slugs,
+    e.g. ``waist_yaw`` / ``shoulder_pitch_L``). When neither resolves a
+    role, the function raises with the missing-role list so the
+    launcher fails loud at step 0 instead of silently mis-routing.
+    """
+    global _CANONICAL_HUMANOID_IR_ROLES
+    if _CANONICAL_HUMANOID_IR_ROLES is None:
+        _CANONICAL_HUMANOID_IR_ROLES = _load_humanoid_ir_role_order()
+    expected = _CANONICAL_HUMANOID_IR_ROLES
+    joint_names = list(articulation.joint_names)
+    name_to_idx = {n: i for i, n in enumerate(joint_names)}
+    perm: List[int] = []
+    missing: List[str] = []
+
+    for ir_role in expected:
+        if _JOINT_NAMES_BY_IR_OVERRIDE:
+            target = _JOINT_NAMES_BY_IR_OVERRIDE.get(ir_role, "")
+        else:
+            target = ir_role
+        if target and target in name_to_idx:
+            perm.append(name_to_idx[target])
+        else:
+            missing.append(f"{ir_role}->{target!r}")
+
+    if missing or len(perm) != len(expected):
+        raise RuntimeError(
+            "amp_obs_terms: cannot build canonical humanoid joint "
+            f"permutation ({len(expected)} IR roles). Missing: "
+            f"{missing}. Articulation joint_names = {joint_names}. "
+            "If your humanoid uses non-standard joint naming, register "
+            "an override via set_canonical_joint_perm_override() with "
+            "the per-format {ir_role: joint_name} table before training "
+            "starts."
+        )
+    return perm
+
+
+def _resolve_humanoid_joint_perm_cached(wrapper: Any) -> Any:
+    """Wrapper-cached LongTensor view of :func:`resolve_humanoid_joint_perm`."""
+    import torch as _torch
+    cache = _wrapper_cache(wrapper)
+    if "joint_perm" in cache:
+        return cache["joint_perm"]
+
+    robot = wrapper.env.unwrapped.scene["robot"]
+    perm = resolve_humanoid_joint_perm(robot)
+    device = _robot_data(wrapper).joint_pos.device
+    perm_tensor = _torch.as_tensor(perm, dtype=_torch.long, device=device)
+    cache["joint_perm"] = perm_tensor
+    print(
+        f"[UnitPort][AMP] amp_obs_terms humanoid joint_perm: "
+        f"asset_order={list(robot.joint_names)} → "
+        f"canonical_humanoid_ir_order perm={perm}",
+        flush=True,
+    )
+    return perm_tensor
+
+
+# ---------------------------------------------------------------------------
+# Launcher-level preflight (family-keyed dispatch)
+# ---------------------------------------------------------------------------
+
+
+def _preflight_quadruped(wrapper: Any) -> Dict[str, Any]:
+    """Quadruped variant: 12-joint FL/FR/RL/RR × hip/thigh/calf perm +
+    4 canonical foot ids."""
+    perm = _resolve_joint_perm(wrapper)
+    foot_ids = _resolve_foot_ids(wrapper)
+    cache = _wrapper_cache(wrapper)
+    robot = wrapper.env.unwrapped.scene["robot"]
+    return {
+        "family": "quadruped",
+        "asset_joint_names": list(robot.joint_names),
+        "canonical_joint_perm": (
+            perm.tolist() if hasattr(perm, "tolist") else list(perm)
+        ),
+        "canonical_foot_names": list(cache.get("foot_names", [])),
+        "canonical_foot_ids": list(foot_ids),
+    }
+
+
+def _preflight_humanoid(wrapper: Any) -> Dict[str, Any]:
+    """Humanoid variant: 19-joint IR-role perm; no foot ids (the humanoid
+    AMP obs template excludes ``toe_pos_local`` because loco-mujoco
+    trajectories do not carry toe data — see the registers/data/
+    amp_obs_templates.json biped entry, which humanoid aliases)."""
+    perm = _resolve_humanoid_joint_perm_cached(wrapper)
+    robot = wrapper.env.unwrapped.scene["robot"]
+    return {
+        "family": "humanoid",
+        "asset_joint_names": list(robot.joint_names),
+        "canonical_joint_perm": (
+            perm.tolist() if hasattr(perm, "tolist") else list(perm)
+        ),
+        # Foot fields intentionally empty for humanoid.
+        "canonical_foot_names": [],
+        "canonical_foot_ids": [],
+    }
+
+
+#: Family-keyed preflight dispatch. ``biped`` aliases ``humanoid`` (same
+#: 5-term AMP obs template, same humanoid joint perm layout — biped
+#: clips are loaded with the same source→IR ordering today). Adding a
+#: new family means adding one entry here + the matching
+#: ``amp_obs_templates`` family entry; the launcher does not branch on
+#: family strings.
+_PREFLIGHT_BY_FAMILY: Dict[str, Any] = {
+    "quadruped": _preflight_quadruped,
+    "biped": _preflight_humanoid,
+    "humanoid": _preflight_humanoid,
+}
+
+
+def preflight_canonical_mapping(
+    wrapper: Any,
+    *,
+    family: str,
+) -> Dict[str, Any]:
+    """Eagerly resolve joint permutation (+ canonical foot ids for
+    quadrupeds) keyed on the robot's primary family.
 
     Intended to be called **once at launcher startup** right after the
     AMP env wrapper is built. Serves two structural purposes:
@@ -609,28 +788,23 @@ def preflight_canonical_mapping(wrapper: Any) -> Dict[str, Any]:
        into ``amp_alignment.json`` so the mapping is preserved for
        post-mortem and bundle export.
 
-    Returns
-    -------
-    dict with keys:
-        ``asset_joint_names``        — robot articulation's native order
-        ``canonical_joint_perm``     — indices into ``asset_joint_names``
-                                       that produce canonical
-                                       FL/FR/RL/RR × hip/thigh/calf
-        ``canonical_foot_names``     — foot body names in canonical order
-        ``canonical_foot_ids``       — foot body ids in canonical order
+    The family-keyed dispatch lives behind a dict so the launcher does
+    not branch on family strings: ``preflight_canonical_mapping(env,
+    family=spec_family)`` resolves the right resolver here. Quadruped:
+    12-joint FL/FR/RL/RR × hip/thigh/calf + 4 foot ids. Humanoid /
+    biped: 19-joint canonical IR-role order, no foot ids.
     """
-    perm = _resolve_joint_perm(wrapper)
-    foot_ids = _resolve_foot_ids(wrapper)
-    cache = _wrapper_cache(wrapper)
-    robot = wrapper.env.unwrapped.scene["robot"]
-    return {
-        "asset_joint_names": list(robot.joint_names),
-        "canonical_joint_perm": (
-            perm.tolist() if hasattr(perm, "tolist") else list(perm)
-        ),
-        "canonical_foot_names": list(cache.get("foot_names", [])),
-        "canonical_foot_ids": list(foot_ids),
-    }
+    fid = str(family or "")
+    fn = _PREFLIGHT_BY_FAMILY.get(fid)
+    if fn is None:
+        raise ValueError(
+            f"preflight_canonical_mapping: unknown family {family!r}; "
+            f"supported: {sorted(_PREFLIGHT_BY_FAMILY.keys())}. Add the "
+            f"family's preflight resolver to _PREFLIGHT_BY_FAMILY in "
+            f"obs_terms.py (and the matching obs template entry in "
+            f"registers/data/amp_obs_templates.json)."
+        )
+    return fn(wrapper)
 
 
 __all__ = [
@@ -646,4 +820,6 @@ __all__ = [
     "preflight_canonical_mapping",
     "register",
     "resolve_canonical_joint_perm",
+    "resolve_humanoid_joint_perm",
+    "set_canonical_joint_perm_override",
 ]

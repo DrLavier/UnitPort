@@ -78,3 +78,4 @@ sudo /opt/unitport/ros2_ws/src/unitport_ros2/scripts/unitport_mode.sh off
 - `/etc/unitport/adapter_registry.yaml` — `controller_type` → adapter class
   lookup the bridge uses once a mapping arrives.
 - `/etc/unitport/tunable_params.yaml` — whitelist the param service enforces.
+

@@ -189,9 +189,14 @@ class TrainingMotionNode(BaseNode):
             ParamSpec(key="cmd_step_change_prob", type="float", default=0.01,
                       widget="range", description="每步命令切换概率",
                       meta={"min": 0.0, "max": 1.0, "step": 0.001}),
-            # §5 Reference-motion consumption
-            ParamSpec(key="consumer_mode", type="enum", default="amp",
-                      choices=["tracking", "amp", "both"],
+            # §5 Reference-motion consumption — no default. Picking is a
+            # canvas-required choice (the compiler emits
+            # MISSING_CONSUMPTION_MODE on a blank field); the prior
+            # ``"amp_discriminator"`` default would have silently
+            # mis-routed tracking-target clips through the AMP
+            # discriminator on every newly-created node.
+            ParamSpec(key="consumption_mode", type="enum",
+                      choices=["amp_discriminator", "tracking_target", "hybrid"],
                       description="Reference clip 消费模式"),
             ParamSpec(key="phase_mode", type="enum", default="loop",
                       choices=["loop", "once", "clamp"],

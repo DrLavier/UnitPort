@@ -35,6 +35,7 @@ false = False
 no_items = (no items)
 bool_check = ✔
 ir_picker_all = All (default)
+preset_unselected = —
 
 [body_mapping]
 col_current = Current
@@ -105,6 +106,16 @@ health.single = Only {present} is dumped — the {missing} deploy target will be
 health.title = Robot dump health
 mjcf_offset.not_applicable = not applicable
 mjcf_offset.uncalibrated = uncalibrated
+pd_table.dialog_title = PD / Actuator
+pd_table.header = Per-joint PD gains (kp = m_eff·ωn²) — derived live from the MJCF mass matrix. Edit (ωn, ζ) per group; kp/kd are read-only.
+pd_table.remotized_note = Remotized joints (linkage-driven) show their angle-dependent torque-table PEAK in Effort, not the scalar cap.
+pd_table.remotized_tooltip = Angle-dependent torque-table peak (remotized joint)
+pd_table.auto_button = AUTO ⤓
+pd_table.auto_tooltip = Fill the official recommended (ωn, ζ) + effort/velocity preset. Resolution order: brand manifest → USD drive params (cached from Dump USD) → family defaults.
+pd_table.auto_none = No recommended preset available for this robot.
+pd_table.redump_button = Re-dump USD
+pd_table.redump_tooltip = Dump the USD asset to refresh the cached drive params, then re-fill AUTO from the dumped values.
+pd_table.redump_failed = Re-dump USD failed: {error}
 
 [inline]
 col_grace = Grace

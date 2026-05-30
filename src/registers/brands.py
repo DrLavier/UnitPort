@@ -120,6 +120,33 @@ def remotized_manifest(brand: str, model: str) -> Optional[Dict[str, Any]]:
     return data
 
 
+def recommended_actuators(brand: str, model: str) -> Optional[Dict[str, Any]]:
+    """Return the ``recommended_actuators`` block from a robot's brand manifest.
+
+    The official recommended PD/actuator preset (per-group (omega_n, zeta) +
+    effort/velocity caps) the AUTO button in the RobotNode pd_param_table panel
+    fills. Returns the parsed block or ``None`` when the robot has no brand
+    manifest or no ``recommended_actuators`` key — that is the normal case for
+    most robots (the panel then falls back to family defaults), NOT an error.
+
+    DATA ONLY: reads a brand data file; no brand-specific logic (CLAUDE.md §1).
+    The mechanism (a recommended (omega_n, zeta) preset) is generic; the brand
+    contributes only the numbers.
+    """
+    b = str(brand or "").strip().lower()
+    m = str(model or "").strip().lower()
+    if not b or not m:
+        return None
+    mpath = _BRANDS_TREE / b / m / "manifest.yaml"
+    if not mpath.is_file():
+        return None
+    data = read_data(mpath)
+    if not isinstance(data, dict):
+        return None
+    block = data.get("recommended_actuators")
+    return block if isinstance(block, dict) else None
+
+
 def get_host_adapter_class(adapter_id: str) -> Optional[str]:
     """Return the host-side dotted-path for ``adapter_id`` or None.
 
@@ -148,4 +175,5 @@ __all__ = [
     "get_host_adapter_class",
     "list_host_built_in_adapters",
     "remotized_manifest",
+    "recommended_actuators",
 ]

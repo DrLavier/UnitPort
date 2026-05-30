@@ -45,6 +45,8 @@ echo ""
 echo "    src/                              Source tree (other than system.ini)"
 echo "    custom_mods/nodes/                User-authored nodes"
 echo "    projects/                         User project data"
+echo "    runtime/factory_build/            Factory-built USD body dumps etc."
+echo "                                      (expensive to rebuild; survives reset)"
 echo "    \$HOME/UnitPort/                   Per-user state (user.ini, tokens, etc.)"
 echo ""
 

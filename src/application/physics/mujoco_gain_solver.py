@@ -9,7 +9,8 @@ MuJoCo's actuators in the UnitPort training stack are pure torque sources
 That means the per-joint gain must include the joint's effective mass so
 the closed-loop response actually matches the ``(omega_n, zeta)`` target.
 
-Formula:
+Formula (mass-matrix-adaptive PD; the same closed-loop response on both
+engines requires both to use this mass-weighted form):
 
     m_eff_j = M[dof_j, dof_j]      # diagonal of the FULL inertia matrix at q0
     kp_j   = m_eff_j * omega_n_j ** 2

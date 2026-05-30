@@ -5,8 +5,11 @@
 
 Provides family-level joint groups (e.g. ``hip_x``, ``hip_y``, ``knee`` for
 quadruped) and per-group ``(omega_n, zeta)`` defaults that feed into the
-mass-matrix-adaptive sim2sim PD framework (see the canvas
-``ActuatorPDNode``).
+mass-matrix-adaptive sim2sim PD framework: the gain solvers in
+``application.physics.{mujoco_gain_solver, physx_gain_solver}`` derive
+engine gains from the per-group ``(omega_n, zeta)`` at runtime, while the
+canvas ``ActuatorPDNode`` exposes per-canvas overrides on top of these
+factory defaults.
 
 Design invariants (Stage A of the sim2sim refactor):
 

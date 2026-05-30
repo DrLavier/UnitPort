@@ -29,10 +29,70 @@ import os
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from unitport_sdk import Paths, log_error, log_info, log_warning
+
+
+@dataclass
+class DumpPayload:
+    """Full result of one Dump-format call (MJCF or USD).
+
+    Carries every per-prim attribute the discovery layer is capable of
+    capturing in a single traversal. Adding a new field here lets callers
+    opt-in without forcing a return-signature change on every consumer
+    (rule §11: design the full framework, not the minimum patch). Older
+    consumers that only need ``joints`` / ``bodies`` continue to work via
+    :meth:`as_legacy_tuple`.
+
+    Fields:
+      * ``joints`` / ``bodies`` — ``{name: ir_role_or_empty}``. The IR-role
+        suggestion + uniqueness guard already applied. This is what the
+        registry writes into ``joints_per_format`` / ``bodies_per_format``.
+      * ``body_inertials`` — ``{usd_body_name: {mass, com, diagonal_inertia,
+        principal_axes, mass_source, inertia_source}}`` (USD path) or ``{}``
+        (MJCF path; MJCF inertia lives in the XML itself and the calibration
+        layer reads it directly).
+      * ``joint_frames`` — ``{usd_joint_name: {body0, body1, local_pos0/1,
+        local_rot0/1, axis}}`` (USD path) or ``{}``.
+      * ``joint_drives`` — ``{usd_joint_name: {kind, drive:{stiffness, damping,
+        max_force, target_type, type}, limits:{lower, upper}, max_velocity,
+        provenance:{attribute_present}}}`` (USD path). Source for the PD/Actuator
+        AUTO button's USD branch.
+
+    Construction is by keyword (see :meth:`from_payload`). Direct instantiation
+    is fine for callers that already have the dicts.
+    """
+
+    joints: Dict[str, str] = field(default_factory=dict)
+    bodies: Dict[str, str] = field(default_factory=dict)
+    body_inertials: Dict[str, Any] = field(default_factory=dict)
+    joint_frames: Dict[str, Any] = field(default_factory=dict)
+    joint_drives: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_payload(cls, payload: Dict[str, Any]) -> "DumpPayload":
+        """Build from a discovery payload (the dict returned by
+        :func:`discover_mjcf` / :func:`discover_usd`)."""
+        return cls(
+            joints=dict(payload.get("joints", {}) or {}),
+            bodies=dict(payload.get("bodies", {}) or {}),
+            body_inertials=dict(payload.get("body_inertials", {}) or {}),
+            joint_frames=dict(payload.get("joint_frames", {}) or {}),
+            joint_drives=dict(payload.get("joint_drives", {}) or {}),
+        )
+
+    def as_legacy_tuple(self) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """Return ``(joints, bodies)`` for callers that pre-date the dataclass.
+
+        Tooling that only needs the IR-role maps can use this and ignore the
+        richer fields. Persistence callers (``RobotAssetService.dump_and_persist``)
+        consume the dataclass directly so the physics/inertia/frames blocks
+        round-trip into ``robots_custom.json``.
+        """
+        return dict(self.joints), dict(self.bodies)
 
 
 _DISCOVERY_TIMEOUT_S = 180  # pxr path ~5s, kit fallback cold start ~60-120s
@@ -280,7 +340,12 @@ def discover_usd(
             empty roles for the UI to resolve.
 
     Returns:
-        ``{"bodies": {name: ir_role_or_empty}, "joints": {name: ir_role_or_empty}}``.
+        ``{"bodies": {name: ir_role_or_empty}, "joints": {name: ir_role_or_empty},
+        "body_inertials": {usd_body_name: {mass, com, diagonal_inertia,
+        principal_axes, inertia_source, mass_source}}}``. ``body_inertials`` is
+        SI-normalised mass/inertia harvested from ``UsdPhysics.MassAPI`` (keyed by
+        raw USD body name, so the calibration layer maps it via
+        ``bodies_per_format.USD``); empty if the dump produced none.
 
     Raises:
         :class:`DiscoveryError` on subprocess failure / unparseable output.
@@ -480,7 +545,28 @@ def discover_usd(
     # assign IR roles to any body the tokeniser couldn't classify.
     bodies_out = _suggest_ir_roles(raw_bodies, {}, family=family)
 
-    return {"bodies": bodies_out, "joints": joints_out}
+    # Mass/inertia (USD→MJCF calibration). Passed through verbatim, keyed by raw
+    # USD body name — the calibration layer resolves USD-name→IR-role→MJCF-body
+    # via the registry's bodies_per_format tables, so we do not re-key here.
+    body_inertials: Dict[str, Any] = dict(payload.get("body_inertials", {}) or {})
+    # Joint kinematic frames (parent/child anchor + axis), keyed by raw USD joint
+    # name — the calibration's frame-alignment check matches them to MJCF joints
+    # by child-body name and compares parent-frame origin/axis.
+    joint_frames: Dict[str, Any] = dict(payload.get("joint_frames", {}) or {})
+    # Joint drive params (DriveAPI stiffness/damping/maxForce + RevoluteJoint
+    # lower/upperLimit + PhysxJointAPI maxJointVelocity), keyed by raw USD joint
+    # name. Persistence keys these directly into ``physics_per_format.USD``;
+    # the AUTO consumer in pd_preview maps them back to physical/IR roles via
+    # ``joints_per_format.USD``.
+    joint_drives: Dict[str, Any] = dict(payload.get("joint_drives", {}) or {})
+
+    return {
+        "bodies": bodies_out,
+        "joints": joints_out,
+        "body_inertials": body_inertials,
+        "joint_frames": joint_frames,
+        "joint_drives": joint_drives,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -494,10 +580,17 @@ def dump_format(
     joints_role_map_mjcf: Dict[str, str],
     *,
     family: str = "generic",
-) -> Tuple[Dict[str, str], Dict[str, str]]:
-    """Run the appropriate discovery path for ``fmt`` and return
-    ``(joints, bodies)`` flat dicts the caller can hand to
-    :meth:`RobotAssetService.set_discovered_bodies`.
+) -> DumpPayload:
+    """Run the appropriate discovery path for ``fmt`` and return a
+    :class:`DumpPayload` carrying every per-prim attribute the discovery
+    layer captured in one traversal.
+
+    Callers that only need the IR-role maps can use
+    :meth:`DumpPayload.as_legacy_tuple` to get ``(joints, bodies)`` —
+    backward-compat for the few consumers (e.g. body_ir batch refresh) that
+    don't write to the registry. Persistence callers
+    (:meth:`RobotAssetService.dump_and_persist`) consume the dataclass directly
+    so the physics / inertia / frames blocks land in ``robots_custom.json``.
 
     ``family`` is the robot morphology family (``biped`` / ``humanoid`` /
     ``quadruped`` / ...). Threaded into :func:`_suggest_ir_roles` so the
@@ -525,11 +618,12 @@ def dump_format(
     else:
         raise DiscoveryError(f"Unknown format: {fmt!r}")
 
-    return dict(payload.get("joints", {})), dict(payload.get("bodies", {}))
+    return DumpPayload.from_payload(payload)
 
 
 __all__ = [
     "DiscoveryError",
+    "DumpPayload",
     "discover_mjcf",
     "discover_usd",
     "dump_format",

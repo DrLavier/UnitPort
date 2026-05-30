@@ -34,7 +34,6 @@ ROBOT_FAMILY_BY_TYPE: Dict[str, str] = {
     "b2w": "wheeled",
     "g1": "biped",
     "h1": "biped",
-    "h1_2": "biped",
     "humanoid": "biped",
     "mini_pupper_v2": "quadruped",
 }

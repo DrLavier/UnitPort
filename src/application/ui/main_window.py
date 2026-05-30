@@ -3563,6 +3563,22 @@ class MainWindow(QMainWindow):
             from application.training.trainer_runtime import submit_canvas_training
             result = submit_canvas_training(canvas_dict)
         except Exception as exc:  # noqa: BLE001 — split: canvas issues → dialog, real bugs → cmd log
+            # Cloud-submit misconfiguration (no default server / missing SSH
+            # credential / no open project) is user-actionable — show a clear
+            # warning box rather than a cmd-log traceback. This NEVER falls
+            # back to a local run; the submit is aborted and the user is told
+            # what to fix (CLAUDE.md §8).
+            from application.training.remote.submit_task import (
+                RemoteSubmitConfigError,
+            )
+            if isinstance(exc, RemoteSubmitConfigError):
+                QMessageBox.warning(
+                    self,
+                    tr("engines.cloud_submit_error_title", "Cloud training"),
+                    str(exc),
+                )
+                log_warning(f"[play] cloud submit config error: {exc}")
+                return
             # Canvas self-check failures (SpecValidationError /
             # CanvasConfigError) are user-actionable misconfigurations,
             # not application crashes — route them to the unified popup

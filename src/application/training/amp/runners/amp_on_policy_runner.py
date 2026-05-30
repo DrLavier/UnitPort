@@ -758,6 +758,13 @@ class AMPOnPolicyRunner:
         _top_cfg = getattr(self, "_top_train_cfg", None)
         if _top_cfg and isinstance(_top_cfg.get("stage_schedule"), dict):
             sched = _top_cfg["stage_schedule"]
+            # H0 default lock — defensive re-check at the final consumer
+            # boundary so a hand-built train_cfg cannot bypass the
+            # launcher decoder + spec_compiler populate guards.
+            from application.training.training_spec import (
+                validate_stage_schedule_dict_h0,
+            )
+            validate_stage_schedule_dict_h0(sched)
             stages = sched.get("stages", [])
             if isinstance(stages, list) and stages:
                 version = int(sched.get("version", 1))
@@ -1348,7 +1355,7 @@ class AMPOnPolicyRunner:
         # ``isaac_lab_backend._AMP_LINE_RE`` matches this exact format —
         # if you change the field names or order, update that regex AND
         # ``parse_amp_line()`` AND ``TrainingPanel.on_metrics()`` in the
-        # same commit.
+        # same commit (the three consumers must agree on the wire format).
         _tag = "PPO" if getattr(self, "_current_training_mode", "AMP_PPO") == "PPO" else "AMP"
 
         # rsl_rl-style multi-line box (Isaac Lab original format).

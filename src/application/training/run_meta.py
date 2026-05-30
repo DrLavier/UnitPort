@@ -4,11 +4,11 @@
 """UnitPort training-run metadata file — single source of truth for
 "was this run AMP, PPO, or something else?"
 
-The compiler should emit ``algorithm_class: 'AMP_PPO'`` when the canvas
-used the AMP trainer node, and the run directory should carry a
-``run.yaml`` that downstream tooling can consume without having to
-parse Isaac Lab's auto-generated ``params/agent.yaml`` (which lies
-about the runner class for AMP runs — see the ONNX exporter incident).
+The compiler emits ``algorithm_class: 'AMP_PPO'`` when the canvas used
+the AMP trainer node, and the run directory carries a ``run.yaml`` that
+downstream tooling can consume without having to parse Isaac Lab's
+auto-generated ``params/agent.yaml`` (which lies about the runner class
+for AMP runs — see the ONNX exporter incident).
 
 Schema version 1 — the minimum fields the bundle exporter, policy
 runner, and ONNX exporter need to dispatch AMP-aware paths:

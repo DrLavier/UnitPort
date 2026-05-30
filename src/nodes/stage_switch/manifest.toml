@@ -64,8 +64,8 @@ key = "stages_config"
 type = "list"
 default = "[]"
 widget = "stage_editor"
-description = "阶段调度 / Stage schedule (Node_StageSwitchEditorWidget)"
-meta = { max_stages = 6 }
+description = "阶段调度 / Stage schedule (Node_StageSwitchEditorWidget). Each entry follows the v2 schema in application.training.training_spec.StageEntry: name (str), role ('trainable'|'frozen_teacher'), iterations (int), obs_profile ('default'|'privileged'|'onboard'), init_from (str|null), distill_loss ({enabled, teacher_stage, loss_type}), overrides (dict). H0 only accepts the defaults (role='trainable', obs_profile='default', init_from=null, distill_loss.enabled=false); any other value raises 'reserved for H2 teacher-student stage'."
+meta = { max_stages = 6, schema_version = 2, entry_fields = ["name", "role", "iterations", "obs_profile", "init_from", "distill_loss", "overrides"] }
 
 [[parameters]]
 key = "checkpoint_strategy"

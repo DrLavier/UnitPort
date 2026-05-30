@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
   "schema": "pd_groups/defaults",
-  "_doc": "Family-default (omega_n, zeta) per joint group. omega_n is in rad/s, zeta is dimensionless. Values follow the family sim2sim PD recipe. Users override per-canvas on the ActuatorPDNode -- never modify this file at runtime. Per-user persistent overrides live in <USER_CONFIG_DIR>/registers/pd_groups_custom.json (merged on RegistryHub load).",
+  "_doc": "Family-default (omega_n, zeta) per joint group. omega_n is in rad/s, zeta is dimensionless. Used by application.physics.{mujoco_gain_solver, physx_gain_solver} to derive engine gains at runtime. Users override per-canvas on the ActuatorPDNode -- never modify this file at runtime. Per-user persistent overrides live in <USER_CONFIG_DIR>/registers/pd_groups_custom.json (merged on RegistryHub load).",
   "families": {
     "quadruped": {
       "hip_x": { "omega_n": 25.0, "zeta": 1.0 },

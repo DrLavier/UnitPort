@@ -647,16 +647,21 @@ class RobotAssetService(QObject):
 
     @staticmethod
     def _is_legacy_overrides_shape(block: Dict[str, Any]) -> bool:
-        """A flat block has top-level ``manual_roles`` / ``out_of_scope``;
-        the per-format block has top-level format keys (MJCF/USD/URDF)."""
+        """A flat block has top-level ``manual_roles`` / ``out_of_scope`` /
+        ``manual_silent``; the per-format block has top-level format keys
+        (MJCF/USD/URDF)."""
         if not isinstance(block, dict) or not block:
             return False
         # If any top-level key is a known format, treat as already per-format.
         for k in block.keys():
             if str(k).upper() in ASSET_KINDS:
                 return False
-        # Treat as legacy iff it has the legacy shape keys
-        return "manual_roles" in block or "out_of_scope" in block
+        # Treat as legacy iff it has any legacy-shape key.
+        return (
+            "manual_roles" in block
+            or "out_of_scope" in block
+            or "manual_silent" in block
+        )
 
     def _read_overrides_block(self, sku: str) -> Dict[str, Dict[str, Any]]:
         """Read overrides for ``sku`` in normalised per-format shape."""
@@ -668,11 +673,15 @@ class RobotAssetService(QObject):
         if not isinstance(raw, dict):
             return {}
         if self._is_legacy_overrides_shape(raw):
-            # Wrap legacy flat overrides as MJCF
+            # Wrap legacy flat overrides as MJCF. Legacy shape predates
+            # ``manual_silent``, so that key is always absent on a legacy
+            # read — produce an empty dict rather than omitting the key so
+            # downstream consumers don't have to do a second exists-check.
             return {
                 "MJCF": {
                     "manual_roles": dict(raw.get("manual_roles", {}) or {}),
                     "out_of_scope": list(raw.get("out_of_scope", []) or []),
+                    "manual_silent": dict(raw.get("manual_silent", {}) or {}),
                 }
             }
         out: Dict[str, Dict[str, Any]] = {}
@@ -683,6 +692,11 @@ class RobotAssetService(QObject):
             out[fmt_u] = {
                 "manual_roles": dict(sub.get("manual_roles", {}) or {}),
                 "out_of_scope": list(sub.get("out_of_scope", []) or []),
+                # ``manual_silent`` is the user's misc / sensor_* picks
+                # (many-to-one). Pre-fix state.json files lack this key —
+                # read as empty dict, write a populated one next time the
+                # canvas Body Mapping table persists.
+                "manual_silent": dict(sub.get("manual_silent", {}) or {}),
             }
         return out
 
@@ -742,6 +756,7 @@ class RobotAssetService(QObject):
                 "MJCF": {
                     "manual_roles": dict(raw.get("manual_roles", {}) or {}),
                     "out_of_scope": list(raw.get("out_of_scope", []) or []),
+                    "manual_silent": dict(raw.get("manual_silent", {}) or {}),
                 }
             }
         if not overrides:
@@ -750,6 +765,11 @@ class RobotAssetService(QObject):
             raw[fmt_u] = {
                 "manual_roles": dict(overrides.get("manual_roles", {}) or {}),
                 "out_of_scope": list(overrides.get("out_of_scope", []) or []),
+                # ``manual_silent`` (body → misc / sensor_* role_id) is
+                # how multi-allowed bucket picks survive a reload — without
+                # this the canvas Body Mapping table's misc/sensor picks
+                # get silently dropped on the next session.
+                "manual_silent": dict(overrides.get("manual_silent", {}) or {}),
             }
         block["body_ir_overrides"] = raw
         self._save_state(state)
@@ -832,22 +852,126 @@ class RobotAssetService(QObject):
         self._save_state(state)
         self.changed.emit()
 
+    # ----- MJCF mass/inertia overlay (USD↔MJCF base-property calibration) ----
+    #
+    # Light pointer stored in state.json; the heavy per-body diff lives in a
+    # standalone YAML at USER_CONFIG_DIR/robot_assets/inertia_overlays/<sku>.yaml
+    # (DD-3/DD-5). Computed by
+    # application.training.validation.usd_mjcf_inertia_calibration and applied to
+    # the in-memory MjModel at load (mj_actor + robot_assets.runtime).
+    #
+    #     "mjcf_inertia_overlay": {
+    #         "schema": "unitport.mjcf_inertia_overlay/v1",
+    #         "status": "calibrated" | "no_changes_needed",
+    #         "file": "robot_assets/inertia_overlays/<sku>.yaml",
+    #         "usd_sha256": "...", "mjcf_sha256": "...",
+    #         "n_overrides": int, "generated_at": "..."
+    #     }
+
+    def get_mjcf_inertia_overlay(self, sku: str) -> Optional[Dict[str, Any]]:
+        """Return the state.json *pointer* for ``sku`` (not the heavy YAML), or
+        ``None``. Callers needing the per-body data should prefer
+        :func:`application.service.robot_assets.runtime.read_mjcf_inertia_overlay`,
+        which loads the YAML and centralises the stale/missing WARN contract."""
+        if not sku:
+            return None
+        state = self._load_state()
+        block = state.get("assets", {}).get(sku, {}) or {}
+        pointer = block.get("mjcf_inertia_overlay")
+        if not isinstance(pointer, dict) or not pointer:
+            return None
+        return pointer
+
+    def set_mjcf_inertia_overlay(self, sku: str, pointer: Dict[str, Any]) -> None:
+        """Persist the inertia-overlay *pointer* dict for ``sku``. The heavy YAML
+        is written separately by ``usd_mjcf_inertia_calibration.write_overlay``
+        via ``push_data``."""
+        if not sku:
+            return
+        if not isinstance(pointer, dict):
+            log_warning(
+                f"[robot_assets] set_mjcf_inertia_overlay({sku!r}): pointer must "
+                f"be a dict; got {type(pointer).__name__}; ignored"
+            )
+            return
+        state = self._load_state()
+        block = self._asset_block(state, sku)
+        block["mjcf_inertia_overlay"] = dict(pointer)
+        self._save_state(state)
+        self.changed.emit()
+
+    def clear_mjcf_inertia_overlay(self, sku: str) -> None:
+        """Wipe the inertia-overlay pointer for ``sku``. (Leaves the YAML file on
+        disk; regenerating overwrites it.)"""
+        if not sku:
+            return
+        state = self._load_state()
+        block = self._asset_block(state, sku)
+        block.pop("mjcf_inertia_overlay", None)
+        self._save_state(state)
+        self.changed.emit()
+
     # ----- per-format discovered tables (Dump MJCF / Dump USD button) -------
 
     def set_discovered_bodies(
         self, sku: str, fmt: str, joints: Dict[str, str], bodies: Dict[str, str],
     ) -> bool:
-        """Persist a Dump-button payload into the user-overlay robot register.
+        """Persist a Dump-button payload (joints + bodies only) into the
+        user-overlay robot register.
+
+        Kept for callers that don't have a :class:`DumpPayload` in hand
+        (e.g. an IR-role-only re-tokenisation pass). The full Dump-button
+        flow goes through :meth:`set_discovered_payload` so the physics /
+        inertia / joint-frame blocks also land in ``robots_custom.json``
+        in the same write — see that method's docstring for the full schema.
+        """
+        from application.service.robot_assets.discovery_subprocess import DumpPayload
+        return self.set_discovered_payload(
+            sku, fmt, DumpPayload(joints=dict(joints or {}), bodies=dict(bodies or {})),
+        )
+
+    def set_discovered_payload(
+        self,
+        sku: str,
+        fmt: str,
+        payload: Any,
+        *,
+        target_layer: str = "user",
+    ) -> bool:
+        """Persist a full :class:`DumpPayload` into the user-overlay robot
+        register.
 
         Used by the Robot Asset card's "Dump USD/MJCF" buttons to back-fill
-        ``joints_per_format[fmt]`` / ``bodies_per_format[fmt]`` from a live
-        asset parse (USD via Isaac Sim subprocess, MJCF via mujoco). The
-        write lands in ``<USER_CONFIG_DIR>/registers/robots_custom.json`` so it
-        survives reinstall and doesn't mutate the factory canonical.
+        every per-prim attribute the discovery layer captured in one
+        traversal. Per rule §11 each Dump produces a complete snapshot —
+        joints, bodies, body inertials, joint frames, joint drive params —
+        so later consumers never have to re-spawn the subprocess to fetch
+        a field that "wasn't needed last time".
 
-        ``joints`` / ``bodies`` are flat ``{name: ir_role}`` dicts. We
-        convert to the canonical ``{uid: {name, ir_role}}`` shape before
-        persisting.
+        Top-level blocks written:
+          * ``joints_per_format[fmt]`` / ``bodies_per_format[fmt]`` —
+            canonical ``{uid: {name, ir_role}}`` shape (uid = joint SKU
+            for joints, the IR mapping key for bodies).
+          * ``physics_per_format[fmt]`` — keyed by USD joint name (matches
+            ``joints_per_format[fmt][*].name``), carries
+            ``{kind, drive, limits, max_velocity, provenance}``. Empty for
+            MJCF dumps (MJCF physics lives in the XML and is read in-place
+            by the gain solvers; there is no benefit to duplicating it).
+          * ``body_inertials_per_format[fmt]`` — keyed by USD body name,
+            carries the SI-normalised mass / inertia / com / principal_axes
+            block. Lets ``usd_mjcf_inertia_calibration`` consume the cached
+            block instead of re-spawning the subprocess.
+          * ``joint_frames_per_format[fmt]`` — keyed by USD joint name,
+            carries the parent/child anchor + axis token used by the
+            calibration's frame-alignment check.
+
+        The write lands in ``<USER_CONFIG_DIR>/registers/robots_custom.json`` so it
+        survives reinstall and doesn't mutate the factory canonical. All
+        formats not touched by this call have their existing entries
+        preserved (never None-collapsed). Empty dicts in the payload mean
+        "did not capture / format-not-applicable" and are persisted as
+        ``{}``, not deleted — so a consumer can distinguish "this format
+        was dumped but had no joints" from "this format was never dumped".
         """
         if not sku:
             return False
@@ -858,7 +982,14 @@ class RobotAssetService(QObject):
         from registers import resolve_joint_sku
         existing = _robots_registry.get_robot(sku) or {}
         patch = dict(existing)
-        # joints_per_format
+
+        joints = dict(getattr(payload, "joints", {}) or {})
+        bodies = dict(getattr(payload, "bodies", {}) or {})
+        joint_drives = dict(getattr(payload, "joint_drives", {}) or {})
+        body_inertials = dict(getattr(payload, "body_inertials", {}) or {})
+        joint_frames = dict(getattr(payload, "joint_frames", {}) or {})
+
+        # joints_per_format — canonical {uid: {name, ir_role}} shape.
         jpf = dict(patch.get("joints_per_format", {}) or {})
         if joints:
             jpf[fmt_u] = {
@@ -868,7 +999,8 @@ class RobotAssetService(QObject):
         patch["joints_per_format"] = {
             f: jpf.get(f) for f in ASSET_KINDS
         }
-        # bodies_per_format
+
+        # bodies_per_format — canonical {uid: {name, ir_role}} shape.
         bpf = dict(patch.get("bodies_per_format", {}) or {})
         if bodies:
             bpf[fmt_u] = {
@@ -878,9 +1010,51 @@ class RobotAssetService(QObject):
         patch["bodies_per_format"] = {
             f: bpf.get(f) for f in ASSET_KINDS
         }
-        ok = _robots_registry.persist_user_robot(sku, patch)
+
+        # physics_per_format — keyed by USD joint NAME (matches
+        # joints_per_format[fmt][*].name), not by joint SKU. Reason: a
+        # consumer joining ``physics_per_format.USD`` to the AUTO
+        # recommendation only ever has the physical joint name (the
+        # discovery payload key); routing through joint SKU would force a
+        # second registry lookup with no upside. MJCF dumps carry no
+        # drive_block (MJCF gain params are in the XML), so the entry
+        # stays ``{}`` for that format.
+        ppf = dict(patch.get("physics_per_format", {}) or {})
+        if joint_drives:
+            ppf[fmt_u] = dict(joint_drives)
+        elif fmt_u not in ppf:
+            ppf[fmt_u] = {}
+        patch["physics_per_format"] = {f: ppf.get(f) for f in ASSET_KINDS}
+
+        # body_inertials_per_format — keyed by USD body name; matches
+        # bodies_per_format[fmt][*].name. Lets the calibration layer skip
+        # the subprocess on cache hit. MJCF dumps populate this lazily —
+        # ``discover_mjcf`` currently doesn't return inertials (MuJoCo
+        # owns them in MjModel) so MJCF stays {} here.
+        bipf = dict(patch.get("body_inertials_per_format", {}) or {})
+        if body_inertials:
+            bipf[fmt_u] = dict(body_inertials)
+        elif fmt_u not in bipf:
+            bipf[fmt_u] = {}
+        patch["body_inertials_per_format"] = {f: bipf.get(f) for f in ASSET_KINDS}
+
+        # joint_frames_per_format — keyed by USD joint name. USD only;
+        # MJCF frames are read straight from MJCF on-demand.
+        jfpf = dict(patch.get("joint_frames_per_format", {}) or {})
+        if joint_frames:
+            jfpf[fmt_u] = dict(joint_frames)
+        elif fmt_u not in jfpf:
+            jfpf[fmt_u] = {}
+        patch["joint_frames_per_format"] = {f: jfpf.get(f) for f in ASSET_KINDS}
+
+        ok = _robots_registry.persist_user_robot(
+            sku, patch, target_layer=target_layer
+        )
         if not ok:
-            log_warning(f"[robot_assets] set_discovered_bodies failed for sku={sku}")
+            log_warning(
+                f"[robot_assets] set_discovered_payload failed for sku={sku} "
+                f"(target_layer={target_layer})"
+            )
             return False
         self._reload_and_validate()
         self.changed.emit()
@@ -1044,18 +1218,35 @@ class RobotAssetService(QObject):
             self.changed.emit()
         return n_patched
 
-    def dump_and_persist(self, sku: str, fmt: str) -> DumpResult:
-        """Dump bodies+joints for ``fmt`` from the live asset and persist
-        to the user-overlay registry.
+    def dump_and_persist(
+        self,
+        sku: str,
+        fmt: str,
+        *,
+        target_layer: str = "user",
+    ) -> DumpResult:
+        """Dump bodies+joints for ``fmt`` from the live asset and persist to
+        the registry's chosen overlay layer.
 
         MJCF runs in-process via mujoco (~0.1s); USD spawns the Isaac Lab
         venv subprocess to run ``bootstrap/discover_usd_bodies.py`` (5-30s
         depending on whether pxr alone or the kit fallback handles the
-        asset). Both paths land in
-        ``<USER_CONFIG_DIR>/registers/robots_custom.json`` via
-        :meth:`set_discovered_bodies`; on success the registry is reloaded
-        in-place and ``changed`` is emitted, so listeners (canvas Body
-        Mapping table, Mission Control table) rebuild automatically.
+        asset).
+
+        ``target_layer`` decides where the dump lands:
+
+          * ``"user"`` (default) — ``<USER_CONFIG_DIR>/registers/robots_custom.json``.
+            Used by the Robot Asset panel "Dump USD/MJCF" buttons when the
+            user manually re-dumps an asset (e.g. their custom SKU).
+          * ``"factory_build"`` — ``<FACTORY_BUILD_DIR>/robots_factory_build.json``.
+            Used by the startup auto-dump trigger for *standard* SKUs, so the
+            data is shared across all users on this install and treated as a
+            factory fact (§9: USD body topology of a Nucleus-shipped robot is
+            the same for everyone).
+
+        On success the registry is reloaded in-place and ``changed`` is
+        emitted, so listeners (canvas Body Mapping table, Mission Control
+        table) rebuild automatically.
 
         The caller owns UI feedback (busy cursor, dialogs, log prefix) —
         this method only returns a :class:`DumpResult` describing what
@@ -1088,7 +1279,7 @@ class RobotAssetService(QObject):
         family = families[0] if families else "generic"
 
         try:
-            joints, bodies = dump_format(asset, fmt_u, mjcf_joints, family=family)
+            payload = dump_format(asset, fmt_u, mjcf_joints, family=family)
         except DiscoveryError as exc:
             return DumpResult(ok=False, error=str(exc), error_kind="discovery")
         except Exception as exc:
@@ -1098,8 +1289,24 @@ class RobotAssetService(QObject):
                 error_kind="unexpected",
             )
 
+        # Log what got captured — helps the user verify a re-dump actually
+        # pulled the new physics block (vs an old dumper running against
+        # the new schema). Each block is independent in the schema, so
+        # zero values are diagnostic, not errors.
+        log_info(
+            f"[robot_assets] dump {fmt_u} captured for sku={sku!r}: "
+            f"{len(payload.joints)} joints, {len(payload.bodies)} bodies, "
+            f"{len(payload.joint_drives)} drive params, "
+            f"{len(payload.body_inertials)} body inertials, "
+            f"{len(payload.joint_frames)} joint frames."
+        )
+
+        joints = payload.joints
+        bodies = payload.bodies
         try:
-            ok = self.set_discovered_bodies(sku, fmt_u, joints, bodies)
+            ok = self.set_discovered_payload(
+                sku, fmt_u, payload, target_layer=target_layer
+            )
         except RegistryValidationError as exc:
             return DumpResult(
                 ok=False, joints=joints, bodies=bodies,
@@ -1129,6 +1336,127 @@ class RobotAssetService(QObject):
         block["family_tags"] = [str(t).strip() for t in (tags or []) if str(t).strip()]
         self._save_state(state)
         self.changed.emit()
+
+    # ----- ignored-packages list (per-user) --------------------------------
+    #
+    # state.json carries an ``ignored_packages`` list of directory names the
+    # user explicitly dismissed from the unregistered-packages prompt loop.
+    # Without this, :meth:`scan_unregistered_packages` would re-surface the
+    # same dir on every Refresh after the user cancelled its registration
+    # dialog — annoying and indistinguishable from "didn't get to it yet".
+    # Names are case-folded with separators stripped (mirrors registers.robots
+    # alias keys) so re-pasting the same package under a different case is
+    # still recognised as ignored.
+
+    @staticmethod
+    def _normalise_pkg_name(dir_name: str) -> str:
+        return "".join(c for c in (dir_name or "").strip().lower() if c.isalnum())
+
+    def list_ignored_packages(self) -> List[str]:
+        """Return the user's persisted ignore list (raw dir names)."""
+        state = self._load_state()
+        return [str(n) for n in (state.get("ignored_packages") or []) if n]
+
+    def is_package_ignored(self, dir_name: str) -> bool:
+        """True iff ``dir_name`` (case/separator-normalised) is on the ignore
+        list."""
+        target = self._normalise_pkg_name(dir_name)
+        if not target:
+            return False
+        for n in self.list_ignored_packages():
+            if self._normalise_pkg_name(n) == target:
+                return True
+        return False
+
+    def add_ignored_package(self, dir_name: str) -> None:
+        """Append ``dir_name`` to the persisted ignore list. No-op when
+        already present (under case/separator-normalised comparison)."""
+        if not dir_name:
+            return
+        if self.is_package_ignored(dir_name):
+            return
+        state = self._load_state()
+        ignored = list(state.get("ignored_packages") or [])
+        ignored.append(str(dir_name))
+        state["ignored_packages"] = ignored
+        self._save_state(state)
+        self.changed.emit()
+
+    def clear_ignored_packages(self) -> None:
+        """Wipe the ignore list — next Refresh re-surfaces every unmatched
+        package. Useful for the user to recover from over-eager ignores."""
+        state = self._load_state()
+        if state.get("ignored_packages"):
+            state["ignored_packages"] = []
+            self._save_state(state)
+            self.changed.emit()
+
+    # ----- unregistered-package discovery ----------------------------------
+
+    def scan_unregistered_packages(self) -> List[Dict[str, str]]:
+        """Walk every canonical scan root and return hints for directories
+        that look like robot packages but don't resolve to a registered SKU.
+
+        Each hint is a dict with keys: ``dir_name``, ``brand``, ``model``,
+        ``name``, ``mjcf`` (relative POSIX path under the matching scan
+        root, or empty if no MJCF was found). The shape is a strict
+        superset of :meth:`menagerie_register_hint` — the extra ``dir_name``
+        lets the UI offer "ignore this dir" without re-deriving the name.
+
+        Filtering rules:
+            * Dir must contain at least one MJCF / USD / URDF file at top
+              level (filters out asset-only / image-only subdirs).
+            * ``try_match_menagerie_package`` must NOT resolve to an
+              existing SKU (matched packages have nothing to register).
+            * ``is_package_ignored`` must be False (user explicitly
+              dismissed).
+            * Deduped by case/separator-normalised dir name so the same
+              package under DEMO and the live root only surfaces once.
+        """
+        from . import discovery as _disc
+
+        out: List[Dict[str, str]] = []
+        seen_norm: set = set()
+        for root in _disc.scan_roots():
+            if not root.exists():
+                continue
+            for cand_dir in _disc.enumerate_candidate_dirs(root):
+                name = cand_dir.name
+                norm = self._normalise_pkg_name(name)
+                if not norm or norm in seen_norm:
+                    continue
+                if not _disc.has_robot_description_file(cand_dir):
+                    continue
+                try:
+                    matched = self.try_match_menagerie_package(name)
+                except Exception as exc:  # noqa: BLE001
+                    log_warning(
+                        f"[robot_assets] try_match_menagerie_package({name!r}) "
+                        f"failed: {exc}"
+                    )
+                    continue
+                if matched:
+                    seen_norm.add(norm)
+                    continue
+                if self.is_package_ignored(name):
+                    seen_norm.add(norm)
+                    continue
+                # Build the hint. menagerie_register_hint() assumes the
+                # menagerie/<dir>/scene.xml layout, but a custom drop at
+                # custom_mods/models/<brand>/<model>/ has a different path —
+                # pick the actual MJCF (if any) discovered in this dir and
+                # express it relative to the matching scan root, so the
+                # editor pre-fills a path that the panel's resolve() chain
+                # will actually find.
+                hint = dict(self.menagerie_register_hint(name))
+                hint["dir_name"] = name
+                mjcfs = sorted(cand_dir.glob("*.xml"))
+                if mjcfs:
+                    hint["mjcf"] = _disc._to_rel_posix(mjcfs[0], root)
+                out.append(hint)
+                seen_norm.add(norm)
+        out.sort(key=lambda h: h.get("dir_name", ""))
+        return out
 
     def scan_and_merge(self) -> int:
         """Backwards-compatible alias for :meth:`scan_and_merge_assets`.

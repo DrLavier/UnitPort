@@ -41,24 +41,16 @@ _QUAT_NORM_TOL = 1e-3
 
 
 # ---------------------------------------------------------------------------
-# Per-format expected IR roles (Stage 5; extended in Stage 8)
+# Per-format expected IR roles — sourced from motion_ir_mapping (single
+# source of truth). Adding a new clip format = adding an entry in
+# motion_ir_mapping.FORMAT_IR_ROLES; this module re-exposes the mapping
+# for the validator's local lookups.
 # ---------------------------------------------------------------------------
 
-# 12-DoF quadruped, canonical order after AMPLegGymLoader leg-reorder
-# (FR/FL/RR/RL → FL/FR/RL/RR). Contract pinned with
-# ``loader._reorder_quad_legs``.
-_QUADRUPED_AMP_IR_ROLES: List[str] = [
-    "hip_FL", "thigh_FL", "calf_FL",
-    "hip_FR", "thigh_FR", "calf_FR",
-    "hip_RL", "thigh_RL", "calf_RL",
-    "hip_RR", "thigh_RR", "calf_RR",
-]
-
-_FORMAT_IR_ROLES = {
-    "amp_legged_gym": _QUADRUPED_AMP_IR_ROLES,
-    # unitport_npy: no portable IR contract (clip carries env-native
-    # joint order). Validator skips the IR gate for it.
-}
+from application.training.motion_ir_mapping import (
+    FORMAT_IR_ROLES as _FORMAT_IR_ROLES,
+    QUADRUPED_AMP_IR_ROLES as _QUADRUPED_AMP_IR_ROLES,
+)
 
 
 @dataclass(frozen=True)

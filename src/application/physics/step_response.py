@@ -378,7 +378,9 @@ class StepResponseComparison:
     verdict: str   # "pass" / "warn" / "fail"
 
 
-# Default tolerance thresholds.
+# Default tolerance thresholds for the sim2sim PD calibration gate.
+# These are the empirical sim2sim cross-engine consistency budgets the
+# bundle finalizer enforces before writing artifacts.
 DEFAULT_RISE_TIME_RELATIVE_DIFF = 0.15
 DEFAULT_OVERSHOOT_ABSOLUTE_DIFF = 0.05  # = 5 percentage points
 DEFAULT_SS_ERROR_RAD_ABS = 0.005

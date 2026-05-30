@@ -361,12 +361,14 @@ storage:
                 Default base dir: ~/UnitPort (overridable via
                 [Resources].user_config_dir overlay).
 
-    cloud       Reserved for Supabase push tied to the logged-in account.
-                Currently a USER-AUTHORIZED WIP STUB: logs an error
-                ("[Storage.push] WIP: cloud channel ...") and returns False.
-                Wiring callsites against channel="cloud" today is fine; the
-                Supabase transport lands later. Do NOT remove this branch
-                during cleanup passes — it is intentionally stubbed.
+    cloud       Supabase push tied to the logged-in account, wired by
+                dependency inversion: the app registers a transport callable
+                once at bootstrap via Storage.register_cloud_transport(fn)
+                (bridges to CloudSyncService.push_single). push(channel="cloud")
+                routes to it and returns the transport's bool result. When NO
+                transport is registered, the branch RAISES (fail-loud, §8) —
+                it never silently drops data. The SDK stays frozen: it does not
+                import application code; the app injects the transport.
 
     (any other) Logs an error ("unknown channel: ...") and returns False.
 
@@ -746,10 +748,13 @@ gotchas: |
       always sees the latest. The reverse direction (DataManager.update on user.ini
       → Config's overlay parser stale) requires a manual Config.reload().
 
-  - storage_cloud_is_wip:
-      Storage.push(channel="cloud") logs log_error and returns False. This is a
-      USER-AUTHORIZED WIP stub — wiring callsites against it today is fine. Do NOT
-      "clean up" the branch during refactor passes; the Supabase transport lands later.
+  - storage_cloud_transport_is_app_injected:
+      Storage.push(channel="cloud") routes to an app-registered transport
+      (Storage.register_cloud_transport, set once at bootstrap → bridges to
+      CloudSyncService.push_single). With a transport it uploads to the account-
+      bound Supabase prefix and returns its bool. With NO transport it RAISES
+      (fail-loud, §8) — never a silent drop. The SDK does not import application
+      code; this is dependency inversion so the SDK package stays frozen.
 
   - storage_local_under_user_config:
       Storage.push(channel="local") writes under Paths.USER_CONFIG_DIR (default
@@ -1015,8 +1020,13 @@ verify:
       ok = push_data('cache/smoke.json', {'hello':'world'}); \
       print('local ok:', ok); \
       print('exists:', (Paths.USER_CONFIG_DIR / 'cache' / 'smoke.json').exists()); \
-      print('cloud:', push_data('x', 1, channel='cloud'))"
-    # Expected: local ok: True; exists: True; WIP error logged; cloud: False
+      import traceback; \
+      try: push_data('x', 1, channel='cloud'); print('cloud: returned (transport registered)') \
+      except RuntimeError as e: print('cloud raised (no transport):', e)"
+    # Expected: local ok: True; exists: True; standalone has no app-registered
+    # cloud transport, so the cloud push RAISES (fail-loud, never silent-drops).
+    # Inside the running app the transport is registered at bootstrap and the
+    # push uploads to Supabase.
 
   syntax_check: |
     cd D:\Unitport\EXE\RELEASE\src

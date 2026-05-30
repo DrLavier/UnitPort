@@ -627,6 +627,23 @@ class _AssetCard(QWidget):
             "\n".join(lines),
         )
 
+        # After a dump that refreshed BOTH the USD and MJCF body tables, offer
+        # the USD→MJCF inertia calibration (closes the sim2sim base-property gap
+        # for robots whose MJCF carries placeholder inertia, e.g. Spot's trunk).
+        # Gated on both-this-round so calibrate_mjcf_inertia has both
+        # bodies_per_format tables to map across; opt-in via a question dialog
+        # because the USD harvest can take 5–30 s.
+        usd_dumped = (
+            (fmt.upper() == "USD" and primary.ok)
+            or (cascade is not None and cascade.ok and cascade_fmt == "USD")
+        )
+        mjcf_dumped = (
+            (fmt.upper() == "MJCF" and primary.ok)
+            or (cascade is not None and cascade.ok and cascade_fmt == "MJCF")
+        )
+        if usd_dumped and mjcf_dumped:
+            self._offer_inertia_calibration(sku)
+
         # UX-1: every dump (success or cascade-partial) now hands the user
         # the full joint mapping table — what's matched, what's orphan,
         # what's still unmapped, and the cached USD↔MJCF base-height
@@ -640,6 +657,84 @@ class _AssetCard(QWidget):
             # already succeeded and registry is updated. Just log so the
             # next dev sees the issue.
             log_warning(f"[robot_assets] JointMappingDialog open failed: {exc!r}")
+
+    def _offer_inertia_calibration(self, sku: str) -> None:
+        """Offer (opt-in) the USD→MJCF mass/inertia calibration after a dump.
+
+        Runs ``calibrate_mjcf_inertia`` + ``write_overlay`` under a busy cursor
+        when the user accepts. The original MJCF is never modified — a YAML
+        overlay is written under USER_CONFIG_DIR and applied to the in-memory
+        MjModel at MuJoCo load. Fail-loud calibration errors (unauthored USD
+        inertia, frame mismatch) surface in a warning dialog with the directive,
+        rather than producing a half-correct overlay.
+        """
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtWidgets import QApplication
+
+        ans = QMessageBox.question(
+            self,
+            tr("robot_assets.inertia_calib_offer_title",
+               "Calibrate inertia from USD?"),
+            tr("robot_assets.inertia_calib_offer_body",
+               "Compare the training USD's per-body mass / inertia against the "
+               "MuJoCo MJCF and write a non-destructive overlay (the original "
+               "MJCF is never changed). This closes the IsaacLab→MuJoCo sim2sim "
+               "gap for robots whose MJCF ships placeholder inertia. The USD "
+               "harvest may take 5–30 s."),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+
+        result = None
+        rel = ""
+        err: Optional[Exception] = None
+        QApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
+        try:
+            from application.training.validation.usd_mjcf_inertia_calibration import (
+                calibrate_mjcf_inertia,
+                write_overlay,
+            )
+            result = calibrate_mjcf_inertia(sku)
+            rel = write_overlay(result)
+        except Exception as exc:  # noqa: BLE001 — surfaced to the user below
+            err = exc
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if err is not None:
+            log_warning(
+                f"[robot_assets] inertia calibration failed sku={sku!r}: {err!r}"
+            )
+            QMessageBox.warning(
+                self,
+                tr("robot_assets.inertia_calib_error_title",
+                   "Inertia calibration failed"),
+                f"{err}",
+            )
+            return
+
+        lines = [
+            tr("robot_assets.inertia_calib_done",
+               "Inertia overlay {status}: {n} body override(s) written to {rel}.")
+            .format(status=result.status, n=len(result.overrides), rel=rel)
+        ]
+        for ov in result.overrides:
+            lines.append(f"  • {ov.mjcf_body} ({ov.ir_role}): "
+                         f"{', '.join(ov.fields_applied)}")
+        if result.ignored:
+            lines.append(
+                tr("robot_assets.inertia_calib_ignored",
+                   "{n} body(ies) below tolerance — see the overlay's "
+                   "ignored_bodies audit list.").format(n=len(result.ignored))
+            )
+        QMessageBox.information(
+            self,
+            tr("robot_assets.inertia_calib_done_title",
+               "Inertia calibration complete"),
+            "\n".join(lines),
+        )
 
     def _format_success_line(self, fmt: str, result) -> str:
         """Build one human-readable success summary line for a completed dump."""
@@ -1003,8 +1098,38 @@ class RobotAssetsPanel(QWidget):
         return btn
 
     def _on_refresh(self) -> None:
+        """Re-scan canonical roots AND surface unregistered packages.
+
+        Stage 1: ``scan_and_merge_assets`` walks ``custom_mods/models/`` and
+        fills in USD / URDF / XACRO slots on registered SKUs.
+
+        Stage 2: ``scan_unregistered_packages`` walks the same roots looking
+        for directories whose name does NOT resolve to any SKU (canonical
+        or user-layer) AND that contain at least one MJCF/USD/URDF.
+        Each hit is queued into ``_pending_editor_queue`` and the next-tick
+        scheduler kicks open the first editor — same plumbing the menagerie
+        download flow uses (see ``_on_menagerie_download_finished``). Users
+        can dismiss a hit via the "Ignore" button on the editor to suppress
+        it from future Refresh sweeps.
+        """
         n = self._svc.scan_and_merge()
         log_debug(f"[robot_assets] scan_and_merge -> {n} entries")
+        try:
+            hints = self._svc.scan_unregistered_packages()
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[robot_assets] scan_unregistered_packages failed: {exc}")
+            hints = []
+        if not hints:
+            return
+        log_info(
+            f"[robot_assets] refresh detected {len(hints)} unregistered "
+            f"package(s): "
+            f"{', '.join(h.get('dir_name', '?') for h in hints)}"
+        )
+        was_idle = not self._pending_editor_queue
+        self._pending_editor_queue.extend(hints)
+        if was_idle:
+            QTimer.singleShot(0, self._open_next_pending_editor)
 
     def _on_add_robot_new_model(self) -> None:
         dlg = RobotEditorDialog(existing=None, parent=self)
@@ -1145,6 +1270,46 @@ class RobotAssetsPanel(QWidget):
                 mjcf_row._edit.setText(existing_seed["assets"]["MJCF"])
         except Exception as exc:  # noqa: BLE001
             log_warning(f"[robot_assets] menagerie editor prefill failed: {exc}")
+        # "Ignore this package" — only relevant when we have the source
+        # dir_name in the hint (Refresh path adds it; the menagerie download
+        # path doesn't, since you wouldn't want to ignore a just-downloaded
+        # robot). The button writes the dir to state.json's ignore list via
+        # the service, so subsequent Refresh sweeps skip it.
+        dir_name = str(hint.get("dir_name") or "").strip()
+        if dir_name:
+            try:
+                btn_ignore = setButton(
+                    "robot_assets.ignore_package", 100, 26,
+                    kind="border", spec="none",
+                    default=tr("robot_assets.ignore_package", "Ignore"),
+                )
+                i18n_bind(
+                    btn_ignore, "setToolTip",
+                    "robot_assets.ignore_package_tip",
+                    "Skip this directory on future Refresh sweeps",
+                )
+
+                def _on_ignore(_c: bool = False, _name: str = dir_name, _dlg=dlg) -> None:
+                    self._svc.add_ignored_package(_name)
+                    log_info(f"[robot_assets] ignoring future Refresh hits for {_name!r}")
+                    _dlg.reject()
+
+                btn_ignore.clicked.connect(_on_ignore)
+                # The bottom button row of RobotEditorDialog is the last
+                # QHBoxLayout under self.layout(); insert the Ignore button
+                # at index 1 (after the stretch, before Cancel/Save).
+                outer_layout = dlg.layout()
+                btn_row_layout = None
+                for i in range(outer_layout.count()):
+                    sub = outer_layout.itemAt(i)
+                    if sub is not None and sub.layout() is not None:
+                        # Heuristic: the buttons row is the only QHBoxLayout
+                        # at the very bottom of the dialog.
+                        btn_row_layout = sub.layout()
+                if btn_row_layout is not None:
+                    btn_row_layout.insertWidget(1, btn_ignore)
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"[robot_assets] ignore-button install failed: {exc}")
         dlg.finished.connect(lambda _r: QTimer.singleShot(0, self._open_next_pending_editor))
         dlg.show()
 

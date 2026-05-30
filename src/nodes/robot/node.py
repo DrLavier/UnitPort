@@ -101,11 +101,22 @@ class RobotNode(BaseNode):
                 description="按关节组覆盖 (omega_n, zeta)；空 {} = 全用 family 默认 / Per-group overrides; empty = family defaults",
                 meta={"language": "json"},
             ),
-            # effort_limit / velocity_limit intentionally NOT defined here.
-            # The single canvas source of truth is the ActorSetting node
-            # (§4 Actuator overrides); de-duplicated off RobotNode so both
-            # engines read one value. RobotNode owns only (omega_n, zeta)
-            # + the PD-process toggles below.
+            # effort_limit / velocity_limit — actuator torque/velocity caps.
+            # Moved here from ActorSetting (2026-05) so all actuator/PD editing
+            # lives on one node alongside (omega_n, zeta). Hidden params: no
+            # inline row — edited only inside the pd_param_table panel above,
+            # which writes them via the sibling/hidden-param write path. Both
+            # engines (IsaacLab env_cfg + SB3 bundle) read these from RobotNode.
+            ParamSpec(
+                key="effort_limit", type="float", default=30.0,
+                description="扭矩上限 / Effort (torque) limit (N·m)",
+                meta={"hidden": True},
+            ),
+            ParamSpec(
+                key="velocity_limit", type="float", default=30.0,
+                description="速度上限 / Joint velocity limit (rad/s)",
+                meta={"hidden": True},
+            ),
             ParamSpec(
                 key="pd_resolve_at_reset", type="bool", default=True,
                 description="每次 reset 重算 PD / Re-solve gains after each DR reset",

@@ -151,7 +151,7 @@ parser.add_argument("--unitport_warm_start_actor", action="store_true",
                          "and reset the iteration counter to 0. Required when "
                          "seeding an AMP-PPO run from a pure PPO checkpoint.")
 # ── Phase_1 of AMP_design.yaml §3.custom_robot_assets ──
-# When the user wires a RobotAssetNode, the main venv resolves the asset_id
+# When the user wires a RobotAssetNode, the main venv resolves the SKU
 # through application.service.robot_assets and passes the absolute
 # .usd path here. The launcher then (a) overrides env_cfg.scene.robot.spawn
 # .usd_path and (b) runs the deferred USD validation (path b — pxr only
@@ -160,9 +160,19 @@ parser.add_argument("--unitport_robot_usd", type=str, default="",
                     help="Absolute .usd path resolved from a RobotAsset registry "
                          "entry. Overrides env_cfg.scene.robot.spawn.usd_path "
                          "after the env_cfg is constructed.")
-parser.add_argument("--unitport_robot_asset_id", type=str, default="",
-                    help="The asset_id this --unitport_robot_usd was resolved "
-                         "from. Used only for diagnostic logging.")
+parser.add_argument("--unitport_robot_sku", type=str, default="",
+                    help="Canonical robot SKU as produced by "
+                         "registers.robots.build_sku(brand, model). The "
+                         "single identity carried across the subprocess "
+                         "boundary — drives MJCF / USD lookup, RSI joint "
+                         "naming, and diagnostic logging. Empty when the "
+                         "caller has not wired a robot.")
+parser.add_argument("--unitport_robot_family", type=str, default="",
+                    help="Primary family slug (documented "
+                         "registers.families convention: "
+                         "RobotSpec.families[0]). Used by the launcher's "
+                         "downstream alignment / motion-format dispatch. "
+                         "Empty when the caller has not wired a robot.")
 # ── Phase_3 of AMP_design.yaml §4.amp_backend ──
 # AMP_PPO branch selector. When set to "AMP_PPO", the launcher builds
 # an AmpRslRlVecEnvWrapper + AMPOnPolicyRunner pair (imported lazily)
@@ -245,10 +255,12 @@ parser.add_argument("--unitport_amp_policy_std_clamp_max", type=float, default=1
                          "std → ∞ → NaN crash. At action_scale=0.25, "
                          "std=1.5 → 0.375 rad/step joint sample.")
 parser.add_argument("--unitport_amp_obs_fields", type=str, default="",
-                    help="Comma-separated AMP obs term names to override the "
-                         "DEFAULT_QUADRUPED_TERMS hardcode. Each name must "
-                         "be registered in application.training.amp.obs_terms. "
-                         "Empty = use DEFAULT_QUADRUPED_TERMS (quadruped 43-d).")
+                    help="Comma-separated AMP obs term names overriding the "
+                         "family-keyed default from "
+                         "registers.amp_obs_templates. Each name must be "
+                         "registered in application.training.amp.obs_terms. "
+                         "Empty = use the dispatch table entry for the "
+                         "robot's primary family (quadruped: 43-d default).")
 parser.add_argument("--unitport_amp_no_auto_inject_ref_obs", action="store_true",
                     help="Disable auto-injection of reference-clip observations "
                          "into the discriminator input. Defaults to enabled.")
@@ -316,7 +328,7 @@ parser.add_argument("--unitport_joint_names_by_ir", type=str, default="",
 parser.add_argument("--unitport_init_pose_keyframe_name", type=str, default="home",
                     help="MJCF keyframe name (when --unitport_init_pose_mode=keyframe). "
                          "Resolved against the robot asset's MJCF (looked up via "
-                         "--unitport_robot_asset_id). Joint angles from the keyframe's "
+                         "--unitport_robot_sku). Joint angles from the keyframe's "
                          "qpos overwrite env_cfg.scene.robot.init_state.joint_pos.")
 # Post-training eval (from eval_config canvas node)
 parser.add_argument("--unitport_eval_episodes", type=int, default=0,
@@ -634,13 +646,13 @@ def main():
 
     # ── Phase_1: RobotAsset usd override + deferred USD validation ──
     # When --unitport_robot_usd is set, the user wired a RobotAssetNode in
-    # the Canvas. The main venv has already resolved the asset_id through
-    # the registry; we just (a) point the spawner at it and (b) run the
-    # real USD parser now that we're inside the Isaac venv (per
+    # the Canvas. The main venv has already resolved the SKU through the
+    # registry; we just (a) point the spawner at it and (b) run the real
+    # USD parser now that we're inside the Isaac venv (per
     # AMP_design.yaml §7.risks.usd_parser_venv_dependency, path b).
     if args_cli.unitport_robot_usd:
         usd_path = args_cli.unitport_robot_usd
-        asset_id = args_cli.unitport_robot_asset_id or "<unknown>"
+        sku = args_cli.unitport_robot_sku or "<unknown>"
 
         # ── Expand the nucleus: marker (set by discovery._MENAGERIE_USD_URL) ──
         # Marker format: "nucleus:Robots/Unitree/Go2/go2.usd"
@@ -660,7 +672,7 @@ def main():
                       f"{usd_path!r}: {exc}", flush=True)
                 sys.exit(3)
 
-        print(f"[UnitPort] RobotAsset override: asset_id={asset_id} usd={usd_path}",
+        print(f"[UnitPort] RobotAsset override: sku={sku} usd={usd_path}",
               flush=True)
         try:
             # Reach into env_cfg.scene.robot.spawn — the standard ArticulationCfg
@@ -679,7 +691,7 @@ def main():
             )
             try:
                 usd_meta = parse_usd(usd_path)
-                print(f"[UnitPort] USD parse OK: asset_id={asset_id} "
+                print(f"[UnitPort] USD parse OK: sku={sku} "
                       f"dof={usd_meta.dof_count} joints={len(usd_meta.joint_names)}",
                       flush=True)
             except UsdParserUnavailable:
@@ -691,8 +703,8 @@ def main():
             except UsdParseError as exc:
                 # Real parse failure — abort training rather than crash 30s
                 # later inside Kit with an opaque error.
-                print(f"[UnitPort][ABORT] USD validation failed for asset_id="
-                      f"{asset_id}: {exc}", flush=True)
+                print(f"[UnitPort][ABORT] USD validation failed for sku="
+                      f"{sku}: {exc}", flush=True)
                 sys.exit(3)
         except Exception as exc:
             print(f"[UnitPort] WARNING: deferred USD validation hook failed "
@@ -975,7 +987,7 @@ def main():
         else:
             try:
                 import base64, json as _json
-                from application.training.motion.loader import get_loader
+                from application.training.motion.loaders import get_loader
                 from application.training.isaac_lab.reference_state_init import (
                     build_joint_pos_dict, RSIMappingError,
                 )
@@ -1006,7 +1018,17 @@ def main():
                           "derivation (no --unitport_joint_names_by_ir provided)")
 
                 _loader = get_loader("amp_legged_gym")
-                _first_clip = _loader.load(_motion_paths[0])
+                # loader.load returns a ReferenceMotionContract; RSI
+                # seeds env init_state from the wrapped MotionClip's
+                # frame 0. target_sku / target_family are required
+                # keyword-only; both come from the subprocess CLI
+                # (canvas SKU + primary family slug travelled across
+                # via --unitport_robot_sku / --unitport_robot_family).
+                _first_clip = _loader.load(
+                    _motion_paths[0],
+                    target_sku=str(args_cli.unitport_robot_sku),
+                    target_family=str(args_cli.unitport_robot_family),
+                ).clip
 
                 _jp = getattr(_first_clip, "joint_pos", None) if _first_clip else None
                 if _jp is None:
@@ -1048,16 +1070,16 @@ def main():
         # joint names (true for menagerie assets where USD is derived
         # from the same MJCF).
         _kf_name = str(getattr(args_cli, "unitport_init_pose_keyframe_name", "home"))
-        _kf_asset_id = str(getattr(args_cli, "unitport_robot_asset_id", "") or "")
+        _kf_sku = str(args_cli.unitport_robot_sku or "")
         _kf_applied = False
-        if not _kf_asset_id:
-            print("[UnitPort] keyframe init_pose: no robot_asset_id — skipped.")
+        if not _kf_sku:
+            print("[UnitPort] keyframe init_pose: no robot_sku — skipped.")
         else:
             try:
                 import mujoco
                 from application.service.robot_assets import get_robot_asset_service
                 from registers.robots import resolve_id as _resolve_robot_id
-                _sku = _resolve_robot_id(_kf_asset_id) or _kf_asset_id
+                _sku = _resolve_robot_id(_kf_sku) or _kf_sku
                 _asset = get_robot_asset_service().resolve(_sku)
                 _mjcf_path = str(_asset.mjcf_path) if _asset and _asset.mjcf_path else ""
                 if not _mjcf_path or not os.path.isfile(_mjcf_path):
@@ -1197,9 +1219,50 @@ def main():
             except Exception:
                 _label_overrides = {}
 
+        # Resolve the AMP obs term list ONCE here from the robot's primary
+        # family (--unitport_robot_family carries families[0]). The same
+        # list flows into both the motion-data builder (expert side, via
+        # MotionAmpData) and the env-side AMP obs extractor below, so the
+        # discriminator's expert and policy distributions are guaranteed
+        # to share field order. Canvas-side override
+        # (--unitport_amp_obs_fields) wins when non-empty.
+        from registers.amp_obs_templates import get_obs_template
+        _family = str(args_cli.unitport_robot_family or "")
+        if not _family:
+            print(
+                "[UnitPort][ABORT] --unitport_robot_family is empty; "
+                "cannot resolve the AMP obs template / preflight perm. "
+                "Pass the robot family slug (e.g. 'quadruped' for Go2, "
+                "'humanoid' for H1) so registers.amp_obs_templates can "
+                "return the canonical term list.",
+                flush=True,
+            )
+            sys.exit(4)
+        _user_obs_fields = str(getattr(args_cli, "unitport_amp_obs_fields", "") or "").strip()
+        if _user_obs_fields:
+            amp_term_names = [
+                t.strip() for t in _user_obs_fields.split(",") if t.strip()
+            ]
+            print(
+                f"[UnitPort][AMP] obs fields overridden by canvas: {amp_term_names}",
+                flush=True,
+            )
+        else:
+            amp_term_names = list(
+                get_obs_template(_family).template_terms
+            )
+            print(
+                f"[UnitPort][AMP] obs fields resolved from "
+                f"registers.amp_obs_templates[{_family!r}]: {amp_term_names}",
+                flush=True,
+            )
+
         amp_data = build_amp_data_from_files(
             motion_paths,
             transition_dt=float(args_cli.unitport_amp_transition_dt),
+            robot_sku=str(args_cli.unitport_robot_sku),
+            robot_family=str(args_cli.unitport_robot_family),
+            term_names=amp_term_names,
             device=device,
             format_id="amp_legged_gym",
             task_filter=str(getattr(args_cli, "unitport_amp_task_filter", "")),
@@ -1260,17 +1323,14 @@ def main():
         # live at one file and either both producers stay in sync or
         # neither compiles.
         from application.training.amp.obs_terms import (
-            DEFAULT_QUADRUPED_TERMS,
             compute_amp_obs_from_env,
             preflight_canonical_mapping,
         )
 
-        # Canonical 43-dim layout for quadrupeds — these names are
-        # registered in amp_obs_terms.py and consumed by MotionClip
-        # via the same table. Canvas discriminator.amp_obs_fields can
-        # override when the user knows what they're doing (custom robot
-        # morphology, extra terms, etc.); empty falls back to the safe
-        # quadruped default.
+        # amp_term_names was resolved above (single dispatch point for
+        # both motion-data builder and env extractor). Canvas discriminator
+        # .amp_obs_fields can override per-run via --unitport_amp_obs_fields
+        # (handled in the resolution block above).
         # auto_inject_ref_obs is a discriminator-level flag that, when
         # disabled, would skip the auto-injection of reference clip obs
         # into the discriminator's input. The current AMP wrapper already
@@ -1287,27 +1347,15 @@ def main():
                 flush=True,
             )
 
-        _user_obs_fields = str(getattr(args_cli, "unitport_amp_obs_fields", "") or "").strip()
-        if _user_obs_fields:
-            amp_term_names = [
-                t.strip() for t in _user_obs_fields.split(",") if t.strip()
-            ]
-            print(
-                f"[UnitPort][AMP] obs fields overridden by canvas: {amp_term_names}",
-                flush=True,
-            )
-        else:
-            amp_term_names = list(DEFAULT_QUADRUPED_TERMS)
-
         def _amp_obs_extractor(wrapper):
             return compute_amp_obs_from_env(amp_term_names, wrapper)
 
         # Field order alignment (hard-mitigation for amp_obs_dim_drift).
-        # We still run the legacy verify_alignment check: the motion
-        # loader uses the same DEFAULT_QUADRUPED_TERMS list so the
-        # two field tuples are equal by construction, but keeping the
-        # assertion shields against a future refactor that forgets to
-        # thread the term list through.
+        # Both the motion data builder (above) and the env extractor here
+        # consume the same amp_term_names; the two field tuples are equal
+        # by construction. Keeping verify_alignment as a belt-and-braces
+        # check shields against a future refactor that re-introduces two
+        # independent term-list sources.
         clip_fields = list(amp_term_names)
         env_fields = list(amp_term_names)
         try:
@@ -1339,13 +1387,16 @@ def main():
         # captures the asset→canonical mapping in amp_alignment.json for
         # post-mortem.
         try:
-            canonical_mapping = preflight_canonical_mapping(env)
+            canonical_mapping = preflight_canonical_mapping(
+                env, family=_family,
+            )
             dump_alignment_report(
                 log_dir, env_fields, clip_fields, ok=True,
                 canonical_mapping=canonical_mapping,
             )
             print(
                 "[UnitPort] amp_obs canonical mapping resolved: "
+                f"family={canonical_mapping['family']!r} "
                 f"joint_perm={canonical_mapping['canonical_joint_perm']} "
                 f"foot_names={canonical_mapping['canonical_foot_names']}",
                 flush=True,
@@ -1365,26 +1416,30 @@ def main():
         # from AMPConfig (via agent_dict['amp_*']) plus the PPO bits
         # the vendored runner shares with OnPolicyRunner.
         # ── Decode stage schedule if provided ──
+        # H0 contract: the payload is always a serialized
+        # StageScheduleConfig dict (schema_version + stages + ...). Decode
+        # failures and shape mismatches are fail-loud — the previous
+        # silent ``except: stage_schedule_dict = None`` masked corrupt
+        # base64 / JSON as "no schedule wired" and routed to the
+        # single-stage path. The H0 dict guard re-checks schema_version
+        # and per-stage defaults before injection.
         _stage_schedule_dict = None
         if getattr(args_cli, "unitport_stage_schedule", ""):
             import base64 as _b64
-            try:
-                _decoded = _b64.b64decode(
-                    args_cli.unitport_stage_schedule
-                ).decode("utf-8")
-                _stage_schedule_dict = json.loads(_decoded)
-                if not isinstance(_stage_schedule_dict, list):
-                    # Might be a full StageSchedule dict with "stages" key
-                    if isinstance(_stage_schedule_dict, dict):
-                        pass  # keep as-is
-                    else:
-                        _stage_schedule_dict = None
-            except Exception as _e:
-                print(
-                    f"[UnitPort][WARN] Failed to decode --unitport_stage_schedule: {_e}",
-                    flush=True,
+            from application.training.training_spec import (
+                validate_stage_schedule_dict_h0,
+            )
+            _decoded = _b64.b64decode(
+                args_cli.unitport_stage_schedule
+            ).decode("utf-8")
+            _stage_schedule_dict = json.loads(_decoded)
+            if not isinstance(_stage_schedule_dict, dict):
+                raise ValueError(
+                    f"--unitport_stage_schedule decoded payload must be a "
+                    f"dict (serialized StageScheduleConfig), got "
+                    f"{type(_stage_schedule_dict).__name__}."
                 )
-                _stage_schedule_dict = None
+            validate_stage_schedule_dict_h0(_stage_schedule_dict)
 
         amp_runner_cfg = {
             "runner": {
@@ -1440,24 +1495,16 @@ def main():
         }
 
         # ── Inject stage schedule into runner config ──
+        # The decoder above guarantees ``_stage_schedule_dict`` is a dict
+        # (legacy list shape now fail-loud raises). The H0 guard already
+        # confirmed schema_version + per-stage defaults.
         if _stage_schedule_dict is not None:
             _ckpt_strat = getattr(
                 args_cli, "unitport_stage_checkpoint_strategy", "both"
             )
-            if isinstance(_stage_schedule_dict, list):
-                amp_runner_cfg["stage_schedule"] = {
-                    "stages": _stage_schedule_dict,
-                    "checkpoint_strategy": _ckpt_strat,
-                    "global_max_iterations": sum(
-                        int(s.get("iterations", 0))
-                        for s in _stage_schedule_dict
-                        if isinstance(s, dict)
-                    ),
-                }
-            elif isinstance(_stage_schedule_dict, dict):
-                amp_runner_cfg["stage_schedule"] = _stage_schedule_dict
-                if "checkpoint_strategy" not in _stage_schedule_dict:
-                    amp_runner_cfg["stage_schedule"]["checkpoint_strategy"] = _ckpt_strat
+            amp_runner_cfg["stage_schedule"] = _stage_schedule_dict
+            if "checkpoint_strategy" not in _stage_schedule_dict:
+                amp_runner_cfg["stage_schedule"]["checkpoint_strategy"] = _ckpt_strat
 
             # Loud confirmation so the user can verify staged dispatch
             # before the runner starts. Silent schedule loss (e.g. canvas
@@ -1555,7 +1602,6 @@ def main():
         # about; later phases (H1) will extend it with spec_hash, and
         # B6 will read it from the bundle exporter.
         try:
-            from application.training.amp.obs_terms import DEFAULT_QUADRUPED_TERMS
             from application.training.run_meta import (
                 RUN_META_VERSION,
                 write_run_meta,
@@ -1571,7 +1617,7 @@ def main():
                     "num_preload_transitions": int(args_cli.unitport_amp_preload),
                     "transition_dt": float(args_cli.unitport_amp_transition_dt),
                     "num_amp_obs_history": 1,
-                    "amp_obs_terms": list(DEFAULT_QUADRUPED_TERMS),
+                    "amp_obs_terms": list(amp_term_names),
                     "amp_obs_dim": int(amp_data.observation_dim),
                     "dataset_files": [
                         {"path": str(p), "basename": os.path.basename(p)}

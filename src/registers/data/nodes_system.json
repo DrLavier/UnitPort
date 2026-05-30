@@ -35,6 +35,18 @@
       ],
       "parameters": [
         {
+          "key": "init_pose_preset",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "起始姿态 preset / Init pose preset (family-filtered)",
+          "widget": "registry_preset_picker",
+          "meta": {
+            "registry": "init_pose_presets",
+            "family_source": "robot_pipe"
+          }
+        },
+        {
           "key": "init_pos_x",
           "type": "float",
           "default": 0.0,
@@ -167,11 +179,11 @@
           "type": "json",
           "default": "[]",
           "choices": null,
-          "description": "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node)",
+          "description": "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node). WYSIWYG: empty picker = empty ContactSensor (no /Robot/.* fallback); R5 _check_contact_sensor_coverage rejects compile when reward/termination consume contact_forces but picker omits required bodies.",
           "widget": "ir_body_picker",
           "meta": {
             "source": "body",
-            "default_select_all": false,
+            "default_select_all": true,
             "language": "json"
           }
         },
@@ -195,58 +207,6 @@
           "description": "追踪 air time / Track air time",
           "widget": null,
           "meta": null
-        },
-        {
-          "key": "stiffness",
-          "type": "float",
-          "default": 25.0,
-          "choices": null,
-          "description": "刚度 / Joint stiffness (PD P gain)",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 200.0,
-            "step": 1.0
-          }
-        },
-        {
-          "key": "damping",
-          "type": "float",
-          "default": 0.5,
-          "choices": null,
-          "description": "阻尼 / Joint damping (PD D gain)",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 10.0,
-            "step": 0.05
-          }
-        },
-        {
-          "key": "effort_limit",
-          "type": "float",
-          "default": 30.0,
-          "choices": null,
-          "description": "扭矩上限 / Effort (torque) limit",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 200.0,
-            "step": 1.0
-          }
-        },
-        {
-          "key": "velocity_limit",
-          "type": "float",
-          "default": 30.0,
-          "choices": null,
-          "description": "速度上限 / Joint velocity limit",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 100.0,
-            "step": 0.5
-          }
         },
         {
           "key": "action_joint_names_expr",
@@ -1800,7 +1760,13 @@
           ],
           "description": "DR 强度调度 [SB3-only: Isaac Lab Event system 不支持 runtime params mutation；IL 路径下永远满强度]",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            }
+          }
         },
         {
           "key": "rand_schedule_start_step",
@@ -1810,6 +1776,11 @@
           "description": "DR 激活起始全局步 [SB3-only]",
           "widget": "index",
           "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
             "min": 0,
             "max": 1000000000
           }
@@ -1822,6 +1793,11 @@
           "description": "DR 达到满强度的全局步 [SB3-only]",
           "widget": "index",
           "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3"
+            },
             "min": 0,
             "max": 1000000000
           }
@@ -4543,6 +4519,28 @@
           }
         },
         {
+          "key": "effort_limit",
+          "type": "float",
+          "default": 30.0,
+          "choices": null,
+          "description": "扭矩上限 / Effort (torque) limit (N·m)",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        },
+        {
+          "key": "velocity_limit",
+          "type": "float",
+          "default": 30.0,
+          "choices": null,
+          "description": "速度上限 / Joint velocity limit (rad/s)",
+          "widget": null,
+          "meta": {
+            "hidden": true
+          }
+        },
+        {
           "key": "pd_resolve_at_reset",
           "type": "bool",
           "default": true,
@@ -4648,10 +4646,20 @@
           "type": "list",
           "default": "[]",
           "choices": null,
-          "description": "阶段调度 / Stage schedule (Node_StageSwitchEditorWidget)",
+          "description": "阶段调度 / Stage schedule (Node_StageSwitchEditorWidget). Each entry follows the v2 schema in application.training.training_spec.StageEntry: name (str), role ('trainable'|'frozen_teacher'), iterations (int), obs_profile ('default'|'privileged'|'onboard'), init_from (str|null), distill_loss ({enabled, teacher_stage, loss_type}), overrides (dict). H0 only accepts the defaults (role='trainable', obs_profile='default', init_from=null, distill_loss.enabled=false); any other value raises 'reserved for H2 teacher-student stage'.",
           "widget": "stage_editor",
           "meta": {
-            "max_stages": 6
+            "max_stages": 6,
+            "schema_version": 2,
+            "entry_fields": [
+              "name",
+              "role",
+              "iterations",
+              "obs_profile",
+              "init_from",
+              "distill_loss",
+              "overrides"
+            ]
           }
         },
         {
@@ -5158,9 +5166,11 @@
           "type": "string",
           "default": "",
           "choices": null,
-          "description": "gait 预设名",
-          "widget": null,
+          "description": "gait 预设名 / Gait preset (family-filtered)",
+          "widget": "registry_preset_picker",
           "meta": {
+            "registry": "gait_presets",
+            "family_source": "robot_pipe",
             "conditional_on": {
               "key": "gait_enabled",
               "op": "==",
@@ -5260,13 +5270,13 @@
           }
         },
         {
-          "key": "consumer_mode",
+          "key": "consumption_mode",
           "type": "enum",
-          "default": "amp",
+          "default": null,
           "choices": [
-            "tracking",
-            "amp",
-            "both"
+            "amp_discriminator",
+            "tracking_target",
+            "hybrid"
           ],
           "description": "Reference clip 消费模式",
           "widget": null,

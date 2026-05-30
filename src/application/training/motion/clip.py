@@ -211,15 +211,24 @@ class MotionClip:
         n: int,
         dt: float,
         *,
+        term_names: Sequence[str],
         rng: Optional[np.random.Generator] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Sample ``n`` random ``(s_t, s_{t+dt})`` pairs for AMP training.
 
-        Stage 5 contract: validates pre-conditions (payload, dt, duration)
-        and computes the time pairs. The actual obs vector layout is
-        delegated to :meth:`_sample_amp_obs_batch`, which is implemented
-        by Stage 8 once the ``amp_obs_terms`` registry lands. Calling
-        this method on a clip without ``has_amp_payload()`` raises.
+        Validates pre-conditions (payload, dt, duration) and computes the
+        time pairs. The obs vector layout is delegated to
+        :meth:`_sample_amp_obs_batch` which dispatches through the
+        :mod:`application.training.amp.obs_terms` registry. Calling this
+        method on a clip without ``has_amp_payload()`` raises.
+
+        ``term_names`` is keyword-only required — there is no default
+        fallback. The caller (launcher / SB3 entry) is expected to inject
+        the family-keyed AMP obs term list resolved via
+        :func:`registers.amp_obs_templates.get_obs_template`. Refusing to
+        substitute a hardcoded quadruped default catches family/term-list
+        drift at the call boundary instead of deep inside the
+        discriminator loss.
         """
         if not self.has_amp_payload():
             raise MotionClipError(
@@ -238,22 +247,26 @@ class MotionClip:
             rng = np.random.default_rng()
         max_t = self.duration_s - dt
         times = rng.uniform(0.0, max_t, size=n)
-        obs_t = self._sample_amp_obs_batch(times)
-        obs_tp1 = self._sample_amp_obs_batch(times + dt)
+        obs_t = self._sample_amp_obs_batch(times, term_names=term_names)
+        obs_tp1 = self._sample_amp_obs_batch(times + dt, term_names=term_names)
         return obs_t, obs_tp1
 
     def _sample_amp_obs_batch(
         self,
         times: np.ndarray,
-        term_names: Optional[Sequence[str]] = None,
+        *,
+        term_names: Sequence[str],
     ) -> np.ndarray:
         """Vectorised AMP observation lookup for *N* times.
 
-        Stage 8 wired this to dispatch through the
-        :mod:`application.training.amp.obs_terms` registry. Default
-        layout = ``DEFAULT_QUADRUPED_TERMS`` (43-dim
-        ``joint_pos|toe_pos|lin_vel|ang_vel|joint_vel|root_z`` for
-        a 12-DoF quadruped).
+        Dispatches through the :mod:`application.training.amp.obs_terms`
+        registry. ``term_names`` is the ordered list of obs term names
+        the consumer requires; it is keyword-only required (no hardcoded
+        ``DEFAULT_QUADRUPED_TERMS`` fallback). The launcher resolves it
+        once via :func:`registers.amp_obs_templates.get_obs_template`
+        keyed on the robot's primary family and threads the same list
+        through both the motion-side path here and the env-side
+        :func:`application.training.amp.obs_terms.compute_amp_obs_from_env`.
         """
         times = np.asarray(times, dtype=np.float64)
         # Loop-mode wrapping is MotionClip's responsibility — the registry
@@ -267,16 +280,22 @@ class MotionClip:
         # Lazy import — keeps motion/clip.py importable without the AMP
         # subpackage's torch dependency.
         from application.training.amp.obs_terms import (
-            DEFAULT_QUADRUPED_TERMS,
             compute_amp_obs_from_motion,
         )
 
-        names = list(term_names) if term_names is not None else DEFAULT_QUADRUPED_TERMS
-        return compute_amp_obs_from_motion(names, self, times)
+        return compute_amp_obs_from_motion(list(term_names), self, times)
 
-    def _amp_obs_at(self, t: float) -> np.ndarray:
-        """Single-time AMP observation — Stage 8 deferred (see above)."""
-        return self._sample_amp_obs_batch(np.asarray([t], dtype=np.float64))[0]
+    def _amp_obs_at(
+        self,
+        t: float,
+        *,
+        term_names: Sequence[str],
+    ) -> np.ndarray:
+        """Single-time AMP observation. ``term_names`` is keyword-only
+        required and forwarded to :meth:`_sample_amp_obs_batch`."""
+        return self._sample_amp_obs_batch(
+            np.asarray([t], dtype=np.float64), term_names=term_names,
+        )[0]
 
 
 # ---------------------------------------------------------------------------

@@ -121,15 +121,14 @@ class ActorSettingNode(BaseNode):
                       meta={"min": 1, "max": 64}),
             ParamSpec(key="contact_track_air_time", type="bool", default=True,
                       description="追踪 air time / Track air time"),
-            # §4 Actuator overrides
-            ParamSpec(key="stiffness", type="float", default=25.0,
-                      description="刚度 / Joint stiffness (PD P gain)"),
-            ParamSpec(key="damping", type="float", default=0.5,
-                      description="阻尼 / Joint damping (PD D gain)"),
-            ParamSpec(key="effort_limit", type="float", default=30.0,
-                      description="扭矩上限 / Effort (torque) limit"),
-            ParamSpec(key="velocity_limit", type="float", default=30.0,
-                      description="速度上限 / Joint velocity limit"),
+            # §4 Actuator overrides — MOVED to RobotNode (2026-05).
+            # stiffness/damping were dead for IsaacLab (gains derive from the
+            # RobotNode (omega_n, zeta) + mass-weighted solver, §10) and only
+            # the SB3-on-MuJoCo legacy path read the raw scalars. Both engines
+            # now source PD from (omega_n, zeta); effort_limit / velocity_limit
+            # live on the RobotNode (hidden params edited via its pd_param_table
+            # panel). Existing canvases are migrated by
+            # bootstrap/migrate_canvas_actuator_to_robot.py.
             # §5 Action space
             # Empty list ``[]`` = "all joints" (matches spec_validator
             # _check_action_joints, which skips the check when expr is

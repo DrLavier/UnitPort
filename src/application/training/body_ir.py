@@ -274,24 +274,49 @@ _RIGHT_TOKENS: FrozenSet[str] = frozenset({"right"})
 AUTO_FROM_ASSET_CATEGORIES: FrozenSet[str] = frozenset({"base", "feet", "pelvis"})
 
 # Semantic alias table for ``BodyIRMapper.get_category_bodies``. When a
-# requested category has zero direct hits on the bound robot, fall back
-# to the listed IR role ids in declaration order. Each entry is a
-# deliberate cross-family equivalence — kept SMALL and EXPLICIT.
+# requested category has zero direct hits on the bound robot, walk the
+# listed IR role ids in declaration order, collecting EVERY non-None
+# body. Each entry is a deliberate cross-family equivalence — kept SMALL
+# and EXPLICIT.
 #
 # Why this exists: presets in ``task_module_registry`` template body
 # regex via ``{ir:feet}`` (the rewards-oriented "ground contact" body
-# set). Biped morphologies have NO ``feet`` category in the IR catalog
-# (the lower limb ends at ankle_roll, which IS the foot end-effector),
-# so a direct lookup returns []. Without this fallback, every IL
-# locomotion preset emits ``(UNRESOLVED:feet)`` and IsaacLab dies at
-# sensor regex resolve time. Quadrupeds keep their direct ``feet`` hit
-# (the table only fires on empty direct result), so this is a zero-impact
-# addition for existing morphologies.
+# set). Bipeds / humanoids encode the ground-contact link in any one of
+# three IR role patterns depending on how many DOFs the ankle has:
+#
+#   * ``foot_L/R``                              — explicit foot rigid
+#                                                  body (rare; some BD-
+#                                                  authored humanoids).
+#   * ``ankle_pitch_L/R`` + ``ankle_roll_L/R``  — two-DOF ankle, the
+#                                                  roll axis is the leaf
+#                                                  → ankle_roll body IS
+#                                                  the contact surface
+#                                                  (Unitree G1, H1-2,
+#                                                  Booster T1).
+#   * ``ankle_L/R`` (single DOF)                — one-DOF aggregate; the
+#                                                  ankle body IS the
+#                                                  foot end-effector
+#                                                  (Unitree H1).
+#
+# The fallback walks them in PREFERENCE order (foot first if mapped,
+# else ankle_roll, else single-DOF ankle). ``get_category_bodies`` ORs
+# the results so a robot that mixes — e.g. one leg with split axes and
+# one with aggregate — still resolves both feet. Quadrupeds keep their
+# direct ``feet`` hit (the table only fires on empty direct result), so
+# this is a zero-impact addition for existing morphologies.
 #
 # DO NOT add hierarchy here — this is alias resolution, not inheritance.
 _CATEGORY_FAMILY_FALLBACK: Dict[Tuple[str, str], Tuple[str, ...]] = {
-    ("biped",    "feet"): ("ankle_roll_L", "ankle_roll_R"),
-    ("humanoid", "feet"): ("ankle_roll_L", "ankle_roll_R"),
+    ("biped",    "feet"): (
+        "foot_L", "foot_R",
+        "ankle_roll_L", "ankle_roll_R",
+        "ankle_L", "ankle_R",
+    ),
+    ("humanoid", "feet"): (
+        "foot_L", "foot_R",
+        "ankle_roll_L", "ankle_roll_R",
+        "ankle_L", "ankle_R",
+    ),
     # Add wheeled / manipulator / other families here when their reward
     # presets start referencing categories the IR catalog doesn't expose.
 }
@@ -637,6 +662,18 @@ class BodyIRMapper:
         # on this robot" can query directly (collision filtering, debug
         # visualisation, etc.).
         self._silent_bodies: Set[str] = set()
+        # Subset of ``_silent_bodies`` whose silent-bucket placement came
+        # from a deliberate USER pick (canvas Body Mapping table → AUTO
+        # picked a real role, user then reassigned to misc/sensor*). Auto
+        # placements from the registry / tokeniser only live in
+        # ``_silent_bodies``. The dict's value is the role_id the user
+        # picked (``misc`` or a specific ``sensor_*``), so
+        # :func:`extract_user_overrides` can round-trip it through
+        # state.json without losing which bucket was chosen. This is the
+        # storage that makes the user's misc / sensor_imu / sensor_lidar
+        # picks survive a reload (rule §11: persist what the user did,
+        # not just what auto-detection produced).
+        self._manual_silent_assignments: Dict[str, str] = {}
 
     # ── Factory methods ───────────────────────────────────────────────
 
@@ -840,20 +877,21 @@ class BodyIRMapper:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "BodyIRMapper":
+        # Use the authoritative body name list straight from the asset
+        # registry (factory_build USD layer for standard SKUs / user
+        # overlay for user-private SKUs). The previous calf→foot string
+        # substitution was a §1.8 time bomb — it manufactured a fake
+        # ``*_foot`` body name when the body list only declared calves,
+        # which happened to match Nucleus-shipped quadruped USDs (FL_foot
+        # exists there) but would silently produce un-mapped IR roles
+        # the moment a USD renamed the foot prim (e.g. ``FL_foot_link``).
+        # Now that the auto-dump trigger writes the real USD body table
+        # to factory_build before this code runs, the asset's body list
+        # is already complete — no need to invent names. See
+        # CLAUDE.md §1.8 + Step 9 PV report (Path B caller is single,
+        # ``training_config_card._refresh_body_mapping_from_param``).
         body_names = list(d.get("body_names", []))
         family = str(d.get("family") or "quadruped")
-
-        has_feet_hint = any(
-            ("foot" in bn.lower() or "toe" in bn.lower() or "ankle" in bn.lower())
-            for bn in body_names
-        )
-        if not has_feet_hint:
-            for bn in list(body_names):
-                ln = joint_name_to_link_name(bn)
-                if "calf" in ln.lower() or "shank" in ln.lower():
-                    cand = re.sub(r"(?i)calf|shank", "foot", ln)
-                    if cand != ln and cand not in body_names:
-                        body_names.append(cand)
 
         mapper = cls(body_names, family=family)
         for oos in d.get("out_of_scope_bodies", []) or []:
@@ -996,6 +1034,13 @@ class BodyIRMapper:
                       new_role_id: Optional[str]) -> None:
         if not body_link:
             return
+        # Strip any prior placement before re-classifying. This includes the
+        # silent-bodies bucket AND its manual-pick subset — without it, a
+        # body that was previously ``misc`` and is now being given a real
+        # limb role would stay double-counted (in silent + in a slot), and a
+        # body previously manually assigned to misc would still appear in
+        # ``_manual_silent_assignments`` after being re-pointed elsewhere,
+        # which would round-trip wrong through state.json.
         for r in self._roles:
             if r.body == body_link:
                 r.body = None
@@ -1003,9 +1048,31 @@ class BodyIRMapper:
                 r.auto_from_asset = False
         self._unmark_unmapped(body_link)
         self._out_of_scope.discard(body_link)
+        self._silent_bodies.discard(body_link)
+        self._manual_silent_assignments.pop(body_link, None)
 
         if not new_role_id:
             self._mark_unmapped(body_link)
+            return
+
+        # Non-unique IR roles (``misc``, ``sensor`` / ``sensor_*``) legitimately
+        # repeat across many bodies on one robot. The slot model in
+        # ``_by_id`` allocates exactly one body per role_id — sending these
+        # roles through the slot path would steal the slot from the previous
+        # body that picked the same bucket, surfacing it as "unmapped" even
+        # though the user explicitly wanted both in the bucket. Send them to
+        # ``_silent_bodies`` instead — the same place initial-load classifies
+        # registry-declared misc/sensor* bodies. Record the role_id in
+        # ``_manual_silent_assignments`` so :func:`extract_user_overrides`
+        # can round-trip the bucket choice (misc vs. specific sensor_*)
+        # through state.json. See [[actuated-joint-filter]] for the
+        # parallel rule on the joint side (predicate based, not slot based).
+        from application.service.robot_assets.discovery_subprocess import (
+            _is_non_unique_role,
+        )
+        if _is_non_unique_role(new_role_id):
+            self._silent_bodies.add(body_link)
+            self._manual_silent_assignments[body_link] = str(new_role_id)
             return
 
         role = self._by_id.get(new_role_id)
@@ -1023,12 +1090,18 @@ class BodyIRMapper:
     def mark_out_of_scope(self, body_link: str) -> None:
         if not body_link:
             return
+        # OOS is the strongest "do nothing with this body" verdict — strip
+        # it from every other tracking structure so we never end up with a
+        # body in both ``_out_of_scope`` and ``_silent_bodies`` (which
+        # downstream consumers would interpret inconsistently).
         for r in self._roles:
             if r.body == body_link:
                 r.body = None
                 r.manual = False
                 r.auto_from_asset = False
         self._unmark_unmapped(body_link)
+        self._silent_bodies.discard(body_link)
+        self._manual_silent_assignments.pop(body_link, None)
         self._out_of_scope.add(body_link)
 
     def clear_out_of_scope(self, body_link: str) -> None:
@@ -1141,26 +1214,58 @@ class BodyIRMapper:
 # ═══════════════════════════════════════════════════════════════════════
 
 def extract_user_overrides(mapper: BodyIRMapper) -> Dict[str, Any]:
-    """Capture only the deliberate edits the user made on top of auto-detection."""
+    """Capture only the deliberate edits the user made on top of auto-detection.
+
+    Three independent classes of user override are persisted, each into its
+    own state.json key (the schema is stable; legacy entries without
+    ``manual_silent`` load clean):
+
+    * ``manual_roles`` — body assigned to a 1:1 IR limb slot (``thigh_FL`` /
+      ``hip_FR`` / …). Shape ``{role_id: body}`` — exactly one body per id.
+    * ``out_of_scope`` — body parked, never trains. Shape ``[body, …]``.
+    * ``manual_silent`` — body assigned to a many-allowed bucket (``misc`` /
+      ``sensor_*``). Shape ``{body: role_id}`` — many bodies per id allowed.
+      This branch fixes the misc-stomp bug: previously a user picking
+      ``misc`` on body B would steal the single misc slot from body A
+      because the slot model is 1:1; the silent-bodies bucket has no slot
+      contention. The role_id is preserved so a body picked as
+      ``sensor_imu`` doesn't get round-tripped as plain ``sensor`` (which
+      would lose its sensor-type after the next reload).
+    """
     manual_roles = {
         r.role_id: r.body
         for r in mapper.roles
         if r.manual and r.body is not None
     }
     out_of_scope = list(mapper.out_of_scope_bodies())
-    if not manual_roles and not out_of_scope:
+    manual_silent = dict(mapper._manual_silent_assignments)
+    if not manual_roles and not out_of_scope and not manual_silent:
         return {}
     payload: Dict[str, Any] = {}
     if manual_roles:
         payload["manual_roles"] = manual_roles
     if out_of_scope:
         payload["out_of_scope"] = out_of_scope
+    if manual_silent:
+        payload["manual_silent"] = manual_silent
     return payload
 
 
 def apply_user_overrides(mapper: BodyIRMapper,
                          overrides: Optional[Dict[str, Any]]) -> None:
-    """Replay :func:`extract_user_overrides` output onto a fresh mapper."""
+    """Replay :func:`extract_user_overrides` output onto a fresh mapper.
+
+    Replay order matches the conceptual precedence:
+      1. ``out_of_scope`` — strongest verdict; body never trains.
+      2. ``manual_silent`` — body sits in misc / sensor_* bucket.
+      3. ``manual_roles`` — body claims a 1:1 limb slot.
+
+    Each operation strips prior state for that body first
+    (:meth:`BodyIRMapper.reassign_role` / :meth:`mark_out_of_scope`),
+    so the only way the same body would appear in two of these dicts is
+    a corrupt state.json — in that case the later-replayed dict wins,
+    matching the order above.
+    """
     if not overrides:
         return
     valid_bodies = set()
@@ -1171,6 +1276,12 @@ def apply_user_overrides(mapper: BodyIRMapper,
     for body in (overrides.get("out_of_scope") or []):
         if body in valid_bodies:
             mapper.mark_out_of_scope(str(body))
+
+    manual_silent = overrides.get("manual_silent") or {}
+    if isinstance(manual_silent, dict):
+        for body, role_id in manual_silent.items():
+            if body and body in valid_bodies and role_id:
+                mapper.reassign_role(str(body), str(role_id))
 
     manual_roles = overrides.get("manual_roles") or {}
     if isinstance(manual_roles, dict):

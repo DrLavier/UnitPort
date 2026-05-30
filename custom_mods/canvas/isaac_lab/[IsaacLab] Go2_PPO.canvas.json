@@ -996,9 +996,9 @@
           "value": "0.15",
           "param_type": "float"
         },
-        "consumer_mode": {
-          "name": "consumer_mode",
-          "value": "tracking",
+        "consumption_mode": {
+          "name": "consumption_mode",
+          "value": "tracking_target",
           "param_type": "enum"
         },
         "phase_mode": {
@@ -1177,7 +1177,7 @@
         },
         "contact_body_names": {
           "name": "contact_body_names",
-          "value": "[]",
+          "value": "[\"base\", \"hip_FL\", \"hip_FR\", \"hip_RL\", \"hip_RR\", \"thigh_FL\", \"thigh_FR\", \"thigh_RL\", \"thigh_RR\", \"calf_FL\", \"calf_FR\", \"calf_RL\", \"calf_RR\", \"foot_FL\", \"foot_FR\", \"foot_RL\", \"foot_RR\"]",
           "param_type": "json"
         },
         "contact_history_length": {

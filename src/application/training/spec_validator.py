@@ -59,10 +59,15 @@ class IssueCode(Enum):
     INVALID_PARAM_TYPE = "invalid_param_type"
     UNRESOLVED_ROBOT_ASSET = "unresolved_robot_asset"
     INVALID_MOTION_CLIP = "invalid_motion_clip"
+    MISSING_CONSUMPTION_MODE = "missing_consumption_mode"
+    INVALID_CONSUMPTION_MODE = "invalid_consumption_mode"
     NON_IR_JOINT_NAME = "non_ir_joint_name"
     INVALID_COMMAND_TEMPLATE = "invalid_command_template"
     REWARD_TERM_CONFLICT = "reward_term_conflict"
     BASE_ASSET_UNRESOLVED = "base_asset_unresolved"
+    STAGE_SCHEDULE_RESERVED_FOR_H2 = "stage_schedule_reserved_for_h2"
+    CONTACT_SENSOR_COVERAGE_INSUFFICIENT = "contact_sensor_coverage_insufficient"
+    CONTACT_SENSOR_BODY_DATA_MISSING = "contact_sensor_body_data_missing"
     GENERIC = "generic"
 
 
@@ -258,6 +263,7 @@ def check_topology(ir: "WorkflowIR") -> List[ValidationIssue]:
     issues.extend(_check_reward_term_conflicts(ir))
     issues.extend(_check_base_asset_resolvable(ir))
     issues.extend(_check_legacy_dr_fields(ir))  # R_DR1 — Stage H migration
+    issues.extend(_check_contact_sensor_coverage(ir))  # R_CONTACT1 — WYSIWYG sensor coverage
     return issues
 
 
@@ -489,7 +495,43 @@ def check_spec(spec: "TrainingSpec") -> List[ValidationIssue]:
     issues.extend(_check_sb3_termination_kinds(spec))
     issues.extend(_check_per_item_reward_scale(spec))  # R_REWARD_SCALE
     issues.extend(_check_pd_param(spec))             # R_PD1..R_PD4 — sim2sim PD
+    issues.extend(_check_stage_schedule(spec))       # R_STAGE_H0 — H0 default lock
     return issues
+
+
+def _check_stage_schedule(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """R_STAGE_H0 — stage_schedule H0 default lock + schema_version contract.
+
+    Delegates to :func:`training_spec.validate_stage_schedule_dict_h0`,
+    which fail-loud raises with the three-part directive. Any raise
+    converts to a single ``STAGE_SCHEDULE_RESERVED_FOR_H2`` issue so
+    validation surfaces it uniformly alongside other R-rules.
+
+    The dataclass populated by :func:`spec_compiler._populate_stage_schedule`
+    always carries ``schema_version=STAGE_SCHEDULE_SCHEMA_VERSION`` and
+    the populate-time helper already runs :func:`validate_stage_entry_h0`
+    on each raw canvas entry; this check is the defensive in-memory
+    second gate (after mutation through code paths that bypass populate).
+    """
+    from dataclasses import asdict
+    from application.training.training_spec import (
+        validate_stage_schedule_dict_h0,
+    )
+
+    out: List[ValidationIssue] = []
+    sched = getattr(spec, "stage_schedule", None)
+    if sched is None:
+        return out
+    try:
+        validate_stage_schedule_dict_h0(asdict(sched))
+    except ValueError as exc:
+        out.append(ValidationIssue(
+            code=IssueCode.STAGE_SCHEDULE_RESERVED_FOR_H2,
+            severity=Severity.ERROR,
+            field="stage_schedule",
+            message=str(exc),
+        ))
+    return out
 
 
 def _check_legacy_dr_fields(ir: "WorkflowIR") -> List[ValidationIssue]:
@@ -542,6 +584,309 @@ def _check_legacy_dr_fields(ir: "WorkflowIR") -> List[ValidationIssue]:
     return out
 
 
+# Contact-sensor consumer enumeration. Keep this table aligned with
+# scripts/rewards/isaac_lab/*.py il_params templates and the
+# illegal_contact emit branch in
+# isaac_lab/env_cfg_compiler.py (_terminations_cfg). New reward /
+# termination that consumes contact_forces MUST be added here so the
+# R_CONTACT1 coverage check stays exhaustive — otherwise the consumer
+# starts at runtime against a sensor that may not cover its bodies.
+#
+# Format: {reward_key | termination_key: list of IR category names}
+# illegal_contact is family-aware and handled inline (the categories
+# resolve different role sets per family).
+_CONTACT_REWARD_CATEGORIES: Dict[str, Tuple[str, ...]] = {
+    "feet_air_time": ("feet",),
+    "feet_slide": ("feet",),
+    "gait": ("feet",),
+    "track_gait_phase": ("feet",),
+    "undesired_contacts": ("thighs", "hips", "base"),
+}
+
+
+def _illegal_contact_categories_for_families(families: Iterable[str]) -> Tuple[str, ...]:
+    """Mirror env_cfg_compiler._terminations_cfg's family-aware illegal_contact
+    IR category list (the body regex emit picks the same set)."""
+    fam_set = set(families or [])
+    if fam_set & {"biped", "humanoid"}:
+        return ("base", "torso", "pelvis", "waist", "shoulders")
+    if fam_set & {"quadruped", "wheeled"}:
+        return ("base", "thighs", "calves")
+    return ("base",)
+
+
+def _check_contact_sensor_coverage(ir: "WorkflowIR") -> List[ValidationIssue]:
+    """R_CONTACT1 — WYSIWYG sensor coverage ⊆ check.
+
+    actor_setting.contact_body_names is the IR-role list the user picked
+    in the ir_body_picker; env_cfg_compiler emits ContactSensorCfg's
+    prim_path purely from those roles (no /Robot/.* fallback). Reward /
+    termination nodes that consume the ``contact_forces`` sensor each
+    declare a body subset via IR templates (``{ir:feet}`` /
+    ``{ir:thighs_hips_base}``) or, for illegal_contact, a family-aware
+    category set hardcoded in the compiler. The sensor's covered body
+    set MUST be a superset of every consumer's required body set —
+    otherwise the consumer reads an empty buffer at runtime and the
+    training silently flat-lines (zero contact reward, no termination
+    on body-slam, etc.) — the §1.8 silent-fallback failure mode this
+    check forbids.
+
+    Surfaces at canvas-time as
+    ``CONTACT_SENSOR_COVERAGE_INSUFFICIENT`` with the three-part
+    directive (which consumer needs which bodies + what the picker
+    is missing + which IR roles to add).
+    """
+    out: List[ValidationIssue] = []
+    by_id = {n.schema_id: n for n in ir.nodes}
+
+    actor_node = by_id.get("actor_setting")
+    if actor_node is None:
+        return out
+
+    # Picker contents — IR roles list (post user commit).
+    import json as _json
+
+    def _get_param_value(node, key, fallback=""):
+        p = node.params.get(key) if hasattr(node.params, "get") else None
+        if p is None:
+            return fallback
+        return getattr(p, "value", fallback)
+
+    raw_cbn = _get_param_value(actor_node, "contact_body_names", "[]")
+    try:
+        picker_roles = _json.loads(raw_cbn) if isinstance(raw_cbn, str) else list(raw_cbn)
+    except (ValueError, TypeError):
+        picker_roles = []
+    if not isinstance(picker_roles, list):
+        picker_roles = []
+    picker_role_set = {str(r) for r in picker_roles}
+
+    # Robot SKU → families → BodyIRMapper for IR-role → body resolution.
+    robot_node = by_id.get("robot")
+    if robot_node is None:
+        return out
+    asset_id_raw = _get_param_value(robot_node, "asset_id", "")
+    asset_id = str(asset_id_raw or "").strip()
+    if not asset_id:
+        return out
+    try:
+        from registers.robots import resolve_id as _resolve_robot_id
+        sku = _resolve_robot_id(asset_id) or asset_id
+    except Exception:
+        return out
+
+    # Construct BodyIRMapper directly from the registry's per-format
+    # body table (avoids the RobotAssetService dependency so this check
+    # works in headless / pre-startup contexts too — e.g. unit tests).
+    try:
+        from registers.robots import get_robot
+        entry = get_robot(sku)
+    except Exception:
+        return out
+    if not entry:
+        return out
+    bodies_per_format = entry.get("bodies_per_format", {}) or {}
+    fmt = None
+    for candidate in ("USD", "MJCF", "URDF"):
+        block = bodies_per_format.get(candidate)
+        if isinstance(block, dict) and block:
+            fmt = candidate
+            break
+    if fmt is None:
+        # §8 fail-loud: the SKU has no body data in ANY format across the
+        # three-layer merge (SDK ship < factory_build < user overlay).
+        # Without it the ⊆ check cannot enumerate consumer needs, so a
+        # silent return would let the canvas compile with the
+        # ContactSensorCfg pointing at picker-empty roles and produce a
+        # working-looking-but-flat-lined run (the §1.8 failure mode this
+        # whole check exists to prevent).
+        #
+        # This usually means the IsaacLab auto-dump trigger has not yet
+        # populated FACTORY_BUILD_DIR/robots_factory_build.json. The fix
+        # path depends on which IsaacLab the user has:
+        #   * Local install:  launch the app once with IsaacLab registered
+        #                     and the data_load stage will dump every
+        #                     canonical SKU automatically (~5-30s per SKU).
+        #   * Cloud install:  the cloud-dump pathway is pending; install a
+        #                     local IsaacLab to bootstrap, or wait.
+        #   * No IsaacLab:    install one — the contact-sensor consumers
+        #                     in this canvas need USD body topology to
+        #                     wire reliably.
+        out.append(ValidationIssue(
+            code=IssueCode.CONTACT_SENSOR_BODY_DATA_MISSING,
+            severity=Severity.ERROR,
+            node_id=robot_node.id,
+            field="asset_id",
+            message=(
+                f"Robot {asset_id!r} (sku={sku}) has no body data across "
+                f"MJCF / USD / URDF after merging SDK ship + factory_build "
+                f"+ user overlay. The contact-sensor ⊆ check cannot run, "
+                f"and the ContactSensorCfg would silently equip an empty "
+                f"body set (§1.8 silent-fallback ban).\n\n"
+                f"Fix path:\n"
+                f"  1. If you have a local IsaacLab installation, restart "
+                f"the app — the data_load stage auto-dumps every standard "
+                f"SKU's USD body table on launch (5-30s per SKU). The "
+                f"dump lands in FACTORY_BUILD_DIR (not USER_CONFIG_DIR) "
+                f"so it is shared across all users on this install.\n"
+                f"  2. If you have only cloud IsaacLab, install a local "
+                f"copy (Settings → Engines) — the cloud-dump RPC is "
+                f"pending in this build.\n"
+                f"  3. If you have no IsaacLab at all, install one — "
+                f"this canvas's contact-sensor consumers (rewards / "
+                f"terminations) need USD body topology to wire.\n\n"
+                f"Once the dump completes, re-open this canvas; the ⊆ "
+                f"check will run against the freshly populated data."
+            ),
+        ))
+        return out
+    body_block = bodies_per_format[fmt]
+    body_names: List[str] = []
+    roles_dict: Dict[str, Any] = {}
+    for entry_val in body_block.values():
+        if not isinstance(entry_val, dict):
+            continue
+        bn = str(entry_val.get("name", "") or "")
+        rid = str(entry_val.get("ir_role", "") or "")
+        if not bn:
+            continue
+        body_names.append(bn)
+        if rid:
+            roles_dict[rid] = {"body": bn}
+    families = list(entry.get("families", []) or [])
+    family = families[0] if families else "quadruped"
+
+    # Construct the mapper without ``from_dict``'s legacy foot-auto-inject
+    # path (that path appends a fake ``*_foot`` body name when the asset
+    # only declares calves, intended to bridge old MJCF dumps — but for
+    # ⊆ check it would invent IR roles the picker provably cannot select,
+    # turning a true coverage hole into a spurious one).
+    try:
+        from application.training.body_ir import BodyIRMapper
+        mapper = BodyIRMapper(body_names, family=family)
+        mapper._build_roles_from_bodies()  # type: ignore[attr-defined]
+        for rid, info in roles_dict.items():
+            body = info.get("body")
+            if not body:
+                continue
+            slot = mapper._by_id.get(rid)  # type: ignore[attr-defined]
+            if slot is not None:
+                slot.body = body
+                slot.auto_from_asset = True
+    except Exception:
+        return out
+
+    # Enumerate enabled contact consumers across reward / termination
+    # nodes. Consumer set is fully knowable at canvas-time (no dynamic
+    # body needs — PV穷举确认 5 reward + 1 termination 全可静态枚举).
+    consumer_needs: Dict[str, set] = {}  # consumer_label → required IR roles
+
+    for node in ir.nodes:
+        if node.schema_id == "rewards":
+            terms_raw = _get_param_value(node, "reward_terms", {})
+            if isinstance(terms_raw, str):
+                try:
+                    terms_raw = _json.loads(terms_raw)
+                except (ValueError, TypeError):
+                    terms_raw = {}
+            if not isinstance(terms_raw, dict):
+                continue
+            for term_key, term_val in terms_raw.items():
+                if term_key not in _CONTACT_REWARD_CATEGORIES:
+                    continue
+                # Treat missing or non-numeric weight as "enabled" (the
+                # registry-backed editor stores raw payloads where the
+                # weight key is sometimes nested in a dict).
+                weight = (
+                    term_val.get("weight")
+                    if isinstance(term_val, dict)
+                    else term_val
+                )
+                try:
+                    if weight is not None and float(weight) == 0.0:
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                categories = _CONTACT_REWARD_CATEGORIES[term_key]
+                needed: set = set()
+                for cat in categories:
+                    for body in mapper.get_category_bodies(cat):
+                        for role in mapper.roles:
+                            if role.body == body and role.role_id:
+                                needed.add(role.role_id)
+                                break
+                if needed:
+                    consumer_needs.setdefault(
+                        f"rewards.{term_key}", set()
+                    ).update(needed)
+        elif node.schema_id == "terminations":
+            terms_raw = _get_param_value(node, "termination_conditions", {})
+            if isinstance(terms_raw, str):
+                try:
+                    terms_raw = _json.loads(terms_raw)
+                except (ValueError, TypeError):
+                    terms_raw = {}
+            if not isinstance(terms_raw, dict) or "illegal_contact" not in terms_raw:
+                continue
+            categories = _illegal_contact_categories_for_families(families)
+            needed = set()
+            for cat in categories:
+                for body in mapper.get_category_bodies(cat):
+                    for role in mapper.roles:
+                        if role.body == body and role.role_id:
+                            needed.add(role.role_id)
+                            break
+            if needed:
+                consumer_needs.setdefault(
+                    "terminations.illegal_contact", set()
+                ).update(needed)
+
+    if not consumer_needs:
+        return out
+
+    # ⊆ check: every consumer's needed IR roles must be picker-selected.
+    missing_per_consumer: Dict[str, List[str]] = {}
+    for consumer, needed in consumer_needs.items():
+        missing = sorted(needed - picker_role_set)
+        if missing:
+            missing_per_consumer[consumer] = missing
+
+    if not missing_per_consumer:
+        return out
+
+    # Compose the three-part directive message.
+    lines = [
+        "actor_setting.contact_body_names does not cover every body "
+        "required by the canvas's contact-sensor consumers. The "
+        "ContactSensorCfg only equips bodies the user picked, so any "
+        "reward/termination reading an unequipped body will read an "
+        "empty buffer at runtime (§1.8 silent-fallback ban).",
+        "",
+        "Consumers + their missing IR roles:",
+    ]
+    all_missing: set = set()
+    for consumer in sorted(missing_per_consumer):
+        roles = missing_per_consumer[consumer]
+        lines.append(f"  - {consumer} needs: {roles}")
+        all_missing.update(roles)
+    lines.append("")
+    lines.append(
+        f"Open the actor_setting node, expand the Contact Bodies "
+        f"picker, and add these IR roles: {sorted(all_missing)}. "
+        f"Alternatively remove the consumer terms from the rewards "
+        f"/ terminations node if they aren't intended for this run."
+    )
+
+    out.append(ValidationIssue(
+        code=IssueCode.CONTACT_SENSOR_COVERAGE_INSUFFICIENT,
+        severity=Severity.ERROR,
+        node_id=actor_node.id,
+        field="contact_body_names",
+        message="\n".join(lines),
+    ))
+    return out
+
+
 def _check_pd_param(spec: "TrainingSpec") -> List[ValidationIssue]:
     """R_PD1..R_PD4 — sim2sim PD parameterization integrity.
 
@@ -554,45 +899,16 @@ def _check_pd_param(spec: "TrainingSpec") -> List[ValidationIssue]:
         duplicates onto the first instance; topology check below would
         catch it if we add one, but spec-level we can only confirm the
         single survivor is well-formed.
-      * R_PD4 (legacy stiffness/damping coexist with pd_param) — WARN
-        when both are non-default to direct the user toward cleanup.
+      * R_PD4 (legacy stiffness/damping coexist with pd_param) — REMOVED
+        2026-05: the scalar stiffness/damping fields no longer exist
+        (raw kp/kd were dropped from the data model; PD is parameterized
+        only by (omega_n, zeta), CLAUDE.md §10), so there is nothing to
+        warn about.
 
-    The check below covers R_PD4 (the only rule that needs spec-level
-    state). Returns the issues list (possibly empty).
+    Returns the issues list (currently always empty — kept as a hook for
+    future spec-level PD rules).
     """
     out: List[ValidationIssue] = []
-    actor = getattr(spec, "actor", None)
-    if actor is None:
-        return out
-    pd_param = getattr(actor, "pd_param", None)
-    if pd_param is None:
-        return out
-
-    # R_PD4: if pd_param is set, the legacy ActuatorConfig.stiffness/damping
-    # fields are dead. Warn the user that any value they typed there is
-    # ignored to avoid the "I edited stiffness and nothing changed"
-    # debugging trap.
-    legacy_actuator = getattr(actor, "actuator", None)
-    if legacy_actuator is not None:
-        # ActuatorConfig dataclass defaults: stiffness=25.0, damping=0.5.
-        if (
-            abs(float(getattr(legacy_actuator, "stiffness", 25.0)) - 25.0) > 1e-9
-            or abs(float(getattr(legacy_actuator, "damping", 0.5)) - 0.5) > 1e-9
-        ):
-            out.append(ValidationIssue(
-                code=IssueCode.UNKNOWN_PARAM_VALUE,
-                severity=Severity.WARNING,
-                node_id="actor_setting",
-                field="stiffness/damping",
-                message=(
-                    "ActuatorPDNode is wired; ActorSetting.stiffness / "
-                    "damping are ignored. Reset them to defaults (25.0 / "
-                    "0.5) to remove this warning. PD now flows through "
-                    "the canonical (omega_n, zeta) parameterization on "
-                    "ActuatorPDNode."
-                ),
-            ))
-
     return out
 
 
@@ -978,7 +1294,12 @@ def _check_amp_wiring(spec: "TrainingSpec") -> List[ValidationIssue]:
     out: List[ValidationIssue] = []
     if spec.algorithm.training_mode != "AMP_PPO":
         return out
-    if not spec.il.motion_ref.clip_paths:
+    # ``motion_ref`` is None when the compiler skipped populating it
+    # (e.g. the canvas left ``consumption_mode`` blank — that emits
+    # ``MISSING_CONSUMPTION_MODE`` upstream). Either situation is a
+    # missing-reference-motion ERROR for AMP_PPO; emit the same
+    # ``INCOMPLETE_AMP_WIRING`` issue rather than double-flagging.
+    if spec.il.motion_ref is None or not spec.il.motion_ref.clip_paths:
         out.append(ValidationIssue(
             code=IssueCode.INCOMPLETE_AMP_WIRING,
             severity=Severity.ERROR,

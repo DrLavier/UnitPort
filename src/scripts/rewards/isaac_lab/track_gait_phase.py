@@ -23,15 +23,21 @@ def _unitport_track_gait_phase(env, command_name="gait_command", sensor_cfg=None
     should be in stance (on the ground) when phase < 0.5, in swing
     otherwise. This reward is the mean per-foot agreement between
     expected stance and actual contact.
+
+    ``per_foot_phase()`` returns (n, n_feet) with n_feet auto-adapted
+    via the CommandTerm: 4 for quadruped UniformGaitCommand, 2 for
+    biped BipedGaitCommand. ``n_match`` is driven by
+    ``per_foot.shape[1]`` so the slice width tracks the family count
+    without a family-keyed branch.
     """
     import torch
     term = env.command_manager.get_term(command_name)
-    per_foot = term.per_foot_phase()                            # (n, 4)
+    per_foot = term.per_foot_phase()                            # (n, n_feet)
     expected_stance = (per_foot < 0.5).float()
     sensor = env.scene.sensors[sensor_cfg.name]
     forces = sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
     contact = (torch.norm(forces, dim=-1) > 1.0).float()         # (n, n_feet)
-    n_match = min(contact.shape[1], 4)
+    n_match = min(contact.shape[1], per_foot.shape[1])
     match = 1.0 - torch.abs(
         expected_stance[:, :n_match] - contact[:, :n_match]
     )

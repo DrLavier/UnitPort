@@ -32,3 +32,25 @@ remotized_joints:
   # SPOT_CFG actuator expr `.*_kn` (anchored here).
   - joint_pattern: ".*_kn$"
     lookup_table: knee_torque_table.yaml
+
+# Official recommended PD / actuator preset (brand DATA — the AUTO button in the
+# RobotNode pd_param_table panel fills these). Stored as the canonical
+# (omega_n, zeta) parameterization (CLAUDE.md §10) — NOT raw kp/kd.
+#
+# Derivation: IsaacLab SPOT_CFG (BD AI Institute) publishes a flat stiffness=60
+# N·m/rad, damping=1.5 N·m·s/rad on the hips (DelayedPDActuatorCfg) and the same
+# 60/1.5 on the knees (RemotizedPDActuatorCfg), with hip effort_limit=45 N·m and
+# the knee ceiling coming from the remotized torque table (peak ~113 N·m).
+# Back-solving (omega_n, zeta) from kp=m_eff·ωn² / kd=2ζ·√(kp·m_eff) at Spot's
+# MJCF nominal-stance effective inertia reproduces kp≈59–61, kd≈1.49–1.53:
+#   hip_x: ωn=26 ζ=0.32   hip_y: ωn=24 ζ=0.30   knee: ωn=62 ζ=0.78
+# (The panel re-derives and displays the exact per-joint kp/kd from the live
+# MJCF, so these are a faithful starting preset, not a hardcoded gain.)
+recommended_actuators:
+  source: "IsaacLab SPOT_CFG (BD AI Institute)"
+  pd_groups:
+    hip_x: { omega_n: 26.0, zeta: 0.32 }
+    hip_y: { omega_n: 24.0, zeta: 0.30 }
+    knee:  { omega_n: 62.0, zeta: 0.78 }
+  effort_limit: 45.0      # hips; knees are remotized → ceiling from the lookup table
+  velocity_limit: 20.0

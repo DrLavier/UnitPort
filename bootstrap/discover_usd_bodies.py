@@ -17,8 +17,64 @@ Output JSON shape::
 
     {
         "bodies": ["body", "fl_hip", "fl_uleg", ...],     # ordered by USD prim traversal
-        "joints": ["fl_hx", "fl_hy", "fl_kn", ...]
+        "joints": ["fl_hx", "fl_hy", "fl_kn", ...],
+        "body_inertials": {                                # keyed by USD body name
+            "body": {
+                "mass": 15.234,                            # SI kg, or null if unauthored
+                "mass_source": "authored",                 # authored | absent
+                "com": [0.001, 0.0, -0.05],                # SI m, prim-local, or null
+                "diagonal_inertia": [0.12, 1.30, 1.33],    # SI kg·m², or null if unauthored
+                "principal_axes": [1.0, 0.0, 0.0, 0.0],    # quat (w,x,y,z), or null
+                "inertia_source": "authored"               # authored | absent
+            },
+            ...
+        },
+        "joint_frames": {                                  # keyed by USD joint name
+            "fl_hy": {body0, body1, local_pos0/1, local_rot0/1, axis}
+        },
+        "joint_drives": {                                  # keyed by USD joint name
+            "fl_hy": {
+                "kind": "revolute",                        # revolute | prismatic
+                "drive": {
+                    "type": "angular",                     # angular | linear (DriveAPI token)
+                    "target_type": "force",                # force | acceleration | null
+                    "stiffness": 60.0,                     # SI: Nm/rad (rev) / N/m (prism), or null
+                    "damping": 1.5,                        # SI: Nm·s/rad / N·s/m, or null
+                    "max_force": 80.0,                     # SI: Nm (rev) / N (prism), or null
+                },
+                "limits": {                                # SI: rad (rev) / m (prism), or null
+                    "lower": -0.898, "upper": 2.295,
+                },
+                "max_velocity": 20.0,                      # SI: rad/s (rev) / m/s (prism), or null
+                "provenance": {
+                    "attribute_present": {                 # True = authored in USD; False = absent
+                        "drive_stiffness": true, "drive_damping": true,
+                        "drive_max_force": true, "drive_target_type": true,
+                        "limit_lower": true, "limit_upper": true,
+                        "max_velocity": false,
+                    }
+                }
+            }
+        }
     }
+
+The ``body_inertials`` block is harvested from ``UsdPhysics.MassAPI`` and
+SI-normalised via the stage's ``metersPerUnit`` / ``kilogramsPerUnit``. A field
+that is not authored in the USD is recorded as ``null`` with its ``*_source`` set
+to ``"absent"`` — never silently zeroed. The downstream calibration layer
+(``usd_mjcf_inertia_calibration``) fails loud on ``inertia_source == "absent"``
+rather than producing a half-correct overlay.
+
+The ``joint_drives`` block is harvested from ``UsdPhysics.DriveAPI`` (token
+``angular`` for revolute, ``linear`` for prismatic), the joint's
+``RevoluteJoint``/``PrismaticJoint`` schema (position limits), and
+``PhysxSchema.PhysxJointAPI`` (``maxJointVelocity``). Same fail-loud convention:
+absent attributes are ``null`` with ``provenance.attribute_present[<name>] =
+false`` so consumers can distinguish "USD did not author this" from "USD authored
+zero". Angular units are converted to radians at dump time (USD authors revolute
+limits and ``maxJointVelocity`` in degrees / deg·s⁻¹ by convention); linear units
+are SI-normalised via ``metersPerUnit``. This is what the PD/Actuator AUTO
+button in the Robot Node feeds off (``pd_preview.resolve_recommended_actuators``).
 
 Two parsing paths, tried in order:
 
@@ -39,9 +95,10 @@ Exit codes:
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
-from typing import Dict, List
+from typing import Any, Dict, List
 
 # Auto-accept Omniverse Kit EULA — required for SimulationApp bootstrap when
 # the subprocess has no TTY. Mirrors il_train_launcher.py line 49. Belt-and-
@@ -117,16 +174,363 @@ def _resolve_nucleus_url(usd_ref: str) -> str:
     return usd_ref
 
 
-def _dump_via_pxr(usd_ref: str) -> Dict[str, List[str]]:
-    """Direct pxr.Usd traversal (no kit). Returns {"bodies": [...], "joints": [...]}."""
+def _read_stage_units(stage) -> "tuple[float, float]":
+    """Return ``(meters_per_unit, kilograms_per_unit)`` from stage metadata.
+
+    UsdPhysics quantities are authored in stage units, so we must read these to
+    normalise to SI (kg, m, kg·m²). Isaac stages are normally 1.0/1.0 but we do
+    not assume. Non-positive / unreadable metadata falls back to 1.0.
+    """
+    from pxr import UsdGeom, UsdPhysics  # type: ignore
+    try:
+        mpu = float(UsdGeom.GetStageMetersPerUnit(stage))
+    except Exception:
+        mpu = 1.0
+    try:
+        kpu = float(UsdPhysics.GetStageKilogramsPerUnit(stage))
+    except Exception:
+        kpu = 1.0
+    if not (mpu > 0.0):
+        mpu = 1.0
+    if not (kpu > 0.0):
+        kpu = 1.0
+    return mpu, kpu
+
+
+def _attr_is_authored(attr) -> bool:
+    """Version-robust 'has an authored opinion' check for a USD attribute."""
+    if attr is None:
+        return False
+    try:
+        if not attr.IsValid():
+            return False
+    except Exception:
+        pass
+    try:
+        return bool(attr.HasAuthoredValue())
+    except Exception:
+        try:
+            return attr.Get() is not None
+        except Exception:
+            return False
+
+
+def _read_body_inertial(prim, mpu: float, kpu: float) -> Dict[str, Any]:
+    """Harvest UsdPhysics.MassAPI mass props for a rigid-body prim → SI dict.
+
+    Returns ``{mass, mass_source, com, diagonal_inertia, principal_axes,
+    inertia_source}``. SI units (kg, m, kg·m²). An unauthored field is recorded
+    as ``None`` with its ``*_source`` = ``"absent"`` — never zeroed. USD's
+    ``diagonalInertia == (0,0,0)`` is also "absent" (PhysX auto-computes at sim
+    load); the calibration layer must fail loud on absent inertia rather than
+    leave a silent training↔sim gap.
+    """
+    from pxr import UsdPhysics  # type: ignore
+    mass_api = UsdPhysics.MassAPI(prim)
+
+    mass_attr = mass_api.GetMassAttr()
+    diag_attr = mass_api.GetDiagonalInertiaAttr()
+    com_attr = mass_api.GetCenterOfMassAttr()
+    axes_attr = mass_api.GetPrincipalAxesAttr()
+
+    mass = None
+    mass_source = "absent"
+    if _attr_is_authored(mass_attr):
+        v = mass_attr.Get()
+        if v is not None and float(v) > 0.0:
+            mass = float(v) * kpu
+            mass_source = "authored"
+
+    diag = None
+    inertia_source = "absent"
+    if _attr_is_authored(diag_attr):
+        v = diag_attr.Get()
+        if v is not None:
+            d = [float(v[0]), float(v[1]), float(v[2])]
+            if any(x > 0.0 for x in d):  # (0,0,0) = USD "let PhysX compute" sentinel
+                scale = kpu * mpu * mpu
+                diag = [x * scale for x in d]
+                inertia_source = "authored"
+
+    com = None
+    if _attr_is_authored(com_attr):
+        v = com_attr.Get()
+        if v is not None:
+            com = [float(v[0]) * mpu, float(v[1]) * mpu, float(v[2]) * mpu]
+
+    axes = None
+    if _attr_is_authored(axes_attr):
+        q = axes_attr.Get()
+        if q is not None:
+            im = q.GetImaginary()
+            axes = [float(q.GetReal()), float(im[0]), float(im[1]), float(im[2])]
+
+    return {
+        "mass": mass,
+        "mass_source": mass_source,
+        "com": com,
+        "diagonal_inertia": diag,
+        "principal_axes": axes,
+        "inertia_source": inertia_source,
+    }
+
+
+def _read_joint_frame(prim, mpu: float) -> Dict[str, Any]:
+    """Harvest a joint's kinematic anchor for the USD↔MJCF frame-alignment check.
+
+    Returns the raw bits needed to express the joint origin + axis in the
+    PARENT-local frame (the geometry/rotation math is done downstream in the
+    calibration, which has numpy): body0/body1 names, ``localPos0/1`` (SI m),
+    ``localRot0/1`` (quat w,x,y,z, identity default), and the ``axis`` token.
+    """
+    from pxr import UsdPhysics  # type: ignore
+    joint = UsdPhysics.Joint(prim)
+
+    def _rel_name(rel) -> str:
+        try:
+            tgts = rel.GetTargets()
+            if tgts:
+                return str(tgts[0].name)
+        except Exception:
+            pass
+        return ""
+
+    def _vec3(attr, scale: float):
+        try:
+            v = attr.Get()
+        except Exception:
+            v = None
+        if v is None:
+            return None
+        return [float(v[0]) * scale, float(v[1]) * scale, float(v[2]) * scale]
+
+    def _quat(attr):
+        try:
+            q = attr.Get()
+        except Exception:
+            q = None
+        if q is None:
+            return [1.0, 0.0, 0.0, 0.0]
+        im = q.GetImaginary()
+        return [float(q.GetReal()), float(im[0]), float(im[1]), float(im[2])]
+
+    axis_token = ""
+    for cls in (UsdPhysics.RevoluteJoint, UsdPhysics.PrismaticJoint):
+        try:
+            a = cls(prim).GetAxisAttr().Get()
+            if a:
+                axis_token = str(a)
+                break
+        except Exception:
+            pass
+
+    return {
+        "body0": _rel_name(joint.GetBody0Rel()),
+        "body1": _rel_name(joint.GetBody1Rel()),
+        "local_pos0": _vec3(joint.GetLocalPos0Attr(), mpu),
+        "local_rot0": _quat(joint.GetLocalRot0Attr()),
+        "local_pos1": _vec3(joint.GetLocalPos1Attr(), mpu),
+        "local_rot1": _quat(joint.GetLocalRot1Attr()),
+        "axis": axis_token,
+    }
+
+
+def _read_joint_drive(prim, mpu: float) -> Dict[str, Any]:
+    """Harvest a joint's drive params + position limits + max velocity cap.
+
+    Output is SI:
+      * ``drive.stiffness`` — N·m/rad (revolute) / N/m   (prismatic), or ``None``.
+        IsaacLab DriveAPI carries mass-weighted gains in SI torque units
+        (§10): for a revolute joint with ``ImplicitActuatorCfg.stiffness=K``,
+        the runtime ``τ = K · (q_target - q) - D · q̇``. We store ``K`` verbatim
+        so the downstream AUTO consumer can divide by ``m_eff`` to recover ``ωn``.
+      * ``drive.damping`` — N·m·s/rad / N·s/m, or ``None``.
+      * ``drive.max_force`` — N·m / N (per-joint torque ceiling), or ``None``.
+        ``0.0`` (authored) means "PhysX no-limit" in USD convention — consumer
+        treats that as ``None`` (no useful cap) but ``provenance`` keeps the
+        authored bit so callers can distinguish "0 = explicitly no limit" from
+        "absent = USD did not author".
+      * ``drive.target_type`` — ``"force"`` | ``"acceleration"`` | ``None``.
+      * ``limits.lower/upper`` — rad / m. USD authors revolute limits in
+        DEGREES; we convert to radians here so consumers see SI throughout.
+        ``None`` means unlimited (USD ``-inf`` / ``+inf`` or unauthored).
+      * ``max_velocity`` — rad/s / m/s. From ``PhysxSchema.PhysxJointAPI``;
+        revolute is degrees/sec in USD → rad/s here. ``None`` if PhysxSchema
+        unavailable (vanilla pxr) or the attribute is unauthored.
+
+    ``provenance.attribute_present`` records which fields were *authored* in
+    the USD as opposed to absent. Same fail-loud contract as
+    :func:`_read_body_inertial` — consumers must check this rather than guess
+    from ``None`` (which collapses both "absent" and "explicitly null").
+    """
+    from pxr import UsdPhysics  # type: ignore
+
+    is_revolute = prim.IsA(UsdPhysics.RevoluteJoint)
+    is_prismatic = prim.IsA(UsdPhysics.PrismaticJoint)
+    if not (is_revolute or is_prismatic):
+        return {}
+
+    drive_token = "angular" if is_revolute else "linear"
+    drive_payload: Dict[str, Any] = {
+        "type": drive_token,
+        "target_type": None,
+        "stiffness": None,
+        "damping": None,
+        "max_force": None,
+    }
+    present: Dict[str, bool] = {
+        "drive_stiffness": False,
+        "drive_damping": False,
+        "drive_max_force": False,
+        "drive_target_type": False,
+        "limit_lower": False,
+        "limit_upper": False,
+        "max_velocity": False,
+    }
+
+    # DriveAPI is applied per-token. ``Get(prim, "angular")`` returns a typed
+    # DriveAPI whether or not the API has been *applied* — we then check each
+    # attribute's authoring state individually.
+    try:
+        drive_api = UsdPhysics.DriveAPI.Get(prim, drive_token)
+    except Exception:
+        drive_api = None
+    if drive_api:
+        def _read_float(attr) -> "tuple[bool, float | None]":
+            if not _attr_is_authored(attr):
+                return (False, None)
+            try:
+                v = attr.Get()
+            except Exception:
+                return (False, None)
+            if v is None:
+                return (False, None)
+            try:
+                return (True, float(v))
+            except (TypeError, ValueError):
+                return (False, None)
+
+        try:
+            ok, v = _read_float(drive_api.GetStiffnessAttr())
+            if ok:
+                drive_payload["stiffness"] = v
+                present["drive_stiffness"] = True
+        except Exception:
+            pass
+        try:
+            ok, v = _read_float(drive_api.GetDampingAttr())
+            if ok:
+                drive_payload["damping"] = v
+                present["drive_damping"] = True
+        except Exception:
+            pass
+        try:
+            ok, v = _read_float(drive_api.GetMaxForceAttr())
+            if ok:
+                drive_payload["max_force"] = v
+                present["drive_max_force"] = True
+        except Exception:
+            pass
+        try:
+            tt_attr = drive_api.GetTypeAttr()
+            if _attr_is_authored(tt_attr):
+                v = tt_attr.Get()
+                if v is not None:
+                    drive_payload["target_type"] = str(v)
+                    present["drive_target_type"] = True
+        except Exception:
+            pass
+
+    # Position limits. USD revolute limits are in DEGREES; convert to rad.
+    # Prismatic limits are in stage units; convert via mpu.
+    limits_payload: Dict[str, Any] = {"lower": None, "upper": None}
+    typed_cls = UsdPhysics.RevoluteJoint if is_revolute else UsdPhysics.PrismaticJoint
+    try:
+        typed = typed_cls(prim)
+        for key, getter in (
+            ("lower", typed.GetLowerLimitAttr),
+            ("upper", typed.GetUpperLimitAttr),
+        ):
+            try:
+                a = getter()
+                if not _attr_is_authored(a):
+                    continue
+                v = a.Get()
+                if v is None:
+                    continue
+                fv = float(v)
+                # USD encodes "no limit" as +/-inf — treat as None (unlimited)
+                # but still record as authored. Otherwise convert units.
+                if math.isinf(fv):
+                    limits_payload[key] = None
+                else:
+                    limits_payload[key] = (
+                        math.radians(fv) if is_revolute else fv * mpu
+                    )
+                present[f"limit_{key}"] = True
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # PhysxSchema.maxJointVelocity. Authored in degrees/sec for revolute by
+    # USD convention; in stage-units/sec for prismatic. PhysxSchema only ships
+    # with the full Omniverse stack — the vanilla pxr (used by _dump_via_pxr
+    # on machines where standalone usd-core is enough) typically lacks it.
+    # Absent module = absent attribute, with ``present.max_velocity = False``.
+    max_velocity: "float | None" = None
+    try:
+        from pxr import PhysxSchema  # type: ignore
+
+        physx_api = PhysxSchema.PhysxJointAPI.Get(
+            prim.GetStage(), prim.GetPath()
+        )
+        if physx_api:
+            mv_attr = physx_api.GetMaxJointVelocityAttr()
+            if _attr_is_authored(mv_attr):
+                v = mv_attr.Get()
+                if v is not None:
+                    fv = float(v)
+                    if math.isinf(fv):
+                        max_velocity = None
+                    elif is_revolute:
+                        max_velocity = math.radians(fv)
+                    else:
+                        max_velocity = fv * mpu
+                    present["max_velocity"] = True
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    return {
+        "kind": "revolute" if is_revolute else "prismatic",
+        "drive": drive_payload,
+        "limits": limits_payload,
+        "max_velocity": max_velocity,
+        "provenance": {"attribute_present": present},
+    }
+
+
+def _dump_via_pxr(usd_ref: str) -> Dict[str, Any]:
+    """Direct pxr.Usd traversal (no kit). Returns the full discovery payload.
+
+    Payload keys: ``bodies``, ``joints``, ``body_inertials``, ``joint_frames``,
+    ``joint_drives``. See the module docstring for the per-joint shape of
+    ``joint_drives`` (DriveAPI / position limits / maxJointVelocity).
+    """
     from pxr import Usd, UsdPhysics  # type: ignore
 
     stage = Usd.Stage.Open(usd_ref)
     if stage is None:
         raise RuntimeError(f"pxr.Usd.Stage.Open returned None for {usd_ref!r}")
 
+    mpu, kpu = _read_stage_units(stage)
     bodies: List[str] = []
     joints: List[str] = []
+    body_inertials: Dict[str, Any] = {}
+    joint_frames: Dict[str, Any] = {}
+    joint_drives: Dict[str, Any] = {}
     seen_b: set = set()
     seen_j: set = set()
     skipped_non_dof = 0
@@ -141,6 +545,14 @@ def _dump_via_pxr(usd_ref: str) -> Dict[str, List[str]]:
                 if name not in seen_b:
                     bodies.append(name)
                     seen_b.add(name)
+                    try:
+                        body_inertials[name] = _read_body_inertial(prim, mpu, kpu)
+                    except Exception as exc:
+                        print(
+                            f"[discover_usd_bodies] inertial read failed for "
+                            f"{name!r}: {exc!r}",
+                            file=sys.stderr, flush=True,
+                        )
         except Exception:
             pass
         # Joints: ONLY actuated articulation DOFs — RevoluteJoint or
@@ -158,6 +570,24 @@ def _dump_via_pxr(usd_ref: str) -> Dict[str, List[str]]:
                 if name not in seen_j:
                     joints.append(name)
                     seen_j.add(name)
+                    try:
+                        joint_frames[name] = _read_joint_frame(prim, mpu)
+                    except Exception as exc:
+                        print(
+                            f"[discover_usd_bodies] joint-frame read failed for "
+                            f"{name!r}: {exc!r}",
+                            file=sys.stderr, flush=True,
+                        )
+                    try:
+                        drive_block = _read_joint_drive(prim, mpu)
+                        if drive_block:
+                            joint_drives[name] = drive_block
+                    except Exception as exc:
+                        print(
+                            f"[discover_usd_bodies] joint-drive read failed for "
+                            f"{name!r}: {exc!r}",
+                            file=sys.stderr, flush=True,
+                        )
             elif prim.IsA(UsdPhysics.Joint):
                 skipped_non_dof += 1
         except Exception:
@@ -171,10 +601,14 @@ def _dump_via_pxr(usd_ref: str) -> Dict[str, List[str]]:
             file=sys.stderr, flush=True,
         )
 
-    return {"bodies": bodies, "joints": joints}
+    return {
+        "bodies": bodies, "joints": joints,
+        "body_inertials": body_inertials, "joint_frames": joint_frames,
+        "joint_drives": joint_drives,
+    }
 
 
-def _dump_via_kit(usd_ref: str, out_path: str) -> Dict[str, List[str]]:
+def _dump_via_kit(usd_ref: str, out_path: str) -> Dict[str, Any]:
     """Fallback path: boot a minimal Isaac Sim kit to open the stage.
 
     Heavier (~30-120 s cold startup) but mandatory when pxr is shipped
@@ -232,8 +666,12 @@ def _dump_via_kit(usd_ref: str, out_path: str) -> Dict[str, List[str]]:
                 f"Usd.Stage.Open returned None for {resolved_ref!r}"
             )
 
+        mpu, kpu = _read_stage_units(stage)
         bodies: List[str] = []
         joints: List[str] = []
+        body_inertials: Dict[str, Any] = {}
+        joint_frames: Dict[str, Any] = {}
+        joint_drives: Dict[str, Any] = {}
         seen_b: set = set()
         seen_j: set = set()
         skipped_non_dof = 0
@@ -245,22 +683,54 @@ def _dump_via_kit(usd_ref: str, out_path: str) -> Dict[str, List[str]]:
                 if prim.HasAPI(UsdPhysics.RigidBodyAPI) and name not in seen_b:
                     bodies.append(name)
                     seen_b.add(name)
+                    try:
+                        body_inertials[name] = _read_body_inertial(prim, mpu, kpu)
+                    except Exception as exc:
+                        print(
+                            f"[discover_usd_bodies] inertial read failed for "
+                            f"{name!r}: {exc!r}",
+                            file=sys.stderr, flush=True,
+                        )
             except Exception:
                 pass
             # See _dump_via_pxr — only RevoluteJoint / PrismaticJoint are
             # real articulation DOFs. FixedJoints (foot attachments, sensor
             # mounts, cosmetic shells) and SphericalJoints contribute zero
-            # DOFs and must never reach the registry.
+            # DOFs and must never reach the registry. Kit's pxr ships
+            # PhysxSchema, so the kit path always populates max_velocity
+            # when it is authored (vs the pxr-only path which may lack it).
             try:
                 if prim.IsA(UsdPhysics.RevoluteJoint) or prim.IsA(UsdPhysics.PrismaticJoint):
                     if name not in seen_j:
                         joints.append(name)
                         seen_j.add(name)
+                        try:
+                            joint_frames[name] = _read_joint_frame(prim, mpu)
+                        except Exception as exc:
+                            print(
+                                f"[discover_usd_bodies] joint-frame read failed for "
+                                f"{name!r}: {exc!r}",
+                                file=sys.stderr, flush=True,
+                            )
+                        try:
+                            drive_block = _read_joint_drive(prim, mpu)
+                            if drive_block:
+                                joint_drives[name] = drive_block
+                        except Exception as exc:
+                            print(
+                                f"[discover_usd_bodies] joint-drive read failed for "
+                                f"{name!r}: {exc!r}",
+                                file=sys.stderr, flush=True,
+                            )
                 elif prim.IsA(UsdPhysics.Joint):
                     skipped_non_dof += 1
             except Exception:
                 pass
-        result = {"bodies": bodies, "joints": joints}
+        result = {
+            "bodies": bodies, "joints": joints,
+            "body_inertials": body_inertials, "joint_frames": joint_frames,
+            "joint_drives": joint_drives,
+        }
         print(
             f"[discover_usd_bodies] kit traversal: "
             f"{len(bodies)} bodies, {len(joints)} joints "

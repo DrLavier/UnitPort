@@ -23,8 +23,15 @@
 - 失败抛 ``RegistryValidationError``，由 UnitPortMain 决定是阻塞启动还是降级。
 
 USER overlay（plan.md §11.1）/ User-level overlays merged on load:
-- ``~/UnitPort/registers/ir_custom.json``      → ir.merge_user_extensions
-- ``~/UnitPort/registers/robots_custom.json``  → robots.merge_user_extensions
+- ``~/UnitPort/registers/ir_custom.json``       → ir.merge_user_extensions
+- ``~/UnitPort/registers/robots_custom.json``   → robots.merge_user_extensions
+- ``~/UnitPort/registers/pd_groups_custom.json`` → pd_groups.merge_user_extensions
+- ``~/UnitPort/registers/families_custom.json`` → families.merge_user_extensions
+- ``~/UnitPort/registers/symmetry_custom.json`` → symmetry.merge_user_extensions
+- ``~/UnitPort/registers/pd_calibration_canaries_custom.json`` → pd_calibration_canaries.merge_user_extensions
+- ``~/UnitPort/registers/amp_obs_templates_custom.json`` → amp_obs_templates.merge_user_extensions
+- ``~/UnitPort/registers/gait_commands_custom.json`` → gait_commands.merge_user_extensions
+- ``~/UnitPort/registers/motion_phases_custom.json`` → motion_phases.merge_user_extensions
 
 SKU helpers（数据库级唯一键）/ Database-level unique keys:
 - ``build_sku("Unitree", "Go2-W") == build_sku("unitree", "go2w")``
@@ -84,17 +91,82 @@ class RegistryHub:
     _loaded: bool = False
     _summary: Dict[str, int] = {}
 
-    DOMAINS = ("ir", "robots", "nodes", "manifests", "backends", "brands", "services", "commands", "motion_phases", "pd_groups")
+    # Dependency-ordered load chain. Each entry must follow the modules it
+    # references at load() time. Specifically:
+    #   * ir      — no deps (root vocabulary).
+    #   * pd_groups — calls ir._resolve_alias semantically; pd_groups.load
+    #     itself is self-contained but pd_groups.validate() (run from the
+    #     hub later) reads ir, so for symmetry + readability we keep it
+    #     adjacent to ir. (Historical layout had pd_groups at the tail —
+    #     that was a chronological artefact of pd_groups being added
+    #     last; the current order is by dependency, not insertion date.)
+    #   * families — depends on the catalog file alone; needs to be ready
+    #     BEFORE robots so the hub validate Rule C5 can verify each SKU's
+    #     family strings against the catalog.
+    #   * robots — depends on ir (IR roles used as joint.ir_role value range)
+    #     and on families (Rule C5). robots.load itself does not call into
+    #     families/ir; only the hub validator does, after every module is
+    #     loaded.
+    #   * symmetry — mirror op declarative data. Sits AFTER robots
+    #     deliberately:
+    #       (1) symmetry.load reads ONLY symmetry_catalog.json — no
+    #           dependency on robots, families, or ir at load time.
+    #       (2) symmetry.validate is called from the hub validator and
+    #           uses ONLY ir.list_roles(family) for family-slice partition
+    #           checks. It does NOT cross-reference robots: symmetry data
+    #           is family-keyed, not SKU-keyed, and intentionally decoupled
+    #           from the SKU table.
+    #       (3) No SKU-side check needs symmetry to be loaded before
+    #           robots, so placing symmetry after robots keeps the
+    #           "ir/pd_groups/families/robots cluster" intact (they are
+    #           cross-validated by the hub) and groups the leaf consumers
+    #           (symmetry, nodes, manifests, ...) together.
+    #   * pd_calibration_canaries — per-family PD calibration canary group
+    #     recipe. Same shape rationale as symmetry:
+    #       (1) load reads ONLY pd_calibration_canaries.json — no other
+    #           registry dependency.
+    #       (2) validate consults pd_groups (for the S1 group-id existence
+    #           check) and families (for the S2 catalog-coverage check),
+    #           both already loaded by this point.
+    #       (3) Data is family-keyed (one entry per family), NOT SKU-keyed,
+    #           so it does not need to precede robots. Placed after
+    #           symmetry to keep the family-data leaf cluster contiguous.
+    # Modules after robots are leaf consumers in load order — they do not
+    # influence robots / families / ir / pd_groups validation.
+    DOMAINS = (
+        "ir",
+        "pd_groups",
+        "families",
+        "robots",
+        "symmetry",
+        "pd_calibration_canaries",
+        "amp_obs_templates",
+        "gait_commands",
+        "nodes",
+        "manifests",
+        "backends",
+        "brands",
+        "services",
+        "commands",
+        "motion_phases",
+    )
 
     @classmethod
     def load_all(cls) -> None:
         """按依赖顺序加载所有子注册表 / Load every sub-registry in dependency order.
 
         顺序：
-        1. ir（IR 角色枚举，无依赖）
-        2. robots（依赖 IR 角色用作 joint.ir_role 值域）
-        3. nodes / manifests / backends / brands / services
-        4. 合入 USER_CONFIG_DIR 的拓展（ir_custom / robots_custom）
+        1. ir         — IR 角色枚举，无依赖
+        2. pd_groups  — PD 关节组（其 validate() 引用 ir，load 自给自足）
+        3. families   — family 元数据 + 继承链（RegistryHub.validate Rule C5 依赖此）
+        4. robots     — 依赖 ir + families（Rule 3 + Rule C5）
+        5. symmetry   — mirror op 数据 + partition 校验（validate 只用
+                        ir.list_roles，与 robots 解耦——故置 robots 后）
+        6. 其他后续注册表（nodes / manifests / backends / brands / services /
+           commands / motion_phases）
+        7. 合入 USER_CONFIG_DIR 的拓展（ir_custom / pd_groups_custom /
+           families_custom / symmetry_custom / robots_custom /
+           motion_phases_custom）
         """
         if cls._loaded:
             return
@@ -105,9 +177,49 @@ class RegistryHub:
         cls._summary["ir"] = ir.load()
         log_debug(f"[registers] ir loaded: {cls._summary['ir']} roles")
 
+        from . import pd_groups
+        cls._summary["pd_groups"] = pd_groups.load()
+        log_debug(f"[registers] pd_groups loaded: {cls._summary['pd_groups']} groups")
+
+        from . import families
+        cls._summary["families"] = families.load()
+        log_debug(f"[registers] families loaded: {cls._summary['families']} families")
+
         from . import robots
         cls._summary["robots"] = robots.load()
         log_debug(f"[registers] robots loaded: {cls._summary['robots']} entries")
+
+        from . import symmetry
+        cls._summary["symmetry"] = symmetry.load()
+        log_debug(f"[registers] symmetry loaded: {cls._summary['symmetry']} families")
+
+        from . import pd_calibration_canaries
+        cls._summary["pd_calibration_canaries"] = pd_calibration_canaries.load()
+        log_debug(
+            f"[registers] pd_calibration_canaries loaded: "
+            f"{cls._summary['pd_calibration_canaries']} families"
+        )
+
+        from . import amp_obs_templates
+        cls._summary["amp_obs_templates"] = amp_obs_templates.load()
+        log_debug(
+            f"[registers] amp_obs_templates loaded: "
+            f"{cls._summary['amp_obs_templates']} families"
+        )
+
+        from . import gait_commands
+        cls._summary["gait_commands"] = gait_commands.load()
+        log_debug(
+            f"[registers] gait_commands loaded: "
+            f"{cls._summary['gait_commands']} families"
+        )
+
+        from . import init_pose_presets
+        cls._summary["init_pose_presets"] = init_pose_presets.load()
+        log_debug(
+            f"[registers] init_pose_presets loaded: "
+            f"{cls._summary['init_pose_presets']} families"
+        )
 
         from . import nodes
         cls._summary["nodes"] = nodes.load()
@@ -130,13 +242,46 @@ class RegistryHub:
         from . import motion_phases
         cls._summary["motion_phases"] = motion_phases.load()
 
-        from . import pd_groups
-        cls._summary["pd_groups"] = pd_groups.load()
+        # Factory-build overlay layer (FACTORY_BUILD_DIR/robots_factory_build.json):
+        # locally-built factory data (USD body dumps from a local IsaacLab
+        # installation, asset extractions for standard SKUs). Merged BEFORE
+        # the user overlay so user-private SKUs still win on conflict; merged
+        # AFTER the SDK-ship factory layer so locally-dumped data overrides
+        # any null placeholders in robots_canonical.json. See robots.py
+        # ``_factory_build_path`` docstring for the §9 portable-artifacts
+        # justification.
+        cls._merge_factory_build_overlays()
 
         cls._merge_user_overlays()
 
         cls._loaded = True
         log_success(f"[registers] load_all complete: {cls._summary}")
+
+    @classmethod
+    def _merge_factory_build_overlays(cls) -> None:
+        """合入 FACTORY_BUILD_DIR 下的工厂自构建数据（缺失=空集，不报错）。
+
+        当前只有 robots 域支持工厂自构建层（USD body 自动 dump 落盘）；
+        其他注册表如有类似需求，按相同模式扩展即可（独立 _state[
+        "factory_build_extensions"] dict + ``target_layer="factory_build"``
+        参数）。
+        """
+        from . import robots
+        fb_path = robots._factory_build_path()
+        if not fb_path.exists():
+            return
+        payload = read_data(fb_path) or {}
+        if not isinstance(payload, dict):
+            return
+        extensions = dict(payload.get("robots", {}) or {})
+        if extensions:
+            added = robots.merge_user_extensions(
+                extensions, target_layer="factory_build"
+            )
+            cls._summary["robots"] = cls._summary.get("robots", 0) + added
+            log_debug(
+                f"[registers] robots_factory_build merged: +{added} entries"
+            )
 
     @classmethod
     def _merge_user_overlays(cls) -> None:
@@ -147,6 +292,14 @@ class RegistryHub:
         if ir_custom_path.exists():
             from . import ir
             payload = read_data(ir_custom_path) or {}
+            # families MUST be merged before role-level extensions so an
+            # extension can target a freshly-registered user family via its
+            # optional ``family`` field.
+            user_families = dict(payload.get("families", {}) or {})
+            if user_families:
+                added_fams = ir.merge_user_family_extensions(user_families)
+                if added_fams:
+                    log_debug(f"[registers] ir_custom merged: +{added_fams} families")
             extensions = list(payload.get("extensions", []) or [])
             if extensions:
                 added = ir.merge_user_extensions(extensions)
@@ -182,6 +335,88 @@ class RegistryHub:
                 if added:
                     log_debug(f"[registers] pd_groups_custom merged: +{added} overrides")
 
+        families_custom_path = user_root / "families_custom.json"
+        if families_custom_path.exists():
+            from . import families
+            payload = read_data(families_custom_path) or {}
+            if isinstance(payload, dict):
+                added = families.merge_user_extensions(payload)
+                if added:
+                    cls._summary["families"] = cls._summary.get("families", 0) + added
+                    log_debug(f"[registers] families_custom merged: +{added} families")
+
+        symmetry_custom_path = user_root / "symmetry_custom.json"
+        if symmetry_custom_path.exists():
+            from . import symmetry
+            payload = read_data(symmetry_custom_path) or {}
+            if isinstance(payload, dict):
+                added = symmetry.merge_user_extensions(payload)
+                if added:
+                    cls._summary["symmetry"] = cls._summary.get("symmetry", 0) + added
+                    log_debug(f"[registers] symmetry_custom merged: +{added} families")
+
+        pd_canaries_custom_path = user_root / "pd_calibration_canaries_custom.json"
+        if pd_canaries_custom_path.exists():
+            from . import pd_calibration_canaries
+            payload = read_data(pd_canaries_custom_path) or {}
+            if isinstance(payload, dict):
+                added = pd_calibration_canaries.merge_user_extensions(payload)
+                if added:
+                    cls._summary["pd_calibration_canaries"] = (
+                        cls._summary.get("pd_calibration_canaries", 0) + added
+                    )
+                    log_debug(
+                        f"[registers] pd_calibration_canaries_custom merged: "
+                        f"+{added} families"
+                    )
+
+        amp_obs_templates_custom_path = user_root / "amp_obs_templates_custom.json"
+        if amp_obs_templates_custom_path.exists():
+            from . import amp_obs_templates
+            payload = read_data(amp_obs_templates_custom_path) or {}
+            if isinstance(payload, dict):
+                added = amp_obs_templates.merge_user_extensions(payload)
+                if added:
+                    cls._summary["amp_obs_templates"] = (
+                        cls._summary.get("amp_obs_templates", 0) + added
+                    )
+                    log_debug(
+                        f"[registers] amp_obs_templates_custom merged: "
+                        f"+{added} families"
+                    )
+
+        gait_commands_custom_path = user_root / "gait_commands_custom.json"
+        if gait_commands_custom_path.exists():
+            from . import gait_commands
+            payload = read_data(gait_commands_custom_path) or {}
+            if isinstance(payload, dict):
+                added = gait_commands.merge_user_extensions(payload)
+                if added:
+                    cls._summary["gait_commands"] = (
+                        cls._summary.get("gait_commands", 0) + added
+                    )
+                    log_debug(
+                        f"[registers] gait_commands_custom merged: "
+                        f"+{added} families"
+                    )
+
+        init_pose_presets_custom_path = (
+            user_root / "init_pose_presets_custom.json"
+        )
+        if init_pose_presets_custom_path.exists():
+            from . import init_pose_presets
+            payload = read_data(init_pose_presets_custom_path) or {}
+            if isinstance(payload, dict):
+                added = init_pose_presets.merge_user_extensions(payload)
+                if added:
+                    cls._summary["init_pose_presets"] = (
+                        cls._summary.get("init_pose_presets", 0) + added
+                    )
+                    log_debug(
+                        f"[registers] init_pose_presets_custom merged: "
+                        f"+{added} families"
+                    )
+
     @classmethod
     def validate(cls) -> None:
         """Cross-registry integrity check.
@@ -197,14 +432,78 @@ class RegistryHub:
         3. Under every declared format, every joints[*].ir_role and
            bodies[*].ir_role must be non-empty AND a member of the IR
            canonical role set for that robot's families.
+        4. Inheritance integrity (model_family / variant_label /
+           inherits_from): variant chains forbidden, family must match
+           parent, parent must exist.
+        5. pd_groups integrity (delegated to ``pd_groups.validate()``).
+        6. physics_per_format / body_inertials_per_format /
+           joint_frames_per_format cache integrity vs joints/bodies tables.
+        7. families catalog integrity (delegated to ``families.validate()``):
+           every non-null ``inherits_from`` targets an existing family;
+           no inheritance cycle.
+        8. symmetry catalog cross-family partition (delegated to
+           ``symmetry.validate()``): every IR role in each
+           non-alias family's slice partitions cleanly across
+           ``role_swaps`` / ``role_self_map`` / ``role_unmapped``
+           (S1); referenced roles exist in the family's IR slice (S3);
+           ``alias_of`` chain has no missing target / no cycle (S4).
+        9. pd_calibration_canaries catalog cross-family integrity
+           (delegated to ``pd_calibration_canaries.validate()``):
+           every canary group id is a defined ``pd_groups`` group for
+           the family (S1); every catalog family is declared in
+           ``families_catalog.json`` (S2); ``alias_of`` chain has no
+           missing target / no cycle.
+       10. amp_obs_templates catalog cross-family integrity (delegated
+           to ``amp_obs_templates.validate()``): every term name in
+           ``template_terms`` is registered in
+           ``application.training.amp.obs_terms`` (A1); every catalog
+           family is declared in ``families_catalog.json`` (A2);
+           ``alias_of`` chain has no missing target / no cycle (A3); a
+           families_catalog family with no obs templates entry emits a
+           soft warning (A4) -- omission is a coverage gap, not a
+           corruption, so it does not block boot.
+       11. gait_commands catalog cross-family integrity (delegated to
+           ``gait_commands.validate()``): every non-alias entry declares
+           non-empty ``class_name`` (G1); ``phase_count ==
+           len(phase_names)`` (G2); ``phase_obs_dim == 2 *
+           phase_count`` (G3); ``alias_of`` chain has no missing target
+           / no cycle (G4); every catalog family is declared in
+           ``families_catalog.json`` (G5). G6 emits a soft warning when
+           a families_catalog family has no gait command entry -- the
+           omission is legitimate for non-legged families (manipulator
+           / wheeled / generic) and does not block boot.
+       12. init_pose_presets catalog cross-family integrity (delegated
+           to ``init_pose_presets.validate()``): every non-alias entry
+           has unique preset names (I1) with 3-tuple float base_pos
+           (I2); ``alias_of`` chain has no missing target / no cycle
+           (I3); every catalog family is declared in
+           ``families_catalog.json`` (I4); a user-overlay preset that
+           smuggles ``joint_pos_by_ir`` into the family layer is
+           rejected (I5 -- the family layer is name + base_pos by
+           design; per-SKU joint angles go to
+           ``robots_canonical.json[sku].init_pose_presets``). I6 emits
+           a soft warning when a families_catalog family has no init
+           pose preset entry -- the omission is legitimate for
+           families without canonical poses and does not block boot.
 
-        Raises :class:`RegistryValidationError` on rule 1 / 3 failure
-        (rule 2 logs a warning and continues).
+        Plus SKU-side family checks:
+        C4. Every SKU must declare a non-empty ``families`` field (factory
+            SKUs raise; user-overlay SKUs warn so a half-finished Dump does
+            not brick startup — same precedent as Rule 3).
+        C5. Every family string declared on a SKU must exist in
+            ``families_catalog.json`` (factory raise; user warn).
+
+        Raises :class:`RegistryValidationError` on rule 1 / 3 / 4 / 5 / 6 /
+        7 / C4 / C5 failure (rule 2 logs a warning and continues).
         """
         if not cls._loaded:
             raise RuntimeError("RegistryHub.load_all() 必须先调用")
 
+        # Note: the validation loop body reassigns ``families`` to the
+        # per-SKU list, so we must alias the module import — otherwise the
+        # name would shadow halfway through the loop.
         from . import ir, robots
+        from . import families as families_module
 
         _FORMATS = ("MJCF", "USD", "URDF")
         problems: list[str] = []
@@ -263,9 +562,51 @@ class RegistryHub:
                 )
                 continue
 
+            # Rule C4: SKU must declare ≥1 family. Fail-loud rather than
+            # silent skip. User-overlay entries get a warning instead of
+            # a hard problem, mirroring Rule 3's is_user_layer treatment
+            # — a Dump MJCF/USD wizard that has not yet had family
+            # assigned must not brick boot.
             if not families:
-                # families-less robot can't be IR-validated; skip rule 3 silently
+                if is_user_layer:
+                    log_warning(
+                        f"[registers] robot={sku}({name}) has empty families "
+                        f"field - declare at least one family from "
+                        f"families_catalog.json via the Robot Asset card"
+                    )
+                    continue
+                problems.append(
+                    f"  robot={sku}({name}) has empty families field; every "
+                    f"registered SKU must declare at least one family from "
+                    f"families_catalog.json"
+                )
                 continue
+
+            # Rule C5: every SKU family must be in the catalog.
+            catalog_fams = set(families_module.list_families())
+            unknown_fams = [f for f in families if f not in catalog_fams]
+            if unknown_fams:
+                for fam in unknown_fams:
+                    if is_user_layer:
+                        log_warning(
+                            f"[registers] robot={sku}({name}) declares "
+                            f"family={fam!r} which is not in "
+                            f"families_catalog.json - add the family to the "
+                            f"catalog or correct the SKU declaration"
+                        )
+                    else:
+                        problems.append(
+                            f"  robot={sku}({name}) declares family={fam!r} "
+                            f"which is not in families_catalog.json - add "
+                            f"the family to the catalog or correct the SKU "
+                            f"declaration"
+                        )
+                if not is_user_layer:
+                    # Skip Rule 3 (IR role validation) — list_roles_for_families
+                    # would silently return an empty role set for an unknown
+                    # family and every ir_role would then fail "not in the IR
+                    # canonical", drowning out the real C5 message.
+                    continue
 
             valid_role_ids = {r["id"] for r in ir.list_roles_for_families(*families)}
 
@@ -369,6 +710,198 @@ class RegistryHub:
         pd_problems = pd_groups.validate()
         if pd_problems:
             problems.extend(pd_problems)
+
+        # Rule 7: families catalog self-consistency — every non-null
+        # inherits_from target must be a declared family (C2) and the
+        # inheritance graph must be acyclic (C3). Per-entry schema (C1)
+        # raises at families.load() so by now those passed. Delegates to
+        # families.validate(). The SKU-side C4/C5 are already enforced
+        # inline in the Rule 3 loop above.
+        family_problems = families_module.validate()
+        if family_problems:
+            problems.extend(family_problems)
+
+        # Rule 8: symmetry catalog cross-family partition.
+        # Delegates to symmetry.validate() — S1 (partition closure per
+        # family IR slice), S3 (referenced role exists in IR slice), S4
+        # (alias_of target exists + no cycles). Per-entry schema (S2/S5
+        # / L*) raises at symmetry.load() so by now those passed.
+        # Symmetry data is family-keyed; intentionally NOT cross-checked
+        # against robots SKUs.
+        from . import symmetry
+        sym_problems = symmetry.validate()
+        if sym_problems:
+            problems.extend(sym_problems)
+
+        # Rule 9: pd_calibration_canaries catalog cross-family integrity.
+        # Delegates to pd_calibration_canaries.validate() — S1 (every
+        # canary group id is a defined pd_groups group for the family),
+        # S2 (every catalog family is in families_catalog.json), plus
+        # alias_of target / cycle defence. Per-entry schema (L1-L5) and
+        # the asymmetric-overlay subset rule were enforced at
+        # pd_calibration_canaries.load() / merge_user_extensions(); not
+        # re-checked here. Canary data is family-keyed, intentionally
+        # NOT cross-checked against robots SKUs.
+        from . import pd_calibration_canaries
+        canary_problems = pd_calibration_canaries.validate()
+        if canary_problems:
+            problems.extend(canary_problems)
+
+        # Rule 10: amp_obs_templates catalog cross-family integrity.
+        # Delegates to amp_obs_templates.validate() — A1 (every term
+        # name registered in application.training.amp.obs_terms),
+        # A2 (every catalog family is in families_catalog.json), A3
+        # (alias_of target exists + no cycles). A4 fires as
+        # log_warning, not a problem-list entry, so the omission of a
+        # family from the obs-templates catalog never blocks boot.
+        # Per-entry schema (L1-L5) was enforced at amp_obs_templates.
+        # load() / merge_user_extensions(); not re-checked here. Obs
+        # templates are family-keyed, intentionally NOT cross-checked
+        # against robots SKUs.
+        from . import amp_obs_templates
+        amp_obs_problems = amp_obs_templates.validate()
+        if amp_obs_problems:
+            problems.extend(amp_obs_problems)
+
+        # Rule 11: gait_commands catalog cross-family integrity.
+        # Delegates to gait_commands.validate() -- G1 (non-empty
+        # class_name), G2 (phase_count == len(phase_names)), G3
+        # (phase_obs_dim == 2 * phase_count), G4 (alias_of target exists
+        # + no cycles), G5 (every catalog family is in
+        # families_catalog.json). G6 fires as log_warning, not a
+        # problem-list entry, so the omission of a family from the
+        # gait_commands catalog never blocks boot (manipulator /
+        # wheeled / generic are not gait-trainable by construction).
+        # Per-entry schema (L1-L7) was enforced at gait_commands.load()
+        # / merge_user_extensions(); not re-checked here. Gait commands
+        # are family-keyed, intentionally NOT cross-checked against
+        # robots SKUs.
+        from . import gait_commands
+        gait_problems = gait_commands.validate()
+        if gait_problems:
+            problems.extend(gait_problems)
+
+        # Rule 12: init_pose_presets catalog cross-family integrity.
+        # Delegates to init_pose_presets.validate() -- I1 (preset name
+        # uniqueness), I2 (base_pos 3-tuple float), I3 (alias_of target
+        # exists + no cycles), I4 (every catalog family is in
+        # families_catalog.json), I5 (user-overlay safety belt: the
+        # family layer is name + base_pos by design; per-SKU
+        # joint_pos_by_ir goes to robots_canonical). I6 fires as
+        # log_warning, not a problem-list entry, so a families_catalog
+        # family with no init pose preset entry never blocks boot.
+        # Per-entry schema (L1-L9) was enforced at
+        # init_pose_presets.load() / merge_user_extensions(); not
+        # re-checked here. Init pose presets are family-keyed,
+        # intentionally NOT cross-checked against robots SKUs --
+        # SKU-level joint angle validation happens at Rule 3
+        # (joints[*].ir_role) for the per-format joints table.
+        from . import init_pose_presets
+        ipp_problems = init_pose_presets.validate()
+        if ipp_problems:
+            problems.extend(ipp_problems)
+
+        # Rule 6: physics_per_format / body_inertials_per_format /
+        # joint_frames_per_format cache integrity — every joint/body NAME in
+        # these caches must exist in the corresponding ``joints_per_format`` /
+        # ``bodies_per_format`` block (rule §11 schema completeness: a Dump
+        # writes both halves in lockstep, so a drift between them is a bug
+        # in the writer or a hand-edited overlay). Empty blocks are valid
+        # (format-not-dumped or format-not-applicable).
+        _DRIVE_NUMERIC_FIELDS = (
+            "stiffness", "damping", "max_force",
+        )
+        for sku in robots.list_skus():
+            entry = robots.get_robot(sku)
+            if entry is None:
+                continue
+            name = entry.get("name", "")
+            ppf = entry.get("physics_per_format", {}) or {}
+            bipf = entry.get("body_inertials_per_format", {}) or {}
+            jfpf = entry.get("joint_frames_per_format", {}) or {}
+            joints_pf = entry.get("joints_per_format", {}) or {}
+            bodies_pf = entry.get("bodies_per_format", {}) or {}
+            for fmt in _FORMATS:
+                # physics_per_format[fmt] keys must be a subset of
+                # joints_per_format[fmt][*].name
+                phys = ppf.get(fmt)
+                if isinstance(phys, dict) and phys:
+                    joint_names = {
+                        str((spec or {}).get("name", "") or "")
+                        for spec in (joints_pf.get(fmt) or {}).values()
+                        if isinstance(spec, dict)
+                    }
+                    joint_names.discard("")
+                    for jn, block in phys.items():
+                        if jn not in joint_names:
+                            problems.append(
+                                f"  robot={sku}({name}) "
+                                f"physics_per_format[{fmt!r}][{jn!r}] has no "
+                                f"matching name in joints_per_format[{fmt!r}] — "
+                                f"re-run Dump {fmt} to rebuild the cache "
+                                f"consistently"
+                            )
+                            continue
+                        if not isinstance(block, dict):
+                            problems.append(
+                                f"  robot={sku}({name}) "
+                                f"physics_per_format[{fmt!r}][{jn!r}] is not "
+                                f"a dict (got {type(block).__name__})"
+                            )
+                            continue
+                        drive = block.get("drive") or {}
+                        if not isinstance(drive, dict):
+                            problems.append(
+                                f"  robot={sku}({name}) "
+                                f"physics_per_format[{fmt!r}][{jn!r}].drive "
+                                f"is not a dict"
+                            )
+                            continue
+                        for k in _DRIVE_NUMERIC_FIELDS:
+                            v = drive.get(k)
+                            if v is not None:
+                                try:
+                                    float(v)
+                                except (TypeError, ValueError):
+                                    problems.append(
+                                        f"  robot={sku}({name}) "
+                                        f"physics_per_format[{fmt!r}][{jn!r}]"
+                                        f".drive.{k}={v!r} is not numeric"
+                                    )
+                # body_inertials_per_format[fmt] keys must be a subset of
+                # bodies_per_format[fmt][*].name (same lockstep contract).
+                inert = bipf.get(fmt)
+                if isinstance(inert, dict) and inert:
+                    body_names = {
+                        str((spec or {}).get("name", "") or "")
+                        for spec in (bodies_pf.get(fmt) or {}).values()
+                        if isinstance(spec, dict)
+                    }
+                    body_names.discard("")
+                    for bn in inert:
+                        if bn not in body_names:
+                            problems.append(
+                                f"  robot={sku}({name}) "
+                                f"body_inertials_per_format[{fmt!r}][{bn!r}] "
+                                f"has no matching name in bodies_per_format"
+                                f"[{fmt!r}] — re-run Dump {fmt}"
+                            )
+                frames = jfpf.get(fmt)
+                if isinstance(frames, dict) and frames:
+                    joint_names = {
+                        str((spec or {}).get("name", "") or "")
+                        for spec in (joints_pf.get(fmt) or {}).values()
+                        if isinstance(spec, dict)
+                    }
+                    joint_names.discard("")
+                    for jn in frames:
+                        if jn not in joint_names:
+                            problems.append(
+                                f"  robot={sku}({name}) "
+                                f"joint_frames_per_format[{fmt!r}][{jn!r}] "
+                                f"has no matching name in joints_per_format"
+                                f"[{fmt!r}] — re-run Dump {fmt}"
+                            )
 
         if problems:
             msg = "[registers] validate failed:\n" + "\n".join(problems)

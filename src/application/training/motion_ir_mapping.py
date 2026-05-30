@@ -63,10 +63,44 @@ QUADRUPED_AMP_IR_ROLES: List[str] = [
     "hip_RR",   "thigh_RR", "calf_RR",   # clip indices 9-11
 ]
 
-# Future: BIPED_AMP_IR_ROLES, HUMANOID_AMP_IR_ROLES, etc.
+# 19-DoF humanoid, source order = qpos[7:] in the loco-mujoco UnitreeH1
+# MJCF (h1.xml). Maps the source joint table verbatim:
+#   * Anatomical-term sources (flexion / adduction / rotation, sh{x,y,z})
+#     translate to robotics terms (pitch / roll / yaw) via the standard
+#     biomechanics convention:
+#         flexion   ↔ pitch  (sagittal plane)
+#         adduction ↔ roll   (frontal plane)
+#         rotation  ↔ yaw    (transverse plane)
+#         shy / shx / shz ↔ pitch / roll / yaw
+#   * `back_bkz` is the single 1-DOF waist joint → maps to UnitPort
+#     H1's `waist_yaw` (UnitPort H1 also exposes only 1-DOF waist).
+# The mapping is 19:19 with NO unmapped target IR role — every UnitPort
+# H1 canonical IR role has a source. Contract pinned with the order
+# below; loader rearranges the source qpos array bit-exactly into this
+# layout before constructing the MotionClip.
+LOCO_MUJOCO_UNITREE_H1_SOURCE_JOINTS: List[str] = [
+    "back_bkz",                                              # 0 ─ waist
+    "l_arm_shy", "l_arm_shx", "l_arm_shz", "left_elbow",     # 1-4 ─ left arm
+    "r_arm_shy", "r_arm_shx", "r_arm_shz", "right_elbow",    # 5-8 ─ right arm
+    "hip_flexion_r", "hip_adduction_r", "hip_rotation_r",    # 9-11 ─ right hip
+    "knee_angle_r", "ankle_angle_r",                         # 12-13 ─ right knee+ankle
+    "hip_flexion_l", "hip_adduction_l", "hip_rotation_l",    # 14-16 ─ left hip
+    "knee_angle_l", "ankle_angle_l",                         # 17-18 ─ left knee+ankle
+]
+
+LOCO_MUJOCO_UNITREE_H1_IR_ROLES: List[str] = [
+    "waist_yaw",                                             # 0
+    "shoulder_pitch_L", "shoulder_roll_L", "shoulder_yaw_L", "elbow_L",   # 1-4
+    "shoulder_pitch_R", "shoulder_roll_R", "shoulder_yaw_R", "elbow_R",   # 5-8
+    "hip_pitch_R", "hip_roll_R", "hip_yaw_R",                # 9-11
+    "knee_R", "ankle_R",                                     # 12-13
+    "hip_pitch_L", "hip_roll_L", "hip_yaw_L",                # 14-16
+    "knee_L", "ankle_L",                                     # 17-18
+]
 
 FORMAT_IR_ROLES: Dict[str, List[str]] = {
     "amp_legged_gym": QUADRUPED_AMP_IR_ROLES,
+    "loco_mujoco_unitree_h1": LOCO_MUJOCO_UNITREE_H1_IR_ROLES,
     # unitport_npy is intentionally absent — those clips carry no portable
     # joint-order contract and must be matched by the env directly.
 }
@@ -189,9 +223,20 @@ def validate_clip_ir_match(
 
     if _cached_joint_count is None:
         try:
-            from application.training.motion.loader import get_loader
+            from application.training.motion.loaders import get_loader
             loader = get_loader(format_id)
-            clip = loader.load(clip_path)
+            # loader.load returns a ReferenceMotionContract; the IR-role
+            # joint-count check only needs the wrapped MotionClip.
+            # target_sku / target_family are required keyword-only;
+            # the robot_spec parameter carries both (registers.robots
+            # primary family contract: families[0]).
+            _families = getattr(robot_spec, "families", None) or []
+            _target_family = str(_families[0]) if _families else ""
+            clip = loader.load(
+                clip_path,
+                target_sku=str(getattr(robot_spec, "sku", "") or ""),
+                target_family=_target_family,
+            ).clip
             jp = getattr(clip, "joint_pos", None)
             joint_count = (
                 int(jp.shape[1]) if jp is not None and getattr(jp, "ndim", 0) >= 2
@@ -270,6 +315,8 @@ def validate_clips_ir_match(
 
 __all__ = [
     "QUADRUPED_AMP_IR_ROLES",
+    "LOCO_MUJOCO_UNITREE_H1_SOURCE_JOINTS",
+    "LOCO_MUJOCO_UNITREE_H1_IR_ROLES",
     "FORMAT_IR_ROLES",
     "ClipIRStatus",
     "get_ir_roles",

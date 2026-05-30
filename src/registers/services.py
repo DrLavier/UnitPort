@@ -205,15 +205,17 @@ CHANNELS: Dict[str, Dict[str, Any]] = {
     },
     "cloud": {
         "id": "cloud",
-        "label": "Cloud sync (WIP)",
+        "label": "Cloud sync",
         "medium": "supabase|sync",
         "root_path_constant": None,
-        "default_root": "Supabase（待实装）",
+        "default_root": "Supabase",
         "secret_safe": False,
         "_doc": (
-            "用户授权的云端同步通道。当前 SDK 实现是 stub —— "
-            "Storage.push_data(channel='cloud') 记录 log_error 后返回 False，"
-            "不应作为关键路径。**Secrets never sync via cloud.**"
+            "用户授权的云端同步通道。Storage.push_data(channel='cloud') 经 "
+            "app 在启动时注册的传输（Storage.register_cloud_transport →"
+            "CloudSyncService.push_single）上传到账户绑定的 Supabase 前缀；"
+            "未注册传输时 fail-loud raise，绝不静默丢数据。"
+            "**Secrets never sync via cloud.**"
         ),
         "categories": [
             "preferences",

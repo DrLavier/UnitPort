@@ -35,6 +35,7 @@ false = 否
 no_items = （无内容）
 bool_check = ✔
 ir_picker_all = 全部（默认）
+preset_unselected = —
 
 [body_mapping]
 col_current = 当前
@@ -105,6 +106,16 @@ health.single = 目前只导出了 {present} —— 针对该机器人训练出�
 health.title = 机器人导出健康状态
 mjcf_offset.not_applicable = 不适用
 mjcf_offset.uncalibrated = 未校准
+pd_table.dialog_title = PD / 执行器
+pd_table.header = 每关节 PD 增益 (kp = m_eff·ωn²) —— 由 MJCF 质量矩阵实时派生。按组编辑 (ωn, ζ);kp/kd 只读。
+pd_table.remotized_note = 远程化关节(连杆驱动)的 Effort 显示其角度相关力矩表的峰值,而非标量上限。
+pd_table.remotized_tooltip = 角度相关力矩表峰值(远程化关节)
+pd_table.auto_button = AUTO ⤓
+pd_table.auto_tooltip = 自动填入该机型的官方推荐 (ωn, ζ) + effort/velocity 预设。优先级:品牌 manifest → USD drive 参数(由 Dump USD 缓存)→ family 默认。
+pd_table.auto_none = 该机型暂无可用的推荐预设。
+pd_table.redump_button = 重新 Dump USD
+pd_table.redump_tooltip = Dump 该机型的 USD 资产以刷新缓存的 drive 参数,然后从 dump 结果重新填入 AUTO。
+pd_table.redump_failed = 重新 Dump USD 失败:{error}
 
 [inline]
 col_grace = 宽限

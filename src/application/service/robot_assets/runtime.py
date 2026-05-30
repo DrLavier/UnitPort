@@ -153,12 +153,121 @@ def read_mjcf_base_offset(
     return (off, True)
 
 
+_warned_inertia_missing_file: set = set()
+
+
+def read_mjcf_inertia_overlay(
+    sku: str,
+    *,
+    bundle_contract: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return the USD→MJCF inertia overlay dict for ``sku``, or ``None``.
+
+    Unlike :func:`read_mjcf_base_offset` (every legged robot needs a spawn-z
+    offset), the inertia overlay is **opt-in** — most robots whose MJCF already
+    carries correct mass/inertia have none. So an *absent* overlay is silent;
+    only a *present-but-broken* one (pointer references a missing YAML, or the
+    MJCF changed since generation) warns once per SKU.
+
+    Priority:
+      1. ``bundle_contract['mjcf_inertia_overlay']`` if it carries
+         ``body_overrides`` (deploy-time, self-contained artifact — §1.9).
+      2. ``state.json`` pointer → YAML at
+         ``USER_CONFIG_DIR/robot_assets/inertia_overlays/<sku>.yaml``.
+
+    Staleness: if the recorded ``source.mjcf_sha256`` no longer matches the live
+    MJCF, WARN once (directive: regenerate via Dump USD) but **still return** the
+    overlay — a stale correction beats the known-broken placeholder (§8(c)).
+    Returns ``None`` for the ``no_changes_needed`` overlay (nothing to apply).
+    """
+    if not sku:
+        return None
+
+    # ---- (1) Bundle contract (self-contained portable artifact) ----
+    if isinstance(bundle_contract, dict):
+        c = bundle_contract.get("mjcf_inertia_overlay")
+        if isinstance(c, dict) and c.get("body_overrides"):
+            return c
+
+    # ---- (2) User overlay: state.json pointer → YAML ----
+    try:
+        from application.service.robot_assets.service import (
+            get_robot_asset_service,
+        )
+
+        pointer = get_robot_asset_service().get_mjcf_inertia_overlay(sku)
+    except Exception as exc:
+        # WHY KEPT (§1.8 (c)): service load can fail in headless deploy paths.
+        if sku not in _warned_inertia_missing_file:
+            log_warning(
+                f"[mjcf_inertia_overlay] sku={sku!r}: cannot read overlay "
+                f"pointer ({exc}); inertia will not be corrected this session."
+            )
+            _warned_inertia_missing_file.add(sku)
+        return None
+
+    if not isinstance(pointer, dict) or not pointer:
+        return None  # opt-in: no overlay is the common, silent case
+
+    rel = str(pointer.get("file") or "")
+    if not rel:
+        return None
+
+    from unitport_sdk import Paths, read_data
+
+    path = Paths.USER_CONFIG_DIR / rel
+    if not path.exists():
+        if sku not in _warned_inertia_missing_file:
+            log_warning(
+                f"[mjcf_inertia_overlay] sku={sku!r}: state.json points at "
+                f"{rel!r} but the YAML is missing on disk; inertia uncorrected. "
+                f"Re-run 'Calibrate inertia from USD' on the Robot Asset card."
+            )
+            _warned_inertia_missing_file.add(sku)
+        return None
+
+    overlay = read_data(path)
+    if not isinstance(overlay, dict) or not overlay.get("body_overrides"):
+        return None  # 'no_changes_needed' / empty — nothing to apply
+
+    # ---- Staleness (warn-not-raise, §8(c)) ----
+    src = overlay.get("source", {}) or {}
+    mjcf_path = str(src.get("mjcf_path") or "")
+    recorded = str(src.get("mjcf_sha256") or "")
+    if mjcf_path and recorded:
+        try:
+            from pathlib import Path as _Path
+
+            from application.training.validation.mjcf_base_calibration import (
+                hash_file_sha256,
+            )
+
+            p = _Path(mjcf_path)
+            if p.exists() and hash_file_sha256(p) != recorded and sku not in _warned_stale:
+                log_warning(
+                    f"[mjcf_inertia_overlay] sku={sku!r}: MJCF changed since this "
+                    f"overlay was generated ({overlay.get('generated_at')}). "
+                    f"Applying the stale overlay anyway; regenerate via 'Calibrate "
+                    f"inertia from USD' for an exact match."
+                )
+                _warned_stale.add(sku)
+        except Exception:
+            pass  # best-effort staleness probe; never block the apply
+
+    return overlay
+
+
 def clear_runtime_warn_cache() -> None:
     """Reset the per-process WARN dedup. Used by tests and by the service
     when the user manually re-calibrates a SKU so a fresh failure surfaces
     on the next spawn instead of being silently dedup'd."""
     _warned_uncalibrated.clear()
     _warned_stale.clear()
+    _warned_inertia_missing_file.clear()
 
 
-__all__ = ["read_mjcf_base_offset", "clear_runtime_warn_cache"]
+__all__ = [
+    "read_mjcf_base_offset",
+    "read_mjcf_inertia_overlay",
+    "clear_runtime_warn_cache",
+]

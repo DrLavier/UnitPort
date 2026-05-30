@@ -45,6 +45,19 @@ description = "Superset Actor block consumed by rewards / DR / obs / action / cm
 # Parameters — §1 Init pose
 # ---------------------------------------------------------------------------
 
+# Family-filtered preset dropdown. Choosing a preset cascades the selected
+# pose into the sibling fields init_pos_{x,y,z} + init_joint_angles via
+# RegistryPresetPickerRow.on_select. The bound param itself only carries
+# the preset name; spec_compiler does not consume this field (the
+# joint_init / init_pose snapshot comes from the sibling fields).
+[[parameters]]
+key = "init_pose_preset"
+type = "string"
+default = ""
+widget = "registry_preset_picker"
+description = "起始姿态 preset / Init pose preset (family-filtered)"
+meta = { registry = "init_pose_presets", family_source = "robot_pipe" }
+
 [[parameters]]
 key = "init_pos_x"
 type = "float"
@@ -132,8 +145,8 @@ key = "contact_body_names"
 type = "json"
 default = "[]"
 widget = "ir_body_picker"
-description = "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node)"
-meta = { source = "body", default_select_all = false, language = "json" }
+description = "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node). WYSIWYG: empty picker = empty ContactSensor (no /Robot/.* fallback); R5 _check_contact_sensor_coverage rejects compile when reward/termination consume contact_forces but picker omits required bodies."
+meta = { source = "body", default_select_all = true, language = "json" }
 
 [[parameters]]
 key = "contact_history_length"
@@ -150,40 +163,12 @@ default = true
 description = "追踪 air time / Track air time"
 
 # ---------------------------------------------------------------------------
-# Parameters — §4 Actuator overrides
+# Parameters — §4 Actuator overrides: MOVED to RobotNode (2026-05).
+# stiffness/damping were dropped (gains derive from (omega_n, zeta) in both
+# engines, §10); effort_limit/velocity_limit moved to the RobotNode (hidden
+# params, edited via its pd_param_table panel). Existing canvases are migrated
+# by bootstrap/migrate_canvas_actuator_to_robot.py.
 # ---------------------------------------------------------------------------
-
-[[parameters]]
-key = "stiffness"
-type = "float"
-default = 25.0
-widget = "range"
-description = "刚度 / Joint stiffness (PD P gain)"
-meta = { min = 0.0, max = 200.0, step = 1.0 }
-
-[[parameters]]
-key = "damping"
-type = "float"
-default = 0.5
-widget = "range"
-description = "阻尼 / Joint damping (PD D gain)"
-meta = { min = 0.0, max = 10.0, step = 0.05 }
-
-[[parameters]]
-key = "effort_limit"
-type = "float"
-default = 30.0
-widget = "range"
-description = "扭矩上限 / Effort (torque) limit"
-meta = { min = 0.0, max = 200.0, step = 1.0 }
-
-[[parameters]]
-key = "velocity_limit"
-type = "float"
-default = 30.0
-widget = "range"
-description = "速度上限 / Joint velocity limit"
-meta = { min = 0.0, max = 100.0, step = 0.5 }
 
 # ---------------------------------------------------------------------------
 # Parameters — §5 Action space (absorbed from IL Action Config)

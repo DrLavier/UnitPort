@@ -50,7 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from unitport_sdk import Paths, log_warning, push_data, read_data
+from unitport_sdk import DataManager, Paths, log_warning, push_data, read_data
 
 from . import RegistryValidationError, resolve_robot_sku
 
@@ -71,6 +71,25 @@ _FORMATS: tuple = ("MJCF", "USD", "URDF")
 OUT_OF_SCOPE_IR_ROLE: str = "__out_of_scope__"
 
 
+def is_actuated_ir_role(role: str) -> bool:
+    """True iff an IR role names a real motion joint the policy drives.
+
+    Excludes the parked sentinel ``__out_of_scope__`` (e.g. an MJCF freejoint
+    the user opted out of) and the multi-bind bucket roles (``misc`` /
+    ``sensor*`` mounts, ``base``). These exist in the registry for mapping /
+    book-keeping but must NEVER count toward the actuated-joint set that
+    training, sim2sim, and bundle export consume — otherwise they corrupt the
+    action dimension / joint ordering or feed a non-hinge into the PD solver.
+    Single source of truth; reuse everywhere the actuated set is derived.
+    """
+    role = str(role or "")
+    return (
+        bool(role)
+        and not role.startswith("sensor")
+        and role not in {"misc", "base", OUT_OF_SCOPE_IR_ROLE}
+    )
+
+
 def _normalize_format(fmt: str) -> str:
     """Normalise a format string to one of the canonical keys.
 
@@ -88,6 +107,7 @@ def _normalize_format(fmt: str) -> str:
 _DATA_DIR = Paths.REGISTERS_DIR / "data"
 _CANONICAL_PATH = _DATA_DIR / "robots_canonical.json"
 _USER_CUSTOM_REL = "registers/robots_custom.json"
+_FACTORY_BUILD_FILENAME = "robots_factory_build.json"
 
 
 def _user_custom_path() -> Path:
@@ -96,14 +116,41 @@ def _user_custom_path() -> Path:
     picked up without restart."""
     return Paths.USER_CONFIG_DIR / "registers" / "robots_custom.json"
 
+
+def _factory_build_path() -> Path:
+    """Lazy resolve of the factory-build overlay path under
+    ``Paths.FACTORY_BUILD_DIR``. This is where locally-dumped USD body
+    tables for standard SKUs land — distinct from ``_user_custom_path``
+    (per-user state under USER_CONFIG_DIR) and from the SDK-shipped
+    ``robots_canonical.json`` (factory ground truth, repo-tracked).
+
+    Three-layer merge order (RegistryHub.load_all):
+        SDK ship (robots_canonical.json)
+           ← factory_build (robots_factory_build.json)   [shallow merge, this layer]
+           ← user overlay (robots_custom.json)            [shallow merge, USER_CONFIG_DIR]
+
+    §9 portable-artifacts justification: USD body tables for *standard*
+    SKUs are factory facts (the topology of a Nucleus-shipped Unitree
+    Go2 USD is identical for everyone who downloads it). They must live
+    on the factory side so R5 ⊆-coverage / canvas pre-realization /
+    sensor wiring see the same data on every install — not in
+    USER_CONFIG_DIR where availability would vary per user.
+    """
+    return Paths.FACTORY_BUILD_DIR / _FACTORY_BUILD_FILENAME
+
+
 _state: Dict[str, Any] = {
     "loaded": False,
     "version": "",
     "robots": {},          # sku → robot dict (post inheritance merge)
     "raw_robots": {},      # sku → robot dict (pre inheritance merge; used by editor round-trip)
     "alias_to_sku": {},
-    "user_extensions": {},
+    "user_extensions": {},        # sku → entry, populated by user-layer merge
+    "factory_build_extensions": {},  # sku → entry, populated by factory-build merge
     "variant_skus": set(),  # SKUs whose inherits_from is non-empty
+    "canonical_skus": set(),  # SKUs present in SDK ship robots_canonical.json
+                              # (snapshot at load(); used by is_canonical_sku to
+                              # distinguish standard SKUs from user-private ones)
 }
 
 
@@ -131,6 +178,9 @@ _state: Dict[str, Any] = {
 _INHERITABLE_FIELDS: tuple = (
     "joints_per_format",
     "bodies_per_format",
+    "physics_per_format",
+    "body_inertials_per_format",
+    "joint_frames_per_format",
     "assets",
     "init_pose_presets",
     "default_actuator_params",
@@ -251,6 +301,11 @@ def load() -> int:
     # Preserve pre-merge view for editor round-trip; resolve inheritance into
     # the public ``robots`` map so every existing consumer sees merged fields.
     _state["raw_robots"] = {k: dict(v) for k, v in robots.items()}
+    # Snapshot the SDK-ship SKU set BEFORE any overlay merge runs — this is
+    # the authoritative "standard SKU" predicate used by the auto-dump
+    # trigger to decide which SKUs to dump into the factory_build layer
+    # (vs user-private SKUs whose owner must dump manually).
+    _state["canonical_skus"] = set(robots.keys())
     _resolve_inheritance_in_place(robots)
     _state["robots"] = robots
     _state["alias_to_sku"] = alias
@@ -290,22 +345,57 @@ def _autoreshape_legacy_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def merge_user_extensions(extensions: Dict[str, Dict[str, Any]]) -> int:
+def merge_user_extensions(
+    extensions: Dict[str, Dict[str, Any]],
+    *,
+    target_layer: str = "user",
+) -> int:
+    """Shallow-merge entries from an overlay into the in-memory robot registry.
+
+    The same shallow-merge semantics drive both the **user** overlay
+    (USER_CONFIG_DIR/registers/robots_custom.json) and the **factory_build**
+    overlay (FACTORY_BUILD_DIR/robots_factory_build.json). The
+    ``target_layer`` argument selects which bookkeeping dict the entry is
+    recorded in so consumers can still distinguish "user-private SKU" from
+    "factory-built standard SKU":
+
+      * ``target_layer="user"`` (default) — writes ``_state["user_extensions"]``;
+        ``is_user_extension(sku)`` returns True downstream.
+      * ``target_layer="factory_build"`` — writes
+        ``_state["factory_build_extensions"]``; ``is_factory_build_extension(sku)``
+        returns True. Does NOT mark the SKU as a user extension (it would be
+        wrong: the data is factory-owned, locally built).
+
+    The merge itself is identical for both layers: SHALLOW field-level
+    override. Overlay-declared keys win; canonical fields not declared in
+    the overlay are preserved (so a Dump USD that only fills
+    ``bodies_per_format["USD"]`` does not erase the canonical ``families`` /
+    ``joints_per_format`` / ``adapter`` fields). Editor round-trip still
+    writes the full entry back so explicit edits are durable; the merge
+    just stops the overlay from shadowing canonical fields the layer never
+    touched.
+
+    Call order matters: ``factory_build`` is merged first (between SDK
+    ship and user), so user overlay still wins for any SKU it shadows.
+    """
+    if target_layer not in ("user", "factory_build"):
+        raise ValueError(
+            f"merge_user_extensions: target_layer must be 'user' or "
+            f"'factory_build', got {target_layer!r}"
+        )
+    layer_key = (
+        "factory_build_extensions" if target_layer == "factory_build"
+        else "user_extensions"
+    )
     added = 0
     for sku, entry in (extensions or {}).items():
         if not isinstance(entry, dict):
-            log_warning(f"[robots] 跳过非法 robots_custom 条目：{sku}")
+            log_warning(
+                f"[robots] 跳过非法 robots overlay 条目 (layer={target_layer}): {sku}"
+            )
             continue
         entry = _autoreshape_legacy_entry(entry)
-        _state["user_extensions"][sku] = entry
-        # SHALLOW field-level merge: user-overlay keys override canonical;
-        # canonical fields NOT declared in the overlay are preserved. This
-        # lets future releases add new RobotSpec fields (e.g.
-        # default_init_joint_angles in Stage A of the sim2sim PD framework)
-        # without users having to re-export every overlay entry to pick up
-        # the new field. Editor round-trip still writes the full entry
-        # back so explicit edits are durable; the merge just stops the
-        # overlay from shadowing canonical fields the user never touched.
+        _state[layer_key][sku] = entry
         base_canonical = _state["raw_robots"].get(sku, {}) if sku in _state["raw_robots"] else {}
         merged = dict(base_canonical)
         merged.update(entry)
@@ -316,21 +406,52 @@ def merge_user_extensions(extensions: Dict[str, Dict[str, Any]]) -> int:
     return added
 
 
-def persist_user_robot(sku: str, entry: Dict[str, Any]) -> bool:
-    """写入/更新 user 层 robot 至 <USER_CONFIG_DIR>/registers/robots_custom.json.
+def persist_user_robot(
+    sku: str,
+    entry: Dict[str, Any],
+    *,
+    target_layer: str = "user",
+) -> bool:
+    """写入/更新 robot overlay 条目。
 
-    Shape: ``{"robots": {sku: entry, ...}}`` — 与 RegistryHub._merge_user_overlays 完全兼容。
+    ``target_layer`` 决定落盘位置:
+      * ``"user"`` (default) — 写入 ``<USER_CONFIG_DIR>/registers/robots_custom.json``
+        经 ``push_data`` (local channel)。用于用户自定义 SKU 的手动 Dump。
+      * ``"factory_build"`` — 写入 ``<FACTORY_BUILD_DIR>/robots_factory_build.json``
+        经 ``DataManager.write`` (不经 USER_CONFIG_DIR channel)。用于自动 dump
+        标准 SKU 时把工厂事实 USD body 表持久化到工厂层 (§9: 标准机器人 USD
+        body 不属于用户私有状态)。
+
+    Shape: ``{"robots": {sku: entry, ...}}`` — 与 RegistryHub.
+    ``_merge_user_overlays`` / ``_merge_factory_build_overlays`` 完全兼容。
     本函数只负责落盘；调用方完成多个写入后应自行 RegistryHub.reload()。
     """
+    if target_layer == "user":
+        target_path = _user_custom_path()
+    elif target_layer == "factory_build":
+        target_path = _factory_build_path()
+    else:
+        raise ValueError(
+            f"persist_user_robot: target_layer must be 'user' or "
+            f"'factory_build', got {target_layer!r}"
+        )
+
     payload: Dict[str, Any] = {}
-    if _user_custom_path().exists():
-        existing = read_data(_user_custom_path())
+    if target_path.exists():
+        existing = read_data(target_path)
         if isinstance(existing, dict):
             payload = dict(existing)
     robots_blk = dict(payload.get("robots", {}) or {})
     robots_blk[sku] = entry
     payload["robots"] = robots_blk
-    return bool(push_data(_USER_CUSTOM_REL, payload))
+
+    if target_layer == "user":
+        return bool(push_data(_USER_CUSTOM_REL, payload))
+    # factory_build: write under FACTORY_BUILD_DIR directly. This bypasses
+    # push_data (which routes to USER_CONFIG_DIR via the 'local' channel)
+    # so factory-owned data never leaks into per-user state.
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    return bool(DataManager.write(target_path, payload))
 
 
 class CascadeProtectionError(RuntimeError):
@@ -381,6 +502,34 @@ def delete_user_robot(sku: str, *, force: bool = False) -> bool:
 def is_user_extension(sku: str) -> bool:
     """canonical(出厂) vs user(运行时新增) 的判别。"""
     return sku in (_state.get("user_extensions") or {})
+
+
+def is_factory_build_extension(sku: str) -> bool:
+    """True iff this SKU has data merged in from the factory-build layer
+    (FACTORY_BUILD_DIR/robots_factory_build.json). Distinct from
+    ``is_user_extension`` — factory-build is factory-owned, locally built
+    data (e.g. auto-dumped USD body tables for standard SKUs), not per-user
+    state."""
+    return sku in (_state.get("factory_build_extensions") or {})
+
+
+def is_canonical_sku(sku: str) -> bool:
+    """True iff this SKU was present in the SDK-ship ``robots_canonical.json``
+    at load time — i.e. it is a *standard* SKU (Unitree Go2, Boston Dynamics
+    Spot, etc.), as opposed to a user-private SKU added via the Robot Editor.
+
+    Decoupled from :func:`is_user_extension` and
+    :func:`is_factory_build_extension`: a standard SKU can carry overlay
+    data in either layer (and usually does — the auto-dump trigger writes
+    USD body tables into factory_build for every canonical SKU on first
+    run), but it is still canonical. The auto-dump trigger uses this
+    predicate to decide which SKUs to dump (canonical only — user-private
+    SKUs are the owner's responsibility to dump manually via the Robot
+    Asset card).
+    """
+    if not _state["loaded"]:
+        load()
+    return sku in (_state.get("canonical_skus") or set())
 
 
 def get_version() -> str:
@@ -550,7 +699,15 @@ def resolve_to_sku(user_input: str) -> Optional[str]:
 
 
 def list_by_family(*families: str) -> List[Dict[str, Any]]:
-    """返回包含全部给定 family 的 robots（superset 匹配）。"""
+    """返回包含全部给定 family 的 robots（superset 匹配）.
+
+    Use this when you need the SET of SKUs matching a family criterion
+    (family → SKUs, reverse lookup). For single-SKU dispatch lookups
+    (SKU → table value, forward lookup), use
+    :func:`registers.families.resolve_family_dispatch` instead — that
+    walks the SKU's families list in declared order and supports
+    inheritance fallback (humanoid → biped) via ``allow_fallback=True``.
+    """
     if not _state["loaded"]:
         load()
     want = set(families)
@@ -740,6 +897,28 @@ class RobotSpec:
     # joint-range validator catches the resulting out-of-range pose with
     # an actionable error pointing back at this field.
     default_init_joint_angles: Optional[Dict[str, float]] = None
+    # Per-format per-joint physics block, populated by Dump USD (and a no-op
+    # for MJCF — MJCF gain params live in the XML and are read in place by
+    # the gain solvers). Shape: ``{fmt: {usd_joint_name: {kind,
+    # drive:{stiffness, damping, max_force, target_type, type},
+    # limits:{lower, upper}, max_velocity,
+    # provenance:{attribute_present}}}}``. Joint names match
+    # ``joints_per_format[fmt][*].name`` so the AUTO consumer joins by name.
+    # Empty dict for a format means "did not capture / format-not-applicable";
+    # missing key means "this format was never dumped" (consumer falls back
+    # per the rule §11 fallback chain). See
+    # ``RobotAssetService.set_discovered_payload`` for the writer and
+    # ``pd_preview.resolve_recommended_actuators`` for the AUTO consumer.
+    physics_per_format: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
+    # Per-format USD body inertials cache, written by Dump USD. Lets the
+    # USD↔MJCF inertia calibration skip the subprocess on cache hit.
+    # Shape: ``{fmt: {usd_body_name: {mass, mass_source, com,
+    # diagonal_inertia, principal_axes, inertia_source}}}``. Empty for MJCF.
+    body_inertials_per_format: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
+    # Per-format USD joint kinematic frames cache, written by Dump USD.
+    # Shape: ``{fmt: {usd_joint_name: {body0, body1, local_pos0/1,
+    # local_rot0/1, axis}}}``. Empty for MJCF.
+    joint_frames_per_format: Dict[str, Dict[str, Dict[str, Any]]] = field(default_factory=dict)
 
     # --- per-format accessors -----------------------------------------------
 
@@ -793,6 +972,29 @@ class RobotSpec:
             if nm:
                 out.append(str(jspec.get("ir_role", "")))
         return out
+
+    def physics_for(self, fmt: str) -> Dict[str, Dict[str, Any]]:
+        """Return ``{usd_joint_name: physics_block}`` for the given format.
+
+        Empty dict if the format was never dumped or carries no drive data.
+        ``physics_block`` shape matches :func:`bootstrap.discover_usd_bodies
+        ._read_joint_drive`'s output. The consumer (e.g.
+        ``pd_preview._usd_drive_recommendation``) must check
+        ``provenance.attribute_present`` per field rather than treating
+        ``None`` as a sensible default (rule §8 fail-loud).
+        """
+        block = self.physics_per_format.get(_normalize_format(fmt))
+        return dict(block) if isinstance(block, dict) else {}
+
+    def body_inertials_for(self, fmt: str) -> Dict[str, Dict[str, Any]]:
+        """Return ``{usd_body_name: inertial_block}`` for the given format."""
+        block = self.body_inertials_per_format.get(_normalize_format(fmt))
+        return dict(block) if isinstance(block, dict) else {}
+
+    def joint_frames_for(self, fmt: str) -> Dict[str, Dict[str, Any]]:
+        """Return ``{usd_joint_name: frame_block}`` for the given format."""
+        block = self.joint_frames_per_format.get(_normalize_format(fmt))
+        return dict(block) if isinstance(block, dict) else {}
 
     def joints_role_map_for(self, fmt: str) -> Dict[str, str]:
         """Return ``{joint_name: ir_role}`` for the given format.
@@ -874,8 +1076,14 @@ def get_robot_spec(robot_id: str) -> Optional[RobotSpec]:
     # ``available_formats`` accessor reports a clean set.
     raw_joints_pf = entry.get("joints_per_format", {}) or {}
     raw_bodies_pf = entry.get("bodies_per_format", {}) or {}
+    raw_physics_pf = entry.get("physics_per_format", {}) or {}
+    raw_body_inert_pf = entry.get("body_inertials_per_format", {}) or {}
+    raw_joint_frames_pf = entry.get("joint_frames_per_format", {}) or {}
     joints_per_format: Dict[str, Dict[str, Dict[str, Any]]] = {}
     bodies_per_format: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    physics_per_format: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    body_inertials_per_format: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    joint_frames_per_format: Dict[str, Dict[str, Dict[str, Any]]] = {}
     for fmt in _FORMATS:
         j_block = raw_joints_pf.get(fmt)
         if isinstance(j_block, dict):
@@ -883,6 +1091,15 @@ def get_robot_spec(robot_id: str) -> Optional[RobotSpec]:
         b_block = raw_bodies_pf.get(fmt)
         if isinstance(b_block, dict):
             bodies_per_format[fmt] = dict(b_block)
+        p_block = raw_physics_pf.get(fmt)
+        if isinstance(p_block, dict):
+            physics_per_format[fmt] = dict(p_block)
+        bi_block = raw_body_inert_pf.get(fmt)
+        if isinstance(bi_block, dict):
+            body_inertials_per_format[fmt] = dict(bi_block)
+        jf_block = raw_joint_frames_pf.get(fmt)
+        if isinstance(jf_block, dict):
+            joint_frames_per_format[fmt] = dict(jf_block)
 
     assets = entry.get("assets", {}) or {}
 
@@ -944,6 +1161,9 @@ def get_robot_spec(robot_id: str) -> Optional[RobotSpec]:
         sdk_paths=list(entry.get("sdk_paths", []) or []),
         default_actuator_params=default_actuator_params,
         default_init_joint_angles=default_init_joint_angles,
+        physics_per_format=physics_per_format,
+        body_inertials_per_format=body_inertials_per_format,
+        joint_frames_per_format=joint_frames_per_format,
     )
 
 
@@ -974,6 +1194,8 @@ __all__ = [
     "list_user_variants_of",
     "CascadeProtectionError",
     "is_user_extension",
+    "is_factory_build_extension",
+    "is_canonical_sku",
     "get_version",
     "list_skus",
     "get_robot",
@@ -1002,4 +1224,6 @@ __all__ = [
     "list_sensors",
     "RobotSpec",
     "get_robot_spec",
+    "OUT_OF_SCOPE_IR_ROLE",
+    "is_actuated_ir_role",
 ]

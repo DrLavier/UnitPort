@@ -153,10 +153,15 @@ class JointIRResolver:
                     f"every joint must declare its ir_role in "
                     f"registers/data/robots_canonical.json"
                 )
-            is_bucket = ir == "misc" or ir.startswith("sensor")
-            if is_bucket:
-                # Reverse map stays well-defined (each phys → its bucket).
-                # Forward map skipped — to_physical(bucket) is undefined.
+            # Non-actuated roles — multi-bind buckets ('misc' / 'sensor*') AND
+            # the parked '__out_of_scope__' sentinel (e.g. an MJCF freejoint the
+            # user opted out of) — are kept out of the forward map: to_physical()
+            # on them is undefined and they must never reach the gain solver or
+            # the action-joint set. The reverse map still records them so
+            # to_ir(physical) keeps resolving (e.g. generic_mujoco_env actuator
+            # → role lookup). Uses the shared registers.robots predicate.
+            from registers.robots import is_actuated_ir_role
+            if not is_actuated_ir_role(ir):
                 self._physical_to_ir[phys] = ir
                 self._bucket_ir_members.setdefault(ir, []).append(phys)
                 continue

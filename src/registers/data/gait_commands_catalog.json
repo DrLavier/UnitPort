@@ -1,0 +1,36 @@
+{
+  "version": "1.0.0",
+  "schema": "gait_commands/catalog",
+  "_doc": "Per-family parameterised gait command spec. Each entry describes how the env-cfg compiler should emit the gait CommandTerm class for that family: command_dim is the per-env command vector width; phase_count is the number of per-foot phase channels embedded in command[:, 1:1+phase_count]; phase_obs_dim is the sin/cos-encoded obs term width (= 2 * phase_count); obs_layout is the ordered list of obs sub-terms emitted to the policy group (frequency:N / phase_sin_cos:N / body_height:N / step_height:N) used as a documentation pin and for byte-identity assertions. phase_names is the ordered tuple of leg labels keyed by phase index (quadruped: FL/FR/RL/RR; biped: L/R). humanoid declares alias_of: biped (data identity), mirroring the five-layer alignment already present in ir_canonical, pd_groups_definitions, symmetry_catalog, pd_calibration_canaries, and amp_obs_templates -- six layers in total. Manipulator / wheeled / generic intentionally have no entry: gait commands are legged-only by construction, and the families_catalog soft warning (G6) surfaces the omission. User overlays at <USER_CONFIG_DIR>/registers/gait_commands_custom.json can add new families or override existing ones; the same L1-L7 schema rules apply at merge time. Quadruped values are factory-pinned to UniformGaitCommand's existing layout (command_dim=7 from torch.zeros((n, 7)); phase_count=4 from command[:, 1:5]; phase_obs_dim=8 from sin/cos of 4 phases) -- altering them is a R6 byte-identity break for the reverse-registration done in the next segment.",
+  "families": {
+    "quadruped": {
+      "class_name": "UniformGaitCommand",
+      "command_dim": 7,
+      "phase_count": 4,
+      "phase_obs_dim": 8,
+      "obs_layout": [
+        "frequency:1",
+        "phase_sin_cos:8",
+        "body_height:1",
+        "step_height:1"
+      ],
+      "phase_names": ["fl", "fr", "rl", "rr"]
+    },
+    "biped": {
+      "class_name": "BipedGaitCommand",
+      "command_dim": 5,
+      "phase_count": 2,
+      "phase_obs_dim": 4,
+      "obs_layout": [
+        "frequency:1",
+        "phase_sin_cos:4",
+        "body_height:1",
+        "step_height:1"
+      ],
+      "phase_names": ["L", "R"]
+    },
+    "humanoid": {
+      "alias_of": "biped"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "schema": "families/catalog",
+  "_doc": "Family metadata registry. Declares the enumerable set of robot families + their dispatch-time inheritance relationships. Distinct from the per-domain alias_of in ir_canonical.json / pd_groups_definitions.json, which means 'data identity' at load time; inherits_from here is a dispatch-time fallback chain opt-in by the caller via resolve_family_dispatch(allow_fallback=True). The two layers coexist.",
+  "families": {
+    "quadruped": {
+      "label": "Quadruped",
+      "inherits_from": null,
+      "_doc": "Four-legged locomotion (3 actuated DOFs per leg: hip_AA, thigh_FE, calf knee). foot is the kinematic contact link."
+    },
+    "biped": {
+      "label": "Biped",
+      "inherits_from": null,
+      "_doc": "Two-legged locomotion (lower body + optional simple torso). Covers SKUs without articulated upper body."
+    },
+    "humanoid": {
+      "label": "Humanoid",
+      "inherits_from": "biped",
+      "_doc": "Biped + articulated upper body (shoulders/elbows/wrists/waist/neck + optional fingers). inherits_from biped at dispatch fallback level; ir_canonical and pd_groups_definitions use their own alias_of independently."
+    },
+    "manipulator": {
+      "label": "Manipulator",
+      "inherits_from": null,
+      "_doc": "Single-arm rig (shoulder -> elbow -> wrist -> hand). Multi-arm rigs declare biped/humanoid family instead."
+    },
+    "wheeled": {
+      "label": "Wheeled",
+      "inherits_from": null,
+      "_doc": "Wheeled chassis (per-wheel drive). Often combined with quadruped on hybrid platforms (Go2W, B2W declare both)."
+    },
+    "generic": {
+      "label": "Generic",
+      "inherits_from": null,
+      "_doc": "Conservative fallback when family inference fails. Carries no joint groups; downstream resolvers raise if a generic SKU declares real joints (see registers/pd_groups.py)."
+    }
+  }
+}

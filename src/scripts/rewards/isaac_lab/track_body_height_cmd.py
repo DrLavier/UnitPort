@@ -18,10 +18,17 @@ from scripts.task_module import (
 INLINE_SOURCE = '''
 def _unitport_track_body_height_cmd(env, command_name="gait_command",
                                      asset_cfg=SceneEntityCfg("robot"), std=0.05):
-    """Exponential reward for base height matching commanded body_height."""
+    """Exponential reward for base height matching commanded body_height.
+
+    Reads the commanded body height through the CommandTerm's
+    ``body_height_cmd()`` abstract method -- both UniformGaitCommand
+    (quadruped) and BipedGaitCommand (biped/humanoid) implement it
+    against their own command-tensor layout. The reward source carries
+    no family-keyed slice index.
+    """
     import torch
     term = env.command_manager.get_term(command_name)
-    target = term.command[:, 5]
+    target = term.body_height_cmd()
     asset = env.scene[asset_cfg.name]
     height = asset.data.root_pos_w[:, 2]
     error = torch.square(height - target)

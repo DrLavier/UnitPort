@@ -357,14 +357,12 @@ class GenericMujocoEnv(_GymEnvBase):
             d.use_default_offset = bool(
                 getattr(actor_config, "action_use_default_offset", d.use_default_offset)
             )
-            actuator = getattr(actor_config, "actuator", None)
-            if actuator is not None:
-                stiff = float(getattr(actuator, "stiffness", 0.0) or 0.0)
-                damp = float(getattr(actuator, "damping", 0.0) or 0.0)
-                if stiff > 0.0:
-                    d.pd_kp = stiff
-                if damp > 0.0:
-                    d.pd_kd = damp
+            # NOTE: scalar stiffness/damping were removed from ActuatorConfig
+            # (2026-05) — PD is parameterized only by (omega_n, zeta), §10. The
+            # canonical per-joint gains come from self._pd_param via
+            # _resolve_pd_gains below. d.pd_kp / d.pd_kd remain ONLY as the
+            # legacy-canvas fallback default (no pd_param) and are intentionally
+            # NOT sourced from the canvas anymore.
         self._d = d
 
         # ── Load MJCF ──

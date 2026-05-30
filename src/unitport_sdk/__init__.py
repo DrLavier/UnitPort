@@ -41,7 +41,7 @@ from .sys import (
     up_data,
     save_data,
     get_data_value,
-    # 通用数据推送（local + cloud-WIP）
+    # 通用数据推送（local FS + cloud channel via Storage.register_cloud_transport）
     Storage,
     push_data,
     # 资源查找

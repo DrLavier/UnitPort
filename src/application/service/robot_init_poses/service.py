@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from registers import init_pose_presets as _init_pose_presets_registry
 from registers import robots as _robots_registry
 from unitport_sdk import Paths, log_warning, push_data, read_data
 
@@ -94,11 +95,116 @@ class InitPoseService(QObject):
     # ----- public API -----------------------------------------------------
 
     def list_factory_presets(self, sku: str) -> List[InitPosePreset]:
-        """Factory presets from the canonical robot registry."""
+        """Factory presets for ``sku`` from the family-default registry
+        layered with the SKU-override layer from
+        ``robots_canonical.json[sku].init_pose_presets``.
+
+        Three-layer factory source:
+
+          1. family-default -- ``registers.init_pose_presets.list_presets``
+             returns name + base_pos + description for the SKU's family.
+             ``joint_pos_by_ir`` is intentionally absent at this layer
+             because init pose joint angles are per-robot physical
+             quantities; a quadruped "stand" pose's thigh / calf angles
+             depend on segment lengths, so there is no valid family-wide
+             canonical to seed from.
+          2. SKU-override -- ``robots_canonical[sku].init_pose_presets``
+             carries the per-SKU ``joint_pos_by_ir`` (and may also
+             override the base_pos and description). SKU-level entries
+             with the same name as a family-default shadow it integrally
+             (no dict merge -- the SKU-override replaces the entire
+             preset).
+          3. The user layer is composed on top by :meth:`list_presets`
+             (factory + user).
+
+        Selecting a family preset whose SKU has no SKU-override carries
+        an empty ``joint_pos_by_ir``; apply-time consumers
+        (RegistryPresetPickerRow._InitPosePresetAdapter.on_select,
+        InitPoseSubsection apply) MUST fail-loud rather than fill
+        zero / family-default angles -- the registry intentionally
+        offers nothing to fall back to (§8 silent-fallback ban).
+        """
         if not sku:
             return []
-        raw = _robots_registry.get_robot_init_pose_presets(sku)
-        return [InitPosePreset.from_dict(p, SOURCE_FACTORY) for p in raw]
+        family = self._resolve_sku_family(sku)
+        family_presets = self._family_default_presets(family)
+        sku_overrides_raw = list(
+            _robots_registry.get_robot_init_pose_presets(sku) or []
+        )
+        # Index SKU-override by name; non-dict entries silently skipped
+        # at this layer (robots.py validates the raw shape upstream).
+        sku_overrides: Dict[str, Dict[str, Any]] = {}
+        for raw in sku_overrides_raw:
+            if not isinstance(raw, dict):
+                continue
+            nm = str(raw.get("name", "") or "")
+            if nm:
+                sku_overrides[nm] = raw
+        merged: List[InitPosePreset] = []
+        seen_names: set = set()
+        for fp in family_presets:
+            if fp["name"] in sku_overrides:
+                merged.append(InitPosePreset.from_dict(
+                    sku_overrides[fp["name"]], SOURCE_FACTORY,
+                ))
+            else:
+                # Family-default only -- no joint angles available.
+                # apply-time consumers raise on this state.
+                merged.append(InitPosePreset(
+                    name=fp["name"],
+                    description=fp["description"],
+                    base_pos=fp["base_pos"],
+                    joint_pos_by_ir={},
+                    source=SOURCE_FACTORY,
+                ))
+            seen_names.add(fp["name"])
+        for name, raw in sku_overrides.items():
+            if name in seen_names:
+                continue
+            merged.append(InitPosePreset.from_dict(raw, SOURCE_FACTORY))
+        return merged
+
+    @staticmethod
+    def _resolve_sku_family(sku: str) -> str:
+        """Return the first family declared on the SKU's canonical entry.
+
+        Returns ``""`` when the SKU is unknown or has no families field.
+        At list time this is a soft failure (empty preset list); apply
+        time is where the fail-loud directive (§8) lives.
+        """
+        try:
+            spec = _robots_registry.get_robot_spec(sku)
+        except Exception:
+            return ""
+        families = list(getattr(spec, "families", []) or [])
+        return str(families[0]) if families else ""
+
+    @staticmethod
+    def _family_default_presets(family: str) -> List[Dict[str, Any]]:
+        """Family-default presets as raw dicts.
+
+        Returned shape mirrors the catalog (name + description + base_pos
+        as a 3-tuple) so the merge loop in :meth:`list_factory_presets`
+        treats family-default and SKU-override symmetrically. Empty
+        list when the family is unknown / unresolvable (matches the
+        soft-fail-at-list-time semantics of :meth:`_resolve_sku_family`).
+        """
+        if not family:
+            return []
+        try:
+            registry_presets = (
+                _init_pose_presets_registry.list_presets(family)
+            )
+        except _init_pose_presets_registry.InitPosePresetValidationError:
+            return []
+        return [
+            {
+                "name": p.name,
+                "description": p.description,
+                "base_pos": p.base_pos,
+            }
+            for p in registry_presets
+        ]
 
     def list_user_presets(self, sku: str) -> List[InitPosePreset]:
         """User-created presets from ``<USER_CONFIG_DIR>/robot_presets/init_poses.json``."""

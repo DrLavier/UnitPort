@@ -1,6 +1,7 @@
 [default]
 add_server = Add...
 cloud_none = No servers
+cloud_submit_error_title = Cloud training
 cloud_summary = {n} server(s); default: {d}
 confirm_remove_text = Remove server {name}?
 confirm_remove_title = Remove server

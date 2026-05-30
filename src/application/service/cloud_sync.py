@@ -551,6 +551,135 @@ class CloudSyncService(QObject):
             log_warning(f"[cloud-sync] pull_single({rel_path!r}) failed: {exc}")
             return None
 
+    def push_single(
+        self,
+        rel_path: str,
+        value,
+        *,
+        format: Optional[str] = None,
+        content_type: Optional[str] = None,
+        **handler_kw,
+    ) -> bool:
+        """Push ONE value to ``{user_id}/{rel_path}``. The cloud-channel transport.
+
+        Registered into the SDK at bootstrap via
+        ``Storage.register_cloud_transport`` so ``push_data(rel, value,
+        channel="cloud")`` routes here. Serializes ``value`` through the SAME
+        DataManager path the local channel uses (suffix-driven json/yaml/ini/…)
+        so the cloud bytes are byte-identical to the on-disk canonical form;
+        ``bytes``/``bytearray`` values are uploaded verbatim.
+
+        Returns True on a confirmed upload, False on an expected runtime
+        condition (signed out, oversize, serialization/network failure) — each
+        of those is logged loudly. False here means "did NOT upload", never a
+        silently-substituted success (CLAUDE.md §8). The SDK layer raises when
+        no transport is registered at all (a wiring bug, distinct from these).
+        """
+        client, user_id, access = self._client_or_none()
+        if client is None or not user_id or not access:
+            log_warning(
+                f"[cloud-sync] push_single({rel_path!r}) skipped: not signed in"
+            )
+            return False
+        rel = str(rel_path).lstrip("/")
+        if not rel:
+            log_warning("[cloud-sync] push_single: empty rel_path")
+            return False
+
+        payload = self._serialize_value_to_bytes(rel, value, format, handler_kw)
+        if payload is None:
+            return False
+        if len(payload) > self._size_limit_bytes:
+            log_warning(
+                f"[cloud-sync] push_single({rel!r}) skipped: {len(payload)} "
+                f"bytes exceeds limit {self._size_limit_bytes}"
+            )
+            return False
+
+        ctype = content_type or _CONTENT_TYPE_BY_EXT.get(
+            PurePosixPath(rel).suffix.lower(), "application/octet-stream"
+        )
+        try:
+            client.upload(
+                access, f"{user_id}/{rel}", payload,
+                content_type=ctype, upsert=True,
+            )
+        except Exception as exc:                                  # noqa: BLE001
+            log_warning(f"[cloud-sync] push_single({rel!r}) upload failed: {exc}")
+            return False
+
+        # Record the etag in sync-state so a later bulk plan_push sees this
+        # file as already-synced (content-diff parity with _execute_push).
+        try:
+            state = self._load_state()
+            files_state: dict = dict(state.get("files", {}) or {})
+            files_state[rel] = {
+                "etag": hashlib.md5(payload, usedforsecurity=False).hexdigest(),
+                "size": len(payload),
+                "local_mtime": _safe_mtime(
+                    Path(Paths.USER_CONFIG_DIR) / rel
+                ),
+                "synced_ts": _now_iso(),
+            }
+            state["files"] = files_state
+            state["last_push_ts"] = _now_iso()
+            self._save_state(state)
+            self.status_changed.emit(self.get_status())
+        except Exception as exc:                                  # noqa: BLE001
+            # Upload already succeeded — losing the state record only forces a
+            # redundant re-upload on the next bulk push. Loud-warn, don't fail.
+            log_warning(
+                f"[cloud-sync] push_single({rel!r}): state update failed "
+                f"(upload OK): {exc}"
+            )
+        return True
+
+    def _serialize_value_to_bytes(
+        self, rel: str, value, fmt: Optional[str], handler_kw: dict,
+    ) -> Optional[bytes]:
+        """Serialize ``value`` to bytes via a DataManager temp round-trip.
+
+        bytes/bytearray pass through. Anything else is written to a hidden temp
+        file under USER_CONFIG_DIR using DataManager's suffix-driven handler
+        (so json/yaml/ini/… match the local channel exactly), then read back as
+        raw bytes via the bytes fallback handler. Returns None on failure
+        (logged) — never a partial/empty payload masquerading as success.
+        """
+        if isinstance(value, (bytes, bytearray)):
+            return bytes(value)
+        try:
+            root = Paths.require_user_config_dir()
+        except RuntimeError as exc:
+            log_warning(f"[cloud-sync] push_single({rel!r}): {exc}")
+            return None
+        tmp = Path(root) / ".cloud_tmp" / rel
+        try:
+            tmp.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            log_warning(f"[cloud-sync] push_single({rel!r}): tmp mkdir failed: {exc}")
+            return None
+        if not DataManager.write(tmp, value, format=fmt, **handler_kw):
+            log_warning(f"[cloud-sync] push_single({rel!r}): serialize failed")
+            return None
+        # Read the serialized bytes back. MUST use load(force_reload=True): a
+        # plain read() would hit the write-time cache and hand back the ORIGINAL
+        # value object (the dict), not the file bytes. ``force_reload`` re-reads
+        # from disk, and the ``__rawbytes__`` sentinel format (unregistered →
+        # _BytesHandler fallback) returns raw bytes instead of re-parsing by
+        # suffix.
+        data = DataManager.load(tmp, force_reload=True, format="__rawbytes__")
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        if not isinstance(data, (bytes, bytearray)):
+            log_warning(
+                f"[cloud-sync] push_single({rel!r}): raw read returned "
+                f"{type(data).__name__}, expected bytes"
+            )
+            return None
+        return bytes(data)
+
     # ----- push / pull execution ------------------------------------------
 
     def _execute_push(self, plan: SyncPlan, *, progress_cb) -> dict:

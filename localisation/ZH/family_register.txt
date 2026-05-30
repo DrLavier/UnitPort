@@ -1,0 +1,30 @@
+[default]
+title_new = 注册新分类
+title_edit = 编辑分类
+intro = 注册一个自定义 IR 分类。可以选择基底分类继承其角色，或在下方添加额外角色——两者会合并为同一份角色列表用于关节映射。
+id_label = 分类 ID
+id_ph = 例如：quadruped_with_tail
+label_label = 显示名
+label_ph = 显示名称
+alias_of_label = 基底分类 (alias_of)
+alias_none = （无）
+roles_section = 额外角色
+add_role = + 角色
+del_role = − 角色
+col_id = 角色 ID
+col_category = 类别
+col_label = 显示名
+col_position = 位置
+col_required = 必需
+save = 保存
+cancel = 取消
+delete = 删除
+error_title = 输入无效
+error_slug = 分类 ID 必须由小写 ASCII 字母 / 数字 / 下划线组成，且以字母开头（例如 'quadruped_with_tail'）。
+error_duplicate = 分类 ID {fid!r} 已被注册（规范层或用户层）。
+error_role_slug = 角色 ID {rid!r} 必须匹配 [a-z][a-z0-9_]*。
+error_role_duplicate = 角色 ID {rid!r} 重复出现。
+confirm_delete_title = 删除分类
+confirm_delete_body = 移除用户层分类 {fid!r}？规范分类不会受影响。引用此分类的机器人会阻止删除。
+cascade_title = 无法删除
+

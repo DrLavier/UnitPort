@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "schema": "pd_calibration/canaries",
+  "_doc": "Per-family canary group recipe for sim2sim PD calibration. Each canary_groups entry is a pd_groups group id (e.g. 'knee', NOT an IR role like 'knee_L') — resolution from group id to specific joint indices happens at the consumer side via the pd_groups regex. The (omega_n, zeta) round-trip check in sim2sim_calibration.run_calibration runs over these canary groups; the cross-engine TORQUE check in the same function always runs over all joints regardless, so canary scope only restricts the round-trip gate. Wheeled / generic families declare empty arrays (no PD canary applicable). User overlays at <USER_CONFIG_DIR>/registers/pd_calibration_canaries_custom.json can EXTEND a family's canary list (defense-in-depth — more checks = safer) but cannot SHRINK it: an overlay whose canary list is not a superset of the factory list is rejected at merge time. This asymmetric overlay rule preserves the calibration gate's safety contract — an overlay must never silently exempt the joints (knee, hip_y for legged platforms) most sensitive to mass-matrix mismatch.",
+  "families": {
+    "quadruped": {
+      "canary_groups": ["knee", "hip_y"]
+    },
+    "biped": {
+      "canary_groups": ["knee", "hip_y", "ankle_pitch"]
+    },
+    "humanoid": {
+      "alias_of": "biped"
+    },
+    "manipulator": {
+      "canary_groups": ["elbow", "wrist"]
+    },
+    "wheeled": {
+      "canary_groups": []
+    },
+    "generic": {
+      "canary_groups": []
+    }
+  }
+}

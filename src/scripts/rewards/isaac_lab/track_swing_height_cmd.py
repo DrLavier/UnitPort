@@ -19,15 +19,23 @@ INLINE_SOURCE = '''
 def _unitport_track_swing_height_cmd(env, command_name="gait_command",
                                       asset_cfg=SceneEntityCfg("robot"),
                                       std=0.02):
-    """Reward swing-phase foot apex matching commanded step_height."""
+    """Reward swing-phase foot apex matching commanded step_height.
+
+    Reads ``step_height_cmd()`` (family-agnostic via the CommandTerm
+    abstract method) and ``per_foot_phase()`` (returns (n, n_feet) with
+    n_feet auto-adapted: 4 for quadruped UniformGaitCommand, 2 for biped
+    BipedGaitCommand). ``n_match`` is driven by ``per_foot.shape[1]`` so
+    the slice width tracks the family count without a family-keyed
+    branch.
+    """
     import torch
     term = env.command_manager.get_term(command_name)
-    target = term.command[:, 6:7]                                # (n, 1)
-    per_foot = term.per_foot_phase()                             # (n, 4)
+    target = term.step_height_cmd().unsqueeze(-1)                # (n, 1)
+    per_foot = term.per_foot_phase()                             # (n, n_feet)
     is_swing = (per_foot >= 0.5).float()
     asset = env.scene[asset_cfg.name]
     foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
-    n_match = min(foot_z.shape[1], 4)
+    n_match = min(foot_z.shape[1], per_foot.shape[1])
     foot_z = foot_z[:, :n_match]
     is_swing = is_swing[:, :n_match]
     error = torch.square(foot_z - target)

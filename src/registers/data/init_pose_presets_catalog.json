@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "schema": "init_pose_presets/catalog",
+  "_doc": "Per-family init pose preset catalog. Each entry declares the family-level preset NAMES + base_pos + description -- the joint_pos_by_ir field is intentionally absent at the family layer because init pose joint angles are per-robot physical quantities (a quadruped 'stand' pose's thigh / calf angles depend on segment lengths, so Go2's 0.9 / -1.8 is not a valid quadruped canonical). SKU-override layer lives in robots_canonical.json[sku].init_pose_presets and carries the joint_pos_by_ir per SKU; merge happens in application.service.robot_init_poses.InitPoseService.list_factory_presets. Selecting a family preset name on a SKU that has no SKU-override for that name surfaces as a fail-loud raise at apply time (RegistryPresetPickerRow._InitPosePresetAdapter.on_select) -- no silent fallback to zero / family-default angles. humanoid declares alias_of: biped (data identity), mirroring ir_canonical, pd_groups_definitions, symmetry_catalog, pd_calibration_canaries, amp_obs_templates, gait_commands -- seven layers in total. User overlays at <USER_CONFIG_DIR>/registers/init_pose_presets_custom.json can add new families or override existing ones; the same L1-L8 schema rules apply at merge time.",
+  "families": {
+    "quadruped": {
+      "presets": [
+        {
+          "name": "stand",
+          "description": "Canonical standing pose with the base at the nominal hip height",
+          "base_pos": [0.0, 0.0, 0.30]
+        },
+        {
+          "name": "lying",
+          "description": "Belly-on-ground rest pose with legs tucked under the body",
+          "base_pos": [0.0, 0.0, 0.05]
+        },
+        {
+          "name": "fall_from_height",
+          "description": "Air-drop from 1.5 m with limbs in the standing configuration",
+          "base_pos": [0.0, 0.0, 1.5]
+        }
+      ]
+    },
+    "biped": {
+      "presets": [
+        {
+          "name": "stand",
+          "description": "Upright standing pose with arms at the sides",
+          "base_pos": [0.0, 0.0, 0.95]
+        },
+        {
+          "name": "pre_walk",
+          "description": "Slight forward lean and knee flex for a walk start",
+          "base_pos": [0.0, 0.0, 0.93]
+        }
+      ]
+    },
+    "humanoid": {
+      "alias_of": "biped"
+    }
+  }
+}

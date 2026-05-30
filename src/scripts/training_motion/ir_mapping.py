@@ -44,25 +44,17 @@ from typing import Dict, List
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Per-format IR role tables
+# Per-format IR role tables — re-exported from the canonical source of truth
+# at ``application.training.motion_ir_mapping``. This module keeps its own
+# :class:`ClipIRStatus` for downstream consumers that import from
+# ``scripts.training_motion.ir_mapping`` directly, but the role lists
+# themselves live in exactly one place.
 # ════════════════════════════════════════════════════════════════════════════
 
-# 12-DoF quadruped, canonical order after AMPLegGymLoader reorder
-# (FR/FL/RR/RL → FL/FR/RL/RR). Contract with loader._reorder_quad_legs.
-QUADRUPED_AMP_IR_ROLES: List[str] = [
-    "hip_FL",   "thigh_FL", "calve_FL",   # clip indices 0-2
-    "hip_FR",   "thigh_FR", "calve_FR",   # clip indices 3-5
-    "hip_RL",   "thigh_RL", "calve_RL",   # clip indices 6-8
-    "hip_RR",   "thigh_RR", "calve_RR",   # clip indices 9-11
-]
-
-# Future: BIPED_AMP_IR_ROLES, HUMANOID_AMP_IR_ROLES, etc.
-
-FORMAT_IR_ROLES: Dict[str, List[str]] = {
-    "amp_legged_gym": QUADRUPED_AMP_IR_ROLES,
-    # unitport_npy is intentionally absent — those clips carry no portable
-    # joint-order contract and must be matched by the env directly.
-}
+from application.training.motion_ir_mapping import (  # noqa: E402
+    FORMAT_IR_ROLES,
+    QUADRUPED_AMP_IR_ROLES,
+)
 
 
 # ════════════════════════════════════════════════════════════════════════════

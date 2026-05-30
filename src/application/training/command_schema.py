@@ -37,6 +37,129 @@ CHANNEL_BUTTON = "button"
 
 
 # ---------------------------------------------------------------------------
+# Gait channel dispatch helper -- family-keyed via registry.gait_commands
+#
+# The training-side CommandSchema and the IsaacLab env_cfg_compiler are
+# the two consumers of the family-keyed gait command shape. The
+# env_cfg_compiler dispatches via _resolve_gait_spec (7-beta/7-gamma);
+# this helper is the matching dispatch on the CommandSchema side so the
+# two paths cannot drift in channel count, channel name, or per-channel
+# default.
+#
+# Two registries are queried by family id:
+#   * registers.gait_commands.get_gait_command(family) ->
+#     phase_names tuple (load-bearing for channel naming);
+#   * isaac_lab.gait_presets.default_ranges_for_family /
+#     default_phase_offsets_for_family (single source of truth for
+#     bundled fallback ranges and phase defaults; shared with the
+#     env_cfg_compiler gait Cfg emitters).
+#
+# Quadruped channel naming + order is byte-identical to the prior
+# hardcoded 7-channel emit (gait_frequency / gait_phase_fl / fr / rl /
+# rr / body_height / step_height). Biped channels derive from
+# phase_names ("L", "R") -> gait_phase_l / gait_phase_r, total 5
+# channels (1 freq + 2 phase + body_h + step_h).
+# ---------------------------------------------------------------------------
+
+
+def _build_gait_channels(
+    family: str,
+    *,
+    freq_range: Tuple[float, float],
+    body_height_range: Tuple[float, float],
+    step_height_range: Tuple[float, float],
+    runtime_clip: bool,
+) -> List["CommandChannel"]:
+    """Return the ordered gait channel list for ``family``.
+
+    The channel set is derived from ``registers.gait_commands.get_gait_command``:
+    one ``gait_frequency`` continuous channel, one ``gait_phase_<name>``
+    channel per entry in ``spec.phase_names``, then ``body_height`` and
+    ``step_height``. Phase channel order matches the registry's
+    ``phase_names`` tuple, which is load-bearing for the policy obs
+    sub-vector layout.
+
+    Per-channel defaults: frequency / body_h / step_h take the
+    range midpoint; phase channels take the family's bundled
+    first-preset offsets (quadruped trot pattern, biped alternating).
+    All defaults sourced via :mod:`gait_presets` so the env_cfg_compiler
+    emitters and this helper share one source of truth.
+    """
+    from registers.gait_commands import get_gait_command
+    from application.training.isaac_lab.gait_presets import (
+        default_phase_offsets_for_family,
+    )
+
+    spec = get_gait_command(family)
+    phase_offsets = default_phase_offsets_for_family(family)
+    if len(phase_offsets) != spec.phase_count:
+        raise RuntimeError(
+            f"_build_gait_channels: bundled phase offsets for family="
+            f"{family!r} has length {len(phase_offsets)} but the "
+            f"gait_commands registry declares phase_count="
+            f"{spec.phase_count}. Align "
+            f"gait_presets._FAMILY_PRESETS[{family!r}] with the "
+            f"registry spec.phase_count, or update the bundled first "
+            f"preset's phase tuple."
+        )
+
+    freq_lo, freq_hi = float(freq_range[0]), float(freq_range[1])
+    bh_lo, bh_hi = float(body_height_range[0]), float(body_height_range[1])
+    sh_lo, sh_hi = float(step_height_range[0]), float(step_height_range[1])
+
+    channels: List["CommandChannel"] = [
+        CommandChannel(
+            name="gait_frequency",
+            kind=CHANNEL_CONTINUOUS,
+            low=freq_lo,
+            high=freq_hi,
+            unit="Hz",
+            default=(freq_lo + freq_hi) * 0.5,
+            runtime_clip=runtime_clip,
+            binding="",
+        ),
+    ]
+    for phase_name, phase_default in zip(spec.phase_names, phase_offsets):
+        channels.append(
+            CommandChannel(
+                name=f"gait_phase_{str(phase_name).lower()}",
+                kind=CHANNEL_CONTINUOUS,
+                low=0.0,
+                high=1.0,
+                unit="",
+                default=float(phase_default),
+                runtime_clip=runtime_clip,
+                binding="",
+            )
+        )
+    channels.append(
+        CommandChannel(
+            name="body_height",
+            kind=CHANNEL_CONTINUOUS,
+            low=bh_lo,
+            high=bh_hi,
+            unit="m",
+            default=(bh_lo + bh_hi) * 0.5,
+            runtime_clip=runtime_clip,
+            binding="",
+        )
+    )
+    channels.append(
+        CommandChannel(
+            name="step_height",
+            kind=CHANNEL_CONTINUOUS,
+            low=sh_lo,
+            high=sh_hi,
+            unit="m",
+            default=(sh_lo + sh_hi) * 0.5,
+            runtime_clip=runtime_clip,
+            binding="",
+        )
+    )
+    return channels
+
+
+# ---------------------------------------------------------------------------
 # Stick → velocity mapping modes (deployment-side function shape)
 #
 # These modes affect how the runtime CommandBus turns a normalised
@@ -418,7 +541,12 @@ class CommandSchema:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_node_dict(cls, params: Dict[str, Any]) -> "CommandSchema":
+    def from_node_dict(
+        cls,
+        params: Dict[str, Any],
+        *,
+        family: str = "quadruped",
+    ) -> "CommandSchema":
         """Build a CommandSchema from a :class:`TrainingMotionNode`
         parameter dict.
 
@@ -437,7 +565,14 @@ class CommandSchema:
         deprecated ``lin_vel_x_range`` / ``lin_vel_y_range`` /
         ``ang_vel_z_range`` JSON fields are present, they are honoured
         so old canvases keep compiling.
-        """
+
+        ``family`` (keyword-only) drives the family-keyed gait dispatch:
+        the gait channel list and per-family fallback ranges are sourced
+        via :func:`_build_gait_channels` + ``gait_presets.default_ranges_for_family``
+        so the channel set matches the bound robot's gait_commands
+        registry entry. Defaults to ``"quadruped"`` for backward compat
+        with the legacy zero-arg call sites. Pass the bound robot's
+        ``families[0]`` to enable biped/humanoid emit."""
         def _range(key: str, default_lo: float, default_hi: float) -> Tuple[float, float]:
             raw = params.get(key, f"[{default_lo}, {default_hi}]")
             try:
@@ -630,52 +765,41 @@ class CommandSchema:
                 if raw_mode_ti not in SUPPORTED_MAPPING_MODES:
                     raw_mode_ti = MAPPING_LINEAR
 
+                # Family-keyed default range fallbacks: read from
+                # gait_presets.default_ranges_for_family so both this
+                # path and the env_cfg_compiler Cfg emitters share a
+                # single source of truth (7-delta).
+                from application.training.isaac_lab.gait_presets import (
+                    default_ranges_for_family,
+                )
+                _fam_ranges_ti = default_ranges_for_family(family)
                 gait_on_ti = _b("gait_enabled", False)
-                freq_lo_ti, freq_hi_ti = _range("gait_frequency_range", 1.5, 3.5)
-                bh_lo_ti, bh_hi_ti = _range("body_height_range", 0.28, 0.40)
-                sh_lo_ti, sh_hi_ti = _range("step_height_range", 0.03, 0.15)
+                freq_lo_ti, freq_hi_ti = _range(
+                    "gait_frequency_range", *_fam_ranges_ti["frequency"]
+                )
+                bh_lo_ti, bh_hi_ti = _range(
+                    "body_height_range", *_fam_ranges_ti["body_height"]
+                )
+                sh_lo_ti, sh_hi_ti = _range(
+                    "step_height_range", *_fam_ranges_ti["step_height"]
+                )
 
                 if gait_on_ti:
-                    channels_ti.extend([
-                        CommandChannel(
-                            name="gait_frequency", kind=CHANNEL_CONTINUOUS,
-                            low=freq_lo_ti, high=freq_hi_ti, unit="Hz",
-                            default=(freq_lo_ti + freq_hi_ti) * 0.5,
-                            runtime_clip=runtime_clip, binding="",
-                        ),
-                        CommandChannel(
-                            name="gait_phase_fl", kind=CHANNEL_CONTINUOUS,
-                            low=0.0, high=1.0, unit="",
-                            default=0.0, runtime_clip=runtime_clip, binding="",
-                        ),
-                        CommandChannel(
-                            name="gait_phase_fr", kind=CHANNEL_CONTINUOUS,
-                            low=0.0, high=1.0, unit="",
-                            default=0.5, runtime_clip=runtime_clip, binding="",
-                        ),
-                        CommandChannel(
-                            name="gait_phase_rl", kind=CHANNEL_CONTINUOUS,
-                            low=0.0, high=1.0, unit="",
-                            default=0.5, runtime_clip=runtime_clip, binding="",
-                        ),
-                        CommandChannel(
-                            name="gait_phase_rr", kind=CHANNEL_CONTINUOUS,
-                            low=0.0, high=1.0, unit="",
-                            default=0.0, runtime_clip=runtime_clip, binding="",
-                        ),
-                        CommandChannel(
-                            name="body_height", kind=CHANNEL_CONTINUOUS,
-                            low=bh_lo_ti, high=bh_hi_ti, unit="m",
-                            default=(bh_lo_ti + bh_hi_ti) * 0.5,
-                            runtime_clip=runtime_clip, binding="",
-                        ),
-                        CommandChannel(
-                            name="step_height", kind=CHANNEL_CONTINUOUS,
-                            low=sh_lo_ti, high=sh_hi_ti, unit="m",
-                            default=(sh_lo_ti + sh_hi_ti) * 0.5,
-                            runtime_clip=runtime_clip, binding="",
-                        ),
-                    ])
+                    # Family-keyed gait channel dispatch: derive the
+                    # ordered channel list from
+                    # registers.gait_commands.get_gait_command(family).
+                    # Quadruped: 7 channels byte-identical to the
+                    # prior hardcoded list (gait_frequency /
+                    # gait_phase_fl/fr/rl/rr / body_height /
+                    # step_height). Biped/humanoid: 5 channels (1
+                    # freq + 2 phase + body_h + step_h).
+                    channels_ti.extend(_build_gait_channels(
+                        family,
+                        freq_range=(freq_lo_ti, freq_hi_ti),
+                        body_height_range=(bh_lo_ti, bh_hi_ti),
+                        step_height_range=(sh_lo_ti, sh_hi_ti),
+                        runtime_clip=runtime_clip,
+                    ))
 
                 import json as _json_ti
                 raw_presets_ti = params.get("gait_presets", "")
@@ -688,11 +812,18 @@ class CommandSchema:
                     except Exception:
                         pass
                 if not presets_list_ti:
-                    try:
-                        from application.training.gait_presets import default_presets_json
-                        presets_list_ti = default_presets_json()
-                    except Exception:
-                        presets_list_ti = []
+                    # Fixed import path (was application.training.gait_presets
+                    # which never existed; actual module ships under
+                    # isaac_lab/). Silent except removed -- if the
+                    # bundled presets cannot be imported, that is a real
+                    # repo-level broken-ness and must surface as a
+                    # raise, not be masked as an empty preset list (the
+                    # F-beta1 lesson: fix the bug + remove the
+                    # fallback that masked the bug).
+                    from application.training.isaac_lab.gait_presets import (
+                        default_presets_json_for_family,
+                    )
+                    presets_list_ti = default_presets_json_for_family(family)
 
                 return cls(
                     channels=channels_ti,
@@ -758,61 +889,41 @@ class CommandSchema:
             raw_mode = MAPPING_LINEAR
 
         # --- P2: gait channels + ranges + presets ---
+        # Family-keyed default range fallbacks (single source of truth
+        # shared with the env_cfg_compiler Cfg emitters, 7-delta).
+        from application.training.isaac_lab.gait_presets import (
+            default_presets_json_for_family,
+            default_ranges_for_family,
+        )
+        _fam_ranges = default_ranges_for_family(family)
         gait_on = _b("gait_enabled", False)
-        freq_lo, freq_hi = _range("gait_frequency_range", 1.5, 3.5)
-        bh_lo, bh_hi = _range("body_height_range", 0.28, 0.40)
-        sh_lo, sh_hi = _range("step_height_range", 0.03, 0.15)
+        freq_lo, freq_hi = _range(
+            "gait_frequency_range", *_fam_ranges["frequency"]
+        )
+        bh_lo, bh_hi = _range(
+            "body_height_range", *_fam_ranges["body_height"]
+        )
+        sh_lo, sh_hi = _range(
+            "step_height_range", *_fam_ranges["step_height"]
+        )
 
         if gait_on:
-            # Extend channel list with the 7 gait dimensions. Ordering
-            # is STABLE because the policy obs reads channels in order
-            # — add new channels at the tail, never insert in the middle.
-            channels.extend([
-                CommandChannel(
-                    name="gait_frequency", kind=CHANNEL_CONTINUOUS,
-                    low=freq_lo, high=freq_hi, unit="Hz",
-                    default=(freq_lo + freq_hi) * 0.5,
-                    runtime_clip=runtime_clip,
-                    binding="",
-                ),
-                CommandChannel(
-                    name="gait_phase_fl", kind=CHANNEL_CONTINUOUS,
-                    low=0.0, high=1.0, unit="",
-                    default=0.0, runtime_clip=runtime_clip, binding="",
-                ),
-                CommandChannel(
-                    name="gait_phase_fr", kind=CHANNEL_CONTINUOUS,
-                    low=0.0, high=1.0, unit="",
-                    default=0.5, runtime_clip=runtime_clip, binding="",
-                ),
-                CommandChannel(
-                    name="gait_phase_rl", kind=CHANNEL_CONTINUOUS,
-                    low=0.0, high=1.0, unit="",
-                    default=0.5, runtime_clip=runtime_clip, binding="",
-                ),
-                CommandChannel(
-                    name="gait_phase_rr", kind=CHANNEL_CONTINUOUS,
-                    low=0.0, high=1.0, unit="",
-                    default=0.0, runtime_clip=runtime_clip, binding="",
-                ),
-                CommandChannel(
-                    name="body_height", kind=CHANNEL_CONTINUOUS,
-                    low=bh_lo, high=bh_hi, unit="m",
-                    default=(bh_lo + bh_hi) * 0.5,
-                    runtime_clip=runtime_clip,
-                    binding="",
-                ),
-                CommandChannel(
-                    name="step_height", kind=CHANNEL_CONTINUOUS,
-                    low=sh_lo, high=sh_hi, unit="m",
-                    default=(sh_lo + sh_hi) * 0.5,
-                    runtime_clip=runtime_clip,
-                    binding="",
-                ),
-            ])
+            # Family-keyed gait channel dispatch. Ordering inside
+            # _build_gait_channels is STABLE because the policy obs
+            # reads channels in order; the registry's phase_names tuple
+            # is load-bearing for the per-foot phase channel order.
+            # Quadruped emit is byte-identical to the prior hardcoded
+            # 7-channel list (R6 acceptance).
+            channels.extend(_build_gait_channels(
+                family,
+                freq_range=(freq_lo, freq_hi),
+                body_height_range=(bh_lo, bh_hi),
+                step_height_range=(sh_lo, sh_hi),
+                runtime_clip=runtime_clip,
+            ))
 
-        # Parse gait presets (JSON string or list). Empty ⇒ fall back
-        # to the bundled default preset table.
+        # Parse gait presets (JSON string or list). Empty -> fall back
+        # to the bundled family-matching default preset table.
         import json as _json
         raw_presets = params.get("gait_presets", "")
         presets_list: List[Dict[str, Any]] = []
@@ -824,8 +935,14 @@ class CommandSchema:
             except Exception:
                 pass
         if not presets_list:
-            from application.training.gait_presets import default_presets_json
-            presets_list = default_presets_json()
+            # Fixed import path (was application.training.gait_presets
+            # which never existed; the actual module is under isaac_lab/).
+            # The legacy broken path silently fell back to an empty
+            # presets list at the upstream task-items branch's
+            # except Exception, and was an outright ImportError on this
+            # gain-based path -- in either case the bundled biped
+            # presets shipped in 7-gamma never reached the schema.
+            presets_list = default_presets_json_for_family(family)
 
         return cls(
             channels=channels,

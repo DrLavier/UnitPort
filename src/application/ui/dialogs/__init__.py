@@ -43,6 +43,7 @@ if TYPE_CHECKING:
         issues_from_exception,
         show_canvas_error_dialog,
     )
+    from .cloud_isaac_dump_prompt_dialog import CloudIsaacDumpPromptDialog
     from .email_identity_dialog import EmailIdentityDialog
     from .eula_dialog import EulaDialog
     from .identity_unlink_dialog import IdentityUnlinkDialog
@@ -64,6 +65,7 @@ __all__ = [
     "CanvasErrorDialog",
     "CanvasIssue",
     "clear_canvas_diagnostic_marks",
+    "CloudIsaacDumpPromptDialog",
     "EmailIdentityDialog",
     "EulaDialog",
     "IdentityUnlinkDialog",
@@ -93,6 +95,9 @@ _LAZY: dict[str, tuple[str, str]] = {
     "clear_canvas_diagnostic_marks": ("canvas_error_dialog", "clear_canvas_diagnostic_marks"),
     "issues_from_exception": ("canvas_error_dialog", "issues_from_exception"),
     "show_canvas_error_dialog": ("canvas_error_dialog", "show_canvas_error_dialog"),
+    "CloudIsaacDumpPromptDialog": (
+        "cloud_isaac_dump_prompt_dialog", "CloudIsaacDumpPromptDialog",
+    ),
     "EmailIdentityDialog": ("email_identity_dialog", "EmailIdentityDialog"),
     "EulaDialog": ("eula_dialog", "EulaDialog"),
     "IdentityUnlinkDialog": ("identity_unlink_dialog", "IdentityUnlinkDialog"),

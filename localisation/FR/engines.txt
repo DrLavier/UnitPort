@@ -1,6 +1,7 @@
 [default]
 add_server = Ajouter...
 cloud_none = Aucun serveur
+cloud_submit_error_title = Entraînement cloud
 cloud_summary = {n} serveur(s) ; défaut : {d}
 confirm_remove_text = Supprimer le serveur {name} ?
 confirm_remove_title = Supprimer le serveur

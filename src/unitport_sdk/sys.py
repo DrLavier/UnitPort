@@ -100,6 +100,15 @@ class Paths:
     REGISTERS_DIR: Path = SRC_ROOT / "registers"
     RUNTIME_DIR: Path = SRC_ROOT / "runtime"
     CUSTOM_MODS_DIR: Path = PROJECT_ROOT / "custom_mods"
+    # FACTORY_BUILD_DIR holds factory-owned, locally-built data that is
+    # shared across all users on this install (e.g. USD body tables dumped
+    # from the local IsaacLab installation; standard-SKU asset extractions).
+    # Distinct from USER_CONFIG_DIR (per-user state, must not contain
+    # factory facts — §9 portable artifacts) and from RUNTIME_DIR (Python
+    # cache, transient). reset.bat does NOT clear this directory by default
+    # — USD dump can take 5-30s per SKU and the data must survive a venv /
+    # runtime cache reset.
+    FACTORY_BUILD_DIR: Path = PROJECT_ROOT / "runtime" / "factory_build"
     # USER_CONFIG_DIR has NO factory default. It is established by the
     # InstallConfigWizard's DataDirectoryPage on first launch (the FIRST
     # path picked after the language selector) and written immediately
@@ -267,6 +276,10 @@ class Paths:
         )
         cls.CUSTOM_MODS_DIR = cls.resolve_under_project_root(
             cls._read_resource("custom_mods_dir"), cls.PROJECT_ROOT / "custom_mods"
+        )
+        cls.FACTORY_BUILD_DIR = cls.resolve_under_project_root(
+            cls._read_resource("factory_build_dir"),
+            cls.PROJECT_ROOT / "runtime" / "factory_build",
         )
         cls.PROJECTS_DIR = cls.resolve_under_project_root(
             cls._read_resource("projects_dir"), cls.USER_CONFIG_DIR / "projects"
@@ -1137,7 +1150,33 @@ get_data_value = DataManager.get
 # (Storage.push delegates to DataManager for the actual local write).
 class Storage:
     """Generic data-push dispatch with two channels: 'local' (per-user FS) and
-    'cloud' (Supabase, WIP). See module docstring above for design rationale."""
+    'cloud' (Supabase, account-bound). See module docstring above for design
+    rationale.
+
+    The 'cloud' channel is wired by dependency-inversion: the SDK stays frozen
+    and brand/app-agnostic, so it does NOT import the application-side
+    ``CloudSyncService``. Instead the app registers a transport callable once at
+    bootstrap via :meth:`register_cloud_transport`; ``push(channel="cloud")``
+    routes to it. When no transport is registered, the cloud branch RAISES
+    (fail-loud, CLAUDE.md §8) rather than silently dropping data.
+    """
+
+    # App-registered cloud transport. Signature:
+    #   transport(rel_path: str, value: Any, *, format=None, **handler_kw) -> bool
+    # ``None`` means "no transport registered yet" — the cloud branch fails loud.
+    _cloud_transport: Optional[Callable[..., bool]] = None
+
+    @classmethod
+    def register_cloud_transport(
+        cls, transport: Optional[Callable[..., bool]]
+    ) -> None:
+        """Install (or clear) the cloud-channel transport.
+
+        Called once from app bootstrap with a callable that bridges to the
+        application-side cloud sync service. Passing ``None`` clears it (used by
+        tests / teardown). Idempotent — re-registering replaces.
+        """
+        cls._cloud_transport = transport
 
     @classmethod
     def push(
@@ -1187,19 +1226,21 @@ class Storage:
             return DataManager.write(target, value, format=format, **handler_kw)
 
         if channel == "cloud":
-            # WIP: user-explicitly-requested stub. Cloud transport (Supabase
-            # bound to the logged-in account) lands in a follow-up. Do not
-            # remove this branch — call sites are wired against it today.
-            try:
-                from .logger import log_error
-
-                log_error(
-                    f"[Storage.push] WIP: cloud channel (Supabase) not yet "
-                    f"implemented; target={rel_path!r} dropped"
+            # Dependency-inverted cloud transport. The app registers a bridge
+            # to its CloudSyncService at bootstrap (see
+            # ``Storage.register_cloud_transport``). No registered transport is
+            # a boot-order / wiring bug, NOT a silent-drop condition — raise so
+            # the data is never lost without a trace (CLAUDE.md §8).
+            transport = cls._cloud_transport
+            if transport is None:
+                raise RuntimeError(
+                    "[Storage.push] cloud channel has no transport registered. "
+                    "The application must call "
+                    "``Storage.register_cloud_transport(...)`` at bootstrap "
+                    "before any ``push_data(..., channel='cloud')``. Refusing "
+                    f"to silently drop target={rel_path!r}."
                 )
-            except Exception:
-                pass
-            return False
+            return bool(transport(rel_path, value, format=format, **handler_kw))
 
         try:
             from .logger import log_error

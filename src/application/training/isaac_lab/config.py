@@ -132,7 +132,15 @@ class IsaacLabConfig:
     # without the body+suffix heuristic (which fails on Spot etc.).
     active_format: str = ""
     joint_names_by_ir_json: str = ""
-    robot_asset_id: str = ""
+    # Canonical SKU + primary family for the canvas-selected robot.
+    # ``robot_sku`` is ``registers.robots.RobotSpec.sku`` (the
+    # ``build_sku(brand, model)`` hash). ``robot_family`` is the documented
+    # ``families[0]`` primary family (see ``registers/families.py`` —
+    # ``families[0] = primary_family``). Both travel to the launcher as
+    # explicit subprocess flags so the launcher's USD / MJCF / RSI hooks
+    # resolve identity through the registry without re-reading TrainingSpec.
+    robot_sku: str = ""
+    robot_family: str = ""
     amp_rsi_enabled: bool = False
     amp_rsi_prob: float = 0.0
     amp_rsi_joint_noise: float = 0.02
@@ -217,7 +225,8 @@ class IsaacLabConfig:
             il.motion_ref.clip_paths          -> amp_motion_files
             stage_schedule                    -> stage_schedule_json (b64 JSON)
             actor.init_pose                   -> init_pose_mode + rsi_*
-            robot.sku                         -> robot_asset_id
+            robot.sku                         -> robot_sku
+            robot.families[0]                 -> robot_family
             registers.backends.train_launcher_path("isaac_lab")  -> unitport_launcher_path
 
         The UnitPort launcher (1382-line ``il_train_launcher.py``) is Phase
@@ -349,12 +358,24 @@ class IsaacLabConfig:
             algorithm=algorithm,
         )
 
-        # Always forward robot SKU + init_pose mode — non-default values
-        # are inert when ``unitport_launcher_path`` is empty (build_command
-        # gates them behind the launcher) but get carried through once the
-        # launcher is registered, so the canvas configuration is preserved.
+        # Always forward robot SKU + primary family + init_pose mode —
+        # non-default values are inert when ``unitport_launcher_path`` is
+        # empty (build_command gates them behind the launcher) but get
+        # carried through once the launcher is registered, so the canvas
+        # configuration is preserved.
+        # ``families[0] = primary_family`` is the documented contract
+        # surfaced by ``registers/families.py`` (used by ~8 production
+        # sites: env_cfg_compiler, spec_compiler, pd_preview, body_ir,
+        # …); reading index 0 here is the single-source path, not a
+        # heuristic. None-guarded so non-Play inspection paths
+        # (``spec.robot is None``) leave the fields empty rather than
+        # raising on ``[0]`` of an absent list.
         robot_ref = getattr(spec_obj, "robot", None)
-        cfg.robot_asset_id = str(getattr(robot_ref, "sku", "") or "")
+        cfg.robot_sku = str(getattr(robot_ref, "sku", "") or "")
+        _families = getattr(robot_ref, "families", None) if robot_ref is not None else None
+        cfg.robot_family = (
+            str(_families[0]) if _families else ""
+        )
 
         # Body mapping (Robot node body_mapping) must travel to the
         # launcher whenever init_pose_mode=reference_frame_0 or any other
@@ -411,10 +432,18 @@ class IsaacLabConfig:
         # ``try / except: stage_schedule_json = ""`` silently masked
         # dataclass corruption — strict-mode contract now lets the failure
         # surface as the real exception (asdict raises TypeError on a
-        # malformed dataclass instance).
+        # malformed dataclass instance). The H0 guard re-validates the
+        # populated payload before it crosses the IPC boundary so a stale
+        # or hand-mutated dataclass cannot inject a non-default stage role
+        # / obs_profile / init_from / distill_loss past the compiler check.
         stage_sched = getattr(spec_obj, "stage_schedule", None)
         if stage_sched is not None:
-            cfg.stage_schedule_json = json.dumps(asdict(stage_sched))
+            from application.training.training_spec import (
+                validate_stage_schedule_dict_h0,
+            )
+            stage_sched_dict = asdict(stage_sched)
+            validate_stage_schedule_dict_h0(stage_sched_dict)
+            cfg.stage_schedule_json = json.dumps(stage_sched_dict)
             cfg.stage_checkpoint_strategy = str(
                 getattr(stage_sched, "checkpoint_strategy", "both") or "both"
             )
@@ -630,9 +659,10 @@ class IsaacLabConfig:
 
     # ------------------------------------------------------------------
     # Subprocess command builder (verbatim from DEMO except for
-    # _train_script default + the robot_asset_id branch which is gated
-    # behind UnitPort launcher because the stock train.py has no
-    # --unitport_robot_asset_id flag)
+    # _train_script default + the robot_sku / robot_family branches
+    # which are gated behind the UnitPort launcher because the stock
+    # train.py has no --unitport_robot_sku / --unitport_robot_family
+    # flags)
     # ------------------------------------------------------------------
 
     def _build_launcher_cmd(self, script: str, args: List[str]) -> List[str]:
@@ -765,8 +795,10 @@ class IsaacLabConfig:
         # Isaac train.py rejects unknown args, so suppress them unless
         # we're routed through the UnitPort launcher.
         if self.unitport_launcher_path:
-            if self.robot_asset_id:
-                args.extend(["--unitport_robot_asset_id", self.robot_asset_id])
+            if self.robot_sku:
+                args.extend(["--unitport_robot_sku", self.robot_sku])
+            if self.robot_family:
+                args.extend(["--unitport_robot_family", self.robot_family])
 
             # Headed run → hand the launcher the install root so it can
             # generate a minimal viewport-only experience under <root>/apps/

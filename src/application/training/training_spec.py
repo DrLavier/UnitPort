@@ -30,7 +30,7 @@ Out of scope here:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Algorithm / trainer
@@ -161,20 +161,17 @@ class InitPoseConfig:
 
 @dataclass
 class ActuatorConfig:
-    """``actor_setting`` §4 (legacy) / ``actuator_pd`` (canonical) — PD knobs.
+    """Actuator torque/velocity caps. PD gains are NOT here.
 
-    ``stiffness``/``damping`` are the legacy scalar fallback used when
-    no ``actuator_pd`` node is wired. The canonical PD source is
-    :attr:`ActorConfig.pd_param` (a :class:`PDParam` built from
-    family defaults + canvas overrides via the ``actuator_pd`` node).
-    Engine compilers and runtime envs MUST prefer ``pd_param`` over
-    ``stiffness``/``damping`` whenever it is populated; the scalar path
-    is a single-release back-compat bridge that will be removed once
-    every saved canvas has been migrated.
+    The only PD source is :attr:`ActorConfig.pd_param` (a :class:`PDParam`
+    built from family defaults + RobotNode (omega_n, zeta) overrides);
+    per-joint kp/kd are mass-weighted from it by the engine solvers
+    (CLAUDE.md §10). The scalar ``stiffness``/``damping`` fields were removed
+    in 2026-05 — raw kp/kd no longer exist in the data model. ``effort_limit``
+    / ``velocity_limit`` are sourced from the RobotNode and kept here in sync
+    with :attr:`ActorConfig.effort_limit` / :attr:`ActorConfig.velocity_limit`.
     """
 
-    stiffness: float = 25.0
-    damping: float = 0.5
     effort_limit: float = 30.0
     velocity_limit: float = 30.0
 
@@ -231,12 +228,13 @@ class ActorConfig:
     action_curriculum: ActionScaleCurriculum = field(default_factory=ActionScaleCurriculum)
     init_pose: InitPoseConfig = field(default_factory=InitPoseConfig)
     # Canonical PD parameterization (Stage C of sim2sim_mass-matrix-adaptive).
-    # Populated by ``spec_compiler._compile_pd_param`` from the canvas
-    # ``actuator_pd`` node + family defaults. ``None`` means the canvas
-    # has no actuator_pd node — engine compilers fall back to the
-    # ``actuator.stiffness/damping`` scalar path with a WARN. Once every
-    # saved canvas has been migrated, the legacy path will be removed
-    # and this field will become non-Optional.
+    # Populated by ``spec_compiler._compile_pd_param`` from the RobotNode's
+    # (omega_n, zeta) + family defaults. ``None`` only when the bound robot has
+    # no declared families (pre-PD canvases); the scalar stiffness/damping
+    # fallback was REMOVED in 2026-05 (raw kp/kd no longer exist, §10), so
+    # bundle export now raises on ``pd_param is None`` rather than fabricating
+    # scalar gains. The SB3 training env keeps a 25/0.5 default ONLY for the
+    # legacy no-pd_param case (with a WARN).
     #
     # The type is intentionally Any here (not PDParam) to keep
     # ``application.training.training_spec`` free of an ``application.physics``
@@ -437,11 +435,154 @@ class TerminationConfig:
     il_params_overrides: Dict[str, str] = field(default_factory=dict)
 
 
+STAGE_SCHEDULE_SCHEMA_VERSION = 2
+
+# Per-stage H0 defaults. The schema carries the full forward-compatible
+# field set (role / obs_profile / init_from / distill_loss) so the H2
+# teacher-student stage can land without a schema migration; H0 locks
+# every non-default to a fail-loud raise via validate_stage_entry_h0.
+_STAGE_H0_DEFAULTS: Dict[str, Any] = {
+    "role": "trainable",
+    "obs_profile": "default",
+    "init_from": None,
+    "distill_loss_enabled": False,
+}
+
+
+@dataclass
+class DistillLossSpec:
+    """Teacher-student distillation block on a stage entry.
+
+    H0 locks every field to its default; any non-default raises with
+    ``reserved for H2 teacher-student stage``.
+    """
+
+    enabled: bool = False
+    teacher_stage: Optional[str] = None
+    loss_type: Optional[str] = None
+
+
+@dataclass
+class StageEntry:
+    """One entry in :class:`StageScheduleConfig.stages` (schema v2).
+
+    Field set mirrors PRINCIPLES R3-C verbatim — declared up-front so the
+    H2 teacher-student stage only requires unlocking the H0 raise
+    branches in :func:`validate_stage_entry_h0`, not a schema migration.
+    """
+
+    name: str = ""
+    role: str = "trainable"
+    iterations: int = 0
+    obs_profile: str = "default"
+    init_from: Optional[str] = None
+    distill_loss: DistillLossSpec = field(default_factory=DistillLossSpec)
+    overrides: Dict[str, Any] = field(default_factory=dict)
+
+
+def _stage_h2_raise(field_path: str, found: Any, stage_name: str) -> None:
+    """Raise the standard three-part directive for an H0-locked field.
+
+    Field path is the dotted location inside the stage entry
+    (``role`` / ``obs_profile`` / ``init_from`` / ``distill_loss.enabled``).
+    """
+    raise ValueError(
+        f"stage_schedule.stages[{stage_name!r}].{field_path}={found!r}: "
+        f"reserved for H2 teacher-student stage. "
+        f"H0 only accepts the defaults role='trainable', "
+        f"obs_profile='default', init_from=None, distill_loss.enabled=False."
+    )
+
+
+def validate_stage_entry_h0(entry: Mapping[str, Any]) -> None:
+    """Raise on any H0-locked stage field that carries a non-default value.
+
+    Shared by every stage_schedule boundary (spec_compiler populate,
+    spec_validator, isaac_lab serializer, il_train_launcher decoder,
+    amp_on_policy_runner consumer) so that a hand-edited or
+    out-of-process payload cannot bypass the populate-time check.
+    """
+    name = str(entry.get("name", ""))
+    role = entry.get("role", _STAGE_H0_DEFAULTS["role"])
+    if role != _STAGE_H0_DEFAULTS["role"]:
+        _stage_h2_raise("role", role, name)
+    obs_profile = entry.get("obs_profile", _STAGE_H0_DEFAULTS["obs_profile"])
+    if obs_profile != _STAGE_H0_DEFAULTS["obs_profile"]:
+        _stage_h2_raise("obs_profile", obs_profile, name)
+    init_from = entry.get("init_from", _STAGE_H0_DEFAULTS["init_from"])
+    if init_from is not _STAGE_H0_DEFAULTS["init_from"]:
+        _stage_h2_raise("init_from", init_from, name)
+    distill = entry.get("distill_loss", {})
+    if distill is None:
+        distill = {}
+    if not isinstance(distill, Mapping):
+        raise ValueError(
+            f"stage_schedule.stages[{name!r}].distill_loss must be a dict, "
+            f"got {type(distill).__name__}."
+        )
+    if bool(distill.get("enabled", _STAGE_H0_DEFAULTS["distill_loss_enabled"])):
+        _stage_h2_raise("distill_loss.enabled", True, name)
+    overrides = entry.get("overrides", {})
+    if overrides is None:
+        overrides = {}
+    if not isinstance(overrides, Mapping):
+        raise ValueError(
+            f"stage_schedule.stages[{name!r}].overrides must be a dict, "
+            f"got {type(overrides).__name__}."
+        )
+
+
+def validate_stage_schedule_dict_h0(d: Mapping[str, Any]) -> None:
+    """Raise if a serialized stage_schedule dict is malformed for H0.
+
+    Verifies ``schema_version`` is present and equals the current
+    :data:`STAGE_SCHEDULE_SCHEMA_VERSION` (no silent v1 fill — missing
+    versions are fail-loud, not back-filled with defaults), then
+    delegates per-entry checks to :func:`validate_stage_entry_h0`.
+    """
+    if not isinstance(d, Mapping):
+        raise ValueError(
+            f"stage_schedule payload must be a dict, got {type(d).__name__}."
+        )
+    if "schema_version" not in d:
+        raise ValueError(
+            "stage_schedule.schema_version missing: required field. "
+            "Re-emit the schedule with "
+            f"schema_version={STAGE_SCHEDULE_SCHEMA_VERSION}."
+        )
+    sv = d["schema_version"]
+    if sv != STAGE_SCHEDULE_SCHEMA_VERSION:
+        raise ValueError(
+            f"stage_schedule.schema_version={sv!r}: expected "
+            f"{STAGE_SCHEDULE_SCHEMA_VERSION}."
+        )
+    stages = d.get("stages", [])
+    if stages is None:
+        stages = []
+    if not isinstance(stages, list):
+        raise ValueError(
+            f"stage_schedule.stages must be a list, got {type(stages).__name__}."
+        )
+    for entry in stages:
+        if not isinstance(entry, Mapping):
+            raise ValueError(
+                f"stage_schedule.stages entry must be a dict, "
+                f"got {type(entry).__name__}."
+            )
+        validate_stage_entry_h0(entry)
+
+
 @dataclass
 class StageScheduleConfig:
-    """``stage_switch`` + ``multigated_reward`` curriculum gate."""
+    """``stage_switch`` + ``multigated_reward`` curriculum gate (schema v2).
 
-    stages: List[Dict[str, Any]] = field(default_factory=list)
+    ``schema_version`` is the forward-compatibility hook for H2
+    teacher-student staging; absent on a deserialized payload is
+    fail-loud at :func:`validate_stage_schedule_dict_h0`.
+    """
+
+    schema_version: int = STAGE_SCHEDULE_SCHEMA_VERSION
+    stages: List[StageEntry] = field(default_factory=list)
     checkpoint_strategy: str = "both"    # both | best | last
     # multigated_reward fields:
     max_step_stage0: int = 0
@@ -453,6 +594,14 @@ class StageScheduleConfig:
     stage_behavior: str = "replace"      # replace | accumulate
     ep_reward_window: int = 20
     stage1_ratio: float = 1.5
+
+    def validate_h0(self) -> None:
+        """Re-run the H0 dict-level guard on this dataclass.
+
+        Defensive — covers the case where the dataclass was mutated in
+        memory after :func:`spec_compiler._populate_stage_schedule`.
+        """
+        validate_stage_schedule_dict_h0(asdict(self))
 
 
 # ---------------------------------------------------------------------------
@@ -500,14 +649,42 @@ class MotionConfig:
 
 @dataclass
 class MotionRefConfig:
-    """``training_motion`` reference-clip slice consumed by AMP."""
+    """``training_motion`` reference-clip slice consumed by AMP.
 
-    consumer_mode: str = "amp"           # tracking | amp | both
-    phase_mode: str = "loop"             # loop | once | clamp
+    ``consumption_mode`` is REQUIRED — the canvas
+    ``training_motion.consumption_mode`` ParamSpec carries the user's
+    choice between the three enum values below. The compiler emits a
+    ``MISSING_CONSUMPTION_MODE`` validation issue (and skips populating
+    ``spec.il.motion_ref``) when the canvas leaves the field blank,
+    rather than substituting an ``"amp_discriminator"`` default that
+    silently routes the user's tracking clips through the AMP
+    discriminator. ``__post_init__`` enforces the non-empty invariant
+    at construction time so callers cannot bypass the compiler check.
+
+    Enum values:
+
+      * ``"amp_discriminator"`` — H0 path; clips feed the AMP
+        discriminator as the reference distribution.
+      * ``"tracking_target"`` — reserved for tracking-style training.
+      * ``"hybrid"`` — reserved for mixed-mode training.
+    """
+
+    consumption_mode: str                         # amp_discriminator | tracking_target | hybrid
+    phase_mode: str = "loop"                      # loop | once | clamp
     motion_fps: float = 50.0
     random_start_phase: bool = True
     # task_item_id -> clip_path (resolved from training_items)
     clip_paths: Dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.consumption_mode, str) or not self.consumption_mode.strip():
+            raise ValueError(
+                "MotionRefConfig.consumption_mode is required and must "
+                "be a non-empty string (one of 'amp_discriminator' / "
+                "'tracking_target' / 'hybrid'). Fix the canvas "
+                "training_motion node's consumption_mode ParamSpec — "
+                "no silent default."
+            )
 
 
 @dataclass
@@ -561,7 +738,12 @@ class ImitationLearningConfig:
     """AMP-PPO + future BC/IL+RL fusion config (Stage 9)."""
 
     amp: AMPConfig = field(default_factory=AMPConfig)
-    motion_ref: MotionRefConfig = field(default_factory=MotionRefConfig)
+    # motion_ref is Optional because the canvas may not have wired a
+    # training_motion node yet; the compiler populates it only when
+    # the user has set ``consumption_mode`` explicitly (per the
+    # MotionRefConfig.__post_init__ contract). Downstream consumers
+    # (validator, IsaacLab config) None-guard.
+    motion_ref: Optional[MotionRefConfig] = None
     # BC + IL+RL fusion knobs land in Stage 9; reserved here for forward compat.
     bc_enabled: bool = False
     bc_blend: float = 0.0
@@ -599,6 +781,7 @@ class DomainRandSb3Config:
     friction_range: Tuple[float, float] = (0.5, 1.5)
     # Stage H — replaces motor_strength_range / joint_damping_range.
     # Bounds in linear scale (sampler picks log-uniformly inside).
+    # Match the per-step jitter range applied in nodes/domain_rand/node.py.
     omega_n_log_uniform: Tuple[float, float] = (0.8, 1.25)
     zeta_log_uniform: Tuple[float, float] = (0.9, 1.11)
     obs_noise_std: float = 0.01
@@ -827,9 +1010,23 @@ class RobotSpecRef:
         # consumers of ``joint_order`` / ``joint_ir_roles`` / ``body_role_map``
         # see the format they intend to train against, not whatever the
         # registry happens to prefer.
-        joint_order_fmt = list(rs.joint_order_for(fmt))
-        joint_ir_roles_fmt = list(rs.joint_ir_roles_for(fmt))
-        joints_role_map_fmt = dict(rs.joints_role_map_for(fmt))
+        # Actuated-joint filter: drop non-motion entries (parked
+        # '__out_of_scope__' like an MJCF freejoint, and 'misc'/'sensor*'/'base'
+        # buckets) so the flat views feed training / sim2sim / bundle export the
+        # joints the policy actually drives. Without this, a leaked freejoint
+        # inflates num_joints / action_dim and corrupts joint_sdk_names (the
+        # re-trim in bundle_exporter would keep '__out_of_scope__' and drop a
+        # real joint). One mask keyed on ir_role keeps the two arrays parallel.
+        from registers.robots import is_actuated_ir_role
+        _raw_order = list(rs.joint_order_for(fmt))
+        _raw_roles = list(rs.joint_ir_roles_for(fmt))
+        _keep = [is_actuated_ir_role(r) for r in _raw_roles]
+        joint_order_fmt = [n for n, k in zip(_raw_order, _keep) if k]
+        joint_ir_roles_fmt = [r for r, k in zip(_raw_roles, _keep) if k]
+        joints_role_map_fmt = {
+            n: r for n, r in rs.joints_role_map_for(fmt).items()
+            if is_actuated_ir_role(r)
+        }
         # CLAUDE.md §1.8: previously this fell back to ``rs.joint_order`` /
         # ``rs.joint_ir_roles`` / ``rs.body_role_map`` (which resolve through
         # ``preferred_format``) whenever the requested ``fmt`` had no joint
@@ -840,8 +1037,10 @@ class RobotSpecRef:
         # order to the policy. The bundle then shipped MJCF-ordered joint
         # names, the policy outputs/observations slotted through the wrong
         # joints at deploy time, and the user saw "electric-shock twitch"
-        # behaviour. Refuse to substitute formats here.
-        if not joint_order_fmt:
+        # behaviour. Refuse to substitute formats here. (Guard on the RAW
+        # table, not the actuated filter, so this fires only for a truly
+        # un-dumped format.)
+        if not _raw_order:
             raise ValueError(
                 f"[RobotSpecRef.from_registry] robot sku={rs.sku!r} declares "
                 f"no joints under joints_per_format[{fmt!r}] — the format "
@@ -855,6 +1054,15 @@ class RobotSpecRef:
                 f"\"Dump USD\"; for MJCF, run \"Dump MJCF\". Available "
                 f"formats for this robot: "
                 f"{sorted(getattr(rs, 'available_formats', []) or [])}."
+            )
+        if not joint_order_fmt:
+            raise ValueError(
+                f"[RobotSpecRef.from_registry] robot sku={rs.sku!r} declares "
+                f"{len(_raw_order)} joint(s) for format {fmt!r} but NONE are "
+                f"actuated motion joints — every entry is parked "
+                f"('__out_of_scope__') or a bucket ('misc' / 'sensor*'). A "
+                f"policy needs at least one actuated joint. Re-open the joint "
+                f"mapping for this robot and assign real IR roles."
             )
         dap_raw = getattr(rs, "default_actuator_params", None)
         dap: Optional[Dict[str, float]] = (
@@ -987,6 +1195,17 @@ def _spec_from_dict(target_cls, payload):
             kwargs[f.name] = _spec_from_dict(ftype, raw)
         elif origin is tuple and isinstance(raw, (list, tuple)):
             kwargs[f.name] = tuple(raw)
+        elif (
+            origin is list
+            and args
+            and dataclasses.is_dataclass(args[0])
+            and isinstance(raw, list)
+        ):
+            inner_cls = args[0]
+            kwargs[f.name] = [
+                _spec_from_dict(inner_cls, item) if isinstance(item, dict) else item
+                for item in raw
+            ]
         else:
             kwargs[f.name] = raw
     return target_cls(**kwargs)
@@ -1013,6 +1232,11 @@ __all__ = [
     "RewardConfig",
     "TerminationConfig",
     "StageScheduleConfig",
+    "StageEntry",
+    "DistillLossSpec",
+    "STAGE_SCHEDULE_SCHEMA_VERSION",
+    "validate_stage_entry_h0",
+    "validate_stage_schedule_dict_h0",
     "MotionConfig",
     "MotionRefConfig",
     "GaitConfig",

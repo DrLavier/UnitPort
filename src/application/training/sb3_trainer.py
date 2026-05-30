@@ -29,11 +29,13 @@ Out of Stage 7:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from unitport_sdk import log_info, log_success, log_warning
+
+from application.training.training_spec import validate_stage_schedule_dict_h0
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +199,7 @@ def _warn_unimplemented_features(spec) -> None:
 
     sched = getattr(spec, "stage_schedule", None)
     if sched is not None:
+        validate_stage_schedule_dict_h0(asdict(sched))
         has_stage0 = int(getattr(sched, "max_step_stage0", 0) or 0) > 0
         has_stages = bool(getattr(sched, "stages", None))
         if has_stage0 or has_stages:

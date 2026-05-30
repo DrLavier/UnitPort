@@ -1,0 +1,30 @@
+[default]
+title_new = Enregistrer une nouvelle famille
+title_edit = Modifier la famille
+intro = Enregistrer une famille IR personnalisée. Choisissez une famille de base pour hériter de ses rôles, ou ajoutez des rôles supplémentaires ci-dessous — les deux sont combinés en une seule liste de rôles pour le mappage des articulations.
+id_label = Identifiant de famille
+id_ph = ex. quadruped_with_tail
+label_label = Libellé
+label_ph = Nom affiché
+alias_of_label = Famille de base (alias_of)
+alias_none = (aucune)
+roles_section = Rôles supplémentaires
+add_role = + Rôle
+del_role = − Rôle
+col_id = Identifiant de rôle
+col_category = Catégorie
+col_label = Libellé
+col_position = Position
+col_required = Requis
+save = Enregistrer
+cancel = Annuler
+delete = Supprimer
+error_title = Entrée invalide
+error_slug = L'identifiant de famille doit être composé de lettres minuscules ASCII / chiffres / underscores et commencer par une lettre (ex. 'quadruped_with_tail').
+error_duplicate = L'identifiant de famille {fid!r} est déjà enregistré (canonique ou couche utilisateur).
+error_role_slug = L'identifiant de rôle {rid!r} doit correspondre à [a-z][a-z0-9_]*.
+error_role_duplicate = L'identifiant de rôle {rid!r} apparaît plus d'une fois.
+confirm_delete_title = Supprimer la famille
+confirm_delete_body = Supprimer la famille utilisateur {fid!r} ? Les familles canoniques ne sont pas affectées. Les robots qui référencent cette famille bloqueront la suppression.
+cascade_title = Suppression impossible
+
