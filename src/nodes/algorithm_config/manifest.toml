@@ -77,12 +77,24 @@ meta = { algorithm_gate = true, pin_on_collapse = true }
 # ---------------------------------------------------------------------------
 
 [[parameters]]
+# PPO is iteration-based (matches IsaacLab): the launcher derives the SB3
+# total_timesteps = max_iterations × n_steps × n_envs, so the budget stays
+# stable when n_steps / n_envs change.
+key = "max_iterations"
+type = "int"
+default = 1500
+widget = "index"
+description = "[PPO] 最大迭代次数 / Max iterations (× n_steps × n_envs → total steps)"
+meta = { conditional_on = { key = "algorithm", op = "==", value = "PPO" }, min = 1, max = 1000000, mission_expose = true, mission_label_i18n = "mission.train.field.max_iterations", pin_on_collapse = true }
+
+[[parameters]]
+# SAC/TD3 are off-policy (no rollout "iteration") → budget is total env steps.
 key = "total_timesteps"
 type = "int"
 default = 1000000
 widget = "index"
-description = "总训练步数"
-meta = { min = 1, max = 1000000000, mission_expose = true, mission_label_i18n = "mission.train.field.total_timesteps", pin_on_collapse = true }
+description = "[SAC/TD3] 总训练步数"
+meta = { conditional_on = { key = "algorithm", op = "!=", value = "PPO" }, min = 1, max = 1000000000, mission_expose = true, mission_label_i18n = "mission.train.field.total_timesteps", pin_on_collapse = true }
 
 [[parameters]]
 key = "learning_rate"
@@ -161,18 +173,9 @@ widget = "index"
 description = "Checkpoint 保存间隔"
 meta = { min = 1, max = 100000000 }
 
-[[parameters]]
-key = "resume_mode"
-type = "enum"
-default = "scratch"
-choices = ["scratch", "resume", "warm_start_actor"]
-description = "Resume 模式（被 checkpoint.load_mode 覆盖）"
-
-[[parameters]]
-key = "policy_id_out"
-type = "string"
-default = "trained_policy"
-description = "输出策略 id"
+# resume_mode + policy_id_out removed (2026-06): both fully dead — resume_mode
+# was superseded by base_asset.load_mode (the actual resume path), policy_id_out
+# had zero readers anywhere.
 
 # ---------------------------------------------------------------------------
 # Parameters — PPO-only (visible only when algorithm == "PPO")
@@ -261,68 +264,10 @@ widget = "index"
 description = "[Off-policy] 学习起始步"
 meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 0, max = 100000000 }
 
-# Prioritized Experience Replay (off-policy only)
-[[parameters]]
-key = "use_per"
-type = "bool"
-default = false
-description = "[Off-policy] 启用 Prioritized Experience Replay"
-meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] } }
-
-[[parameters]]
-key = "per_alpha"
-type = "float"
-default = 0.6
-widget = "range"
-description = "[PER] α (优先级强度)"
-meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 0.0, max = 1.0, step = 0.01 }
-
-[[parameters]]
-key = "per_beta"
-type = "float"
-default = 0.4
-widget = "range"
-description = "[PER] β (importance sampling 校正)"
-meta = { conditional_on = { key = "algorithm", op = "in", value = ["SAC", "TD3"] }, min = 0.0, max = 1.0, step = 0.01 }
-
-# ---------------------------------------------------------------------------
-# Parameters — Collapse guard (always visible)
-# ---------------------------------------------------------------------------
-
-[[parameters]]
-key = "collapse_guard"
-type = "bool"
-default = true
-description = "崩溃保护"
-
-[[parameters]]
-key = "collapse_threshold"
-type = "float"
-default = 0.65
-widget = "range"
-description = "崩溃阈值（best ratio）"
-meta = { min = 0.0, max = 1.0, step = 0.01 }
-
-[[parameters]]
-key = "collapse_patience"
-type = "int"
-default = 5
-widget = "index"
-description = "崩溃容忍 epoch 数"
-meta = { min = 1, max = 1000 }
-
-[[parameters]]
-key = "collapse_lr_factor"
-type = "float"
-default = 0.3
-widget = "range"
-description = "崩溃后学习率乘子"
-meta = { min = 0.0, max = 1.0, step = 0.01 }
-
-[[parameters]]
-key = "collapse_max_rollbacks"
-type = "int"
-default = 0
-widget = "index"
-description = "崩溃最大回滚次数（0 = 无限制）"
-meta = { min = 0, max = 1000 }
+# PER (use_per / per_alpha / per_beta) removed (2026-06): stable-baselines3
+# stock has no PrioritizedReplayBuffer — these were never wired (use_per only
+# emitted a warn-and-ignore, per_alpha/per_beta had zero readers).
+# Collapse-guard (collapse_guard / _threshold / _patience / _lr_factor /
+# _max_rollbacks) removed: a whole "崩溃保护" UI section that was never
+# implemented on either backend (code comment said "deferred"; zero readers).
+# Both were the §8 "set-but-silently-ignored" anti-pattern.

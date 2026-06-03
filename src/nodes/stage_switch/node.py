@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from application.compiler.nodes import (
+    manifest_from_toml,
     NODE_MANIFEST_SCHEMA,
     BaseNode,
     NodeKind,
@@ -31,41 +32,7 @@ class StageSwitchNode(BaseNode):
     _MAX_STAGES = 6
     _OPTIONAL_INPUTS: set = {"stage_2", "stage_3", "stage_4", "stage_5"}
 
-    MANIFEST = NodeManifest(
-        schema=NODE_MANIFEST_SCHEMA,
-        id="stage_switch",
-        kind=NodeKind.CUSTOM,
-        version="1.0.0",
-        category="training",
-        layer="IL",
-        display_name_key="node.stage_switch.display",
-        description_key="node.stage_switch.desc",
-        icon="stage_switch.svg",
-        inputs=[
-            PortSpec(name="stage_0", type="train_pipe"),
-            PortSpec(name="stage_1", type="train_pipe"),
-            PortSpec(name="stage_2", type="train_pipe", optional=True),
-            PortSpec(name="stage_3", type="train_pipe", optional=True),
-            PortSpec(name="stage_4", type="train_pipe", optional=True),
-            PortSpec(name="stage_5", type="train_pipe", optional=True),
-        ],
-        outputs=[
-            PortSpec(name="train_pipe", type="train_pipe"),
-        ],
-        parameters=[
-            ParamSpec(
-                key="stages_config", type="list", default="[]",
-                widget="stage_editor",
-                description="阶段调度 / Stage schedule (Node_StageSwitchEditorWidget)",
-                meta={"max_stages": _MAX_STAGES},
-            ),
-            ParamSpec(
-                key="checkpoint_strategy", type="enum", default="both",
-                choices=["both", "best", "last"],
-                description="checkpoint 保存策略",
-            ),
-        ],
-    )
+    MANIFEST = manifest_from_toml(__file__)
 
     # ---- 校验 ----
 

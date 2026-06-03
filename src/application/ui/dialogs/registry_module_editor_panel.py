@@ -116,7 +116,7 @@ def open_reward_function_editor(
     registry_id: str = "rewards",
     *,
     kind: str = "reward",
-    canvas_backend: str = "sb3",
+    canvas_backend: str = "sb3_mujoco",
     conflicting_keys: Optional[set] = None,
     robot_sku: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
@@ -159,7 +159,7 @@ def open_training_motion_editor(
     parent: Optional[QWidget],
     items: Dict[str, Any],
     *,
-    canvas_backend: str = "sb3",
+    canvas_backend: str = "sb3_mujoco",
 ) -> Optional[Dict[str, Any]]:
     """打开 Training Motion 编辑器（modal）.
 
@@ -229,7 +229,7 @@ _KIND_STUB: Dict[str, str] = {
     "discriminator":  _DISCRIMINATOR_STUB,
 }
 
-_ENGINE_OPTIONS = ["sb3", "isaac_lab", "newton"]
+_ENGINE_OPTIONS = ["sb3_mujoco", "isaac_lab", "newton"]
 
 # Layout / sizing constants — drive label↔input spacing rule.
 _LABEL_INPUT_SPACING = 8     # px between "Label:" and its [input] on the same row
@@ -269,7 +269,7 @@ class RegistryModuleEditorPanel(QDialog):
         kind: str,
         registry_id: str,
         items: Dict[str, Any],
-        canvas_backend: str = "sb3",
+        canvas_backend: str = "sb3_mujoco",
         conflicting_keys: Optional[set] = None,
         robot_sku: Optional[str] = None,
         parent: Optional[QWidget] = None,
@@ -289,7 +289,7 @@ class RegistryModuleEditorPanel(QDialog):
         # when an item has no explicit ``engine`` tag. Per project rule,
         # the canvas owns backend; the per-item engine tag is purely a
         # filtering hint, NOT an override.
-        self._canvas_backend = canvas_backend if canvas_backend in _ENGINE_OPTIONS else "sb3"
+        self._canvas_backend = canvas_backend if canvas_backend in _ENGINE_OPTIONS else "sb3_mujoco"
         # Optional robot SKU — drives the Variant dropdown's family
         # hard-filter (rule §1.5 Stage 3). ``None`` keeps all variants
         # visible and shows a banner so the user knows filtering is off.

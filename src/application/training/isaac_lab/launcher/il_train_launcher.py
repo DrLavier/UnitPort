@@ -824,7 +824,60 @@ def main():
         num_mini_batches=int(_p("num_minibatches", 4)),
     )
 
-    if _has_mlp_model_cfg:
+    # 缺口① — recurrent PPO policy (GRU/LSTM). The exact rsl_rl recurrent
+    # actor-critic cfg class is version-specific (R1) and can only be resolved
+    # against the installed isaaclab_rl wheel. We probe the known name and FAIL
+    # LOUD if absent — never silently emit a feed-forward MLP under a recurrent
+    # canvas (that would ship a wrong policy, §8). The AMP training path ships a
+    # vendored ActorCriticRecurrent and does not depend on this.
+    _ppo_rnn_type = str(_p("rnn_type", "none")).strip().lower()
+    if _ppo_rnn_type in ("gru", "lstm"):
+        _RecurrentCfg = None
+        try:
+            from isaaclab_rl.rsl_rl.rl_cfg import (
+                RslRlPpoActorCriticRecurrentCfg as _RecurrentCfg,
+            )
+        except Exception:
+            try:
+                from isaaclab_rl.rsl_rl import (
+                    RslRlPpoActorCriticRecurrentCfg as _RecurrentCfg,
+                )
+            except Exception:
+                _RecurrentCfg = None
+        if _RecurrentCfg is None:
+            raise RuntimeError(
+                f"[il_train_launcher] il_policy_network.rnn_type={_ppo_rnn_type!r} "
+                f"selects a recurrent PPO policy, but the installed rsl_rl / "
+                f"isaaclab_rl exposes no recognised recurrent actor-critic cfg "
+                f"(RslRlPpoActorCriticRecurrentCfg). 缺口① R1: confirm the recurrent "
+                f"cfg class for this rsl_rl version and wire it here, or use the AMP "
+                f"training path (vendored ActorCriticRecurrent). Refusing to "
+                f"silently emit a feed-forward MLP."
+            )
+        agent_cfg = RslRlOnPolicyRunnerCfg(
+            seed=int(_p("seed", 42)),
+            num_steps_per_env=int(_p("num_steps_per_env", 24)),
+            max_iterations=int(_p("max_iterations", 1500)),
+            save_interval=int(_p("save_interval", 100)),
+            experiment_name="unitport_custom",
+            run_name="",
+            algorithm=_algo_cfg,
+            policy=_RecurrentCfg(
+                class_name="ActorCriticRecurrent",
+                init_noise_std=_init_std(1.0),
+                noise_std_type=_STD_TYPE,
+                actor_hidden_dims=eval(str(_p("actor_hidden_dims", "[128, 64, 32]"))),
+                critic_hidden_dims=eval(str(_p("critic_hidden_dims", "[128, 64, 32]"))),
+                activation=str(_p("activation", "elu")),
+                rnn_type=_ppo_rnn_type,
+                # NB: rsl_rl's cfg field is ``rnn_hidden_dim`` (verified against
+                # Engines/isaac_lab RslRlPpoActorCriticRecurrentCfg) — NOT
+                # rnn_hidden_size. The canvas/node param is rnn_hidden_size.
+                rnn_hidden_dim=int(_p("rnn_hidden_size", 256)),
+                rnn_num_layers=int(_p("rnn_num_layers", 1)),
+            ),
+        )
+    elif _has_mlp_model_cfg:
         # New-style: separate actor/critic model configs (Isaac Lab >= 2.4)
         agent_cfg = RslRlOnPolicyRunnerCfg(
             seed=int(_p("seed", 42)),
@@ -1441,9 +1494,17 @@ def main():
                 )
             validate_stage_schedule_dict_h0(_stage_schedule_dict)
 
+        # 缺口① — recurrent policy: pick the vendored ActorCriticRecurrent when
+        # the il_policy_network node selected a GRU/LSTM type. The recurrent
+        # params flow into the policy dict below and are consumed by
+        # ActorCriticRecurrent.__init__ (ActorCritic ignores them via **kwargs).
+        _rnn_type = str(_p("rnn_type", "none")).strip().lower()
+        _is_recurrent = _rnn_type in ("gru", "lstm")
         amp_runner_cfg = {
             "runner": {
-                "policy_class_name": "ActorCritic",
+                "policy_class_name": (
+                    "ActorCriticRecurrent" if _is_recurrent else "ActorCritic"
+                ),
                 "algorithm_class_name": "AMPPPO",
                 "num_steps_per_env": int(_p("num_steps_per_env", 24)),
                 "save_interval": int(_p("save_interval", 100)),
@@ -1491,6 +1552,11 @@ def main():
                 # to ActorCritic.__init__ (only the AMP path's vendored
                 # ActorCritic accepts these; rsl_rl 2.x ignores via **kwargs).
                 "std_clamp_max": float(args_cli.unitport_amp_policy_std_clamp_max),
+                # 缺口① — recurrent policy params (consumed by
+                # ActorCriticRecurrent.__init__; ActorCritic ignores via **kwargs).
+                "rnn_type": _rnn_type,
+                "rnn_hidden_size": int(_p("rnn_hidden_size", 256)),
+                "rnn_num_layers": int(_p("rnn_num_layers", 1)),
             },
         }
 

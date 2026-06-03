@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, Deque, Dict, List, Optional, Sequence, Tu
 import numpy as np
 
 from application.training.manifest_schema import CheckpointBundle
+from application.training.envs import obs_term_engine as _obs_eng
 
 from .sim_env_context import SimEnvContext
 
@@ -156,6 +157,10 @@ class ObsBuilder:
         contract: Optional["DeployContract"] = bundle.deploy_contract
         self._contract: Optional["DeployContract"] = contract
         self._use_contract: bool = contract is not None
+        # Lazily-built ItemResolver for the per-item obs tail (SB3 per-item-
+        # reward bundles). None until first use / when the contract carries no
+        # per_item_obs block. See _append_per_item_tail.
+        self._item_resolver: Any = None
 
         self._per_term_history: Dict[str, Deque[np.ndarray]] = {}
         self._per_term_initialized: Dict[str, bool] = {}
@@ -238,51 +243,71 @@ class ObsBuilder:
         self._bundle_space = bundle_space
         self._qpos_space = qpos_space
 
-        # Phase 5 sanity check: bundle joint order vs Isaac Lab USD
-        # articulation order for this SKU. When BundleFinalizer ships a
-        # correctly-ordered contract this is a no-op; legacy IL bundles
-        # exported before the order fix trip the error and tell the user
-        # to re-export. Only fires for IL deploy_contract bundles where
-        # we have a known SKU and a registered USD order to compare to.
-        if (
-            self._use_contract
-            and self._convention == "isaac_lab"
-            and self._robot_sku
-            and bundle_space is not None
-        ):
+        # Phase 5 sanity check: bundle joint order vs the articulation order
+        # the policy was trained against, declared by the bundle's
+        # ``joint_array_format`` (USD for Isaac Lab, MJCF for SB3/MuJoCo).
+        # When the producer ships a correctly-ordered contract this is a
+        # no-op; a bundle whose per-joint arrays don't match its declared
+        # order is unusable and tripping the error tells the user to
+        # re-export. Keys off ``joint_array_format`` (NOT
+        # ``inference_convention``) so SB3 (MJCF) bundles — which carry the
+        # isaac_lab obs convention but are MJCF-ordered — are validated
+        # against MJCF, not USD. See joint_space.resolve_joint_array_format.
+        if self._use_contract and self._robot_sku and bundle_space is not None:
             from registers.robots import get_robot_spec
+            from .joint_space import resolve_joint_array_format
 
-            rs = get_robot_spec(self._robot_sku)
-            expected: list = []
-            if rs is not None:
-                try:
-                    expected = list(rs.joint_ir_roles_for("USD"))
-                except Exception:
-                    expected = []
             actual = list(
                 getattr(bundle_space, "__dict__", {}).get("ir_labels") or ()
             )
-            if expected and actual and expected != actual:
-                # CLAUDE.md §1.8: previously logged an ERROR and continued —
-                # the policy then fed obs/action through the wrong joint
-                # slots, producing the "electric shock" twitching the user
-                # reported. A wrong-ordered bundle is unusable; refuse
-                # to load it so the user re-exports instead of trusting
-                # a silently-broken viewer/deploy.
-                raise RuntimeError(
-                    f"[ObsBuilder] bundle joint order does NOT match "
-                    f"Isaac Lab USD articulation order for SKU "
-                    f"{self._robot_sku!r} — sim2sim with this bundle "
-                    f"would produce twitching policy outputs.\n"
-                    f"  expected (USD order): {expected}\n"
-                    f"  bundle has         : {actual}\n"
-                    f"Re-export the bundle with the current RELEASE "
-                    f"BundleFinalizer (the registry must have "
-                    f"joints_per_format['USD'] populated for the SKU — "
-                    f"use the Robot Asset card's \"Dump USD\" button). "
-                    f"Old bundle path: re-train this canvas with the "
-                    f"updated registry overlay, then re-launch review."
-                )
+            order_fmt = resolve_joint_array_format(
+                bundle.raw_manifest or {},
+                actual,
+                self._robot_sku,
+                stiffness=getattr(contract, "stiffness", None)
+                if contract is not None else None,
+            )
+            if order_fmt:
+                if not (bundle.raw_manifest or {}).get("joint_array_format") \
+                        and not getattr(ObsBuilder, "_warned_legacy_joint_fmt", False):
+                    log.warning(
+                        "ObsBuilder: bundle missing top-level "
+                        "`joint_array_format`; inferred %r from "
+                        "inference_convention + joint order. Re-export with "
+                        "the current RELEASE exporter to make the joint "
+                        "ordering explicit and silence this warning.",
+                        order_fmt,
+                    )
+                    ObsBuilder._warned_legacy_joint_fmt = True
+                rs = get_robot_spec(self._robot_sku)
+                expected: list = []
+                if rs is not None:
+                    try:
+                        expected = list(rs.joint_ir_roles_for(order_fmt))
+                    except Exception:
+                        expected = []
+                if expected and actual and expected != actual:
+                    # CLAUDE.md §1.8: previously logged an ERROR and continued —
+                    # the policy then fed obs/action through the wrong joint
+                    # slots, producing the "electric shock" twitching the user
+                    # reported. A wrong-ordered bundle is unusable; refuse
+                    # to load it so the user re-exports instead of trusting
+                    # a silently-broken viewer/deploy.
+                    raise RuntimeError(
+                        f"[ObsBuilder] bundle joint order does NOT match the "
+                        f"declared {order_fmt} articulation order for SKU "
+                        f"{self._robot_sku!r} — sim2sim with this bundle "
+                        f"would produce twitching policy outputs.\n"
+                        f"  expected ({order_fmt} order): {expected}\n"
+                        f"  bundle has              : {actual}\n"
+                        f"Re-export the bundle with the current RELEASE "
+                        f"exporter (for Isaac Lab the registry must have "
+                        f"joints_per_format[{order_fmt!r}] populated for the "
+                        f"SKU — use the Robot Asset card's \"Dump USD\" "
+                        f"button). Old bundle path: re-train this canvas "
+                        f"with the updated registry overlay, then re-launch "
+                        f"review."
+                    )
 
         if self._use_contract and contract is not None:
             for _term_name in ("height_scan", "heightfield_scan"):
@@ -453,15 +478,62 @@ class ObsBuilder:
             except Exception:
                 log.exception("ObsBuilder first-call term dump failed")
 
+        # Per-item obs tail (SB3 per-item-reward bundles): append
+        # [cmd_norm, soft weight per item] reconstructed from the command via
+        # the SAME ItemResolver the training env used, so the deployed obs
+        # matches the trained obs exactly (CLAUDE.md §11). Absent ⇒ no-op.
+        if contract.per_item_obs is not None:
+            obs = np.concatenate(
+                [obs, self._append_per_item_tail(contract.per_item_obs, command)]
+            ).astype(np.float32)
+
         if obs.shape[0] != self._bundle.obs_dim:
             raise ValueError(
                 f"ObsBuilder (contract mode): built obs has dim "
                 f"{obs.shape[0]} but bundle.obs_dim={self._bundle.obs_dim}. "
-                f"The contract sum-of-dims must equal bundle.obs_dim — "
-                f"the bundle's manifest is internally inconsistent. "
-                f"Re-export the bundle."
+                f"The contract sum-of-dims (+ per-item tail) must equal "
+                f"bundle.obs_dim — the bundle's manifest is internally "
+                f"inconsistent. Re-export the bundle."
             )
         return obs
+
+    def _append_per_item_tail(
+        self,
+        spec: "PerItemObsSpec",
+        command: Optional[Sequence[float]],
+    ) -> np.ndarray:
+        """Rebuild the SB3 per-item obs tail ``[cmd_norm, item weights]``.
+
+        Uses the SAME pure ItemResolver the training env used (built once from
+        the contract's item command_ranges + blend_width), so the soft-weight
+        membership is bit-for-bit the training computation. The command is
+        projected onto the env's ``[vx, vy, wyaw]`` triple (first 3 channels),
+        matching ``GenericMujocoEnv._command`` — both the norm and the resolver
+        read that triple.
+        """
+        if self._item_resolver is None:
+            from application.training.envs.item_resolver import ItemResolver
+            self._item_resolver = ItemResolver(
+                training_items={
+                    iid: {"command_ranges": spec.command_ranges.get(iid, {})}
+                    for iid in spec.item_ids
+                },
+                item_id_order=spec.item_ids,
+                blend_width=spec.blend_width,
+            )
+        cmd = (
+            np.asarray(command, dtype=np.float64).flatten()
+            if command is not None else np.zeros(3, dtype=np.float64)
+        )
+        if cmd.shape[0] < 3:
+            cmd = np.concatenate([cmd, np.zeros(3 - cmd.shape[0], dtype=np.float64)])
+        cmd3 = cmd[:3]
+        cmd_norm = float(np.linalg.norm(cmd3))
+        weights = self._item_resolver.weights(cmd3)
+        tail = [np.float32(cmd_norm)] + [
+            np.float32(weights.get(iid, 0.0)) for iid in spec.item_ids
+        ]
+        return np.asarray(tail, dtype=np.float32)
 
     def _build_legacy(
         self,
@@ -558,6 +630,32 @@ class ObsBuilder:
             return self._bundle.action_dim
         return dim
 
+    def _engine_inputs(
+        self,
+        env: SimEnvContext,
+        last_action: Optional[np.ndarray],
+        command: Optional[Sequence[float]],
+    ) -> "_obs_eng.MujocoObsInputs":
+        """Package this builder's state for the shared obs_term_engine.
+
+        ``joint_permute`` is the bundle-order remap (handles the qpos→bundle
+        JointSpace permutation + padding). ``wants_relative_joint_pos`` mirrors
+        the historical ``self._use_contract`` flag; the engine additionally
+        makes joint_pos relative whenever the convention is ``isaac_lab``.
+        """
+        return _obs_eng.MujocoObsInputs(
+            mj_model=env.mj_model,
+            mj_data=env.mj_data,
+            num_joints=self._bundle.num_joints,
+            action_dim=self._bundle.action_dim,
+            last_action=last_action,
+            command=command,
+            default_joint_pos=self._default_joint_pos,
+            convention=self._convention,
+            wants_relative_joint_pos=self._use_contract,
+            joint_permute=self._read_joint_vector_in_bundle_order,
+        )
+
     def _build_component(
         self,
         name: str,
@@ -565,27 +663,14 @@ class ObsBuilder:
         last_action: Optional[np.ndarray],
         command: Optional[Sequence[float]],
     ) -> np.ndarray:
-        if name in ("base_angular_velocity", "base_ang_vel"):
-            return self._get_base_angular_velocity(env)
-        if name in ("base_linear_velocity", "base_lin_vel"):
-            return self._get_base_linear_velocity(env)
-        if name == "imu":
-            return np.concatenate([
-                self._get_base_angular_velocity(env),
-                self._get_projected_gravity(env),
-            ]).astype(np.float32)
-        if name in ("projected_gravity", "gravity_vec"):
-            return self._get_projected_gravity(env)
-        if name in ("joint_positions", "joint_pos", "joint_pos_rel"):
-            return self._get_joint_positions(env)
-        if name in ("joint_velocities", "joint_vel", "joint_vel_rel"):
-            return self._get_joint_velocities(env)
-        if name in ("last_action", "previous_action", "actions"):
-            return self._get_action_history(last_action)
-        if name in ("velocity_command", "velocity_commands"):
-            return self._get_command(command, dim=3)
-        if name == "command":
-            return self._get_command(command, dim=4)
+        # Proprioceptive terms go through the shared engine (single source of
+        # truth shared with SB3 training — "train == deploy" by construction).
+        # Deploy-only terms that need a ray-caster / reference-motion adapter
+        # (height_scan, reference_*, phase) stay below.
+        if _obs_eng.is_engine_term(name):
+            return _obs_eng.compute_term(
+                name, self._engine_inputs(env, last_action, command)
+            )
 
         if name in ("height_scan", "heightfield_scan"):
             return self._get_height_scan(env)

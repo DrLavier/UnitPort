@@ -234,7 +234,7 @@ def evaluate(
     phases: Iterable[Dict[str, Any]],
     *,
     kind: str = "reward",
-    backend: str = "sb3",
+    backend: str = "sb3_mujoco",
     applies_to_key: str = "applies_to",
 ) -> CoverageReport:
     """Score a reward_terms dict against a phase layout.

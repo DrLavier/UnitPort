@@ -172,6 +172,21 @@ def _read_reward_terms(node: "IRNode") -> Dict[str, Any]:
     but not yet configured; that's a different rule the topology check
     handles).
     """
+    # 缺口③ — reward_terms is paged ({page: {func: payload}}); flatten across
+    # pages so conflict detection compares actual term values (the global page
+    # wins on key collision). Legacy flat dicts pass through unchanged.
+    def _flat(d: Dict[str, Any]) -> Dict[str, Any]:
+        from application.compiler.term_payload import (
+            is_paged_reward_terms, iter_reward_pages,
+        )
+        if not is_paged_reward_terms(d):
+            return dict(d)
+        out: Dict[str, Any] = {}
+        for _pid, page_terms in iter_reward_pages(d):
+            for func, payload in page_terms.items():
+                out.setdefault(func, payload)
+        return out
+
     p = node.params.get("reward_terms")
     if p is None:
         return {}
@@ -179,7 +194,7 @@ def _read_reward_terms(node: "IRNode") -> Dict[str, Any]:
     if raw is None or raw == "":
         return {}
     if isinstance(raw, dict):
-        return dict(raw)
+        return _flat(raw)
     if isinstance(raw, str):
         try:
             parsed = json.loads(raw)
@@ -192,7 +207,7 @@ def _read_reward_terms(node: "IRNode") -> Dict[str, Any]:
                 f"reward_terms on node {node.id!r} parses to "
                 f"{type(parsed).__name__}, expected dict"
             )
-        return dict(parsed)
+        return _flat(parsed)
     raise ValueError(
         f"reward_terms on node {node.id!r} has unsupported type "
         f"{type(raw).__name__}; expected dict or JSON string"

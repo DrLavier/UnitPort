@@ -27,6 +27,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+from unitport_sdk import Paths, log_warning, push_data, read_data
+
+#: User-overlay catalogue of imported custom-terrain scenes, under the LIVE
+#: USER_CONFIG_DIR (CLAUDE.md §4). Mirrors the registers/*_custom.json
+#: convention. Resolved at call time so workspace hot-switches are picked up.
+_USER_SCENES_REL = "registers/scenes_custom.json"
+#: Where imported heightfield .npz assets are stored (USER_CONFIG_DIR-relative).
+_TERRAIN_ASSET_DIR_REL = "registers/terrain_assets"
+
 
 # ---------------------------------------------------------------------------
 # Errors
@@ -171,8 +180,162 @@ def clear_registry() -> None:
 
 
 def rescan() -> None:
-    """Re-apply the in-code default scene table. Idempotent."""
+    """Re-apply the in-code default scene table + user overlay. Idempotent."""
     _install_defaults()
+    load_user_scenes()
+
+
+# ---------------------------------------------------------------------------
+# User-overlay custom-terrain scenes (scenes_custom.json)
+# ---------------------------------------------------------------------------
+
+
+def _user_scenes_path() -> Path:
+    """Lazy resolve of the user scene-overlay path inside the LIVE
+    USER_CONFIG_DIR (mirrors registers.ir._user_custom_path)."""
+    return Paths.USER_CONFIG_DIR / "registers" / "scenes_custom.json"
+
+
+def _register_custom_scene_entry(entry: Dict[str, Any]) -> bool:
+    """Register one custom-terrain scene from a scenes_custom.json entry.
+
+    Pure (no I/O). The entry's ``file_path`` (canonical heightfield .npz)
+    and ``vertical_scale`` are wired into the scene's ``defaults`` so that
+    picking it in the canvas scene picker auto-sets scene_type='custom' +
+    custom_terrain_path + custom_terrain_vertical_scale (the picker writes
+    ``defaults`` into sibling params). Returns False on a malformed entry
+    (logged, skipped) rather than aborting the whole overlay load.
+    """
+    sid = str(entry.get("scene_id", "") or "").strip()
+    fpath = str(entry.get("file_path", "") or "").strip()
+    if not sid or not fpath:
+        log_warning(
+            f"[scene_registry] skipping custom scene with empty scene_id / "
+            f"file_path: {entry!r}"
+        )
+        return False
+    vscale = entry.get("vertical_scale", 0.005)
+    try:
+        vscale = float(vscale)
+    except (TypeError, ValueError):
+        vscale = 0.005
+    backends = set(entry.get("supported_backends") or {"sb3_mujoco", "isaac_lab"})
+    review = set(entry.get("review_backends") or {"mujoco"})
+    register_scene(Scene(
+        scene_id=sid,
+        name=str(entry.get("name", sid) or sid),
+        description=str(entry.get("description", "") or ""),
+        scene_type="custom",
+        file_path=Path(fpath),
+        supported_backends=backends,
+        supported_families=set(entry.get("supported_families") or set()),
+        review_backends=review,
+        defaults={
+            "scene_type": "custom",
+            "custom_terrain_path": fpath,
+            "custom_terrain_vertical_scale": vscale,
+        },
+    ))
+    return True
+
+
+def load_user_scenes() -> int:
+    """Merge user-imported custom-terrain scenes from scenes_custom.json.
+
+    No-op (returns 0) before the install wizard has established
+    USER_CONFIG_DIR (CLAUDE.md §4 — no fallback). Returns the count of
+    scenes registered.
+    """
+    if not Paths.is_user_config_dir_set():
+        return 0
+    path = _user_scenes_path()
+    try:
+        payload = read_data(path)
+    except Exception as exc:  # noqa: BLE001 - missing/corrupt overlay → skip
+        log_warning(f"[scene_registry] could not read {path}: {exc}")
+        return 0
+    if not isinstance(payload, dict):
+        return 0
+    scenes = payload.get("scenes")
+    if not isinstance(scenes, list):
+        return 0
+    n = 0
+    for entry in scenes:
+        if isinstance(entry, dict) and _register_custom_scene_entry(entry):
+            n += 1
+    return n
+
+
+def import_terrain_scene(
+    source_path: Any,
+    scene_id: str,
+    name: str,
+    *,
+    description: str = "",
+    size_x: Optional[float] = None,
+    size_y: Optional[float] = None,
+    elevation_z: Optional[float] = None,
+    base_z: float = 0.0,
+    vertical_scale: float = 0.005,
+    supported_backends: Optional[Set[str]] = None,
+    review_backends: Optional[Set[str]] = None,
+) -> str:
+    """Import an external height-map as a reusable custom-terrain scene.
+
+    Converts ``source_path`` (PNG / .npy / .npz) to a canonical heightfield
+    ``.npz`` stored under ``USER_CONFIG_DIR/registers/terrain_assets/``,
+    appends an entry to ``scenes_custom.json``, and registers the scene so
+    it appears in the canvas scene picker. Returns the absolute ``.npz``
+    path (the value written into the canvas ``custom_terrain_path``).
+
+    Requires USER_CONFIG_DIR to be established (raises via
+    ``Paths.require_user_config_dir`` otherwise — §4, no fallback).
+    """
+    from application.training.terrain.asset_import import (
+        convert_to_canonical_npz_bytes,
+    )
+
+    sid = str(scene_id).strip()
+    if not sid:
+        raise SceneValidationError("import_terrain_scene: scene_id must be non-empty")
+    Paths.require_user_config_dir()  # fail-loud if not configured (§4)
+
+    npz_bytes, meta = convert_to_canonical_npz_bytes(
+        source_path,
+        size_x=size_x, size_y=size_y, elevation_z=elevation_z, base_z=base_z,
+    )
+
+    asset_rel = f"{_TERRAIN_ASSET_DIR_REL}/{sid}.npz"
+    if not push_data(asset_rel, npz_bytes):
+        raise RuntimeError(
+            f"import_terrain_scene: failed to write terrain asset {asset_rel}"
+        )
+    asset_abs = str((Paths.USER_CONFIG_DIR / asset_rel).resolve())
+
+    entry = {
+        "scene_id": sid,
+        "name": str(name) or sid,
+        "description": str(description),
+        "file_path": asset_abs,
+        "vertical_scale": float(vertical_scale),
+        "sha256": meta["sha256"],
+        "supported_backends": sorted(supported_backends or {"sb3_mujoco", "isaac_lab"}),
+        "review_backends": sorted(review_backends or {"mujoco"}),
+    }
+    # Append/replace in scenes_custom.json (read-modify-write).
+    payload = read_data(_user_scenes_path()) if Paths.is_user_config_dir_set() else None
+    if not isinstance(payload, dict):
+        payload = {"schema": "unitport.scenes_custom/v1", "scenes": []}
+    scenes = [s for s in (payload.get("scenes") or []) if s.get("scene_id") != sid]
+    scenes.append(entry)
+    payload["scenes"] = scenes
+    if not push_data(_USER_SCENES_REL, payload):
+        raise RuntimeError(
+            "import_terrain_scene: failed to write scenes_custom.json overlay"
+        )
+
+    _register_custom_scene_entry(entry)
+    return asset_abs
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +352,7 @@ def _install_defaults() -> None:
             "baseline arena for locomotion / standing / pose tracking."
         ),
         scene_type="flat",
-        supported_backends={"sb3", "isaac_lab"},
+        supported_backends={"sb3_mujoco", "isaac_lab"},
         supported_families=set(),  # empty ⇒ all families
         review_backends={"mujoco", "isaac_sim"},
         defaults={
@@ -220,8 +383,6 @@ def _install_defaults() -> None:
             "arena_extent_y": 100.0,
             "friction_static": 1.0,
             "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.08,
-            "slope_max": 20.0,
             "curriculum_enabled": "true",
             "difficulty_levels": 10,
             "height_scan_enabled": "true",
@@ -256,8 +417,6 @@ def _install_defaults() -> None:
             "arena_extent_y": 20.0,
             "friction_static": 1.0,
             "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.0,
-            "slope_max": 0.0,
             "curriculum_enabled": "true",
             "difficulty_levels": 10,
             "height_scan_enabled": "true",
@@ -285,8 +444,6 @@ def _install_defaults() -> None:
             "arena_extent_y": 60.0,
             "friction_static": 1.0,
             "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.02,
-            "slope_max": 30.0,
             "curriculum_enabled": "true",
             "difficulty_levels": 10,
             "height_scan_enabled": "true",
@@ -313,8 +470,6 @@ def _install_defaults() -> None:
             "arena_extent_y": 30.0,
             "friction_static": 1.0,
             "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.0,
-            "slope_max": 0.0,
             "curriculum_enabled": "true",
             "difficulty_levels": 8,
             "height_scan_enabled": "true",
@@ -342,8 +497,6 @@ def _install_defaults() -> None:
             "arena_extent_y": 40.0,
             "friction_static": 1.0,
             "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.02,
-            "slope_max": 0.0,
             "curriculum_enabled": "true",
             "difficulty_levels": 10,
             "height_scan_enabled": "true",
@@ -371,8 +524,6 @@ def _install_defaults() -> None:
             "arena_extent_y": 30.0,
             "friction_static": 1.0,
             "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.0,
-            "slope_max": 0.0,
             "curriculum_enabled": "true",
             "difficulty_levels": 8,
             "height_scan_enabled": "true",
@@ -400,8 +551,6 @@ def _install_defaults() -> None:
             "arena_extent_y": 100.0,
             "friction_static": 1.0,
             "friction_dynamic": 0.8,
-            "roughness_amplitude": 0.08,
-            "slope_max": 20.0,
             "curriculum_enabled": "true",
             "difficulty_levels": 10,
             "height_scan_enabled": "true",
@@ -413,6 +562,9 @@ def _install_defaults() -> None:
 
 
 _install_defaults()
+# Merge user-imported custom-terrain scenes (no-op until the install wizard
+# establishes USER_CONFIG_DIR — §4).
+load_user_scenes()
 
 
 __all__ = [
@@ -425,4 +577,6 @@ __all__ = [
     "list_review_scenes",
     "clear_registry",
     "rescan",
+    "load_user_scenes",
+    "import_terrain_scene",
 ]

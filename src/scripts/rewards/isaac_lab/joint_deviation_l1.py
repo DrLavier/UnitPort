@@ -45,4 +45,10 @@ ENTRY = reward_item(
     il_module=IL_MOD_INLINE,
     il_params='"asset_cfg": SceneEntityCfg("robot")',
     il_inline=INLINE_SOURCE,
+    # 缺口③ — partitionable by the family's PD joint groups. With no partitions
+    # the term runs on all joints (default above); with a ``partitions`` map on
+    # the Rewards node it fans out into one instance per subset (hip / arm /
+    # waist / ...), each on that subset's joints with its own weight —
+    # legged_gym's hip_dof_deviation / arm_dof_deviation / waist_dof_deviation.
+    il_partition_source='pd_groups',
 )

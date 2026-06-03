@@ -253,6 +253,31 @@ def _param_to_dict(p: ParamSpec) -> Dict[str, Any]:
     }
 
 
+def manifest_from_toml(module_file: str) -> "NodeManifest":
+    """Build a :class:`NodeManifest` from a node module's sibling ``manifest.toml``.
+
+    Single source of truth (2026-06): a node.py declares
+    ``MANIFEST = manifest_from_toml(__file__)`` instead of re-typing the
+    schema/ports/parameters as a Python literal. ``manifest.toml`` is then the
+    ONLY place a node's params/visibility/meta live, so the Python class mirror
+    can never drift from it (the historical drift the SB3 canvas-config audit
+    exposed). The registry (``registers.nodes``) separately loads the same toml
+    for discovery; both resolve to byte-identical content by construction.
+
+    Raises (fail-loud, §8): the sibling ``manifest.toml`` is missing/unparsable,
+    or fails :meth:`NodeManifest.from_dict` validation — the node simply won't
+    import, which discovery surfaces, rather than silently shipping a stale
+    hand-written mirror.
+    """
+    import tomllib
+    from pathlib import Path
+
+    toml_path = Path(module_file).resolve().parent / "manifest.toml"
+    with open(toml_path, "rb") as fh:
+        data = tomllib.load(fh)
+    return NodeManifest.from_dict(data)
+
+
 # =============================================================================
 # BaseNode — 所有节点必须继承的 ABC
 # =============================================================================
@@ -381,4 +406,5 @@ __all__ = [
     "PortSpec",
     "ParamSpec",
     "NODE_MANIFEST_SCHEMA",
+    "manifest_from_toml",
 ]

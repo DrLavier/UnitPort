@@ -235,6 +235,7 @@ def solve(
     joint_ir_roles: List[str],
     nominal_qpos: Optional[np.ndarray],
     pd_param: PDParam,
+    precomputed_inertia: Optional[EffectiveInertia] = None,
 ) -> JointPDGains:
     """Derive MuJoCo-side ``(kp, kd)`` per joint via ``mj_fullM`` at ``nominal_qpos``.
 
@@ -255,6 +256,17 @@ def solve(
         used. Passing a non-``None`` array of the wrong length raises.
     pd_param:
         Source of truth for ``(omega_n, zeta)`` per group.
+    precomputed_inertia:
+        Optional :class:`EffectiveInertia` from a prior
+        :func:`effective_inertia_diag` call on the SAME ``(mjcf_path,
+        joint_order_physical, nominal stance)``. When provided, the MJCF
+        is **not** re-parsed and ``mj_fullM`` is **not** re-run — only the
+        cheap ``kp = M·ωn²`` / ``kd = 2ζ·√(kp·M)`` arithmetic runs. ``m_eff``
+        at the nominal stance is invariant to ``(ωn, ζ)`` (per CLAUDE.md §10
+        gains are pinned to the nominal stance), so re-solving for a
+        DR-scaled ``PDParam`` or at episode reset reuses the cached inertia
+        instead of re-loading the model each time. Its length must match
+        ``joint_order_physical`` or this raises.
 
     Raises
     ------
@@ -277,12 +289,25 @@ def solve(
     role_to_group = expand_groups_to_joints(pd_param, joint_ir_roles)
 
     # Effective inertia at the nominal stance — shared with the PhysX
-    # solver so both engines mass-weight off identical numbers.
-    inertia = effective_inertia_diag(
-        mjcf_path=mjcf_path,
-        joint_order_physical=list(joint_order_physical),
-        nominal_qpos=nominal_qpos,
-    )
+    # solver so both engines mass-weight off identical numbers. Reuse a
+    # caller-cached result when given (env reset / DR re-solve): m_eff is
+    # invariant to (ωn, ζ) and to the unchanged MJCF, so re-parsing every
+    # episode is pure waste (~45ms/reset for a quadruped).
+    if precomputed_inertia is not None:
+        if len(precomputed_inertia.m_eff) != len(joint_order_physical):
+            raise ValueError(
+                f"mujoco_gain_solver.solve: precomputed_inertia has "
+                f"{len(precomputed_inertia.m_eff)} m_eff entries but "
+                f"joint_order_physical has {len(joint_order_physical)} — the "
+                f"cache was built for a different joint set."
+            )
+        inertia = precomputed_inertia
+    else:
+        inertia = effective_inertia_diag(
+            mjcf_path=mjcf_path,
+            joint_order_physical=list(joint_order_physical),
+            nominal_qpos=nominal_qpos,
+        )
 
     kp: List[float] = []
     kd: List[float] = []

@@ -299,13 +299,17 @@ def _resolve_actor_critic_classes():
     helper kept its name + signature so the runner constructor below
     didn't need to change.
 
-    ``ActorCriticRecurrent`` is intentionally ``None`` — the recurrent
-    variant isn't vendored. AMP training in phase_3 uses the feed-forward
-    MLP path only; setting ``policy_class_name = "ActorCriticRecurrent"``
-    in the runner cfg will raise a clear error from
-    ``AMPOnPolicyRunner.__init__``'s ``_local_classes`` lookup.
+    缺口① — ``ActorCriticRecurrent`` is now vendored
+    (``amp/algorithms/actor_critic_recurrent.py``): a GRU/LSTM actor + MLP
+    critic that lights up the dormant ``is_recurrent`` branches in
+    ``rsl_amp_ppo.py`` / ``rollout_storage.py``. The runner cfg sets
+    ``policy_class_name = "ActorCriticRecurrent"`` + rnn params when the
+    canvas's il_policy_network picks a recurrent type.
     """
-    return ActorCritic, None
+    from application.training.amp.algorithms.actor_critic_recurrent import (
+        ActorCriticRecurrent,
+    )
+    return ActorCritic, ActorCriticRecurrent
 
 
 class AMPOnPolicyRunner:

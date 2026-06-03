@@ -53,6 +53,104 @@ if TYPE_CHECKING:
     from .deploy_contract import DeployContract
 
 
+# ---------------------------------------------------------------------------
+# Bundle joint-array ordering format
+# ---------------------------------------------------------------------------
+#
+# A bundle's per-joint arrays (``joint_sdk_names`` / ``stiffness`` / ``damping``
+# / ``effort_limit`` / ``default_joint_pos`` / PD gains) are laid out in the
+# **articulation order of the engine the policy was trained on**:
+#
+#   * Isaac Lab / rsl_rl  → USD prim order  (all hips, then all thighs, ...)
+#   * SB3 / MuJoCo gym    → MJCF order      (per-leg: hip/thigh/calf, ...)
+#
+# This is a SEPARATE concern from ``inference_convention`` (which only governs
+# the *obs frame*: body-frame base velocities + relative joint_pos). SB3
+# trains its obs in the Isaac-Lab obs convention, so SB3 bundles legitimately
+# carry ``inference_convention="isaac_lab"`` while being **MJCF-ordered**.
+# Keying joint reorder/validation off ``inference_convention`` therefore
+# wrongly treats an SB3 (MJCF) bundle as USD-ordered — silently permuting it
+# to USD (PolicyRunner) or hard-rejecting it (ObsBuilder). The bundle must
+# declare its array ordering explicitly via ``manifest["joint_array_format"]``.
+
+_KNOWN_ARRAY_FORMATS = ("MJCF", "USD", "URDF")
+
+
+def resolve_joint_array_format(
+    raw_manifest: Optional[Dict],
+    joint_ir_labels: Iterable[str],
+    robot_sku: str,
+    *,
+    stiffness: Optional[Iterable[float]] = None,
+) -> Optional[str]:
+    """Articulation-order format ('USD'/'MJCF'/'URDF') a bundle's per-joint
+    arrays use, or ``None`` when no order check applies.
+
+    SINGLE SOURCE shared by :class:`ObsBuilder` (joint-order sanity check) and
+    :meth:`PolicyRunner._normalize_il_contract_joint_order` (USD reorder) so
+    the two cannot drift.
+
+    Resolution order:
+
+    1. **Explicit** ``manifest["joint_array_format"]`` — RELEASE bundles
+       (SB3 → "MJCF", Isaac Lab → "USD"). Authoritative.
+    2. **Legacy** (field absent, §8c on-disk compat): the order check only
+       ever applied to Isaac-Lab obs-convention bundles, so for non-isaac_lab
+       bundles return ``None`` (skip). For isaac_lab bundles:
+         - When the manifest carries ``inference_convention`` *explicitly*
+           (recent exporter), disambiguate by which registry order the IR
+           labels match: labels == MJCF order (and != USD) ⇒ "MJCF" (an SB3
+           bundle predating the explicit field); otherwise "USD".
+         - When ``inference_convention`` was only *inferred* (oldest bundles,
+           no field) default to "USD" — the historical Isaac-Lab safety net
+           (``_normalize_il_contract_joint_order`` exists to fix legacy IL
+           bundles that shipped before the USD reorder).
+    """
+    fmt = str((raw_manifest or {}).get("joint_array_format", "")).strip().upper()
+    if fmt in _KNOWN_ARRAY_FORMATS:
+        return fmt
+
+    conv_explicit = str(
+        (raw_manifest or {}).get("inference_convention", "")
+    ).strip().lower()
+    conv = conv_explicit
+    if not conv:
+        # Mirror ObsBuilder.__init__'s stiffness inference: non-zero stiffness
+        # is an Isaac-Lab / ImplicitActuator obs-frame signature.
+        try:
+            if stiffness is not None and any(float(s) > 0.0 for s in stiffness):
+                conv = "isaac_lab"
+            else:
+                conv = "sb3"
+        except Exception:
+            conv = "sb3"
+    if conv != "isaac_lab":
+        return None
+
+    if not robot_sku:
+        return "USD"
+    try:
+        from registers.robots import get_robot_spec
+    except ImportError:
+        return "USD"
+    rs = get_robot_spec(robot_sku)
+    if rs is None:
+        return "USD"
+    try:
+        usd = list(rs.joint_ir_roles_for("USD"))
+        mjcf = list(rs.joint_ir_roles_for("MJCF"))
+    except Exception:
+        usd, mjcf = [], []
+    labels = [str(x) for x in (joint_ir_labels or [])]
+    if conv_explicit == "isaac_lab" and labels and mjcf and labels == mjcf and labels != usd:
+        # Recent exporter (explicit convention) + MJCF-ordered labels ⇒ an SB3
+        # bundle made before joint_array_format existed. Treat as MJCF so the
+        # contract is NOT permuted to USD (which would scramble the policy's
+        # joint slots). Legacy IL bundles are USD-ordered → labels == usd here.
+        return "MJCF"
+    return "USD"
+
+
 @dataclass(frozen=True)
 class JointSpace:
     """An ordered, named reference frame for joint-aligned vectors."""

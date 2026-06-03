@@ -34,7 +34,34 @@ class InferenceEngine(ABC):
 
     @abstractmethod
     def predict(self, obs: np.ndarray) -> np.ndarray:
-        """Run one inference step and return the action vector."""
+        """Run one inference step and return the action vector.
+
+        For a recurrent policy (缺口①) the hidden state is threaded INSIDE
+        the engine (kept as engine state across calls) so this signature and
+        every PolicyRunner invariant around it stay unchanged. Episode
+        boundaries call :meth:`reset_state`.
+        """
+
+    # ── recurrent-policy hooks (no-ops for feed-forward engines) ──────
+    def is_recurrent(self) -> bool:
+        """True iff the loaded policy carries a recurrent hidden state."""
+        return False
+
+    def reset_state(self, mask: Optional[np.ndarray] = None) -> None:
+        """Reset the hidden state at an episode boundary.
+
+        ``mask`` (optional, shape ``(batch,)``) selects which envs reset
+        (non-zero = reset); ``None`` resets the whole state. No-op for
+        feed-forward engines.
+        """
+
+    def set_recurrent(self, rnn_type: str, hidden_size: int, num_layers: int) -> None:
+        """Declare the recurrent contract (rnn_type / hidden_size / num_layers).
+
+        ONNXEngine self-detects from the graph's named inputs and only
+        cross-checks here; JITEngine REQUIRES this (TorchScript inputs are
+        unnamed) to allocate state and thread it. No-op for feed-forward.
+        """
 
 
 class ONNXEngine(InferenceEngine):
@@ -61,6 +88,13 @@ class ONNXEngine(InferenceEngine):
         )
         self._session = None          # onnxruntime.InferenceSession, created in load()
         self._input_name: Optional[str] = None
+        # Recurrent state (缺口①) — populated in load() when the graph carries
+        # ``h_in`` (and ``c_in`` for LSTM). Maps state-input name → current
+        # ndarray; updated from the matching output each predict().
+        self._recurrent: bool = False
+        self._state: dict = {}                    # {"h_in": ndarray, ["c_in": ndarray]}
+        self._state_out: dict = {}                # {"h_in": "h_out", "c_in": "c_out"}
+        self._out_names: List[str] = []
 
     # ------------------------------------------------------------------
     # Public API
@@ -83,7 +117,58 @@ class ONNXEngine(InferenceEngine):
             str(model_path),
             providers=self._providers,
         )
-        self._input_name = self._session.get_inputs()[0].name
+        in_names = [i.name for i in self._session.get_inputs()]
+        # ``obs`` input: the recurrent graph names it "obs"; the MLP graph
+        # uses the first (only) input.
+        self._input_name = "obs" if "obs" in in_names else in_names[0]
+
+        # Recurrent self-detection (缺口①): graph carries h_in (+ c_in).
+        self._recurrent = "h_in" in in_names
+        self._state = {}
+        self._state_out = {}
+        if self._recurrent:
+            self._out_names = [o.name for o in self._session.get_outputs()]
+            pairs = [("h_in", "h_out")]
+            if "c_in" in in_names:
+                pairs.append(("c_in", "c_out"))
+            for in_name, out_name in pairs:
+                meta = next(i for i in self._session.get_inputs() if i.name == in_name)
+                # shape [num_layers, batch, hidden]; batch is dynamic → 1.
+                shape = [int(d) if isinstance(d, int) else 1 for d in meta.shape]
+                self._state[in_name] = np.zeros(shape, dtype=np.float32)
+                self._state_out[in_name] = out_name
+
+    def is_recurrent(self) -> bool:
+        return self._recurrent
+
+    def reset_state(self, mask: Optional[np.ndarray] = None) -> None:
+        if not self._recurrent:
+            return
+        for name, arr in self._state.items():
+            if mask is None:
+                arr.fill(0.0)
+            else:
+                # arr shape [L, batch, H]; zero columns where mask is non-zero.
+                m = np.asarray(mask).reshape(-1).astype(bool)
+                arr[:, m, :] = 0.0
+
+    def set_recurrent(self, rnn_type: str, hidden_size: int, num_layers: int) -> None:
+        # Self-detected from the graph; cross-check the contract and fail loud
+        # (§8) on disagreement rather than silently replaying a mismatched policy.
+        if not self._recurrent:
+            raise RuntimeError(
+                "ONNXEngine.set_recurrent(): deploy_contract declares a recurrent "
+                "policy but the ONNX graph has no 'h_in' input — the exported "
+                "policy.onnx is feed-forward. Re-export the bundle."
+            )
+        for name, arr in self._state.items():
+            if int(arr.shape[0]) != int(num_layers) or int(arr.shape[2]) != int(hidden_size):
+                raise RuntimeError(
+                    f"ONNXEngine.set_recurrent(): contract rnn(layers={num_layers}, "
+                    f"hidden={hidden_size}) disagrees with the ONNX '{name}' shape "
+                    f"{tuple(arr.shape)} (layers={arr.shape[0]}, hidden={arr.shape[2]}). "
+                    f"Bundle is inconsistent — re-export."
+                )
 
     def predict(self, obs: np.ndarray) -> np.ndarray:
         """Run inference on a single (unbatched) observation vector.
@@ -101,6 +186,17 @@ class ONNXEngine(InferenceEngine):
         obs_f32 = obs.astype(np.float32).flatten()
         # Add batch dimension: (obs_dim,) -> (1, obs_dim)
         batched = obs_f32[np.newaxis, :]
+
+        if self._recurrent:
+            feed = {self._input_name: batched}
+            feed.update(self._state)
+            outputs = self._session.run(None, feed)
+            out_map = dict(zip(self._out_names, outputs))
+            # Thread hidden state forward for the next step.
+            for in_name, out_name in self._state_out.items():
+                self._state[in_name] = np.asarray(out_map[out_name], dtype=np.float32)
+            action_batched = out_map.get("action", outputs[0])
+            return np.asarray(action_batched, dtype=np.float32).flatten()
 
         outputs = self._session.run(None, {self._input_name: batched})
         # Use first output only (Phase 1 assumption)
@@ -126,6 +222,15 @@ class JITEngine(InferenceEngine):
 
     def __init__(self) -> None:
         self._model = None  # torch.jit.ScriptModule, set in load()
+        # Recurrent state (缺口①). TorchScript inputs are unnamed, so the
+        # recurrent contract MUST be declared via set_recurrent() (called by
+        # PolicyRunner from deploy_contract). _h / _c are torch tensors.
+        self._recurrent: bool = False
+        self._rnn_type: str = ""
+        self._hidden_size: int = 0
+        self._num_layers: int = 0
+        self._h = None
+        self._c = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -166,6 +271,16 @@ class JITEngine(InferenceEngine):
         # Add batch dimension: (obs_dim,) -> (1, obs_dim)
         tensor = torch.tensor(obs_f32, dtype=torch.float32).unsqueeze(0)
 
+        if self._recurrent:
+            with torch.no_grad():
+                if self._rnn_type == "lstm":
+                    out = self._model(tensor, self._h, self._c)
+                    action_t, self._h, self._c = out[0], out[1], out[2]
+                else:
+                    out = self._model(tensor, self._h)
+                    action_t, self._h = out[0], out[1]
+            return action_t.squeeze(0).detach().cpu().numpy().astype(np.float32)
+
         with torch.no_grad():
             output = self._model(tensor)
 
@@ -178,3 +293,34 @@ class JITEngine(InferenceEngine):
         # Strip batch dimension and return float32 NumPy array
         action = output.squeeze(0).detach().cpu().numpy().astype(np.float32)
         return action
+
+    def is_recurrent(self) -> bool:
+        return self._recurrent
+
+    def set_recurrent(self, rnn_type: str, hidden_size: int, num_layers: int) -> None:
+        import torch  # deferred — optional dependency
+        self._recurrent = True
+        self._rnn_type = (rnn_type or "gru").strip().lower()
+        self._hidden_size = int(hidden_size)
+        self._num_layers = int(num_layers)
+        self._h = torch.zeros(self._num_layers, 1, self._hidden_size, dtype=torch.float32)
+        self._c = (
+            torch.zeros(self._num_layers, 1, self._hidden_size, dtype=torch.float32)
+            if self._rnn_type == "lstm" else None
+        )
+
+    def reset_state(self, mask: Optional[np.ndarray] = None) -> None:
+        if not self._recurrent:
+            return
+        import torch  # deferred — optional dependency
+        if mask is None:
+            if self._h is not None:
+                self._h = torch.zeros_like(self._h)
+            if self._c is not None:
+                self._c = torch.zeros_like(self._c)
+            return
+        m = torch.as_tensor(np.asarray(mask).reshape(-1) != 0)
+        if self._h is not None:
+            self._h[:, m, :] = 0.0
+        if self._c is not None:
+            self._c[:, m, :] = 0.0

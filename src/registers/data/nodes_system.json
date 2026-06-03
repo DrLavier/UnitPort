@@ -179,12 +179,17 @@
           "type": "json",
           "default": "[]",
           "choices": null,
-          "description": "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node). WYSIWYG: empty picker = empty ContactSensor (no /Robot/.* fallback); R5 _check_contact_sensor_coverage rejects compile when reward/termination consume contact_forces but picker omits required bodies.",
+          "description": "接触 body IR 角色 / Contact-sensor body IR roles (IsaacLab ContactSensor; multi-select from upstream Robot Node). SB3 has no ContactSensor (its illegal_contact reads data.contact with a hardcoded family body set — identical to IsaacLab by design), so this is hidden on SB3 canvases.",
           "widget": "ir_body_picker",
           "meta": {
             "source": "body",
             "default_select_all": true,
-            "language": "json"
+            "language": "json",
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
           }
         },
         {
@@ -192,11 +197,16 @@
           "type": "int",
           "default": 3,
           "choices": null,
-          "description": "接触历史长度 / Contact history length",
+          "description": "接触历史长度 / Contact history length (IsaacLab only)",
           "widget": "index",
           "meta": {
             "min": 1,
-            "max": 64
+            "max": 64,
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
           }
         },
         {
@@ -204,9 +214,15 @@
           "type": "bool",
           "default": true,
           "choices": null,
-          "description": "追踪 air time / Track air time",
+          "description": "追踪 air time / Track air time (IsaacLab only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "action_joint_names_expr",
@@ -248,9 +264,15 @@
           "type": "bool",
           "default": false,
           "choices": null,
-          "description": "启用 action_scale 课程 / Enable action-scale curriculum",
+          "description": "启用 action_scale 课程 / Enable action-scale curriculum (IsaacLab only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "action_scale_curriculum_start",
@@ -262,7 +284,19 @@
           "meta": {
             "min": 0.0,
             "max": 5.0,
-            "step": 0.01
+            "step": 0.01,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "action_scale_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -275,7 +309,19 @@
           "meta": {
             "min": 0.0,
             "max": 5.0,
-            "step": 0.01
+            "step": 0.01,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "action_scale_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -287,7 +333,19 @@
           "widget": "index",
           "meta": {
             "min": 1,
-            "max": 1000000
+            "max": 1000000,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "action_scale_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -372,13 +430,38 @@
           }
         },
         {
+          "key": "max_iterations",
+          "type": "int",
+          "default": 1500,
+          "choices": null,
+          "description": "[PPO] 最大迭代次数 / Max iterations (× n_steps × n_envs → total steps)",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "==",
+              "value": "PPO"
+            },
+            "min": 1,
+            "max": 1000000,
+            "mission_expose": true,
+            "mission_label_i18n": "mission.train.field.max_iterations",
+            "pin_on_collapse": true
+          }
+        },
+        {
           "key": "total_timesteps",
           "type": "int",
           "default": 1000000,
           "choices": null,
-          "description": "总训练步数",
+          "description": "[SAC/TD3] 总训练步数",
           "widget": "index",
           "meta": {
+            "conditional_on": {
+              "key": "algorithm",
+              "op": "!=",
+              "value": "PPO"
+            },
             "min": 1,
             "max": 1000000000,
             "mission_expose": true,
@@ -519,28 +602,6 @@
             "min": 1,
             "max": 100000000
           }
-        },
-        {
-          "key": "resume_mode",
-          "type": "enum",
-          "default": "scratch",
-          "choices": [
-            "scratch",
-            "resume",
-            "warm_start_actor"
-          ],
-          "description": "Resume 模式（被 checkpoint.load_mode 覆盖）",
-          "widget": null,
-          "meta": null
-        },
-        {
-          "key": "policy_id_out",
-          "type": "string",
-          "default": "trained_policy",
-          "choices": null,
-          "description": "输出策略 id",
-          "widget": null,
-          "meta": null
         },
         {
           "key": "gae_lambda",
@@ -731,125 +792,6 @@
             },
             "min": 0,
             "max": 100000000
-          }
-        },
-        {
-          "key": "use_per",
-          "type": "bool",
-          "default": false,
-          "choices": null,
-          "description": "[Off-policy] 启用 Prioritized Experience Replay",
-          "widget": null,
-          "meta": {
-            "conditional_on": {
-              "key": "algorithm",
-              "op": "in",
-              "value": [
-                "SAC",
-                "TD3"
-              ]
-            }
-          }
-        },
-        {
-          "key": "per_alpha",
-          "type": "float",
-          "default": 0.6,
-          "choices": null,
-          "description": "[PER] α (优先级强度)",
-          "widget": "range",
-          "meta": {
-            "conditional_on": {
-              "key": "algorithm",
-              "op": "in",
-              "value": [
-                "SAC",
-                "TD3"
-              ]
-            },
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01
-          }
-        },
-        {
-          "key": "per_beta",
-          "type": "float",
-          "default": 0.4,
-          "choices": null,
-          "description": "[PER] β (importance sampling 校正)",
-          "widget": "range",
-          "meta": {
-            "conditional_on": {
-              "key": "algorithm",
-              "op": "in",
-              "value": [
-                "SAC",
-                "TD3"
-              ]
-            },
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01
-          }
-        },
-        {
-          "key": "collapse_guard",
-          "type": "bool",
-          "default": true,
-          "choices": null,
-          "description": "崩溃保护",
-          "widget": null,
-          "meta": null
-        },
-        {
-          "key": "collapse_threshold",
-          "type": "float",
-          "default": 0.65,
-          "choices": null,
-          "description": "崩溃阈值（best ratio）",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01
-          }
-        },
-        {
-          "key": "collapse_patience",
-          "type": "int",
-          "default": 5,
-          "choices": null,
-          "description": "崩溃容忍 epoch 数",
-          "widget": "index",
-          "meta": {
-            "min": 1,
-            "max": 1000
-          }
-        },
-        {
-          "key": "collapse_lr_factor",
-          "type": "float",
-          "default": 0.3,
-          "choices": null,
-          "description": "崩溃后学习率乘子",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01
-          }
-        },
-        {
-          "key": "collapse_max_rollbacks",
-          "type": "int",
-          "default": 0,
-          "choices": null,
-          "description": "崩溃最大回滚次数（0 = 无限制）",
-          "widget": "index",
-          "meta": {
-            "min": 0,
-            "max": 1000
           }
         }
       ],
@@ -1764,7 +1706,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             }
           }
         },
@@ -1779,7 +1721,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0,
             "max": 1000000000
@@ -1796,7 +1738,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0,
             "max": 1000000000
@@ -1813,7 +1755,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             }
           }
         },
@@ -1828,7 +1770,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0.0,
             "max": 5.0,
@@ -1846,7 +1788,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0.0,
             "max": 5.0,
@@ -1864,7 +1806,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0.5,
             "max": 2.0,
@@ -1882,7 +1824,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0.7,
             "max": 1.5,
@@ -1900,7 +1842,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0.0,
             "max": 1.0,
@@ -1918,7 +1860,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             }
           }
         },
@@ -1933,7 +1875,7 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 1,
             "max": 1000000
@@ -1950,11 +1892,131 @@
             "conditional_on": {
               "key": "backend",
               "op": "==",
-              "value": "sb3"
+              "value": "sb3_mujoco"
             },
             "min": 0.0,
             "max": 1000.0,
             "step": 1.0
+          }
+        },
+        {
+          "key": "sb3_enable_init_pose_rand",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "[SB3] 启用初始位姿随机化（基座 xy + 偏航）",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3_mujoco"
+            }
+          }
+        },
+        {
+          "key": "sb3_init_pos_x_range",
+          "type": "list",
+          "default": "[-0.0, 0.0]",
+          "choices": null,
+          "description": "[SB3] 初始 x 位置抖动范围（m）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3_mujoco"
+            },
+            "min": -5.0,
+            "max": 5.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "sb3_init_pos_y_range",
+          "type": "list",
+          "default": "[-0.0, 0.0]",
+          "choices": null,
+          "description": "[SB3] 初始 y 位置抖动范围（m）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3_mujoco"
+            },
+            "min": -5.0,
+            "max": 5.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "sb3_init_yaw_range",
+          "type": "list",
+          "default": "[-0.0, 0.0]",
+          "choices": null,
+          "description": "[SB3] 初始偏航抖动范围（rad）",
+          "widget": "range_list",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3_mujoco"
+            },
+            "min": -3.15,
+            "max": 3.15,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "sb3_enable_joint_noise",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "[SB3] 启用关节状态噪声（reset 时）",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3_mujoco"
+            }
+          }
+        },
+        {
+          "key": "sb3_joint_pos_noise",
+          "type": "float",
+          "default": 0.0,
+          "choices": null,
+          "description": "[SB3] 关节位置噪声幅值（rad）",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3_mujoco"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01
+          }
+        },
+        {
+          "key": "sb3_joint_vel_noise",
+          "type": "float",
+          "default": 0.0,
+          "choices": null,
+          "description": "[SB3] 关节速度噪声幅值（rad/s）",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "sb3_mujoco"
+            },
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.01
           }
         },
         {
@@ -2468,15 +2530,32 @@
       ],
       "parameters": [
         {
+          "key": "parallelism_mode",
+          "type": "enum",
+          "default": "auto",
+          "choices": [
+            "auto",
+            "manual"
+          ],
+          "description": "并行度模式: auto=按本机 CPU/RAM 自适应, manual=用下方 n_envs/vec_type / Parallelism: auto = adapt to this machine's CPU+RAM, manual = use n_envs/vec_type below",
+          "widget": null,
+          "meta": null
+        },
+        {
           "key": "n_envs",
           "type": "int",
           "default": 8,
           "choices": null,
-          "description": "并行 env 数 (1 不可接受) / Parallel envs (1 = unacceptable for robot RL)",
+          "description": "并行 env 数 (仅 manual 生效; 1 不可接受) / Parallel envs (manual mode only; 1 = unacceptable)",
           "widget": "index",
           "meta": {
             "min": 1,
-            "max": 4096
+            "max": 4096,
+            "conditional_on": {
+              "key": "parallelism_mode",
+              "op": "==",
+              "value": "manual"
+            }
           }
         },
         {
@@ -2487,9 +2566,15 @@
             "dummy",
             "subproc"
           ],
-          "description": "向量化类型 / Vectorisation type",
+          "description": "向量化类型 (仅 manual 生效) / Vectorisation type (manual mode only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "parallelism_mode",
+              "op": "==",
+              "value": "manual"
+            }
+          }
         },
         {
           "key": "obs_normalize",
@@ -2547,36 +2632,6 @@
             "max": 100.0,
             "step": 0.01
           }
-        },
-        {
-          "key": "enable_monitor",
-          "type": "bool",
-          "default": true,
-          "choices": null,
-          "description": "启用 Monitor 包装 / Monitor wrapper (records episode stats)",
-          "widget": null,
-          "meta": null
-        },
-        {
-          "key": "time_limit_override",
-          "type": "int",
-          "default": 0,
-          "choices": null,
-          "description": "TimeLimit 覆盖 (0 = 继承 PhysicsConfig) / TimeLimit override (0 = inherit)",
-          "widget": "index",
-          "meta": {
-            "min": 0,
-            "max": 100000000
-          }
-        },
-        {
-          "key": "eval_disable_rand",
-          "type": "bool",
-          "default": true,
-          "choices": null,
-          "description": "评估时禁用域随机化 / Disable domain randomisation during eval",
-          "widget": null,
-          "meta": null
         }
       ],
       "is_trainer": false
@@ -2629,12 +2684,17 @@
           "type": "float",
           "default": 0.8,
           "choices": null,
-          "description": "成功阈值",
+          "description": "成功阈值 / Eval success ratio threshold (IsaacLab only; SB3 EvalCallback has no success gate)",
           "widget": "range",
           "meta": {
             "min": 0.0,
             "max": 1.0,
-            "step": 0.01
+            "step": 0.01,
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
           }
         },
         {
@@ -2760,7 +2820,13 @@
           "choices": null,
           "description": "包含 ONNX / Include policy.onnx",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "include_torchscript",
@@ -2778,7 +2844,13 @@
           "choices": null,
           "description": "包含归一化统计 / Include normalization.pkl",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "output_files",
@@ -2960,21 +3032,36 @@
         },
         {
           "key": "group_name",
-          "type": "string",
+          "type": "enum",
           "default": "policy",
-          "choices": null,
-          "description": "ObsGroup 名",
+          "choices": [
+            "policy",
+            "critic"
+          ],
+          "description": "ObsGroup 名 / ObsGroup name. 'policy' = actor input; 'critic' = privileged critic-only group (asymmetric actor-critic). Place a second il_observation node with group_name='critic' carrying privileged terms (e.g. base_lin_vel) to enable asymmetric AC. (IsaacLab only.)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "enable_corruption",
           "type": "bool",
           "default": true,
           "choices": null,
-          "description": "启用观测噪声",
+          "description": "启用观测噪声 (IsaacLab only; SB3 uses domain_rand.obs_noise_std)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "corruption_noise_std",
@@ -2986,7 +3073,12 @@
           "meta": {
             "min": 0.0,
             "max": 1.0,
-            "step": 0.001
+            "step": 0.001,
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
           }
         },
         {
@@ -2994,9 +3086,15 @@
           "type": "bool",
           "default": false,
           "choices": null,
-          "description": "启用 obs noise curriculum",
+          "description": "启用 obs noise curriculum (IsaacLab only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "obs_noise_curriculum_start",
@@ -3008,7 +3106,19 @@
           "meta": {
             "min": 0.0,
             "max": 1.0,
-            "step": 0.001
+            "step": 0.001,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "obs_noise_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -3021,7 +3131,19 @@
           "meta": {
             "min": 0.0,
             "max": 1.0,
-            "step": 0.001
+            "step": 0.001,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "obs_noise_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -3033,7 +3155,19 @@
           "widget": "index",
           "meta": {
             "min": 1,
-            "max": 1000000
+            "max": 1000000,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "obs_noise_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         }
       ],
@@ -3117,6 +3251,43 @@
             "min": -1.0,
             "max": 2.0,
             "step": 0.001
+          }
+        },
+        {
+          "key": "rnn_type",
+          "type": "enum",
+          "default": "none",
+          "choices": [
+            "none",
+            "gru",
+            "lstm"
+          ],
+          "description": "循环策略类型 / Recurrent policy type (none = MLP)",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "rnn_hidden_size",
+          "type": "int",
+          "default": 256,
+          "choices": null,
+          "description": "RNN 隐藏维度 / RNN hidden size (only when rnn_type != none)",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 4096
+          }
+        },
+        {
+          "key": "rnn_num_layers",
+          "type": "int",
+          "default": 1,
+          "choices": null,
+          "description": "RNN 层数 / RNN num layers (only when rnn_type != none)",
+          "widget": "index",
+          "meta": {
+            "min": 1,
+            "max": 8
           }
         }
       ],
@@ -3919,39 +4090,6 @@
       ],
       "parameters": [
         {
-          "key": "contract_preset",
-          "type": "enum",
-          "default": "custom",
-          "choices": [
-            "custom",
-            "unitport_go2_v1",
-            "community_go2_sac_34d"
-          ],
-          "description": "契约预设（非 custom 时锁定下方字段）",
-          "widget": null,
-          "meta": null
-        },
-        {
-          "key": "obs_components",
-          "type": "string",
-          "default": "joint_pos joint_vel imu command previous_action",
-          "choices": null,
-          "description": "观测组件（多选）",
-          "widget": "picker_obs_components",
-          "meta": {
-            "choices": [
-              "joint_pos",
-              "joint_vel",
-              "imu",
-              "command",
-              "previous_action",
-              "height_scan",
-              "contact",
-              "phase"
-            ]
-          }
-        },
-        {
           "key": "obs_clip_range",
           "type": "float",
           "default": 100.0,
@@ -3987,19 +4125,6 @@
           "description": "动作类型",
           "widget": null,
           "meta": null
-        },
-        {
-          "key": "action_scale",
-          "type": "float",
-          "default": 1.0,
-          "choices": null,
-          "description": "动作缩放",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 5.0,
-            "step": 0.01
-          }
         },
         {
           "key": "action_clip",
@@ -4147,11 +4272,45 @@
           "default": "flat",
           "choices": [
             "flat",
-            "rough"
+            "rough",
+            "custom"
           ],
-          "description": "场景类型（auto-synced from scene_id on pick）",
+          "description": "场景类型（auto-synced from scene_id on pick；custom = 用户导入高度图）",
           "widget": null,
           "meta": null
+        },
+        {
+          "key": "custom_terrain_path",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "自定义地形高度图（canonical .npz）",
+          "widget": "path",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "custom"
+            }
+          }
+        },
+        {
+          "key": "custom_terrain_vertical_scale",
+          "type": "float",
+          "default": 0.005,
+          "choices": null,
+          "description": "IsaacLab 高度量化步长（m，int16 vertical_scale）",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "custom"
+            },
+            "min": 0.001,
+            "max": 0.05,
+            "step": 0.001
+          }
         },
         {
           "key": "gravity_z",
@@ -4167,37 +4326,11 @@
           }
         },
         {
-          "key": "arena_extent_x",
-          "type": "float",
-          "default": 10.0,
-          "choices": null,
-          "description": "竞技场 X 范围",
-          "widget": "range",
-          "meta": {
-            "min": 1.0,
-            "max": 1000.0,
-            "step": 0.1
-          }
-        },
-        {
-          "key": "arena_extent_y",
-          "type": "float",
-          "default": 10.0,
-          "choices": null,
-          "description": "竞技场 Y 范围",
-          "widget": "range",
-          "meta": {
-            "min": 1.0,
-            "max": 1000.0,
-            "step": 0.1
-          }
-        },
-        {
           "key": "friction_static",
           "type": "float",
           "default": 1.0,
           "choices": null,
-          "description": "静摩擦",
+          "description": "静摩擦 / Friction (SB3: ground Coulomb coefficient)",
           "widget": "range",
           "meta": {
             "min": 0.0,
@@ -4210,48 +4343,17 @@
           "type": "float",
           "default": 0.8,
           "choices": null,
-          "description": "动摩擦",
+          "description": "动摩擦 / Dynamic friction (IsaacLab/PhysX only)",
           "widget": "range",
           "meta": {
             "min": 0.0,
             "max": 5.0,
-            "step": 0.01
-          }
-        },
-        {
-          "key": "roughness_amplitude",
-          "type": "float",
-          "default": 0.08,
-          "choices": null,
-          "description": "粗糙地面幅度",
-          "widget": "range",
-          "meta": {
+            "step": 0.01,
             "conditional_on": {
-              "key": "scene_type",
+              "key": "backend",
               "op": "==",
-              "value": "rough"
-            },
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01
-          }
-        },
-        {
-          "key": "slope_max",
-          "type": "float",
-          "default": 20.0,
-          "choices": null,
-          "description": "最大坡度（度）",
-          "widget": "range",
-          "meta": {
-            "conditional_on": {
-              "key": "scene_type",
-              "op": "==",
-              "value": "rough"
-            },
-            "min": 0.0,
-            "max": 60.0,
-            "step": 0.5
+              "value": "isaac_lab"
+            }
           }
         },
         {
@@ -4274,7 +4376,7 @@
           "type": "int",
           "default": 10,
           "choices": null,
-          "description": "curriculum 难度层数",
+          "description": "curriculum 难度层数（= 地形 generator num_rows）",
           "widget": "index",
           "meta": {
             "conditional_on": {
@@ -4284,6 +4386,131 @@
             },
             "min": 1,
             "max": 100
+          }
+        },
+        {
+          "key": "max_init_terrain_level",
+          "type": "int",
+          "default": 5,
+          "choices": null,
+          "description": "初始难度层（curriculum 起点，须 < 难度层数）",
+          "widget": "index",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0,
+            "max": 99
+          }
+        },
+        {
+          "key": "prop_pyramid_stairs",
+          "type": "float",
+          "default": 0.2,
+          "choices": null,
+          "description": "子地形配比 · 上楼梯",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "prop_pyramid_stairs_inv",
+          "type": "float",
+          "default": 0.2,
+          "choices": null,
+          "description": "子地形配比 · 下楼梯",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "prop_boxes",
+          "type": "float",
+          "default": 0.2,
+          "choices": null,
+          "description": "子地形配比 · 离散方块",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "prop_random_rough",
+          "type": "float",
+          "default": 0.2,
+          "choices": null,
+          "description": "子地形配比 · 随机粗糙",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "prop_slope",
+          "type": "float",
+          "default": 0.1,
+          "choices": null,
+          "description": "子地形配比 · 斜坡",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05
+          }
+        },
+        {
+          "key": "prop_slope_inv",
+          "type": "float",
+          "default": 0.1,
+          "choices": null,
+          "description": "子地形配比 · 反斜坡",
+          "widget": "range",
+          "meta": {
+            "conditional_on": {
+              "key": "scene_type",
+              "op": "==",
+              "value": "rough"
+            },
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.05
           }
         },
         {
@@ -4388,17 +4615,41 @@
       ],
       "parameters": [
         {
+          "key": "reward_joint_pages",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "关节分区页 / Joint-partition reward pages (Global + pd_group pages)",
+          "widget": "reward_joint_pager",
+          "meta": {
+            "partition_source": "pd_groups",
+            "terms_key": "reward_terms",
+            "active_page_key": "reward_active_page"
+          }
+        },
+        {
+          "key": "reward_active_page",
+          "type": "string",
+          "default": "__global__",
+          "choices": null,
+          "description": "当前编辑的关节页 / Active reward page (UI cursor)",
+          "widget": null,
+          "meta": null
+        },
+        {
           "key": "reward_terms",
           "type": "json",
           "default": "{}",
           "choices": null,
-          "description": "奖励项字典 / Reward terms (registry-backed editor)",
+          "description": "奖励项字典 / Reward terms (paged by joint partition)",
           "widget": "registry_module",
           "meta": {
             "registry_id": "rewards",
             "registry_id_il": "il_rewards",
             "backend_keyed": true,
-            "pin_on_collapse": true
+            "pin_on_collapse": true,
+            "paged": true,
+            "active_page_key": "reward_active_page"
           }
         },
         {
@@ -4780,28 +5031,6 @@
           }
         },
         {
-          "key": "curriculum",
-          "type": "bool",
-          "default": false,
-          "choices": null,
-          "description": "启用 curriculum / Enable curriculum",
-          "widget": null,
-          "meta": null
-        },
-        {
-          "key": "success_threshold",
-          "type": "float",
-          "default": 0.8,
-          "choices": null,
-          "description": "成功阈值 / Success threshold",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01
-          }
-        },
-        {
           "key": "truncation_max_steps",
           "type": "int",
           "default": 0,
@@ -4811,30 +5040,6 @@
           "meta": {
             "min": 0,
             "max": 1000000
-          }
-        },
-        {
-          "key": "curriculum_schedule",
-          "type": "json",
-          "default": "{}",
-          "choices": null,
-          "description": "curriculum 调度 (JSON) / Curriculum schedule",
-          "widget": "code",
-          "meta": {
-            "language": "json"
-          }
-        },
-        {
-          "key": "resampling_time_range",
-          "type": "list",
-          "default": "[0.0, 0.0]",
-          "choices": null,
-          "description": "命令重采样时间窗 / Command resampling time range",
-          "widget": "range_list",
-          "meta": {
-            "min": 0.0,
-            "max": 30.0,
-            "step": 0.1
           }
         }
       ],
@@ -4880,9 +5085,15 @@
           "type": "bool",
           "default": false,
           "choices": null,
-          "description": "启用 base_height termination curriculum",
+          "description": "启用 base_height termination curriculum (IsaacLab only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "termination_curriculum_start",
@@ -4894,7 +5105,19 @@
           "meta": {
             "min": 0.0,
             "max": 1.0,
-            "step": 0.001
+            "step": 0.001,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "termination_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -4907,7 +5130,19 @@
           "meta": {
             "min": 0.0,
             "max": 1.0,
-            "step": 0.001
+            "step": 0.001,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "termination_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -4919,7 +5154,19 @@
           "widget": "index",
           "meta": {
             "min": 1,
-            "max": 1000000
+            "max": 1000000,
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "termination_curriculum_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         }
       ],
@@ -5103,9 +5350,15 @@
           "type": "bool",
           "default": false,
           "choices": null,
-          "description": "启用 gait 参数化",
+          "description": "启用 gait 参数化 (IsaacLab only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "gait_frequency_range",
@@ -5115,11 +5368,18 @@
           "description": "步频范围（Hz）",
           "widget": "range_list",
           "meta": {
-            "conditional_on": {
-              "key": "gait_enabled",
-              "op": "==",
-              "value": true
-            },
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "gait_enabled",
+                "op": "==",
+                "value": true
+              }
+            ],
             "min": 0.0,
             "max": 10.0,
             "step": 0.1
@@ -5133,11 +5393,18 @@
           "description": "身体高度范围（m）",
           "widget": "range_list",
           "meta": {
-            "conditional_on": {
-              "key": "gait_enabled",
-              "op": "==",
-              "value": true
-            },
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "gait_enabled",
+                "op": "==",
+                "value": true
+              }
+            ],
             "min": 0.0,
             "max": 2.0,
             "step": 0.01
@@ -5151,11 +5418,18 @@
           "description": "抬腿高度范围（m）",
           "widget": "range_list",
           "meta": {
-            "conditional_on": {
-              "key": "gait_enabled",
-              "op": "==",
-              "value": true
-            },
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "gait_enabled",
+                "op": "==",
+                "value": true
+              }
+            ],
             "min": 0.0,
             "max": 0.5,
             "step": 0.01
@@ -5171,11 +5445,18 @@
           "meta": {
             "registry": "gait_presets",
             "family_source": "robot_pipe",
-            "conditional_on": {
-              "key": "gait_enabled",
-              "op": "==",
-              "value": true
-            }
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "gait_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -5278,9 +5559,15 @@
             "tracking_target",
             "hybrid"
           ],
-          "description": "Reference clip 消费模式",
+          "description": "Reference clip 消费模式 (IsaacLab only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "phase_mode",
@@ -5293,7 +5580,13 @@
           ],
           "description": "Phase 模式",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "motion_fps",
@@ -5305,7 +5598,12 @@
           "meta": {
             "min": 10.0,
             "max": 240.0,
-            "step": 1.0
+            "step": 1.0,
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
           }
         },
         {
@@ -5315,7 +5613,13 @@
           "choices": null,
           "description": "随机起始 phase",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "command_curriculum_enabled",
@@ -5384,9 +5688,15 @@
           "type": "bool",
           "default": false,
           "choices": null,
-          "description": "AMP RSI 开关 / Reference State Initialization (AMP_PPO only)",
+          "description": "AMP RSI 开关 / Reference State Initialization (IsaacLab AMP_PPO only)",
           "widget": null,
-          "meta": null
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
         },
         {
           "key": "rsi_prob",
@@ -5399,11 +5709,18 @@
             "min": 0.0,
             "max": 1.0,
             "step": 0.05,
-            "conditional_on": {
-              "key": "reference_state_init_enabled",
-              "op": "==",
-              "value": true
-            }
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "reference_state_init_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         },
         {
@@ -5417,11 +5734,18 @@
             "min": 0.0,
             "max": 0.2,
             "step": 0.005,
-            "conditional_on": {
-              "key": "reference_state_init_enabled",
-              "op": "==",
-              "value": true
-            }
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "reference_state_init_enabled",
+                "op": "==",
+                "value": true
+              }
+            ]
           }
         }
       ],

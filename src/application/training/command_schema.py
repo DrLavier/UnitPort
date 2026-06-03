@@ -661,43 +661,16 @@ class CommandSchema:
                 if item_def is None:
                     continue
 
-                smin, smax = _pair(entry.get("speed"), (0.0, 1.0))
-                template = getattr(item_def, "command_template", {}) or {}
-                zero_channels = set(getattr(item_def, "zero_channels", []) or [])
-
-                advanced = entry.get("advanced")
-                overrides: Dict[str, Tuple[float, float]] = {}
-                if isinstance(advanced, dict):
-                    raw_ov = advanced.get("command_overrides")
-                    if isinstance(raw_ov, dict):
-                        for k, v in raw_ov.items():
-                            if isinstance(v, (list, tuple)) and len(v) == 2:
-                                try:
-                                    overrides[str(k)] = (float(v[0]), float(v[1]))
-                                except (TypeError, ValueError):
-                                    continue
-
-                eff_ranges: Dict[str, Tuple[float, float]] = {}
-                for ch_name, rng in template.items():
-                    if not isinstance(rng, (list, tuple)) or len(rng) != 2:
-                        continue
-                    try:
-                        lo = float(rng[0])
-                        hi = float(rng[1])
-                    except (TypeError, ValueError):
-                        continue
-                    if ch_name in zero_channels:
-                        eff_ranges[str(ch_name)] = (0.0, 0.0)
-                        continue
-                    eff_ranges[str(ch_name)] = (lo * smax, hi * smax)
-
-                # per-entry override wins
-                for k, v in overrides.items():
-                    eff_ranges[k] = v
-                # zero_channels always force (0, 0)
-                for k in zero_channels:
-                    if k in eff_ranges:
-                        eff_ranges[str(k)] = (0.0, 0.0)
+                # SINGLE derivation shared with the SB3 ItemResolver /
+                # command sampler (registers.commands.derive_command_ranges) so
+                # both backends sample identical per-channel envelopes.
+                from registers.commands import derive_command_ranges as _derive_cr
+                _adv = entry.get("advanced")
+                _ov = _adv.get("command_overrides") if isinstance(_adv, dict) else None
+                eff_ranges: Dict[str, Tuple[float, float]] = {
+                    str(k): (float(v[0]), float(v[1]))
+                    for k, v in _derive_cr(item_def, entry.get("speed"), _ov).items()
+                }
 
                 clip_val = entry.get("clip")
                 clip_ref = None if clip_val in (None, "") else str(clip_val)

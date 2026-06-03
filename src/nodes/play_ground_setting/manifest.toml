@@ -18,8 +18,10 @@ icon = "play_ground.svg"
 # (gravity / sim_dt / gpu_*).
 #
 # Conditional fields:
-#   - roughness_amplitude / slope_max / curriculum_enabled / difficulty_levels
+#   - curriculum_enabled / difficulty_levels / prop_* / max_init_terrain_level
 #       visible only when scene_type == "rough"
+#   - custom_terrain_path / custom_terrain_vertical_scale
+#       visible only when scene_type == "custom"
 #   - scan_resolution / scan_size_x / scan_size_y
 #       visible only when height_scan_enabled == true
 
@@ -46,8 +48,31 @@ description = "场景 id（registry-backed picker）"
 key = "scene_type"
 type = "enum"
 default = "flat"
-choices = ["flat", "rough"]
-description = "场景类型（auto-synced from scene_id on pick）"
+choices = ["flat", "rough", "custom"]
+description = "场景类型（auto-synced from scene_id on pick；custom = 用户导入高度图）"
+
+# ---------------------------------------------------------------------------
+# Parameters — §2.1b Custom terrain (conditional on scene_type == "custom")
+# ---------------------------------------------------------------------------
+
+# Single cross-engine source: a canonical heightfield .npz under
+# USER_CONFIG_DIR (MuJoCo <hfield> + IsaacLab terrain-function both derive
+# from it). PNG / .npy imports are converted to this .npz at import time.
+[[parameters]]
+key = "custom_terrain_path"
+type = "string"
+default = ""
+widget = "path"
+description = "自定义地形高度图（canonical .npz）"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "custom" } }
+
+[[parameters]]
+key = "custom_terrain_vertical_scale"
+type = "float"
+default = 0.005
+widget = "range"
+description = "IsaacLab 高度量化步长（m，int16 vertical_scale）"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "custom" }, min = 0.001, max = 0.05, step = 0.001 }
 
 # ---------------------------------------------------------------------------
 # Parameters — §2.2 World physics
@@ -65,32 +90,24 @@ meta = { min = -20.0, max = 0.0, step = 0.01 }
 # Parameters — §2.3 Arena
 # ---------------------------------------------------------------------------
 
-[[parameters]]
-key = "arena_extent_x"
-type = "float"
-default = 10.0
-widget = "range"
-description = "竞技场 X 范围"
-meta = { min = 1.0, max = 1000.0, step = 0.1 }
-
-[[parameters]]
-key = "arena_extent_y"
-type = "float"
-default = 10.0
-widget = "range"
-description = "竞技场 Y 范围"
-meta = { min = 1.0, max = 1000.0, step = 0.1 }
+# arena_extent_x / arena_extent_y removed (2026-06): zero readers on either
+# backend (the MuJoCo env never bounds the arena; IsaacLab terrain sizing is
+# driven by the terrain generator, not these).
 
 # ---------------------------------------------------------------------------
 # Parameters — §2.4 Ground material
 # ---------------------------------------------------------------------------
 
+# MuJoCo (SB3) models friction with a SINGLE Coulomb sliding coefficient, so
+# the SB3 env applies ``friction_static`` to the ground (see
+# GenericMujocoEnv) and the PhysX static/dynamic split is not representable —
+# ``friction_dynamic`` is therefore hidden on SB3 canvases (IsaacLab only).
 [[parameters]]
 key = "friction_static"
 type = "float"
 default = 1.0
 widget = "range"
-description = "静摩擦"
+description = "静摩擦 / Friction (SB3: ground Coulomb coefficient)"
 meta = { min = 0.0, max = 5.0, step = 0.01 }
 
 [[parameters]]
@@ -98,28 +115,20 @@ key = "friction_dynamic"
 type = "float"
 default = 0.8
 widget = "range"
-description = "动摩擦"
-meta = { min = 0.0, max = 5.0, step = 0.01 }
+description = "动摩擦 / Dynamic friction (IsaacLab/PhysX only)"
+meta = { min = 0.0, max = 5.0, step = 0.01, conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 # ---------------------------------------------------------------------------
 # Parameters — §2.5 Rough-terrain knobs (conditional on scene_type == "rough")
 # ---------------------------------------------------------------------------
-
-[[parameters]]
-key = "roughness_amplitude"
-type = "float"
-default = 0.08
-widget = "range"
-description = "粗糙地面幅度"
-meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.01 }
-
-[[parameters]]
-key = "slope_max"
-type = "float"
-default = 20.0
-widget = "range"
-description = "最大坡度（度）"
-meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 60.0, step = 0.5 }
+#
+# NOTE (2026-06): roughness_amplitude / slope_max removed — they were never
+# wired into the IsaacLab generator's noise_range / slope_range (the
+# sub-terrain inner ranges stay at ROUGH_TERRAINS_CFG values), so the
+# sliders had zero effect ("用户设置≠实际运行"). Removed rather than left
+# dead. The rough generator is driven by the sub-terrain proportions +
+# difficulty rows below; parameterising the inner geometry is a separate
+# future feature (would require per-sub-terrain range knobs).
 
 [[parameters]]
 key = "curriculum_enabled"
@@ -133,8 +142,66 @@ key = "difficulty_levels"
 type = "int"
 default = 10
 widget = "index"
-description = "curriculum 难度层数"
+description = "curriculum 难度层数（= 地形 generator num_rows）"
 meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 1, max = 100 }
+
+[[parameters]]
+key = "max_init_terrain_level"
+type = "int"
+default = 5
+widget = "index"
+description = "初始难度层（curriculum 起点，须 < 难度层数）"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0, max = 99 }
+
+# 子地形配比（rough 混合权重，IsaacLab 内部归一化）。默认值精确等于
+# ROUGH_TERRAINS_CFG，保证旧画布行为不变。
+[[parameters]]
+key = "prop_pyramid_stairs"
+type = "float"
+default = 0.2
+widget = "range"
+description = "子地形配比 · 上楼梯"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.05 }
+
+[[parameters]]
+key = "prop_pyramid_stairs_inv"
+type = "float"
+default = 0.2
+widget = "range"
+description = "子地形配比 · 下楼梯"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.05 }
+
+[[parameters]]
+key = "prop_boxes"
+type = "float"
+default = 0.2
+widget = "range"
+description = "子地形配比 · 离散方块"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.05 }
+
+[[parameters]]
+key = "prop_random_rough"
+type = "float"
+default = 0.2
+widget = "range"
+description = "子地形配比 · 随机粗糙"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.05 }
+
+[[parameters]]
+key = "prop_slope"
+type = "float"
+default = 0.1
+widget = "range"
+description = "子地形配比 · 斜坡"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.05 }
+
+[[parameters]]
+key = "prop_slope_inv"
+type = "float"
+default = 0.1
+widget = "range"
+description = "子地形配比 · 反斜坡"
+meta = { conditional_on = { key = "scene_type", op = "==", value = "rough" }, min = 0.0, max = 1.0, step = 0.05 }
 
 # ---------------------------------------------------------------------------
 # Parameters — §2.6 Height scan (backend-agnostic)

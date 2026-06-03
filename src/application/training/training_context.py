@@ -317,21 +317,26 @@ class TrainingContext:
     # ---- canvas-side helpers -------------------------------------------
 
     def _canvas_backend(self, graph: Optional[Dict[str, Any]]) -> str:
-        """Read algorithm_config.backend; fallback algo_config / train, else 'sb3'.
+        """Return the canvas-bound backend engine id ("sb3_mujoco" / "isaac_lab").
 
-        Different node names exist for the algorithm-config role across
-        canvas backends — try the most specific (algorithm_config) first.
+        Backend is a canvas-ROOT concept (single source of truth); the
+        per-node ``algorithm_config.backend`` ParamSpec was removed. Read the
+        canvas root ``backend`` first; only fall back to the legacy node-level
+        param for canvases saved before that migration. ``"sb3"`` is the final
+        last-resort default. (See spec_compiler: ``ir.backend`` is the engine
+        id passed to ``select_backend``; node-side kind is derived from it.)
         """
-        for sid in ("algorithm_config", "algo_config"):
+        if isinstance(graph, dict):
+            root = str(graph.get("backend", "") or "").strip()
+            if root:
+                return root
+        # Legacy fallback — node-level backend param (removed in current canvases).
+        for sid in ("algorithm_config", "algo_config", "train"):
             for n in self._nodes_by_kind(graph, sid):
                 v = str(self._node_param(n, "backend", "") or "").strip()
                 if v:
                     return v
-        for tn in self._nodes_by_kind(graph, "train"):
-            v = str(self._node_param(tn, "backend", "") or "").strip()
-            if v:
-                return v
-        return "sb3"
+        return "sb3_mujoco"
 
     def _canvas_robot_asset(self, graph: Optional[Dict[str, Any]]):
         """robot.asset_id → registers.robots.resolve_id → RobotAssetService.resolve.

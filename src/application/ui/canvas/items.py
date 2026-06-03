@@ -613,7 +613,7 @@ class NodeItem(QGraphicsItem):
         ]
         if not phases:
             return None
-        backend = str(self.params.get("backend", "sb3") or "sb3").strip()
+        backend = str(self.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
         try:
             return _rc.evaluate(terms, phases, backend=backend)
         except Exception:

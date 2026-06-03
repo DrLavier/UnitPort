@@ -17,20 +17,13 @@ icon = "obs_action_config.svg"
 name = "obs_action_config"
 type = "obs_action_config"
 
-[[parameters]]
-key = "contract_preset"
-type = "enum"
-default = "custom"
-choices = ["custom", "unitport_go2_v1", "community_go2_sac_34d"]
-description = "契约预设（非 custom 时锁定下方字段）"
-
-[[parameters]]
-key = "obs_components"
-type = "string"
-default = "joint_pos joint_vel imu command previous_action"
-widget = "picker_obs_components"
-description = "观测组件（多选）"
-meta = { choices = ["joint_pos", "joint_vel", "imu", "command", "previous_action", "height_scan", "contact", "phase"] }
+# NOTE (2026-06): ``contract_preset`` and ``obs_components`` were removed.
+# Observations are driven SOLELY by the il_observation node's ``obs_terms``
+# (= obs_action.il_terms) through obs_term_engine, for BOTH backends — these
+# two were never consumed by SB3 or IsaacLab (a stale obs picker + preset
+# table). ``action_scale`` was also removed: it is an actor property owned by
+# the actor_setting node (the single authority both backends read); the
+# duplicate here silently diverged (default 1.0 vs actor's 0.25).
 
 [[parameters]]
 key = "obs_clip_range"
@@ -54,14 +47,6 @@ type = "enum"
 default = "joint_position"
 choices = ["joint_position", "torque"]
 description = "动作类型"
-
-[[parameters]]
-key = "action_scale"
-type = "float"
-default = 1.0
-widget = "range"
-description = "动作缩放"
-meta = { min = 0.0, max = 5.0, step = 0.01 }
 
 [[parameters]]
 key = "action_clip"

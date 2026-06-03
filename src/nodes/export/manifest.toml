@@ -71,11 +71,18 @@ default = "v1"
 description = "版本 tag（仅 overwrite=False 时显示）/ Version tag — appended to bundle dir name when Overwrite is OFF"
 meta = { conditional_on = { key = "overwrite", op = "==", value = false } }
 
+# include_onnx / include_normalization are hidden on SB3: ONNX is the
+# mandatory primary deploy policy (no alternative format wired), and
+# normalization-stats export is coupled to env_assembler.obs_normalize (when
+# VecNormalize is active the stats MUST ship or deploy obs mismatch training —
+# the exporter fail-louds if asked to omit them). Neither can be meaningfully
+# toggled on SB3, so they stay default-on and hidden.
 [[parameters]]
 key = "include_onnx"
 type = "bool"
 default = true
 description = "包含 ONNX / Include policy.onnx"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "include_torchscript"
@@ -88,6 +95,7 @@ key = "include_normalization"
 type = "bool"
 default = true
 description = "包含归一化统计 / Include normalization.pkl"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "output_files"

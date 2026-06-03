@@ -103,11 +103,16 @@ description = "运行时裁剪命令 [deploy-only: 仅 deploy 时 CommandBus 应
 # Parameters — §3 Walk-These-Ways gait parameterisation
 # ---------------------------------------------------------------------------
 
+# gait (Walk-These-Ways) is IsaacLab-only — the gait command/obs/rewards are
+# emitted only on the rsl_rl side; the SB3 MuJoCo env has no gait. Hidden on
+# SB3 canvases (conditional_on backend), and validator F2 fail-louds if a
+# legacy SB3 canvas still carries gait_enabled=true.
 [[parameters]]
 key = "gait_enabled"
 type = "bool"
 default = false
-description = "启用 gait 参数化"
+description = "启用 gait 参数化 (IsaacLab only)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "gait_frequency_range"
@@ -115,7 +120,7 @@ type = "list"
 default = "[1.5, 3.5]"
 widget = "range_list"
 description = "步频范围（Hz）"
-meta = { conditional_on = { key = "gait_enabled", op = "==", value = true }, min = 0.0, max = 10.0, step = 0.1 }
+meta = { conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "gait_enabled", op = "==", value = true } ], min = 0.0, max = 10.0, step = 0.1 }
 
 [[parameters]]
 key = "body_height_range"
@@ -123,7 +128,7 @@ type = "list"
 default = "[0.28, 0.40]"
 widget = "range_list"
 description = "身体高度范围（m）"
-meta = { conditional_on = { key = "gait_enabled", op = "==", value = true }, min = 0.0, max = 2.0, step = 0.01 }
+meta = { conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "gait_enabled", op = "==", value = true } ], min = 0.0, max = 2.0, step = 0.01 }
 
 [[parameters]]
 key = "step_height_range"
@@ -131,7 +136,7 @@ type = "list"
 default = "[0.03, 0.15]"
 widget = "range_list"
 description = "抬腿高度范围（m）"
-meta = { conditional_on = { key = "gait_enabled", op = "==", value = true }, min = 0.0, max = 0.5, step = 0.01 }
+meta = { conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "gait_enabled", op = "==", value = true } ], min = 0.0, max = 0.5, step = 0.01 }
 
 [[parameters]]
 key = "gait_presets"
@@ -139,7 +144,7 @@ type = "string"
 default = ""
 widget = "registry_preset_picker"
 description = "gait 预设名 / Gait preset (family-filtered)"
-meta = { registry = "gait_presets", family_source = "robot_pipe", conditional_on = { key = "gait_enabled", op = "==", value = true } }
+meta = { registry = "gait_presets", family_source = "robot_pipe", conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "gait_enabled", op = "==", value = true } ] }
 
 # ---------------------------------------------------------------------------
 # Parameters — §3.5 Command velocity gains (sim2real envelope)
@@ -214,11 +219,15 @@ meta = { min = 0.0, max = 1.0, step = 0.001 }
 # Parameters — §5 Reference-motion consumption
 # ---------------------------------------------------------------------------
 
+# §5 Reference-clip consumption is AMP / motion-tracking — IsaacLab-only. The
+# SB3 MuJoCo env cannot replay reference clips, so these are hidden on SB3
+# canvases (validator F1 fail-louds if motion_ref clips are actually wired).
 [[parameters]]
 key = "consumption_mode"
 type = "enum"
 choices = ["amp_discriminator", "tracking_target", "hybrid"]
-description = "Reference clip 消费模式"
+description = "Reference clip 消费模式 (IsaacLab only)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "phase_mode"
@@ -226,6 +235,7 @@ type = "enum"
 default = "loop"
 choices = ["loop", "once", "clamp"]
 description = "Phase 模式"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "motion_fps"
@@ -233,13 +243,14 @@ type = "float"
 default = 50.0
 widget = "range"
 description = "Motion clip FPS"
-meta = { min = 10.0, max = 240.0, step = 1.0 }
+meta = { min = 10.0, max = 240.0, step = 1.0, conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "random_start_phase"
 type = "bool"
 default = true
 description = "随机起始 phase"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 # ---------------------------------------------------------------------------
 # Parameters — §6 Command velocity curriculum
@@ -288,7 +299,8 @@ meta = { conditional_on = { key = "command_curriculum_enabled", op = "==", value
 key = "reference_state_init_enabled"
 type = "bool"
 default = false
-description = "AMP RSI 开关 / Reference State Initialization (AMP_PPO only)"
+description = "AMP RSI 开关 / Reference State Initialization (IsaacLab AMP_PPO only)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "rsi_prob"
@@ -296,7 +308,7 @@ type = "float"
 default = 0.8
 widget = "range"
 description = "RSI 触发概率 / RSI activation probability"
-meta = { min = 0.0, max = 1.0, step = 0.05, conditional_on = { key = "reference_state_init_enabled", op = "==", value = true } }
+meta = { min = 0.0, max = 1.0, step = 0.05, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "reference_state_init_enabled", op = "==", value = true } ] }
 
 [[parameters]]
 key = "rsi_joint_noise"
@@ -304,4 +316,4 @@ type = "float"
 default = 0.02
 widget = "range"
 description = "RSI 关节噪声幅度 / RSI joint angle noise"
-meta = { min = 0.0, max = 0.2, step = 0.005, conditional_on = { key = "reference_state_init_enabled", op = "==", value = true } }
+meta = { min = 0.0, max = 0.2, step = 0.005, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "reference_state_init_enabled", op = "==", value = true } ] }

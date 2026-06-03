@@ -20,6 +20,7 @@ from .service import (
     CLOUD_TOKEN,
     LOCAL_NONE,
     LOCAL_PREFIX,
+    LOCAL_THIS,
     EngineService,
     build_local_target_options,
     format_isaac_install_label,
@@ -35,5 +36,6 @@ __all__ = [
     "link_kind_for_data",
     "LOCAL_PREFIX",
     "LOCAL_NONE",
+    "LOCAL_THIS",
     "CLOUD_TOKEN",
 ]

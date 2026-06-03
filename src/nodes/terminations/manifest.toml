@@ -26,11 +26,15 @@ widget = "registry_module"
 description = "终止条件 dict / Termination terms"
 meta = { registry_id = "terminations", registry_id_il = "il_terminations", backend_keyed = true }
 
+# base_height termination curriculum is consumed only by IsaacLab
+# (env_cfg_compiler._emit_unitport_curriculum reads these off the canvas node);
+# the SB3 MuJoCo env has no termination curriculum. Hidden on SB3 canvases.
 [[parameters]]
 key = "termination_curriculum_enabled"
 type = "bool"
 default = false
-description = "启用 base_height termination curriculum"
+description = "启用 base_height termination curriculum (IsaacLab only)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "termination_curriculum_start"
@@ -38,7 +42,7 @@ type = "float"
 default = 0.18
 widget = "range"
 description = "curriculum 起始阈值 (m)"
-meta = { min = 0.0, max = 1.0, step = 0.001 }
+meta = { min = 0.0, max = 1.0, step = 0.001, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "termination_curriculum_enabled", op = "==", value = true } ] }
 
 [[parameters]]
 key = "termination_curriculum_end"
@@ -46,7 +50,7 @@ type = "float"
 default = 0.22
 widget = "range"
 description = "curriculum 终止阈值 (m)"
-meta = { min = 0.0, max = 1.0, step = 0.001 }
+meta = { min = 0.0, max = 1.0, step = 0.001, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "termination_curriculum_enabled", op = "==", value = true } ] }
 
 [[parameters]]
 key = "termination_curriculum_ramp_iters"
@@ -54,4 +58,4 @@ type = "int"
 default = 500
 widget = "index"
 description = "curriculum ramp 迭代数"
-meta = { min = 1, max = 1000000 }
+meta = { min = 1, max = 1000000, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "termination_curriculum_enabled", op = "==", value = true } ] }

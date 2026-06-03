@@ -420,6 +420,59 @@ def default_items_for_families(families: List[str]) -> Dict[str, Dict[str, Any]]
     return out
 
 
+def derive_command_ranges(
+    item: "TrainingItem",
+    speed: Any,
+    command_overrides: Any = None,
+) -> Dict[str, Any]:
+    """Resolve a training item's per-channel command envelope.
+
+    ``command_ranges = {channel: [lo, hi]}`` — the effective velocity ranges
+    the runtime samples from. This is the SINGLE derivation shared by the SB3
+    ItemResolver / command sampler AND the Isaac-Lab command-channel builder
+    (``application.training.command_schema``), so both backends agree:
+
+      * scale the registry ``command_template`` (ranges at speed = 1) by the
+        item's max ``speed``;
+      * force ``zero_channels`` to (0, 0);
+      * apply per-item ``command_overrides`` (these win);
+      * re-force zero_channels last (an override cannot un-zero them).
+    """
+    try:
+        smax = float(speed[1]) if isinstance(speed, (list, tuple)) and len(speed) == 2 else 1.0
+    except (TypeError, ValueError):
+        smax = 1.0
+    zero_channels = set(getattr(item, "zero_channels", []) or [])
+    template = getattr(item, "command_template", {}) or {}
+
+    overrides: Dict[str, Any] = {}
+    if isinstance(command_overrides, dict):
+        for k, v in command_overrides.items():
+            if isinstance(v, (list, tuple)) and len(v) == 2:
+                try:
+                    overrides[str(k)] = [float(v[0]), float(v[1])]
+                except (TypeError, ValueError):
+                    continue
+
+    out: Dict[str, Any] = {}
+    for ch, rng in template.items():
+        if not isinstance(rng, (list, tuple)) or len(rng) != 2:
+            continue
+        if str(ch) in zero_channels:
+            out[str(ch)] = [0.0, 0.0]
+            continue
+        try:
+            out[str(ch)] = [float(rng[0]) * smax, float(rng[1]) * smax]
+        except (TypeError, ValueError):
+            continue
+    for k, v in overrides.items():
+        out[k] = v
+    for k in zero_channels:
+        if str(k) in out:
+            out[str(k)] = [0.0, 0.0]
+    return out
+
+
 def enrich_user_item(item_id: str, user_value: Any) -> Dict[str, Any]:
     """Enrich a user-authored ``training_items[item_id]`` value with registry
     metadata. The returned dict is always node-shape; missing fields are
@@ -437,10 +490,19 @@ def enrich_user_item(item_id: str, user_value: Any) -> Dict[str, Any]:
     reg = get_item(item_id)
     if reg is None:
         # User-defined item not in registry — pass through with safe defaults.
+        # No registry command_template, so derive a single-axis (lin_vel_x)
+        # envelope from the speed range so the SB3 ItemResolver still has a
+        # usable command_ranges (fail-loud only if even speed is unusable).
         base.setdefault("enabled", True)
         base.setdefault("speed", [0.0, 1.0])
         base.setdefault("clip", None)
         base.setdefault("advanced", {})
+        if "command_ranges" not in base:
+            sp = base.get("speed") or [0.0, 1.0]
+            try:
+                base["command_ranges"] = {"lin_vel_x": [float(sp[0]), float(sp[1])]}
+            except (TypeError, ValueError):
+                base["command_ranges"] = {}
         return base
     skeleton = to_node_entry(reg)
     out = dict(skeleton)
@@ -453,6 +515,14 @@ def enrich_user_item(item_id: str, user_value: Any) -> Dict[str, Any]:
         merged_adv = dict(skeleton["advanced"])
         merged_adv.update(user_advanced)
         out["advanced"] = merged_adv
+    # Top-level command_ranges (the velocity envelope the runtime samples).
+    # SINGLE derivation shared with the Isaac-Lab command-channel builder so
+    # the SB3 ItemResolver / command sampler and IL agree (fixes the
+    # "every item lacks usable command_ranges" SB3 launch crash).
+    adv = out.get("advanced") if isinstance(out.get("advanced"), dict) else {}
+    out["command_ranges"] = derive_command_ranges(
+        reg, out.get("speed"), adv.get("command_overrides"),
+    )
     return out
 
 
@@ -471,4 +541,5 @@ __all__ = [
     "to_node_entry",
     "default_items_for_families",
     "enrich_user_item",
+    "derive_command_ranges",
 ]

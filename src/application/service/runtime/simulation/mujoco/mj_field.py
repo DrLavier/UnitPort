@@ -62,6 +62,10 @@ class MjField:
     offbody_sensor_specs: List[Dict[str, Any]] = field(default_factory=list)
     randomization: Optional[Dict[str, Any]] = None
     heightfield: Optional[Dict[str, Any]] = None
+    #: A ``application.training.terrain.HeightField`` for bundle custom
+    #: terrain review — injected via the SAME (verified) lowering the
+    #: trainer used, so the reviewed ground matches what was trained on.
+    heightfield_obj: Optional[Any] = None
 
     # ------------------------------------------------------------------
     # Constructors
@@ -74,6 +78,18 @@ class MjField:
         ambient lighting in every menagerie mirror.
         """
         return cls(field_id="flat_ground", base_terrain="flat")
+
+    @classmethod
+    def from_heightfield(cls, hf: Any, *, field_id: str = "bundle_custom_terrain") -> "MjField":
+        """Custom terrain review from a bundle's heightfield (HeightField).
+
+        Composition reuses ``terrain.mujoco_lowering.compose_model_with_terrain``
+        — the exact path the SB3 trainer used — so the review ground is
+        byte-identical to the trained terrain. Fail-loud (§8): unlike the
+        generic prop/lighting composition this does NOT silently degrade to
+        flat, because reviewing on the wrong ground is misleading.
+        """
+        return cls(field_id=field_id, base_terrain="custom", heightfield_obj=hf)
 
     # ------------------------------------------------------------------
     # P1/P5 composition surface
@@ -97,6 +113,12 @@ class MjField:
         props — Mission runs MUST keep working even when a P5+ field
         type lands later than the loader.
         """
+        # Bundle custom terrain — verified fail-loud injection (reuses the
+        # trainer's compose_model_with_terrain). Takes precedence over the
+        # generic prop composition below.
+        if self.heightfield_obj is not None:
+            return self._compose_custom_heightfield(actor)
+
         # Fast path: nothing to compose. Use the actor's pre-built model.
         if (
             self.base_terrain == "flat"
@@ -107,6 +129,20 @@ class MjField:
             return actor.mj_model
 
         return self._compose_via_mjspec(actor, props=self.props)
+
+    def _compose_custom_heightfield(self, actor: Any) -> Any:
+        """Inject the bundle's HeightField into the actor MJCF. Fail-loud."""
+        from application.training.terrain.mujoco_lowering import (
+            compose_model_with_terrain,
+        )
+
+        actor_mjcf = getattr(actor, "mjcf_path", None)
+        if actor_mjcf is None:
+            raise RuntimeError(
+                "MjField.compose: custom terrain review requires actor.mjcf_path "
+                "to inject the <hfield> into; the actor has none."
+            )
+        return compose_model_with_terrain(str(actor_mjcf), self.heightfield_obj)
 
     # ------------------------------------------------------------------
     # mjSpec composition path

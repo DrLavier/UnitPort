@@ -278,7 +278,7 @@ class CoverageInspectorDialog(QDialog):
             terms = dict(raw)
         else:
             terms = {}
-        backend = str(self._node.params.get("backend", "sb3") or "sb3").strip()
+        backend = str(self._node.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
         added = 0
         for term_key in ph.suggestions:
             if term_key in terms:

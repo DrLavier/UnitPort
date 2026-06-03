@@ -55,6 +55,7 @@ from application.training.training_spec import (
     DomainRandIlConfig,
     DomainRandSb3Config,
     DomainRandSchedule,
+    CustomTerrainConfig,
     EnvAssemblerConfig,
     EvalConfig,
     ExportConfig,
@@ -166,7 +167,7 @@ def compile_training_spec(
         _populate_task(spec, by_id)
         _populate_rewards(spec, by_id, ir, canvas_backend_kind)
         _populate_terminations(spec, by_id, canvas_backend_kind)
-        _populate_motion(spec, by_id, family)
+        _populate_motion(spec, by_id, family, canvas_backend_kind)
         _populate_il(spec, by_id, family)
         _populate_domain_rand(spec, by_id, canvas_backend_kind)
         _populate_stage_schedule(spec, by_id)
@@ -240,7 +241,28 @@ def read_headless_and_num_envs(ir: "WorkflowIR") -> Tuple[bool, int]:
     by_id = {n.schema_id: n for n in ir.nodes}
     il_node = by_id.get("il_ppo_trainer") or by_id.get("amp_trainer")
     headless = _as_bool(_p(il_node, "headless"), True)
-    num_envs = _as_int(_p(by_id.get("env_assembler"), "n_envs"), 8)
+    env_node = by_id.get("env_assembler")
+    num_envs = _as_int(_p(env_node, "n_envs"), 8)
+    # When the SB3 env_assembler is in auto mode, the launch will derive n_envs
+    # from THIS machine's CPU/RAM (see auto_parallelism). Resolve it here too so
+    # the BAR1 preflight estimate matches what will actually run locally. (Cloud
+    # runs resolve on the worker; the local estimate is the best the UI can show
+    # pre-submit.)
+    if env_node is not None and _as_str(_p(env_node, "parallelism_mode"), "auto") == "auto":
+        try:
+            from application.training.envs.auto_parallelism import (
+                resolve_parallelism,
+            )
+            num_envs = resolve_parallelism(
+                mode="auto", manual_n_envs=num_envs,
+                manual_vec_type=_as_str(_p(env_node, "vec_type"), "subproc"),
+            ).n_envs
+        except Exception:  # noqa: BLE001
+            # WHY KEPT: preflight is a best-effort display estimate only; if
+            # hardware probing fails here we fall back to the canvas n_envs
+            # rather than break the (read-only) risk verdict. The actual launch
+            # re-resolves and fail-louds on real misconfig.
+            pass
     return headless, num_envs
 
 
@@ -310,6 +332,27 @@ def _as_bool(v: Any, default: bool) -> bool:
 def _as_str(v: Any, default: str) -> str:
     """``None`` → default; anything else stringified."""
     return str(v) if v is not None else default
+
+
+def _flatten_reward_pages(raw: Any) -> dict:
+    """Flatten a (possibly paged) ``reward_terms`` dict to flat ``{func: payload}``.
+
+    缺口③ — the IL env_cfg compiler reads paged ``reward_terms`` straight from
+    node params and emits per-page joint scope. The SPEC layer (SB3 reward
+    emission + variant-source collection) is joint-unaware, so it gets the
+    union of all pages (the global page is iterated first → wins on key
+    collision). Legacy flat reward_terms passes through unchanged.
+    """
+    from application.compiler.term_payload import (
+        is_paged_reward_terms, iter_reward_pages,
+    )
+    if not is_paged_reward_terms(raw):
+        return dict(raw) if isinstance(raw, dict) else {}
+    flat: dict = {}
+    for _pid, page_terms in iter_reward_pages(raw):
+        for func, payload in page_terms.items():
+            flat.setdefault(func, payload)
+    return flat
 
 
 def _as_json(v: Any, default: Any) -> Any:
@@ -549,6 +592,31 @@ def _populate_robot(
         rs, active_format=active_format,
     )
 
+    # Resolve the MJCF to an ABSOLUTE on-disk path via the robot asset service
+    # (search roots: custom_mods/models, ASSETS_DIR, …) — the SAME resolution
+    # the bundle exporter uses. The registry stores the RAW relative asset
+    # string (e.g. "menagerie/unitree_go2/scene.xml"), which is NOT loadable
+    # as-is from the training subprocess CWD; without this the SB3 env
+    # silently fell back to the brand-neutral default quadruped (wrong robot,
+    # scalar PD). The registry-relative string is kept only if resolution
+    # fails (the env then fail-louds per §8).
+    try:
+        from application.service.robot_assets.service import (
+            get_robot_asset_service,
+        )
+        _asset = get_robot_asset_service().resolve(
+            str(getattr(spec.robot, "sku", "") or asset_id)
+        )
+        _abs_mjcf = getattr(_asset, "mjcf_path", None) if _asset else None
+        if _abs_mjcf is not None:
+            spec.robot.mjcf_path = str(_abs_mjcf)
+    except Exception as exc:  # noqa: BLE001
+        from unitport_sdk import log_warning as _lw
+        _lw(
+            f"[spec_compiler] robot {asset_id!r}: MJCF absolute-path resolve "
+            f"failed ({exc}); keeping registry-relative path."
+        )
+
 
 def _populate_algorithm(
     spec: TrainingSpec,
@@ -563,6 +631,7 @@ def _populate_algorithm(
         # canvas-level concept (single source of truth). ``a.backend`` is
         # populated unconditionally at the end of ``compile_training_spec``
         # from ``ir.backend`` / ``canvas_backend_kind``.
+        a.max_iterations = _as_int(_p(cfg, "max_iterations"), 1500)
         a.total_timesteps = _as_int(_p(cfg, "total_timesteps"), 1_000_000)
         a.learning_rate = _as_float(_p(cfg, "learning_rate"), 3e-4)
         a.batch_size = _as_int(_p(cfg, "batch_size"), 256)
@@ -633,6 +702,9 @@ def _populate_algorithm(
             critic_hidden_dims=_as_json(_p(pn, "critic_hidden_dims"), [128, 64, 32]),
             activation=_as_str(_p(pn, "activation"), "elu"),
             init_noise_std=_as_float(_p(pn, "init_noise_std"), -1.0),
+            rnn_type=_as_str(_p(pn, "rnn_type"), "none"),
+            rnn_hidden_size=_as_int(_p(pn, "rnn_hidden_size"), 256),
+            rnn_num_layers=_as_int(_p(pn, "rnn_num_layers"), 1),
         )
 
     # Checkpoint (base_asset) — v2 schema:
@@ -902,16 +974,15 @@ def _populate_obs_action(
     oa = ObsActionContract()
     n = by_id.get("obs_action_config")
     if n is not None:
-        oa.contract_preset = _as_str(_p(n, "contract_preset"), "custom")
-        oa_components_raw = _p(n, "obs_components", "")
-        if isinstance(oa_components_raw, str):
-            oa.components = oa_components_raw.split() or oa.components
-        elif isinstance(oa_components_raw, list):
-            oa.components = list(oa_components_raw)
+        # contract_preset / obs_components removed (2026-06): obs is driven
+        # solely by il_observation.obs_terms (= oa.il_terms) through
+        # obs_term_engine for both backends; the preset table + obs picker were
+        # never consumed. action_scale removed: it is an actor property read
+        # from actor_setting (single authority) by both the env and the
+        # exporter — the duplicate here silently diverged.
         oa.obs_clip_range = _as_float(_p(n, "obs_clip_range"), 100.0)
         oa.frame_stack = _as_int(_p(n, "frame_stack"), 1)
         oa.action_type = _as_str(_p(n, "action_type"), "joint_position")
-        oa.action_scale = _as_float(_p(n, "action_scale"), 1.0)
         oa.action_clip = _as_float(_p(n, "action_clip"), 1.0)
 
     il = by_id.get("il_observation")
@@ -964,10 +1035,27 @@ def _populate_scene(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
         friction_static=_as_float(_p(n, "friction_static"), 1.0),
         friction_dynamic=_as_float(_p(n, "friction_dynamic"), 0.8),
         rough=RoughTerrainConfig(
-            amplitude=_as_float(_p(n, "roughness_amplitude"), 0.08),
-            slope_max_deg=_as_float(_p(n, "slope_max"), 20.0),
             curriculum_enabled=_as_bool(_p(n, "curriculum_enabled"), False),
             difficulty_levels=_as_int(_p(n, "difficulty_levels"), 10),
+            max_init_terrain_level=_as_int(_p(n, "max_init_terrain_level"), 5),
+            proportions={
+                "pyramid_stairs": _as_float(_p(n, "prop_pyramid_stairs"), 0.2),
+                "pyramid_stairs_inv": _as_float(_p(n, "prop_pyramid_stairs_inv"), 0.2),
+                "boxes": _as_float(_p(n, "prop_boxes"), 0.2),
+                "random_rough": _as_float(_p(n, "prop_random_rough"), 0.2),
+                "hf_pyramid_slope": _as_float(_p(n, "prop_slope"), 0.1),
+                "hf_pyramid_slope_inv": _as_float(_p(n, "prop_slope_inv"), 0.1),
+            },
+        ),
+        custom=CustomTerrainConfig(
+            # Custom terrain is active iff the scene is 'custom' — derived
+            # from scene_type, not a separate canvas bool, so the two can
+            # never disagree.
+            enabled=(_as_str(_p(n, "scene_type"), "flat").strip().lower() == "custom"),
+            source_path=_as_str(_p(n, "custom_terrain_path"), ""),
+            source_format=_as_str(_p(n, "custom_terrain_format"), "heightfield_npz"),
+            vertical_scale=_as_float(_p(n, "custom_terrain_vertical_scale"), 0.005),
+            sha256=_as_str(_p(n, "custom_terrain_sha256"), ""),
         ),
         height_scan=HeightScanConfig(
             enabled=_as_bool(_p(n, "height_scan_enabled"), False),
@@ -1125,7 +1213,7 @@ def _populate_rewards(
     # different-value collision before we get here, so the union below is
     # value-stable regardless of iteration order.
     for rn in rewards_nodes:
-        rn_terms = dict(_as_json(_p(rn, "reward_terms"), {}))
+        rn_terms = _flatten_reward_pages(_as_json(_p(rn, "reward_terms"), {}))
         if not rn_terms:
             continue
         # Resolve any variant tags carried in the term payloads
@@ -1160,7 +1248,7 @@ def _populate_rewards(
             r = stage_inputs.get(port_name)
             if r is None:
                 continue
-            stage_terms = dict(_as_json(_p(r, "reward_terms"), {}))
+            stage_terms = _flatten_reward_pages(_as_json(_p(r, "reward_terms"), {}))
             _collect_variant_sources(
                 stage_terms,
                 kind="reward",
@@ -1180,7 +1268,7 @@ def _populate_rewards(
             rc.threshold = _as_float(_p(head, "threshold"), 0.5)
     elif rewards_nodes:
         n = rewards_nodes[0]
-        lone_terms = dict(_as_json(_p(n, "reward_terms"), {}))
+        lone_terms = _flatten_reward_pages(_as_json(_p(n, "reward_terms"), {}))
         _collect_variant_sources(
             lone_terms,
             kind="reward",
@@ -1260,6 +1348,7 @@ def _populate_motion(
     spec: TrainingSpec,
     by_id: Dict[str, "IRNode"],
     family: AlgorithmFamily,
+    canvas_backend_kind: Optional[str] = None,
 ) -> None:
     n = by_id.get("training_motion")
     if n is None:
@@ -1334,11 +1423,20 @@ def _populate_motion(
             clip_paths[item_id] = str(resolved)
         else:
             clip_paths[item_id] = raw
-    # consumption_mode is canvas-required (no compiler default). Missing
-    # value emits MISSING_CONSUMPTION_MODE and skips populating motion_ref;
-    # downstream validators / IsaacLab config handle ``motion_ref is None``
-    # cleanly. Substituting ``"amp_discriminator"`` here would silently
-    # route tracking-target clips through the AMP discriminator, which is
+    # consumption_mode (reference-clip → AMP-discriminator vs tracking-target
+    # routing) is IsaacLab-only — the SB3 MuJoCo backend cannot replay
+    # reference clips and never reads spec.il.motion_ref. Requiring it on an
+    # SB3 canvas forced the user to set an AMP-only field they never use; the
+    # field is now hidden on SB3 canvases (conditional_on backend) and the
+    # requirement is skipped here for SB3. (If a user DID wire motion clips on
+    # an SB3 canvas, validator F1 fail-louds separately.)
+    if (canvas_backend_kind or "").strip() == "sb3_mujoco":
+        return
+    # consumption_mode is canvas-required (no compiler default) on IsaacLab.
+    # Missing value emits MISSING_CONSUMPTION_MODE and skips populating
+    # motion_ref; downstream validators / IsaacLab config handle
+    # ``motion_ref is None`` cleanly. Substituting ``"amp_discriminator"`` here
+    # would silently route tracking-target clips through the AMP discriminator,
     # the exact silent-fallback pattern CLAUDE.md §1.8 forbids.
     raw_consumption_mode = _p(n, "consumption_mode")
     if raw_consumption_mode is None or not str(raw_consumption_mode).strip():
@@ -1556,6 +1654,14 @@ def _populate_domain_rand(
             push_robot=_as_bool(_p(n, "push_robot"), False),
             push_interval_steps=_as_int(_p(n, "push_interval_steps"), 200),
             push_force_range=_as_pair(_p(n, "push_force_range"), (50.0, 150.0)),
+            # P2 — reset-time state randomization (SB3 feature parity).
+            init_pose_rand_enabled=_as_bool(_p(n, "sb3_enable_init_pose_rand"), False),
+            init_pos_x_range=_as_pair(_p(n, "sb3_init_pos_x_range"), (0.0, 0.0)),
+            init_pos_y_range=_as_pair(_p(n, "sb3_init_pos_y_range"), (0.0, 0.0)),
+            init_yaw_range=_as_pair(_p(n, "sb3_init_yaw_range"), (0.0, 0.0)),
+            joint_noise_enabled=_as_bool(_p(n, "sb3_enable_joint_noise"), False),
+            joint_pos_noise=_as_float(_p(n, "sb3_joint_pos_noise"), 0.0),
+            joint_vel_noise=_as_float(_p(n, "sb3_joint_vel_noise"), 0.0),
         ),
         il=DomainRandIlConfig(
             friction_enabled=_as_bool(_p(n, "enable_friction_rand"), True),
@@ -1644,6 +1750,7 @@ def _populate_env(spec: TrainingSpec, by_id: Dict[str, "IRNode"]) -> None:
     if n is None:
         return
     spec.env = EnvAssemblerConfig(
+        parallelism_mode=_as_str(_p(n, "parallelism_mode"), "auto"),
         n_envs=_as_int(_p(n, "n_envs"), 8),
         vec_type=_as_str(_p(n, "vec_type"), "subproc"),
         obs_normalize=_as_bool(_p(n, "obs_normalize"), True),

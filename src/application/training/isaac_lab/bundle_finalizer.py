@@ -538,6 +538,12 @@ def _skill_manifest_to_v1_dict(
         algorithm=str(algorithm),
         deploy_contract=deploy_contract,
         inference_convention="isaac_lab",
+        # Isaac Lab / rsl_rl trains in PhysX with joints in USD prim order;
+        # this finalizer reorders every per-joint array to that order
+        # (see _build_usd_ordered_* below). Declare it so the deploy stack
+        # validates against USD (and SB3 bundles, declared MJCF, are not
+        # forced into USD). DISTINCT from inference_convention. §11.
+        joint_array_format="USD",
         extra=extra or None,
     )
 
@@ -1083,6 +1089,10 @@ def finalize_isaac_lab_bundle(
     )
 
     # 2. ONNX bytes — either read directly or convert in-process.
+    # 缺口① — capture the export metadata; its ``recurrent`` block (inferred
+    # from the actual exported tensors) is the authoritative source for the
+    # deploy_contract recurrent contract injected below.
+    export_meta: Optional[Dict[str, Any]] = None
     if policy.needs_conversion:
         from application.training.isaac_lab.onnx_export import (
             export_rsl_rl_actor_to_onnx,
@@ -1092,7 +1102,7 @@ def finalize_isaac_lab_bundle(
         # mirrors DEMO's API which writes via torch.onnx.export → Path.
         tmp_onnx = exported_dir / f".finalize_{run_id}.onnx.tmp"
         try:
-            export_rsl_rl_actor_to_onnx(
+            export_meta = export_rsl_rl_actor_to_onnx(
                 checkpoint_path=policy.source_path,
                 agent_yaml_path=policy.agent_yaml,
                 onnx_out_path=tmp_onnx,
@@ -1277,6 +1287,30 @@ def finalize_isaac_lab_bundle(
     if sm.deploy_contract is not None:
         deploy_contract_dict = dict(sm.deploy_contract)
         deploy_contract_dict.pop("robot_sku", None)
+
+        # 缺口① — recurrent policy contract. Source of truth = the export
+        # metadata (inferred from the actual exported ONNX tensors); fall back
+        # to the canvas spec's policy_net when the bundle shipped a pre-built
+        # ONNX (no in-process conversion). Absent ⇒ feed-forward MLP (the
+        # block is simply not written — R6, schema_version stays 2). This is
+        # what makes a recurrent bundle self-contained (§9): the deploy stack
+        # reads ``recurrent`` to thread the hidden state without any
+        # local-only reach-back.
+        _rec_block = None
+        if isinstance(export_meta, dict) and export_meta.get("recurrent"):
+            _rec_block = dict(export_meta["recurrent"])
+        else:
+            _pn = getattr(getattr(spec, "algorithm", None), "policy_net", None)
+            _rt = str(getattr(_pn, "rnn_type", "none") or "none").strip().lower()
+            if _rt in ("gru", "lstm"):
+                _rec_block = {
+                    "rnn_type": _rt,
+                    "hidden_size": int(getattr(_pn, "rnn_hidden_size", 256)),
+                    "num_layers": int(getattr(_pn, "rnn_num_layers", 1)),
+                }
+        if _rec_block is not None:
+            _rec_block.setdefault("reset", "episode")
+            deploy_contract_dict["recurrent"] = _rec_block
 
         # Persist the Isaac Lab training init root position so MuJoCo
         # deploy spawns the robot at the same base z the policy was
@@ -1553,6 +1587,14 @@ def finalize_isaac_lab_bundle(
                     f"future tooling but no additional artifacts written."
                 )
 
+    # 5.9. Custom terrain — embed the heightfield self-contained in the
+    # bundle (§9) so the policy is reviewable / re-deployable on the SAME
+    # ground on any machine. The cross-engine consistency gate runs inside
+    # embed_custom_terrain, BEFORE any bytes are written (§8 / §10
+    # discipline): a terrain whose two engines disagree aborts the export.
+    from application.training.terrain.bundle_io import embed_custom_terrain
+    terrain_extra_files = embed_custom_terrain(spec, manifest_dict)
+
     out = BundleExporter.export_from_artifacts(
         name=bundle_name,
         version=version,
@@ -1562,6 +1604,7 @@ def finalize_isaac_lab_bundle(
         overwrite=overwrite,
         project=project,
         backend_id="isaac_lab",
+        extra_files=terrain_extra_files,
     )
 
     # 6.4. (Optional) Normalization stats — when the Export node sets

@@ -170,17 +170,24 @@ _CANVAS_SUBDIRS: Dict[str, str] = {
     "sb3_mujoco": "SB3",
 }
 
-# Canvas engine_id → per-node backend enum kind. The per-node enum used by
-# rewards / terminations / domain_rand (and any future backend-keyed schema)
-# is ``"sb3"`` / ``"isaac_lab"``; the canvas owner id is the full engine
-# identifier (e.g. ``"sb3_mujoco"``). Used by NodeItem to derive the
-# canvas-bound kind for ``conditional_on`` visibility, by spec_compiler
-# when populating backend-keyed config slots, and by RegistryModuleEditor
-# to pick the right registry. Unknown engine ids collapse to ``"sb3"`` so
-# legacy / future canvases still resolve to a valid kind without branching.
+# Canvas engine_id → per-node backend id. There is ONE id per backend:
+# ``"sb3_mujoco"`` / ``"isaac_lab"`` — the same string the canvas root binds,
+# select_backend dispatches on, rewards/terminations/domain_rand registries
+# tag, and node ``conditional_on`` visibility checks. This map is the
+# identity; it exists only so an unknown engine id still resolves to the SB3
+# engine instead of inventing a second id. (``"sb3"`` is the
+# stable_baselines3 *library* component probe — a dependency, never a
+# backend id.) Used by NodeItem, spec_compiler, and RegistryModuleEditor.
+# Canvas engine id == per-node backend kind == single backend identifier.
+# There is NO separate coarse "sb3" kind: the SB3 backend is "sb3_mujoco"
+# everywhere (canvas root, spec.*.backend, registry tags, node conditional_on).
+# ("sb3" is reserved for the stable_baselines3 *library* component probe — a
+# dependency name, never a backend id.) This map is therefore the identity;
+# kept only so a missing/unknown engine id still resolves loudly to the SB3
+# engine rather than silently inventing a second id.
 _NODE_BACKEND_KIND: Dict[str, str] = {
     "isaac_lab": "isaac_lab",
-    "sb3_mujoco": "sb3",
+    "sb3_mujoco": "sb3_mujoco",
 }
 
 # In-tree training launcher script for each backend that needs one.
@@ -300,21 +307,22 @@ def canvas_subdir(engine_id: str) -> str:
 
 
 def node_backend_kind(engine_id: Optional[str]) -> str:
-    """Return the per-node backend enum kind for a canvas engine id.
+    """Return the per-node backend identifier for a canvas engine id.
 
-    Canvas backends declare themselves via the engine id (e.g.
-    ``"sb3_mujoco"``); node-side backend-keyed schemas use a coarser kind
-    (``"sb3"`` / ``"isaac_lab"``). Any unknown / missing engine id collapses
-    to ``"sb3"`` so legacy / future canvases still resolve to a valid kind.
+    The SB3 backend is a SINGLE id — ``"sb3_mujoco"`` — at every layer
+    (canvas root, ``spec.*.backend``, registry tags, node ``conditional_on``).
+    This is the identity map; an unknown / missing engine id resolves to the
+    SB3 engine ``"sb3_mujoco"`` rather than inventing a second id. ("sb3" is
+    the stable_baselines3 *library* component probe, never a backend id.)
 
     Used as the source of ``params["backend"]`` on rewards / terminations /
     domain_rand NodeItems — those nodes no longer expose a user-toggleable
-    backend ParamSpec; the kind is derived from the parent CanvasPage's
-    bound backend at spawn / load time.
+    backend ParamSpec; the id is derived from the parent CanvasPage's bound
+    backend at spawn / load time.
     """
     if not isinstance(engine_id, str):
-        return "sb3"
-    return _NODE_BACKEND_KIND.get(engine_id.strip(), "sb3")
+        return "sb3_mujoco"
+    return _NODE_BACKEND_KIND.get(engine_id.strip(), "sb3_mujoco")
 
 
 def list_canvas_owning_engines() -> List[str]:

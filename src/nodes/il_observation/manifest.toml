@@ -35,17 +35,25 @@ widget = "registry_module"
 description = "观测项 dict / Observation terms (IL registry-backed)"
 meta = { registry_id = "il_obs" }
 
+# group_name (asymmetric actor/critic), obs corruption, and the obs-noise
+# curriculum are all IsaacLab/rsl_rl-only — the SB3 MuJoCo env reads obs noise
+# from domain_rand.obs_noise_std (not these), has no asymmetric-AC critic
+# group, and no obs-noise curriculum. Hidden on SB3 canvases (only obs_terms is
+# SB3-meaningful). conditional_on backend == isaac_lab.
 [[parameters]]
 key = "group_name"
-type = "string"
+type = "enum"
 default = "policy"
-description = "ObsGroup 名"
+choices = ["policy", "critic"]
+description = "ObsGroup 名 / ObsGroup name. 'policy' = actor input; 'critic' = privileged critic-only group (asymmetric actor-critic). Place a second il_observation node with group_name='critic' carrying privileged terms (e.g. base_lin_vel) to enable asymmetric AC. (IsaacLab only.)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "enable_corruption"
 type = "bool"
 default = true
-description = "启用观测噪声"
+description = "启用观测噪声 (IsaacLab only; SB3 uses domain_rand.obs_noise_std)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "corruption_noise_std"
@@ -53,13 +61,14 @@ type = "float"
 default = 0.05
 widget = "range"
 description = "噪声标准差"
-meta = { min = 0.0, max = 1.0, step = 0.001 }
+meta = { min = 0.0, max = 1.0, step = 0.001, conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "obs_noise_curriculum_enabled"
 type = "bool"
 default = false
-description = "启用 obs noise curriculum"
+description = "启用 obs noise curriculum (IsaacLab only)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "obs_noise_curriculum_start"
@@ -67,7 +76,7 @@ type = "float"
 default = 0.25
 widget = "range"
 description = "curriculum 起始倍率"
-meta = { min = 0.0, max = 1.0, step = 0.001 }
+meta = { min = 0.0, max = 1.0, step = 0.001, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "obs_noise_curriculum_enabled", op = "==", value = true } ] }
 
 [[parameters]]
 key = "obs_noise_curriculum_end"
@@ -75,7 +84,7 @@ type = "float"
 default = 1.0
 widget = "range"
 description = "curriculum 终止倍率"
-meta = { min = 0.0, max = 1.0, step = 0.001 }
+meta = { min = 0.0, max = 1.0, step = 0.001, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "obs_noise_curriculum_enabled", op = "==", value = true } ] }
 
 [[parameters]]
 key = "obs_noise_curriculum_ramp_iters"
@@ -83,4 +92,4 @@ type = "int"
 default = 500
 widget = "index"
 description = "curriculum ramp iter 数"
-meta = { min = 1, max = 1000000 }
+meta = { min = 1, max = 1000000, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "obs_noise_curriculum_enabled", op = "==", value = true } ] }

@@ -284,6 +284,125 @@ class ActionSpec:
 # ---------------------------------------------------------------------------
 
 @dataclass
+class RecurrentSpec:
+    """Recurrent-policy contract (缺口①).
+
+    Present only when the exported policy carries a GRU/LSTM memory cell.
+    Absent (``DeployContract.recurrent is None``) ⇒ feed-forward MLP policy —
+    the loader treats the bundle exactly as before (R6). schema_version stays
+    2 (decision R3): this block is additive + orthogonal to the PD numerics,
+    so existing v2 MLP bundles load unchanged.
+    """
+
+    rnn_type: str            # "gru" | "lstm"
+    hidden_size: int         # H
+    num_layers: int          # L
+    reset: str = "episode"   # hidden-state reset semantics
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "RecurrentSpec":
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"deploy_contract.recurrent: expected dict, got {type(raw).__name__}"
+            )
+        rnn_type = str(raw.get("rnn_type", "")).strip().lower()
+        if rnn_type not in ("gru", "lstm"):
+            raise ValueError(
+                f"deploy_contract.recurrent.rnn_type: expected 'gru'|'lstm', "
+                f"got {raw.get('rnn_type')!r}"
+            )
+        hidden_size = int(raw.get("hidden_size", 0))
+        num_layers = int(raw.get("num_layers", 0))
+        if hidden_size <= 0 or num_layers <= 0:
+            raise ValueError(
+                f"deploy_contract.recurrent: hidden_size ({hidden_size}) and "
+                f"num_layers ({num_layers}) must both be positive"
+            )
+        return cls(
+            rnn_type=rnn_type,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            reset=str(raw.get("reset", "episode") or "episode"),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "rnn_type": self.rnn_type,
+            "hidden_size": int(self.hidden_size),
+            "num_layers": int(self.num_layers),
+            "reset": self.reset,
+        }
+
+
+@dataclass
+class PerItemObsSpec:
+    """Per-item observation-tail contract (SB3 per-item-reward canvases).
+
+    Present only when the trained policy's obs carries a per-item tail —
+    ``[cmd_norm, soft_weight per item]`` — appended by the SB3 env when the
+    canvas wires per-item rewards (``GenericMujocoEnv._expose_active_item_obs``).
+    The deploy ObsBuilder reconstructs that tail from the current command using
+    the SAME ItemResolver, so the deployed obs == the trained obs (CLAUDE.md
+    §11). Absent ⇒ no tail (obs is the term layout only).
+
+    The tail layout is ``[cmd_norm, weight(item_ids[0]), ..., weight(item_ids[-1])]``
+    so ``tail_dim == 1 + len(item_ids)``. ``item_ids`` order is the training
+    item order (terms_by_item insertion order) and MUST NOT be reordered.
+    """
+
+    item_ids: List[str]
+    command_ranges: Dict[str, Dict[str, List[float]]]
+    blend_width: float
+
+    @property
+    def tail_dim(self) -> int:
+        return 1 + len(self.item_ids)
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "PerItemObsSpec":
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"deploy_contract.per_item_obs: expected dict, got "
+                f"{type(raw).__name__}"
+            )
+        item_ids = [str(i) for i in (raw.get("item_ids") or [])]
+        if not item_ids:
+            raise ValueError(
+                "deploy_contract.per_item_obs.item_ids: must be a non-empty "
+                "list (the policy obs carries one weight per item)."
+            )
+        ranges_raw = raw.get("command_ranges") or {}
+        if not isinstance(ranges_raw, dict):
+            raise ValueError(
+                "deploy_contract.per_item_obs.command_ranges: expected dict"
+            )
+        command_ranges: Dict[str, Dict[str, List[float]]] = {}
+        for iid in item_ids:
+            item_ranges = ranges_raw.get(iid) or {}
+            parsed: Dict[str, List[float]] = {}
+            for chan, span in (item_ranges.items() if isinstance(item_ranges, dict) else []):
+                if isinstance(span, (list, tuple)) and len(span) == 2:
+                    parsed[str(chan)] = [float(span[0]), float(span[1])]
+            command_ranges[iid] = parsed
+        blend_width = float(raw.get("blend_width", 0.10) or 0.10)
+        return cls(
+            item_ids=item_ids,
+            command_ranges=command_ranges,
+            blend_width=blend_width,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "item_ids": list(self.item_ids),
+            "command_ranges": {
+                iid: {ch: [float(s[0]), float(s[1])] for ch, s in r.items()}
+                for iid, r in self.command_ranges.items()
+            },
+            "blend_width": float(self.blend_width),
+        }
+
+
+@dataclass
 class DeployContract:
     """Single source of truth for sim2sim deployment numerics.
 
@@ -354,6 +473,15 @@ class DeployContract:
     # is the same payload embedded under ``pd_derivation.remotized_joints``
     # (the finalizer reuses it; they cannot drift).
     mujoco_torque_lookups: Optional[Dict[str, Any]] = None
+    # 缺口① — recurrent (GRU/LSTM) policy contract. None ⇒ feed-forward MLP
+    # (the loader/engine path is byte-identical to pre-recurrent bundles).
+    # Additive + orthogonal to the PD numerics; schema_version stays 2 (R3).
+    recurrent: Optional["RecurrentSpec"] = None
+    # Per-item obs tail (SB3 per-item-reward canvases). None ⇒ obs is the term
+    # layout only. When present, the deploy ObsBuilder appends
+    # ``[cmd_norm, item weights]`` (tail_dim = 1 + n_items) so the deployed obs
+    # matches the trained obs. Additive + orthogonal; schema_version stays 2.
+    per_item_obs: Optional["PerItemObsSpec"] = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -851,6 +979,18 @@ class DeployContract:
                 str(mujoco_deploy_unsupported_raw)
                 if mujoco_unsupported else None
             ),
+            # 缺口① — recurrent block is additive + version-orthogonal (R3):
+            # parsed whenever present so both v1 and v2 recurrent bundles load.
+            recurrent=(
+                RecurrentSpec.from_dict(raw["recurrent"])
+                if raw.get("recurrent") is not None else None
+            ),
+            # Per-item obs tail (additive + version-orthogonal): parsed whenever
+            # present so the deploy ObsBuilder can rebuild [cmd_norm, weights].
+            per_item_obs=(
+                PerItemObsSpec.from_dict(raw["per_item_obs"])
+                if raw.get("per_item_obs") is not None else None
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -904,6 +1044,10 @@ class DeployContract:
             }
         if self.mujoco_deploy_unsupported:
             out["mujoco_deploy_unsupported"] = str(self.mujoco_deploy_unsupported)
+        if self.recurrent is not None:
+            out["recurrent"] = self.recurrent.to_dict()
+        if self.per_item_obs is not None:
+            out["per_item_obs"] = self.per_item_obs.to_dict()
         return out
 
     # ------------------------------------------------------------------
@@ -916,7 +1060,9 @@ class DeployContract:
 
     @property
     def total_obs_dim(self) -> int:
-        return sum(t.dim * t.history_length for t in self.observations.values())
+        base = sum(t.dim * t.history_length for t in self.observations.values())
+        tail = self.per_item_obs.tail_dim if self.per_item_obs is not None else 0
+        return base + tail
 
     def is_identity_joint_map(self) -> bool:
         """True when joint_ids_map is [0, 1, ..., n-1]."""

@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import List
 
 from application.compiler.nodes import (
+    manifest_from_toml,
     NODE_MANIFEST_SCHEMA,
     BaseNode,
     NodeKind,
@@ -38,47 +39,7 @@ from application.compiler.nodes import (
 class RewardsNode(BaseNode):
     """Layer A — Per-item reward configuration node (registry-backed)."""
 
-    MANIFEST = NodeManifest(
-        schema=NODE_MANIFEST_SCHEMA,
-        id="rewards",
-        kind=NodeKind.CUSTOM,
-        version="2.0.0",
-        category="config",
-        layer="A",
-        display_name_key="node.rewards.display",
-        description_key="node.rewards.desc",
-        icon="rewards.svg",
-        inputs=[],
-        outputs=[
-            PortSpec(
-                name="reward_pipe", type="reward_pipe", multi=True,
-                description="Per-item reward feed (connect to training_motion item rows)",
-            ),
-        ],
-        parameters=[
-            ParamSpec(
-                key="reward_terms", type="json", default="{}",
-                widget="registry_module",
-                description="奖励项字典 / Reward terms (registry-backed editor)",
-                meta={
-                    "registry_id": "rewards",
-                    "registry_id_il": "il_rewards",
-                    "backend_keyed": True,
-                    "pin_on_collapse": True,
-                },
-            ),
-            ParamSpec(
-                key="std", type="float", default=0.25, widget="range",
-                description="全局 std (奖励项 default σ)",
-                meta={"min": 0.0, "max": 5.0, "step": 0.01},
-            ),
-            ParamSpec(
-                key="threshold", type="float", default=0.5, widget="range",
-                description="全局 threshold",
-                meta={"min": 0.0, "max": 1.0, "step": 0.01},
-            ),
-        ],
-    )
+    MANIFEST = manifest_from_toml(__file__)
 
     def validate(self) -> List[str]:
         return super().validate()

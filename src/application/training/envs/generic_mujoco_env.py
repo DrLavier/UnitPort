@@ -202,6 +202,14 @@ class _DRState:
     push_robot: bool = False
     push_interval_steps: int = 0
     push_force_range: Optional[Tuple[float, float]] = None
+    # Reset-time state randomization (P2 — parity with IsaacLab event DR).
+    init_pose_rand_enabled: bool = False
+    init_pos_x_range: Optional[Tuple[float, float]] = None
+    init_pos_y_range: Optional[Tuple[float, float]] = None
+    init_yaw_range: Optional[Tuple[float, float]] = None
+    joint_noise_enabled: bool = False
+    joint_pos_noise: float = 0.0
+    joint_vel_noise: float = 0.0
     # Schedule — mode "linear" ramps alpha from 0 → 1 between start_step
     # and end_step (global timesteps). "none" pins alpha at 1.0.
     schedule_mode: str = "none"
@@ -248,6 +256,13 @@ def _build_dr_state(domain_rand: Any) -> Optional[_DRState]:
         push_robot=bool(getattr(sb3, "push_robot", False)),
         push_interval_steps=int(getattr(sb3, "push_interval_steps", 0) or 0),
         push_force_range=_as_dr_range(getattr(sb3, "push_force_range", None)),
+        init_pose_rand_enabled=bool(getattr(sb3, "init_pose_rand_enabled", False)),
+        init_pos_x_range=_as_dr_range(getattr(sb3, "init_pos_x_range", None)),
+        init_pos_y_range=_as_dr_range(getattr(sb3, "init_pos_y_range", None)),
+        init_yaw_range=_as_dr_range(getattr(sb3, "init_yaw_range", None)),
+        joint_noise_enabled=bool(getattr(sb3, "joint_noise_enabled", False)),
+        joint_pos_noise=float(getattr(sb3, "joint_pos_noise", 0.0) or 0.0),
+        joint_vel_noise=float(getattr(sb3, "joint_vel_noise", 0.0) or 0.0),
         schedule_mode=str(getattr(schedule, "mode", "none") or "none").strip().lower(),
         schedule_start_step=int(getattr(schedule, "start_step", 0) or 0),
         schedule_end_step=int(getattr(schedule, "end_step", 0) or 0),
@@ -301,11 +316,16 @@ class GenericMujocoEnv(_GymEnvBase):
         reward_fn_rich: Optional[
             Callable[["GenericMujocoEnv"], Tuple[float, Dict[str, float]]]
         ] = None,
+        reward_fn_rich_stage1: Optional[
+            Callable[["GenericMujocoEnv"], Tuple[float, Dict[str, float]]]
+        ] = None,
         termination_fn: Optional[Callable[["GenericMujocoEnv"], bool]] = None,
         sim_dt: Optional[float] = None,
         control_dt: Optional[float] = None,
         max_episode_steps: int = 1000,
         commands: Optional[np.ndarray] = None,
+        motion_config=None,
+        command_mode: str = "fixed",
         seed: Optional[int] = None,
         render_mode: Optional[str] = None,
         # Composite per-motion-item reward dispatch (CLAUDE.md §1.8 / plan
@@ -347,10 +367,15 @@ class GenericMujocoEnv(_GymEnvBase):
         if max_episode_steps:
             d.max_episode_steps = int(max_episode_steps)
         if obs_action is not None:
-            d.action_scale = float(getattr(obs_action, "action_scale", d.action_scale))
             d.action_clip = float(getattr(obs_action, "action_clip", d.action_clip))
             d.obs_clip_range = float(getattr(obs_action, "obs_clip_range", d.obs_clip_range))
         if actor_config is not None:
+            # action_scale is an ACTOR property (single authority = actor_setting,
+            # the same node IsaacLab reads via env_cfg_compiler). It used to be
+            # read from obs_action here — a second, divergent knob (default 1.0
+            # vs actor's 0.25) that meant SB3 and IsaacLab scaled actions
+            # differently for the same canvas. Now both read actor.action_scale.
+            d.action_scale = float(getattr(actor_config, "action_scale", d.action_scale))
             d.init_pos_x = float(getattr(actor_config, "init_pos_x", d.init_pos_x))
             d.init_pos_y = float(getattr(actor_config, "init_pos_y", d.init_pos_y))
             d.init_pos_z = float(getattr(actor_config, "init_pos_z", d.init_pos_z))
@@ -378,16 +403,68 @@ class GenericMujocoEnv(_GymEnvBase):
                     f"falling back to DEFAULT_QUADRUPED_MJCF"
                 )
 
+        # Custom heightfield terrain (scene_type='custom') — inject a
+        # <hfield> derived from the cross-engine source into the robot MJCF
+        # via MjSpec, fail-loud (PV 修正 1 / §8): a user who asked for custom
+        # terrain must never be silently dropped onto flat ground.
+        custom_cfg = (
+            getattr(scene_config, "custom", None) if scene_config is not None else None
+        )
+        custom_terrain_enabled = bool(getattr(custom_cfg, "enabled", False)) if custom_cfg else False
+
         if loaded_path:
-            self._model = mujoco.MjModel.from_xml_path(loaded_path)
+            if custom_terrain_enabled:
+                self._model = self._compose_custom_terrain_model(loaded_path, custom_cfg)
+            else:
+                self._model = mujoco.MjModel.from_xml_path(loaded_path)
             self._asset_source = loaded_path
         else:
+            # §8 — a REAL bound robot (declares IR-role joints) MUST train on
+            # its own MJCF. Silently dropping to the brand-neutral default
+            # quadruped trains the WRONG dynamics + forces scalar-PD fallback
+            # (the JointIRResolver mismatch the user hit), i.e. a
+            # silently-wrong run. Fail loud so the asset's MJCF gets dumped.
+            # The default quad stays only for smoke/dev specs with no IR roles.
+            if getattr(robot_spec, "joint_ir_roles", None):
+                _sku = getattr(robot_spec, "sku", "") or "?"
+                raise FileNotFoundError(
+                    f"[envs] robot {_sku!r} MJCF did not resolve to a file on "
+                    f"disk (mjcf_path={mjcf_path!r}). SB3 training will NOT fall "
+                    f"back to the brand-neutral default quadruped — that would "
+                    f"train the wrong dynamics with scalar PD (CLAUDE.md §8). "
+                    f"The compiler resolves the registry asset path via the "
+                    f"robot asset service; if it failed, verify the asset file "
+                    f"exists (shipped menagerie under custom_mods/models, or a "
+                    f"dumped MJCF) and that the Robot Asset is registered."
+                )
+            if custom_terrain_enabled:
+                raise RuntimeError(
+                    "[envs] custom heightfield terrain requires a robot MJCF on "
+                    "disk to inject into; the brand-neutral default quadruped "
+                    "(smoke spec, no IR roles) cannot host an injected <hfield>. "
+                    "Bind a real robot asset, or set scene_type back to 'flat' "
+                    "(CLAUDE.md §8 — no silent flat fallback)."
+                )
             self._model = mujoco.MjModel.from_xml_string(DEFAULT_QUADRUPED_MJCF)
             self._asset_source = "DEFAULT_QUADRUPED_MJCF"
 
         self._model.opt.timestep = float(d.sim_dt)
         if scene_config is not None and getattr(scene_config, "gravity_z", None) is not None:
             self._model.opt.gravity[:] = (0.0, 0.0, float(scene_config.gravity_z))
+        # Ground friction from PlayGroundSetting (CLAUDE.md §8 — canvas value,
+        # not the MJCF default). MuJoCo models friction with a SINGLE Coulomb
+        # sliding coefficient (geom_friction[:,0]); the PhysX static/dynamic
+        # split is not representable, so the SB3 backend uses ``friction_static``
+        # as that coefficient (its default 1.0 matches the menagerie floor) and
+        # ``friction_dynamic`` is hidden on SB3 canvases. Set on every geom's
+        # sliding column (matching the DR friction path) so the effective
+        # contact friction is the canvas value regardless of geom-pair
+        # combination. Done BEFORE the DR baseline snapshot so DR scales from
+        # the canvas value.
+        if scene_config is not None:
+            _fr = getattr(scene_config, "friction_static", None)
+            if _fr is not None and float(_fr) > 0.0:
+                self._model.geom_friction[:, 0] = float(_fr)
         self._data = mujoco.MjData(self._model)
         self._mujoco = mujoco
 
@@ -529,6 +606,15 @@ class GenericMujocoEnv(_GymEnvBase):
             if actor_config is not None else False
         )
         self._mjcf_loaded_path = loaded_path  # None for DEFAULT_QUADRUPED_MJCF
+        # Effective-inertia cache for the gain solver. m_eff = M_diag(q₀) at
+        # the MJCF keyframe-0 nominal stance (the SSOT the whole producer/
+        # deploy chain uses — see _resolve_pd_gains) is invariant to (ωn, ζ)
+        # and to the unchanged MJCF, so it is computed ONCE on the first
+        # _resolve_pd_gains call and reused on every reset / DR re-solve —
+        # otherwise the solver re-parses the MJCF from disk + re-runs mj_fullM
+        # each episode (~45ms/reset, ~86% of the SB3 step-loop wall-clock
+        # before this cache).
+        self._m_eff_cache = None
 
         # Initial gain computation. Falls back to scalar broadcast when:
         # (a) no pd_param is provided (legacy canvas),
@@ -536,6 +622,37 @@ class GenericMujocoEnv(_GymEnvBase):
         # (c) MJCF was loaded from a string (no path for the solver).
         self._pd_kp_array, self._pd_kd_array = self._resolve_pd_gains(
             d_pd_kp=d.pd_kp, d_pd_kd=d.pd_kd,
+        )
+
+        # ── Torque limits (train == deploy, CLAUDE.md §10/§8) ──
+        # The deploy MuJoCo runtime (service/runtime/simulation/pd_controller.py
+        # .compute) clamps every PD torque to the RobotNode's effort_limit, and
+        # — when a velocity_limit + saturation_effort are present — first
+        # squashes it against the IsaacLab DCMotor torque-speed envelope. SB3
+        # training previously applied NEITHER, so a policy learned to command
+        # unbounded torque that the deploy stack then clips → the canonical
+        # collapse / front-flip on transfer. We mirror the deploy law EXACTLY
+        # here. effort_limit comes from the RobotNode (spec.actor.effort_limit,
+        # the same scalar the bundle exporter writes per joint); velocity_limit
+        # 0 / None = no envelope.
+        n_act = int(self._action_dim)
+        _eff = getattr(actor_config, "effort_limit", None) if actor_config is not None else None
+        self._effort_limit_arr = (
+            np.full(n_act, float(_eff), dtype=np.float64)
+            if _eff is not None and float(_eff) > 0.0 else None
+        )
+        _vel = getattr(actor_config, "velocity_limit", None) if actor_config is not None else None
+        self._velocity_limit_arr = (
+            np.full(n_act, float(_vel), dtype=np.float64)
+            if _vel is not None and float(_vel) > 0.0 else None
+        )
+        # saturation_effort for the DCMotor envelope = effort_limit (the same
+        # value the SB3 deploy contract carries; see bundle_exporter). Only used
+        # when a velocity_limit is set, matching pd_controller.compute's gate.
+        self._saturation_effort_arr = (
+            self._effort_limit_arr
+            if (self._velocity_limit_arr is not None and self._effort_limit_arr is not None)
+            else None
         )
 
         # ── Spaces ──
@@ -561,11 +678,45 @@ class GenericMujocoEnv(_GymEnvBase):
             if self._expose_active_item_obs else 0
         )
 
-        # Obs layout: [base_ang_vel(3), projected_gravity(3),
-        #              joint_pos(N), joint_vel(N), last_action(N), commands(3),
-        #              (optional) cmd_norm(1), active_item_onehot(K)]
+        # ── Observation layout — obs_terms-driven SSOT (CLAUDE.md §8/§11) ──
+        # The obs vector is assembled term-by-term from the canvas
+        # ``il_observation.obs_terms`` through the shared
+        # :mod:`obs_term_engine` — the SAME per-term computation the deploy
+        # ObsBuilder uses, so "train == deploy" holds by construction (the
+        # pre-2026-06 hardcoded layout silently disagreed with deploy on the
+        # projected_gravity sign, absolute vs. default-relative joint_pos and
+        # world- vs. body-frame base_lin_vel). An empty ``il_terms`` (SB3
+        # canvas with no il_observation node) falls back to the default
+        # proprio layout with a loud WARN.
+        from application.training.envs import obs_term_engine as _obs_eng
+        from collections import deque as _deque
+        il_terms = getattr(obs_action, "il_terms", None) if obs_action is not None else None
+        if not il_terms:
+            log_warning(
+                "[envs] no il_observation.obs_terms on the canvas — SB3 obs "
+                f"falls back to the default proprio layout "
+                f"{list(_obs_eng.DEFAULT_SB3_OBS_TERMS)}. Wire an "
+                "il_observation node to control obs terms / scale / clip / "
+                "history and to align the bundle's obs contract with IsaacLab."
+            )
+        self._obs_eng = _obs_eng
+        # Resolve once; fails loud here if a term is not MuJoCo-computable
+        # (e.g. height_scan) — the SB3 validator (rule F3) rejects it earlier.
+        self._obs_layout = _obs_eng.normalize_obs_layout(
+            il_terms,
+            num_joints=self._action_dim,
+            action_dim=self._action_dim,
+        )
+        self._obs_term_hist: Dict[str, Any] = {
+            t.name: _deque(maxlen=t.history_length)
+            for t in self._obs_layout if t.history_length > 1
+        }
+        self._obs_term_hist_init: Dict[str, bool] = {
+            name: False for name in self._obs_term_hist
+        }
         n = self._action_dim
-        self._obs_dim = 3 + 3 + n + n + n + 3 + n_item_extras
+        base_obs_dim = sum(t.dim * t.history_length for t in self._obs_layout)
+        self._obs_dim = base_obs_dim + n_item_extras
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf,
             shape=(self._obs_dim,),
@@ -581,6 +732,23 @@ class GenericMujocoEnv(_GymEnvBase):
         )
         self._step_count = 0
 
+        # ── Command envelope (P3) — resampling / zero-command / curriculum ──
+        # The env used to FREEZE the command at the fixed task target for the
+        # whole episode, silently ignoring training_motion's resampling /
+        # zero-command / curriculum knobs ("用户设置≠实际运行"). It now
+        # (re)samples a command per episode + per resample interval +
+        # per-step change probability, draws zero (standing) with the
+        # configured probability, and scales magnitude by a launcher-injected
+        # curriculum factor.
+        self._resolve_command_config(motion_config, command_mode)
+
+        # Action joint-subset coverage (P8): the SB3 env actuates EVERY MJCF
+        # actuator. An empty action_joint_names_expr (= all joints) is the
+        # norm; a strict subset would need action_dim decoupled from the joint
+        # count (PD / obs / export), not yet implemented for SB3 — fail loud
+        # rather than silently controlling all joints (§8).
+        self._check_action_joint_coverage(actor_config)
+
         # ── Reward / termination ──
         # When the per-item dispatcher is active, ``reward_fn`` is ignored
         # and ``step()`` takes the per-item path. A user-supplied reward_fn
@@ -594,6 +762,12 @@ class GenericMujocoEnv(_GymEnvBase):
             )
         self._reward_fn = reward_fn or _default_reward
         self._reward_fn_rich = reward_fn_rich
+        # Multi-stage reward (P6): when a stage-1 reward closure is supplied
+        # (multigated_reward), step() blends stage-0 → stage-1 by
+        # ``_reward_blend_alpha`` (0 = pure stage 0, 1 = pure stage 1). The
+        # launcher ramps the alpha across max_step_stage0 + blend_steps.
+        self._reward_fn_rich_stage1 = reward_fn_rich_stage1
+        self._reward_blend_alpha: float = 0.0
         self._termination_fn = termination_fn or _default_termination
         self._track_sigma = d.track_sigma
         self._term_base_z = d.term_base_z
@@ -633,6 +807,13 @@ class GenericMujocoEnv(_GymEnvBase):
                 pass
         self._dr_global_step = 0
         self._dr_push_counter = 0
+
+        # ── Init-pose mode (P5) — default / keyframe / custom + noise/height ──
+        # Resolved once here (fail-loud on a bad keyframe name / custom_qpos
+        # length, §8); reference_frame_0 (RSI) is rejected at validation (F5)
+        # and defended here too. reset() applies the resolved joint target
+        # (+ optional Gaussian jitter) and base-height override.
+        self._resolve_init_pose(actor_config)
 
         # Render — lazy because mujoco.Renderer needs a GL context that
         # only some hosts have. Lazily creating on first ``render()`` lets
@@ -682,7 +863,14 @@ class GenericMujocoEnv(_GymEnvBase):
         # curious-nibbling-plum.md and
         # application.training.validation.mjcf_base_calibration.
         if self._model.nq >= 7:
-            spawn_z = self._d.init_pos_z if self._d.init_pos_z > 0 else self._nominal_base_z
+            # init_pose.base_height (>= 0) overrides the spawn z; else fall
+            # back to actor.init_pos_z, else the model's nominal base z.
+            if self._init_base_height >= 0.0:
+                spawn_z = self._init_base_height
+            elif self._d.init_pos_z > 0:
+                spawn_z = self._d.init_pos_z
+            else:
+                spawn_z = self._nominal_base_z
             sku = str(getattr(self._robot, "sku", "") or "")
             if sku:
                 from application.service.robot_assets.runtime import (
@@ -694,15 +882,35 @@ class GenericMujocoEnv(_GymEnvBase):
                 self._d.init_pos_x, self._d.init_pos_y, spawn_z,
             )
             self._data.qpos[3:7] = (1.0, 0.0, 0.0, 0.0)  # wxyz identity
-        # Apply default joint angles (zeros for now; Stage 4 actor.joint_init
-        # would feed RobotSpec joint defaults here)
+        # Apply init-pose joint angles (mode-resolved: default / keyframe /
+        # custom — see _resolve_init_pose) plus optional Gaussian jitter so
+        # the policy sees a spread of starts (IsaacLab init_pose.noise_scale).
         if self._model.nq >= 7 + self._action_dim:
-            self._data.qpos[7:7 + self._action_dim] = self._default_qpos_actuated
+            joints = np.asarray(self._init_joint_target, dtype=np.float64).copy()
+            if self._init_noise_scale > 0.0:
+                joints = joints + self.np_random.normal(
+                    0.0, self._init_noise_scale, size=joints.shape)
+            self._data.qpos[7:7 + self._action_dim] = joints
+        # Reset-time state DR (P2): perturb base xy/yaw + joint pos/vel around
+        # the placed init pose before the forward pass.
+        self._apply_reset_state_noise()
         self._mujoco.mj_forward(self._model, self._data)
         self._step_count = 0
         self._push_step_counter = 0
+        # Per-episode command (re)sample (P3). Frozen-command canvases keep
+        # the fixed target; otherwise draw from the envelope + schedule the
+        # next in-episode resample.
+        if self._command_sampling_active():
+            self._command = self._sample_command()
+            self._schedule_next_resample()
         self._action.fill(0.0)
         self._last_action.fill(0.0)
+        # Clear per-term obs history rings so each episode starts fresh
+        # (re-primed with the first frame on the next _build_obs).
+        for _buf in self._obs_term_hist.values():
+            _buf.clear()
+        for _name in self._obs_term_hist_init:
+            self._obs_term_hist_init[_name] = False
         self._refresh_state_cache()
         return self._build_obs(), {"asset_source": self._asset_source}
 
@@ -757,6 +965,19 @@ class GenericMujocoEnv(_GymEnvBase):
                 self._pd_kp_array * (target - q)
                 - self._pd_kd_array * qdot
             )
+            # Mirror deploy pd_controller.compute: DCMotor velocity envelope
+            # (when velocity_limit set) THEN hard clip to effort_limit. Keeps
+            # train == deploy torque saturation (CLAUDE.md §10/§8).
+            if self._saturation_effort_arr is not None:
+                avail = self._saturation_effort_arr * np.maximum(
+                    0.0,
+                    1.0 - np.abs(qdot) / np.maximum(self._velocity_limit_arr, 1e-9),
+                )
+                joint_torque = np.clip(joint_torque, -avail, avail)
+            if self._effort_limit_arr is not None:
+                joint_torque = np.clip(
+                    joint_torque, -self._effort_limit_arr, self._effort_limit_arr
+                )
             self._data.ctrl[:self._action_dim] = joint_torque / self._actuator_gear
             self._mujoco.mj_step(self._model, self._data)
             # Push is a single-tick impulse — clear after the first substep
@@ -767,6 +988,22 @@ class GenericMujocoEnv(_GymEnvBase):
         self._step_count += 1
         self._dr_global_step += 1
         self._refresh_state_cache()
+
+        # In-episode command resample (P3): on the scheduled interval tick or
+        # with the per-step change probability. Applies to this step's reward
+        # + obs (matches IsaacLab's pre-step command manager refresh).
+        if self._command_sampling_active():
+            due = (
+                self._cmd_next_resample > 0
+                and self._step_count >= self._cmd_next_resample
+            )
+            jump = (
+                self._cmd_step_change_prob > 0.0
+                and float(self.np_random.random()) < self._cmd_step_change_prob
+            )
+            if due or jump:
+                self._command = self._sample_command()
+                self._schedule_next_resample()
 
         terminated = bool(self._termination_fn(self))
         truncated = self._step_count >= self._d.max_episode_steps
@@ -838,12 +1075,282 @@ class GenericMujocoEnv(_GymEnvBase):
     # Internals
     # ------------------------------------------------------------------
 
+    def _compose_custom_terrain_model(self, mjcf_path: str, custom_cfg):
+        """Build the MjModel with a user heightfield injected into the robot
+        MJCF. Fail-loud throughout (PV 修正 1 / §8) — never returns a flat
+        model when custom terrain was requested.
+
+        The canvas always stores the canonical heightfield ``.npz`` (PNG/.npy
+        imports are converted at import time), so the npz loader is used
+        directly; it validates the array and recomputes the sha256, which is
+        cross-checked against the spec's recorded digest when present.
+        """
+        from application.training.terrain.loaders.npz import NpzHeightFieldLoader
+        from application.training.terrain.mujoco_lowering import (
+            compose_model_with_terrain,
+        )
+
+        src = str(getattr(custom_cfg, "source_path", "") or "").strip()
+        if not src:
+            raise RuntimeError(
+                "[envs] custom terrain enabled but source_path is empty — the "
+                "Play Ground Setting node has no imported heightfield (§8)."
+            )
+        contract = NpzHeightFieldLoader().load(src)  # validates + sha256
+        expected = str(getattr(custom_cfg, "sha256", "") or "").strip()
+        if expected and contract.source_info.sha256 != expected:
+            raise RuntimeError(
+                f"[envs] custom terrain sha256 mismatch for {src!r}: spec "
+                f"{expected!r} != asset {contract.source_info.sha256!r}. The "
+                f"heightfield changed since the canvas recorded it (§8)."
+            )
+        return compose_model_with_terrain(mjcf_path, contract.height_field)
+
+    def _check_action_joint_coverage(self, actor_config) -> None:
+        """Fail loud (§8) when ``action_joint_names_expr`` selects a strict
+        subset of the actuated joints — SB3 actuates all of them, so a subset
+        request would be silently ignored.
+
+        Each expr item is an IR role, a physical/actuator name, or a regex
+        (mirrors the IsaacLab matching). An empty expr means "all joints" and
+        is the common, supported case (no-op here).
+        """
+        expr = list(getattr(actor_config, "action_joint_names_expr", None) or []) \
+            if actor_config is not None else []
+        if not expr:
+            return
+        import re as _re
+
+        names_per_actuator: List[List[str]] = []
+        for i in range(self._action_dim):
+            cands: List[str] = []
+            if i < len(self._actuator_names) and self._actuator_names[i]:
+                cands.append(str(self._actuator_names[i]))
+            if i < len(self._joint_order_physical) and self._joint_order_physical[i]:
+                cands.append(str(self._joint_order_physical[i]))
+            if i < len(self._joint_ir_roles) and self._joint_ir_roles[i]:
+                cands.append(str(self._joint_ir_roles[i]))
+            names_per_actuator.append(cands)
+
+        def _matches(entry: str, cands: List[str]) -> bool:
+            for c in cands:
+                if entry == c:
+                    return True
+                try:
+                    if _re.fullmatch(entry, c):
+                        return True
+                except _re.error:
+                    pass
+            return False
+
+        unmatched = [
+            i for i, cands in enumerate(names_per_actuator)
+            if not any(_matches(str(e), cands) for e in expr)
+        ]
+        if unmatched:
+            sample = [
+                (self._actuator_names[i] if i < len(self._actuator_names) else f"act_{i}")
+                for i in unmatched
+            ]
+            raise ValueError(
+                f"[envs] actor.action_joint_names_expr={expr!r} selects a "
+                f"strict subset of the {self._action_dim} actuated joints — "
+                f"{len(unmatched)} joint(s) are left uncontrolled (e.g. "
+                f"{sample[:5]}). The SB3 backend actuates every joint; partial "
+                f"joint actuation (action_dim decoupled from the joint count) "
+                f"is not implemented for SB3. Match all actuated joints (e.g. "
+                f"leave the expression empty / use '.*'), or train on IsaacLab. "
+                f"(CLAUDE.md §8 — refusing to silently control all joints.)"
+            )
+
+    def _resolve_command_config(self, motion_config, command_mode: str) -> None:
+        """Resolve the per-episode command envelope (P3).
+
+        Sources: ``MotionConfig`` (resampling_time_range / zero_command_prob /
+        cmd_step_change_prob / training_items command_ranges) +
+        ``task.command_mode``. When there is no motion node (motion_config is
+        None), the command stays frozen at the fixed target — the legacy
+        contract for command-less canvases.
+        """
+        from application.training.envs.item_resolver import _channel_range
+
+        self._cmd_fixed = np.asarray(self._command, dtype=np.float32).copy()
+        self._cmd_mode = (command_mode or "fixed").strip().lower()
+        self._cmd_zero_prob = 0.0
+        self._cmd_step_change_prob = 0.0
+        self._cmd_resample_steps: Tuple[int, int] = (0, 0)
+        self._cmd_item_ranges: List[Dict[int, Tuple[float, float]]] = []
+        # Launcher-injected curriculum magnitude scale (1.0 = full command).
+        self._command_curriculum_scale: float = 1.0
+        self._cmd_next_resample: int = 0
+
+        if motion_config is None:
+            return
+
+        zero_prob = float(getattr(motion_config, "zero_command_probability", 0.0) or 0.0)
+        self._cmd_zero_prob = min(max(zero_prob, 0.0), 1.0)
+        self._cmd_step_change_prob = float(
+            getattr(motion_config, "cmd_step_change_prob", 0.0) or 0.0
+        )
+        rs = getattr(motion_config, "resampling_time_range", None)
+        if isinstance(rs, (list, tuple)) and len(rs) == 2:
+            control_dt = max(float(self._d.control_dt), 1e-6)
+            lo = max(0, int(round(float(rs[0]) / control_dt)))
+            hi = max(lo, int(round(float(rs[1]) / control_dt)))
+            self._cmd_resample_steps = (lo, hi)
+        # Per-item command_ranges → uniform sampling envelope (used when
+        # command_mode == "random" or any resampling is configured).
+        items = getattr(motion_config, "training_items", None) or {}
+        if isinstance(items, dict):
+            for payload in items.values():
+                chan = _channel_range(payload or {})
+                if chan:
+                    self._cmd_item_ranges.append(chan)
+
+    def _command_sampling_active(self) -> bool:
+        """True when the env should (re)sample the command rather than freeze
+        it. Active in random mode, or whenever an interval / step-change /
+        zero-command probability is configured."""
+        return (
+            self._cmd_mode == "random"
+            or self._cmd_resample_steps[1] > 0
+            or self._cmd_step_change_prob > 0.0
+            or self._cmd_zero_prob > 0.0
+        )
+
+    def _sample_command(self) -> np.ndarray:
+        """Draw one command vector [vx, vy, wyaw] from the envelope.
+
+        Zero-command (standing) with prob ``zero_command_probability``; else
+        sample uniformly within a randomly-chosen item's per-channel ranges
+        when available, else the fixed target. The result is scaled by the
+        launcher-injected curriculum factor.
+        """
+        cmd = self._cmd_fixed.copy()
+        if self._cmd_zero_prob > 0.0 and float(self.np_random.random()) < self._cmd_zero_prob:
+            return np.zeros(3, dtype=np.float32)
+        if self._cmd_item_ranges:
+            ranges = self._cmd_item_ranges[
+                int(self.np_random.integers(0, len(self._cmd_item_ranges)))
+            ]
+            cmd = np.zeros(3, dtype=np.float32)
+            for idx, (lo, hi) in ranges.items():
+                cmd[idx] = np.float32(self.np_random.uniform(lo, hi))
+        scale = float(getattr(self, "_command_curriculum_scale", 1.0) or 1.0)
+        return (cmd * np.float32(scale)).astype(np.float32)
+
+    def _schedule_next_resample(self) -> None:
+        lo, hi = self._cmd_resample_steps
+        if hi > 0:
+            span = int(self.np_random.integers(lo, hi + 1)) if hi > lo else lo
+            self._cmd_next_resample = self._step_count + max(1, span)
+        else:
+            self._cmd_next_resample = 0  # interval disabled
+
+    def set_command_curriculum_scale(self, scale: float) -> None:
+        """Launcher hook: set the command-magnitude curriculum factor in
+        [0, 1]. Applied to subsequently-sampled commands (used by the SB3
+        command-curriculum callback)."""
+        self._command_curriculum_scale = float(max(0.0, min(1.0, scale)))
+
+    def set_reward_blend(self, alpha: float) -> None:
+        """Launcher hook (P6): set the stage-0 → stage-1 reward blend factor
+        in [0, 1]. No-op when no stage-1 reward closure was wired."""
+        self._reward_blend_alpha = float(max(0.0, min(1.0, alpha)))
+
+    def _resolve_init_pose(self, actor_config) -> None:
+        """Resolve ``actor.init_pose`` into the per-reset spawn target (P5).
+
+        Sets ``self._init_joint_target`` (actuator-order joint angles applied
+        each reset), ``self._init_noise_scale`` (Gaussian jitter std on those
+        angles), and ``self._init_base_height`` (>= 0 overrides spawn z; -1 =
+        auto). Modes:
+
+          * ``default``  — RobotSpec/joint_init defaults (``_default_qpos_actuated``).
+          * ``keyframe`` — MJCF keyframe ``keyframe_name`` joint block.
+          * ``custom``   — explicit ``custom_qpos`` (len == action_dim joint
+            angles, or len == nq full qpos). Fail-loud on a length mismatch.
+          * ``reference_frame_0`` — RSI; rejected here (needs motion clips;
+            F5 also gates it at validation).
+        """
+        n = self._action_dim
+        self._init_joint_target = np.asarray(self._default_qpos_actuated, dtype=np.float64).copy()
+        self._init_noise_scale = 0.0
+        self._init_base_height = -1.0
+
+        init_pose = getattr(actor_config, "init_pose", None) if actor_config is not None else None
+        if init_pose is None:
+            return
+        mode = (getattr(init_pose, "mode", "default") or "default").strip().lower()
+        self._init_noise_scale = float(getattr(init_pose, "noise_scale", 0.0) or 0.0)
+        self._init_base_height = float(getattr(init_pose, "base_height", -1.0))
+
+        if mode in ("default", ""):
+            return
+        if mode == "reference_frame_0":
+            raise ValueError(
+                "[envs] init_pose.mode='reference_frame_0' (RSI) needs reference "
+                "motion clips, which the SB3 backend cannot replay. Use "
+                "'default' / 'keyframe' / 'custom', or train on IsaacLab. "
+                "(CLAUDE.md §8; validation rule F5 also blocks this.)"
+            )
+        if mode == "keyframe":
+            kf_name = str(getattr(init_pose, "keyframe_name", "") or "").strip()
+            kid = -1
+            if kf_name:
+                kid = int(self._mujoco.mj_name2id(
+                    self._model, self._mujoco.mjtObj.mjOBJ_KEY, kf_name))
+            if kid < 0:
+                raise ValueError(
+                    f"[envs] init_pose.mode='keyframe' but the MJCF has no "
+                    f"keyframe named {kf_name!r} "
+                    f"(nkey={int(self._model.nkey)}). Add the keyframe to the "
+                    f"asset or pick another init_pose mode (CLAUDE.md §8)."
+                )
+            kq = np.asarray(self._model.key_qpos[kid], dtype=np.float64)
+            if kq.shape[0] >= 7 + n:
+                self._init_joint_target = kq[7:7 + n].copy()
+            else:
+                raise ValueError(
+                    f"[envs] keyframe {kf_name!r} qpos length {kq.shape[0]} is "
+                    f"too short for 7 + {n} actuated joints."
+                )
+            return
+        if mode == "custom":
+            custom = list(getattr(init_pose, "custom_qpos", None) or [])
+            if len(custom) == n:
+                self._init_joint_target = np.asarray(custom, dtype=np.float64)
+            elif len(custom) == int(self._model.nq) and self._model.nq >= 7 + n:
+                self._init_joint_target = np.asarray(custom[7:7 + n], dtype=np.float64)
+            else:
+                raise ValueError(
+                    f"[envs] init_pose.mode='custom' but custom_qpos length "
+                    f"{len(custom)} matches neither action_dim ({n}) nor full "
+                    f"qpos ({int(self._model.nq)}). Fix custom_qpos (CLAUDE.md §8)."
+                )
+            return
+        raise ValueError(
+            f"[envs] unknown init_pose.mode {mode!r} — expected default / "
+            f"keyframe / custom / reference_frame_0."
+        )
+
     def _refresh_state_cache(self) -> None:
         if self._model.nq >= 7:
             self._base_pos = np.asarray(self._data.qpos[:3], dtype=np.float64)
             self._base_quat = np.asarray(self._data.qpos[3:7], dtype=np.float64)  # wxyz
         if self._model.nv >= 6:
-            self._lin_vel = np.asarray(self._data.qvel[:3], dtype=np.float64)
+            # velocity_tracking / lateral rewards compare against the
+            # BODY-frame command [vx, vy, wz]; the MuJoCo free-joint linear
+            # velocity qvel[:3] is WORLD-frame, so rotate it into the body
+            # frame (same R^T as the obs engine's base_lin_vel and Isaac Lab's
+            # root_lin_vel_b). Pre-fix the reward compared world-vs-body, which
+            # mis-scored any run where the base yawed away from +x. Angular
+            # velocity qvel[3:6] is already body-frame for a free joint
+            # (obs_term_engine._t_base_ang_vel), so it stays unrotated.
+            world_lin = np.asarray(self._data.qvel[:3], dtype=np.float64)
+            self._lin_vel = self._obs_eng.world_to_body(
+                self._base_quat, world_lin
+            ).astype(np.float64)
             self._ang_vel = np.asarray(self._data.qvel[3:6], dtype=np.float64)
         self._proj_gravity = _project_gravity_wxyz(self._base_quat)
         self._qpos = np.asarray(
@@ -904,7 +1411,10 @@ class GenericMujocoEnv(_GymEnvBase):
             )
 
         try:
-            from application.physics.mujoco_gain_solver import solve as _solve
+            from application.physics.mujoco_gain_solver import (
+                effective_inertia_diag as _eff_inertia,
+                solve as _solve,
+            )
         except Exception as exc:
             log_warning(
                 f"[envs] mujoco_gain_solver import failed ({exc!r}); "
@@ -915,17 +1425,35 @@ class GenericMujocoEnv(_GymEnvBase):
                 np.full(n, float(d_pd_kd), dtype=np.float64),
             )
 
-        # mj_fullM at the current qpos (already at nominal at __init__
-        # time; at reset time the DR block writes the new masses BEFORE
-        # we get here, so M reflects the current episode's parameters).
-        nominal_qpos = np.array(self._data.qpos, dtype=np.float64)
+        # Effective inertia is evaluated ONCE at the CANONICAL nominal stance
+        # and cached. ``nominal_qpos=None`` makes effective_inertia_diag pick
+        # the MJCF keyframe-0 (the asset's "home" stance) — exactly what the
+        # rest of the chain uses: bundle_exporter (nominal_qpos=None), the
+        # PhysX env_cfg_compiler (nominal_qpos=None, stamped into
+        # deploy_meta.m_eff_source), the MuJoCo bundle_finalizer (pins to that
+        # stamped qpos_ref), and sim2sim_calibration. Deriving gains at this
+        # env's transient reset qpos instead — which is qpos0 / straight-legs,
+        # because reset()'s _apply_domain_randomization runs the PD re-solve
+        # BEFORE the init-pose joint angles are written (line ~822) — made SB3
+        # training gains diverge ~70% from the deployed bundle on robots whose
+        # home keyframe ≠ qpos0 (e.g. Go2's standing crouch [0, 0.9, -1.8]).
+        # That was a CLAUDE.md §10 train≠deploy bug. m_eff = M_diag(q₀) is
+        # invariant to (ωn, ζ) and to the unchanged MJCF, so caching once is
+        # exact and reset/DR re-solves reuse it (no per-episode MJCF re-parse).
         try:
+            if self._m_eff_cache is None:
+                self._m_eff_cache = _eff_inertia(
+                    mjcf_path=Path(self._mjcf_loaded_path),
+                    joint_order_physical=list(self._joint_order_physical),
+                    nominal_qpos=None,
+                )
             gains = _solve(
                 mjcf_path=Path(self._mjcf_loaded_path),
                 joint_order_physical=list(self._joint_order_physical),
                 joint_ir_roles=list(self._joint_ir_roles),
-                nominal_qpos=nominal_qpos,
+                nominal_qpos=None,
                 pd_param=self._pd_param,
+                precomputed_inertia=self._m_eff_cache,
             )
         except Exception as exc:
             log_warning(
@@ -1000,8 +1528,19 @@ class GenericMujocoEnv(_GymEnvBase):
         """
         if self._item_resolver is None:
             if self._reward_fn_rich is not None:
-                total, breakdown = self._reward_fn_rich(self)
-                return float(total), dict(breakdown), {}, ""
+                total0, bd0 = self._reward_fn_rich(self)
+                # Multi-stage blend (P6): linearly cross-fade stage-0 → stage-1.
+                if self._reward_fn_rich_stage1 is not None and self._reward_blend_alpha > 0.0:
+                    a = float(self._reward_blend_alpha)
+                    total1, bd1 = self._reward_fn_rich_stage1(self)
+                    total = (1.0 - a) * float(total0) + a * float(total1)
+                    breakdown: Dict[str, float] = {}
+                    for k, v in bd0.items():
+                        breakdown[k] = (1.0 - a) * float(v)
+                    for k, v in bd1.items():
+                        breakdown[k] = breakdown.get(k, 0.0) + a * float(v)
+                    return float(total), breakdown, {}, ""
+                return float(total0), dict(bd0), {}, ""
             return float(self._reward_fn(self)), {}, {}, ""
         weights = self._item_resolver.weights(self._command)
         total = 0.0
@@ -1027,34 +1566,73 @@ class GenericMujocoEnv(_GymEnvBase):
         return float(total), term_breakdown, item_breakdown, active_item
 
     def _build_obs(self) -> np.ndarray:
-        n = self._action_dim
-        out = np.zeros(self._obs_dim, dtype=np.float32)
-        i = 0
-        out[i:i + 3] = self._ang_vel.astype(np.float32); i += 3
-        out[i:i + 3] = self._proj_gravity.astype(np.float32); i += 3
-        out[i:i + n] = self._qpos.astype(np.float32); i += n
-        out[i:i + n] = self._qvel.astype(np.float32); i += n
-        out[i:i + n] = self._action.astype(np.float32); i += n
-        out[i:i + 3] = self._command.astype(np.float32); i += 3
+        # Obs is assembled term-by-term through the shared obs_term_engine.
+        # The env runs in MJCF actuator order == joint_ir_roles order, so the
+        # joint permutation is identity (joint_permute=None) and
+        # default_joint_pos is the actuator-order spawn pose — the same array
+        # the deploy contract carries in IR-role order.
+        inp = self._obs_eng.MujocoObsInputs(
+            mj_model=self._model,
+            mj_data=self._data,
+            num_joints=self._action_dim,
+            action_dim=self._action_dim,
+            last_action=self._action,
+            command=self._command,
+            default_joint_pos=np.asarray(
+                self._default_qpos_actuated, dtype=np.float32
+            ),
+            convention="isaac_lab",
+            wants_relative_joint_pos=True,
+            joint_permute=None,
+        )
+        parts: List[np.ndarray] = []
+        for term in self._obs_layout:
+            raw = self._obs_eng.compute_term(term.name, inp)
+            if isinstance(term.scale, (list, tuple)):
+                raw = raw * np.asarray(term.scale, dtype=np.float32)
+            elif term.scale != 1.0:
+                raw = raw * np.float32(term.scale)
+            if term.clip is not None:
+                raw = np.clip(raw, np.float32(term.clip[0]), np.float32(term.clip[1]))
+            if term.history_length > 1:
+                buf = self._obs_term_hist[term.name]
+                if not self._obs_term_hist_init.get(term.name, False):
+                    for _ in range(term.history_length):
+                        buf.append(raw.copy())
+                    self._obs_term_hist_init[term.name] = True
+                else:
+                    buf.append(raw.copy())
+                parts.append(np.concatenate(list(buf)).astype(np.float32))
+            else:
+                parts.append(raw.astype(np.float32))
+
+        # Per-item critic tail: cmd_norm + active_item_onehot. SB3-specific
+        # privileged signal; appended after the term-driven obs, ordered by
+        # ItemResolver.item_ids so the trained input permutation can't drift.
         if self._expose_active_item_obs and self._item_resolver is not None:
-            # cmd_norm: L2 norm of the [vx, vy, wyaw] command. Critic uses
-            # this to predict the per-item reward boundary cross-fade.
             cmd_norm = float(np.linalg.norm(self._command))
-            out[i] = np.float32(cmd_norm); i += 1
-            # active_item_onehot, ordered by ItemResolver.item_ids. We use
-            # the last step's weight distribution so the critic sees the
-            # *blend*, not just the argmax — that's the signal that matches
-            # the reward it actually received this step.
+            tail = [np.float32(cmd_norm)]
             for iid in self._item_resolver.item_ids:
-                out[i] = np.float32(self._last_item_weights.get(iid, 0.0))
-                i += 1
+                tail.append(np.float32(self._last_item_weights.get(iid, 0.0)))
+            parts.append(np.asarray(tail, dtype=np.float32))
+
+        out = (
+            np.concatenate(parts).astype(np.float32)
+            if parts else np.zeros(0, dtype=np.float32)
+        )
+        if out.shape[0] != self._obs_dim:
+            raise RuntimeError(
+                f"[envs] built obs dim {out.shape[0]} != self._obs_dim "
+                f"{self._obs_dim} — obs layout / item-tail accounting is "
+                f"inconsistent (CLAUDE.md §8)."
+            )
+
         # Per-component obs clip (separate from VecNormalize's whole-vector
-        # clip configured on env_assembler). 0 disables clipping.
+        # clip on env_assembler; and from per-term clip above). 0 disables.
         if self._d.obs_clip_range > 0.0:
             np.clip(out, -self._d.obs_clip_range, self._d.obs_clip_range, out=out)
-        # Domain-randomization additive Gaussian obs noise (after clip so
-        # the noise is what the policy actually sees, not what gets clipped
-        # off the tails).
+        # DR additive Gaussian obs noise (after clip so the noise is what the
+        # policy actually sees, not what gets clipped off the tails).
         std = self._dr_noise_std_effective()
         if std > 0.0:
             noise = self.np_random.normal(0.0, std, size=out.shape).astype(np.float32)
@@ -1101,6 +1679,44 @@ class GenericMujocoEnv(_GymEnvBase):
         else:
             sample = float(self.np_random.uniform(lo, hi))
         return 1.0 + float(alpha) * (sample - 1.0)
+
+    def _apply_reset_state_noise(self) -> None:
+        """Reset-time state randomization (P2): jitter base xy + yaw and add
+        per-joint position / velocity noise. Called AFTER the init pose is
+        placed (so it perturbs around it), gated by the DR enable flags and
+        the schedule alpha. Disabled-by-default knobs leave the state
+        byte-unchanged (legacy parity)."""
+        cfg = self._dr_cfg
+        if cfg is None or not cfg.enabled:
+            return
+        alpha = self._dr_alpha()
+        if alpha <= 0.0:
+            return
+        import math as _m
+
+        if cfg.init_pose_rand_enabled and self._model.nq >= 7:
+            if cfg.init_pos_x_range is not None:
+                self._data.qpos[0] += alpha * float(
+                    self.np_random.uniform(*cfg.init_pos_x_range))
+            if cfg.init_pos_y_range is not None:
+                self._data.qpos[1] += alpha * float(
+                    self.np_random.uniform(*cfg.init_pos_y_range))
+            if cfg.init_yaw_range is not None:
+                yaw = alpha * float(self.np_random.uniform(*cfg.init_yaw_range))
+                # Base quat is identity at reset → a pure yaw quaternion.
+                self._data.qpos[3] = _m.cos(0.5 * yaw)
+                self._data.qpos[4] = 0.0
+                self._data.qpos[5] = 0.0
+                self._data.qpos[6] = _m.sin(0.5 * yaw)
+
+        if cfg.joint_noise_enabled and self._model.nq >= 7 + self._action_dim:
+            n = self._action_dim
+            if cfg.joint_pos_noise > 0.0:
+                self._data.qpos[7:7 + n] += alpha * self.np_random.uniform(
+                    -cfg.joint_pos_noise, cfg.joint_pos_noise, size=n)
+            if cfg.joint_vel_noise > 0.0:
+                self._data.qvel[6:6 + n] += alpha * self.np_random.uniform(
+                    -cfg.joint_vel_noise, cfg.joint_vel_noise, size=n)
 
     def _apply_domain_randomization(self) -> None:
         """Restore MJCF baseline, then re-apply per-episode randomized
@@ -1362,6 +1978,28 @@ def make_env(
         elif terms:
             reward_fn_rich = build_reward_fn_with_breakdown(terms)
 
+    # Multi-stage reward (P6): when a multigated_reward node produced a
+    # 2-stage schedule (rewards.stages = [stage0, stage1]) and the schedule
+    # declares a stage-0 budget, build the stage-1 closure too so the env can
+    # cross-fade. stage_behavior 'accumulate' merges stage-0 terms into stage-1.
+    reward_fn_rich_stage1 = None
+    sched_cfg = getattr(spec, "stage_schedule", None)
+    if (
+        reward_fn_rich is not None
+        and rewards_cfg is not None
+        and sched_cfg is not None
+        and int(getattr(sched_cfg, "max_step_stage0", 0) or 0) > 0
+    ):
+        stages = getattr(rewards_cfg, "stages", None) or []
+        if len(stages) >= 2 and stages[1]:
+            stage1_terms = dict(stages[1])
+            behavior = str(getattr(sched_cfg, "stage_behavior", "replace") or "replace").lower()
+            if behavior == "accumulate":
+                merged = dict(stages[0] or {})
+                merged.update(stage1_terms)
+                stage1_terms = merged
+            reward_fn_rich_stage1 = build_reward_fn_with_breakdown(stage1_terms)
+
     termination_fn = None
     term_cfg = getattr(spec, "terminations", None)
     if term_cfg is not None:
@@ -1379,8 +2017,14 @@ def make_env(
         control_dt=control_dt,
         max_episode_steps=max_steps,
         commands=cmd,
+        motion_config=motion_cfg,
+        command_mode=(
+            str(getattr(task_cfg, "command_mode", "fixed") or "fixed")
+            if task_cfg is not None else "fixed"
+        ),
         seed=seed,
         reward_fn_rich=reward_fn_rich,
+        reward_fn_rich_stage1=reward_fn_rich_stage1,
         termination_fn=termination_fn,
         render_mode=render_mode,
         terms_by_item=terms_by_item,

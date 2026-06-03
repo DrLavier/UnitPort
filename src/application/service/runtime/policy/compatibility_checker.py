@@ -281,16 +281,24 @@ class CompatibilityChecker:
                 field="deploy_contract.joint_sdk_names",
             ))
 
-        # DC3
-        contract_obs_dim = sum(
+        # DC3 — use the contract's own ``total_obs_dim`` (the single source of
+        # truth) so the per-item obs TAIL is counted. SB3 per-item-reward
+        # bundles append ``[cmd_norm, weight per item]`` (per_item_obs.tail_dim
+        # = 1 + n_items) to the policy obs, so the network input (bundle.obs_dim)
+        # is ``sum(observation terms) + tail``. Summing only the observation
+        # terms here falsely flagged every per-item bundle as a dim mismatch.
+        base_obs_dim = sum(
             t.dim * t.history_length for t in contract.observations.values()
         )
+        contract_obs_dim = contract.total_obs_dim
         if contract_obs_dim != bundle.obs_dim:
+            tail = contract_obs_dim - base_obs_dim
             issues.append(CompatIssue(
                 code="deploy_contract_obs_dim_mismatch",
                 message=(
-                    f"deploy_contract observations sum to {contract_obs_dim} "
-                    f"(dim × history_length) but bundle.obs_dim={bundle.obs_dim}"
+                    f"deploy_contract obs total {contract_obs_dim} "
+                    f"(terms {base_obs_dim} dim × history_length + per-item "
+                    f"tail {tail}) but bundle.obs_dim={bundle.obs_dim}"
                 ),
                 severity=CompatStatus.FAIL,
                 field="deploy_contract.observations",

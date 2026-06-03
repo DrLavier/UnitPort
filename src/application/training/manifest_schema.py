@@ -241,6 +241,20 @@ def validate_manifest(raw: Dict[str, Any], bundle_path: Optional[Path] = None) -
                 bundle_path=bundle_path,
             ) from exc
 
+    # joint_array_format (optional): articulation order of the bundle's
+    # per-joint arrays. When present it MUST be a known asset-format key —
+    # the deploy stack keys joint reorder/validation off it (see
+    # joint_space.resolve_joint_array_format). Absent = legacy bundle
+    # (inferred at load).
+    if "joint_array_format" in raw:
+        jaf = raw.get("joint_array_format")
+        if not isinstance(jaf, str) or jaf.strip().upper() not in (
+            "MJCF", "USD", "URDF",
+        ):
+            invalid["joint_array_format"] = (
+                f"must be one of MJCF/USD/URDF when present, got {jaf!r}"
+            )
+
     if invalid:
         raise ManifestValidationError(
             f"Manifest has invalid fields: {list(invalid.keys())}",

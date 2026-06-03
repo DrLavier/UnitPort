@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from application.compiler.nodes import (
+    manifest_from_toml,
     NODE_MANIFEST_SCHEMA,
     BaseNode,
     NodeKind,
@@ -38,99 +39,7 @@ class RobotNode(BaseNode):
     # valid body list / joint mapping. Mirrors DEMO ``_INIT_ASSET_ID``.
     _INIT_ASSET_ID = "unitree_go2"
 
-    MANIFEST = NodeManifest(
-        schema=NODE_MANIFEST_SCHEMA,
-        id="robot",
-        kind=NodeKind.CUSTOM,
-        version="1.0.0",
-        category="config",
-        layer="A",
-        display_name_key="node.robot.display",
-        description_key="node.robot.desc",
-        icon="robot.svg",
-        inputs=[],
-        outputs=[
-            PortSpec(
-                name="robot_pipe", type="robot_pipe",
-                description="Bundles asset identity, joint_names, body list, defaults",
-            ),
-        ],
-        parameters=[
-            ParamSpec(
-                key="asset_id", type="string", default="unitree_go2",
-                widget="picker_robot_asset",
-                description="资产 id / Robot asset id (registry-backed picker)",
-                meta={"registry_id": "robots", "pin_on_collapse": True},
-            ),
-            ParamSpec(
-                key="active_override", type="enum", default="auto",
-                choices=["auto", "mjcf", "usd", "urdf"],
-                widget="active_file_table",
-                description="格式覆盖 / Active asset format override (3-row file-type table)",
-            ),
-            ParamSpec(
-                key="body_mapping", type="json", default="",
-                widget="body_mapping_table",
-                description="body→IR-role 映射 (auto-resolved) / Body→IR-role mapping",
-            ),
-            ParamSpec(
-                key="_mjcf_base_offset_status", type="string", default="",
-                widget="mjcf_offset_badge",
-                description="MJCF 落地偏移 / MJCF base spawn-Z offset (auto-calibrated; read-only status)",
-            ),
-            # ── PD parameterization (sim2sim_mass-matrix-adaptive) ──
-            # Merged from ex-ActuatorPDNode (which lived as a separate
-            # canvas node for one iteration before consolidating onto
-            # RobotNode — the params are robot-bound by nature and the
-            # extra node was redundant graph topology).
-            #
-            # ALL FIELDS ARE OPTIONAL. Empty pd_groups ({}) means "use
-            # family defaults" for every group, loaded from
-            # registers/data/pd_groups_defaults.json (e.g. quadruped:
-            # hip_x ωn=25/ζ=1.0, hip_y ωn=35/ζ=0.8, knee ωn=35/ζ=0.8).
-            # To override a single group, write
-            # {"knee": {"omega_n": 40}} — other groups still use defaults.
-            ParamSpec(
-                key="pd_param_mode", type="enum", default="natural_freq",
-                choices=["natural_freq"],
-                description="PD 参数化模式 / PD parameterization mode",
-            ),
-            ParamSpec(
-                key="pd_groups", type="json", default="{}",
-                widget="pd_param_table",
-                description="按关节组覆盖 (omega_n, zeta)；空 {} = 全用 family 默认 / Per-group overrides; empty = family defaults",
-                meta={"language": "json"},
-            ),
-            # effort_limit / velocity_limit — actuator torque/velocity caps.
-            # Moved here from ActorSetting (2026-05) so all actuator/PD editing
-            # lives on one node alongside (omega_n, zeta). Hidden params: no
-            # inline row — edited only inside the pd_param_table panel above,
-            # which writes them via the sibling/hidden-param write path. Both
-            # engines (IsaacLab env_cfg + SB3 bundle) read these from RobotNode.
-            ParamSpec(
-                key="effort_limit", type="float", default=30.0,
-                description="扭矩上限 / Effort (torque) limit (N·m)",
-                meta={"hidden": True},
-            ),
-            ParamSpec(
-                key="velocity_limit", type="float", default=30.0,
-                description="速度上限 / Joint velocity limit (rad/s)",
-                meta={"hidden": True},
-            ),
-            ParamSpec(
-                key="pd_resolve_at_reset", type="bool", default=True,
-                description="每次 reset 重算 PD / Re-solve gains after each DR reset",
-            ),
-            ParamSpec(
-                key="pd_calibration_blocking", type="bool", default=True,
-                description="校准失败阻断 bundle / Block bundle export on calibration fail",
-            ),
-            ParamSpec(
-                key="pd_skip_calibration", type="bool", default=False,
-                description="跳过 step-response 校准 / Skip calibration",
-            ),
-        ],
-    )
+    MANIFEST = manifest_from_toml(__file__)
 
     # ---- 运行时 ----
 
@@ -182,7 +91,7 @@ class RobotNode(BaseNode):
         # Hoisted above mapper construction (Stage 3): the mapper is now
         # format-bound, so we need active_format before building it.
         override = str(params.get("active_override", "auto") or "auto").strip().lower()
-        backend = str(params.get("backend", "sb3") or "sb3").strip()
+        backend = str(params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
 
         def _avail(kind: str) -> bool:
             if getattr(asset, f"{kind}_path", None) is not None:

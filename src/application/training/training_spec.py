@@ -39,12 +39,20 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 @dataclass
 class PolicyNetConfig:
-    """``il_policy_network`` actor/critic MLP architecture."""
+    """``il_policy_network`` actor/critic architecture.
+
+    缺口① — ``rnn_type`` selects a recurrent (GRU/LSTM) actor; ``"none"``
+    keeps the feed-forward MLP (default, byte-identical to the pre-recurrent
+    path). The recurrent fields are inert when ``rnn_type == "none"``.
+    """
 
     actor_hidden_dims: List[int] = field(default_factory=lambda: [128, 64, 32])
     critic_hidden_dims: List[int] = field(default_factory=lambda: [128, 64, 32])
     activation: str = "elu"
     init_noise_std: float = -1.0  # -1 = auto
+    rnn_type: str = "none"        # "none" | "gru" | "lstm"
+    rnn_hidden_size: int = 256
+    rnn_num_layers: int = 1
 
 
 @dataclass
@@ -100,8 +108,14 @@ class AlgorithmConfig:
     algorithm: str = "PPO"               # "PPO" | "SAC" | "TD3"
     training_mode: str = "PPO"           # "PPO" | "AMP_PPO"
     backend: str = "auto"                # "auto" | "isaac_lab" | "sb3_mujoco"
-    # Shared (sb3 path; il path uses IlPpoConfig.max_iterations etc.)
-    total_timesteps: int = 1_000_000
+    # Training-length budget (sb3 path; il path uses IlPpoConfig.* instead).
+    # PPO is iteration-based (matches IsaacLab's mental model + decouples the
+    # budget from n_steps / n_envs): the launcher derives the SB3
+    # ``total_timesteps`` = max_iterations × n_steps × n_envs. SAC/TD3 are
+    # off-policy and have no rollout "iteration", so they use total_timesteps
+    # directly.
+    max_iterations: int = 1500           # PPO budget (× n_steps × n_envs → total_timesteps)
+    total_timesteps: int = 1_000_000     # SAC/TD3 budget (env steps)
     learning_rate: float = 3e-4
     batch_size: int = 256
     gamma: float = 0.99
@@ -327,10 +341,55 @@ class HeightScanConfig:
 
 @dataclass
 class RoughTerrainConfig:
-    amplitude: float = 0.08
-    slope_max_deg: float = 20.0
+    # NOTE (2026-06): amplitude / slope_max_deg removed — the canvas sliders
+    # they mirrored were never fed into the IsaacLab generator's
+    # noise_range / slope_range, so they had zero effect. Removed rather
+    # than left as dead fields. The generator is driven by `proportions` +
+    # `difficulty_levels`.
     curriculum_enabled: bool = False
     difficulty_levels: int = 10
+    # Initial terrain difficulty level (curriculum start row); must be
+    # < difficulty_levels. Maps to TerrainImporterCfg.max_init_terrain_level.
+    max_init_terrain_level: int = 5
+    # Per-sub-terrain mix weights (IsaacLab normalises internally). Defaults
+    # are byte-equal to ROUGH_TERRAINS_CFG so legacy canvases are unchanged.
+    proportions: Dict[str, float] = field(default_factory=lambda: {
+        "pyramid_stairs": 0.2,
+        "pyramid_stairs_inv": 0.2,
+        "boxes": 0.2,
+        "random_rough": 0.2,
+        "hf_pyramid_slope": 0.1,
+        "hf_pyramid_slope_inv": 0.1,
+    })
+
+
+@dataclass
+class CustomTerrainConfig:
+    """User-imported heightfield terrain (``scene_type == 'custom'``).
+
+    The single cross-engine source is a canonical heightfield ``.npz``
+    (see :mod:`application.training.terrain`) referenced by
+    ``source_path``; MuJoCo and IsaacLab each derive their terrain from
+    the SAME array (the cross-engine consistency gate enforces parity).
+    Robot-agnostic — terrain is geometry, so no SKU/family binding.
+
+    Pure additive field on :class:`SceneConfig` (default ``enabled=False``)
+    → forward-safe through the strict ``_spec_from_dict`` (PV②): old specs
+    lacking it load on the default.
+    """
+
+    enabled: bool = False
+    #: Canonical heightfield ``.npz`` — a USER_CONFIG_DIR asset at train
+    #: time, the in-bundle path at deploy/review time (§9 self-contained).
+    source_path: str = ""
+    #: Loader ``format_id`` for ``source_path`` (canonical asset is npz).
+    source_format: str = "heightfield_npz"
+    #: IsaacLab int16 vertical discretisation (m); see
+    #: ``terrain.isaaclab_lowering.DEFAULT_VERTICAL_SCALE``. Recorded so the
+    #: deploy/review side rebuilds the grid identically to training.
+    vertical_scale: float = 0.005
+    #: Expected height-bytes sha256 (provenance / integrity, §8).
+    sha256: str = ""
 
 
 @dataclass
@@ -338,13 +397,14 @@ class SceneConfig:
     """``play_ground_setting`` — full §2 Scene block."""
 
     scene_id: str = "flat_ground"
-    scene_type: str = "flat"             # flat | rough
+    scene_type: str = "flat"             # flat | rough | custom
     gravity_z: float = -9.81
     arena_extent_x: float = 10.0
     arena_extent_y: float = 10.0
     friction_static: float = 1.0
     friction_dynamic: float = 0.8
     rough: RoughTerrainConfig = field(default_factory=RoughTerrainConfig)
+    custom: CustomTerrainConfig = field(default_factory=CustomTerrainConfig)
     height_scan: HeightScanConfig = field(default_factory=HeightScanConfig)
     # IL path uses these as authoritative (R4)
     sim_dt: float = 5e-3
@@ -400,7 +460,7 @@ class RewardConfig:
     place of the registry's preset ``il_inline`` block.
     """
 
-    backend: str = "sb3"                 # "sb3" | "isaac_lab"
+    backend: str = "sb3_mujoco"          # "sb3_mujoco" | "isaac_lab"
     terms: Dict[str, Any] = field(default_factory=dict)         # active stage / fallback
     terms_by_item: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     stages: List[Dict[str, Any]] = field(default_factory=list)  # [stage0, stage1, ...]
@@ -423,7 +483,7 @@ class RewardConfig:
 class TerminationConfig:
     """``terminations`` — backend-keyed; curriculum on base_height threshold."""
 
-    backend: str = "sb3"
+    backend: str = "sb3_mujoco"
     conditions: Dict[str, Any] = field(default_factory=dict)
     curriculum_enabled: bool = False
     curriculum_start: float = 0.18
@@ -788,6 +848,17 @@ class DomainRandSb3Config:
     push_robot: bool = False
     push_interval_steps: int = 200
     push_force_range: Tuple[float, float] = (50.0, 150.0)
+    # Reset-time state randomization (P2 — feature parity with the IsaacLab
+    # event DR). init-pose: jitter the base xy position + yaw at episode
+    # start; joint-noise: add per-joint position / velocity noise at reset.
+    # Disabled by default so legacy SB3 canvases are byte-unchanged.
+    init_pose_rand_enabled: bool = False
+    init_pos_x_range: Tuple[float, float] = (-0.0, 0.0)
+    init_pos_y_range: Tuple[float, float] = (-0.0, 0.0)
+    init_yaw_range: Tuple[float, float] = (-0.0, 0.0)
+    joint_noise_enabled: bool = False
+    joint_pos_noise: float = 0.0
+    joint_vel_noise: float = 0.0
 
 
 @dataclass
@@ -828,7 +899,7 @@ class DomainRandIlConfig:
 class DomainRandConfig:
     """``domain_rand`` — backend-gated."""
 
-    backend: str = "sb3"
+    backend: str = "sb3_mujoco"
     schedule: DomainRandSchedule = field(default_factory=DomainRandSchedule)
     sb3: DomainRandSb3Config = field(default_factory=DomainRandSb3Config)
     il: DomainRandIlConfig = field(default_factory=DomainRandIlConfig)
@@ -838,8 +909,14 @@ class DomainRandConfig:
 class EnvAssemblerConfig:
     """``env_assembler`` — SB3 VecEnv + wrapper stack."""
 
-    n_envs: int = 8
-    vec_type: str = "subproc"            # dummy | subproc
+    # Hardware-adaptive vectorisation. "auto" derives (n_envs, vec_type) from
+    # the training machine's CPU cores + RAM at launch (see
+    # application.training.envs.auto_parallelism); "manual" uses the n_envs /
+    # vec_type below verbatim. Resolved at runtime on the training box (so
+    # cloud workers adapt to their own hardware), never at compile time.
+    parallelism_mode: str = "auto"       # auto | manual
+    n_envs: int = 8                      # manual override (ignored when auto)
+    vec_type: str = "subproc"            # dummy | subproc (ignored when auto)
     obs_normalize: bool = True
     reward_normalize: bool = False
     clip_obs: float = 10.0
@@ -1181,6 +1258,16 @@ def _spec_from_dict(target_cls, payload):
         if f.name not in payload:
             continue
         raw = payload[f.name]
+        # ``ActorConfig.pd_param`` is typed ``Any`` (to avoid coupling the
+        # spec to the physics layer), so the generic dataclass walker below
+        # would leave it as a raw dict — but every consumer (mujoco_gain_solver,
+        # bundle_exporter) needs a real ``PDParam`` (``.groups`` etc.). Without
+        # this, an IPC round-trip (main app → SB3 subprocess) silently degrades
+        # to scalar PD and the bundle export later crashes. Reconstruct it.
+        if f.name == "pd_param" and isinstance(raw, dict) and raw:
+            from application.physics.pd_param import PDParam
+            kwargs[f.name] = PDParam.from_dict(raw)
+            continue
         ftype = hints.get(f.name, type(raw))
         # Unwrap Optional[X] / Union[X, None]
         origin = typing.get_origin(ftype)
@@ -1227,6 +1314,7 @@ __all__ = [
     "PhysicsConfig",
     "SceneConfig",
     "RoughTerrainConfig",
+    "CustomTerrainConfig",
     "HeightScanConfig",
     "TaskConfig",
     "RewardConfig",

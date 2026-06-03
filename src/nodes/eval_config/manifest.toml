@@ -36,8 +36,8 @@ key = "success_threshold"
 type = "float"
 default = 0.8
 widget = "range"
-description = "成功阈值"
-meta = { min = 0.0, max = 1.0, step = 0.01 }
+description = "成功阈值 / Eval success ratio threshold (IsaacLab only; SB3 EvalCallback has no success gate)"
+meta = { min = 0.0, max = 1.0, step = 0.01, conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "record_video"

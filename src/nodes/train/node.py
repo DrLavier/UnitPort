@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from application.compiler.nodes import (
+    manifest_from_toml,
     NODE_MANIFEST_SCHEMA,
     BaseNode,
     NodeKind,
@@ -24,27 +25,7 @@ class TrainNode(BaseNode):
 
     _OPTIONAL_INPUTS: set = {"eval_config"}
 
-    MANIFEST = NodeManifest(
-        schema=NODE_MANIFEST_SCHEMA,
-        id="train",
-        kind=NodeKind.CUSTOM,
-        version="1.0.0",
-        category="training",
-        layer="C",
-        display_name_key="node.train.display",
-        description_key="node.train.desc",
-        icon="train.svg",
-        inputs=[
-            PortSpec(name="env_config", type="env_config"),
-            PortSpec(name="algo_config", type="algo_config"),
-            PortSpec(name="eval_config", type="eval_config", optional=True),
-        ],
-        outputs=[
-            PortSpec(name="train_pipe", type="train_pipe"),
-            PortSpec(name="vis_check", type="vis_check"),
-        ],
-        parameters=[],
-    )
+    MANIFEST = manifest_from_toml(__file__)
 
     @property
     def hidden_ports(self) -> set:

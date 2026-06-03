@@ -68,6 +68,10 @@ class IssueCode(Enum):
     STAGE_SCHEDULE_RESERVED_FOR_H2 = "stage_schedule_reserved_for_h2"
     CONTACT_SENSOR_COVERAGE_INSUFFICIENT = "contact_sensor_coverage_insufficient"
     CONTACT_SENSOR_BODY_DATA_MISSING = "contact_sensor_body_data_missing"
+    TERRAIN_CURRICULUM_INVALID = "terrain_curriculum_invalid"
+    CUSTOM_TERRAIN_INVALID = "custom_terrain_invalid"
+    SB3_FEATURE_UNSUPPORTED = "sb3_feature_unsupported"
+    SB3_PARALLELISM_INVALID = "sb3_parallelism_invalid"
     GENERIC = "generic"
 
 
@@ -264,6 +268,7 @@ def check_topology(ir: "WorkflowIR") -> List[ValidationIssue]:
     issues.extend(_check_base_asset_resolvable(ir))
     issues.extend(_check_legacy_dr_fields(ir))  # R_DR1 — Stage H migration
     issues.extend(_check_contact_sensor_coverage(ir))  # R_CONTACT1 — WYSIWYG sensor coverage
+    issues.extend(_check_sb3_reward_partition(ir))      # 缺口③ — SB3 can't honor joint-paged rewards
     return issues
 
 
@@ -355,6 +360,57 @@ def _checkpoint_id_error(checkpoint_id: str) -> str:
     if not _P(path).is_file():
         return f"checkpoint file does not exist on disk: {path}"
     return ""
+
+
+def _check_sb3_reward_partition(ir: "WorkflowIR") -> List[ValidationIssue]:
+    """缺口③ — SB3 cannot honor per-joint-group (paged) reward scoping.
+
+    A non-global reward page is a pd_group joint subset: IsaacLab emits a
+    per-page ``SceneEntityCfg(joint_names=[...])`` so the reward applies only to
+    that partition. The SB3 MuJoCo reward functions are joint-unaware — the
+    spec_compiler flattens every page into one union — so a joint-paged reward
+    would be applied to ALL joints, silently dropping the partition the user
+    drew. Fail loud (§8) rather than train a policy whose reward scope differs
+    from the canvas. Move such rewards to the global page, or train on IsaacLab.
+    """
+    out: List[ValidationIssue] = []
+    if (getattr(ir, "backend", "") or "").strip() != "sb3_mujoco":
+        return out
+    import json as _json
+    from application.compiler.term_payload import (
+        is_paged_reward_terms, iter_reward_pages, PAGE_GLOBAL,
+    )
+    for node in ir.nodes:
+        if node.schema_id != "rewards":
+            continue
+        terms_raw = _param_value(node, "reward_terms", {})
+        if isinstance(terms_raw, str):
+            try:
+                terms_raw = _json.loads(terms_raw)
+            except (ValueError, TypeError):
+                continue
+        if not isinstance(terms_raw, dict) or not is_paged_reward_terms(terms_raw):
+            continue
+        joint_pages = [
+            pid for pid, pterms in iter_reward_pages(terms_raw)
+            if pid != PAGE_GLOBAL and pterms
+        ]
+        if joint_pages:
+            out.append(ValidationIssue(
+                code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+                severity=Severity.ERROR,
+                node_id=node.id,
+                field="reward_terms",
+                message=(
+                    f"per-joint-group reward pages {joint_pages} are "
+                    f"IsaacLab-only — the SB3 MuJoCo reward functions are "
+                    f"joint-unaware and would apply these rewards to ALL "
+                    f"joints, silently dropping the pd-group partition scope. "
+                    f"Move these rewards to the global page (__global__), or "
+                    f"train on IsaacLab."
+                ),
+            ))
+    return out
 
 
 def _check_reward_term_conflicts(ir: "WorkflowIR") -> List[ValidationIssue]:
@@ -496,7 +552,478 @@ def check_spec(spec: "TrainingSpec") -> List[ValidationIssue]:
     issues.extend(_check_per_item_reward_scale(spec))  # R_REWARD_SCALE
     issues.extend(_check_pd_param(spec))             # R_PD1..R_PD4 — sim2sim PD
     issues.extend(_check_stage_schedule(spec))       # R_STAGE_H0 — H0 default lock
+    issues.extend(_check_recurrent_policy(spec))     # 缺口① — recurrent policy
+    issues.extend(_check_terrain_curriculum(spec))   # 缺口④ — terrain curriculum
+    issues.extend(_check_custom_terrain(spec))       # custom heightfield terrain
+    issues.extend(_check_sb3_obs_terms(spec))         # 缺口⑤ P1/F3 — SB3 obs alignment
+    issues.extend(_check_sb3_unsupported(spec))       # 缺口⑤ F1/F2/F5 — SB3 fail-loud gates
+    issues.extend(_check_sb3_parallelism(spec))       # SB3 VecEnv parallelism mode
     return issues
+
+
+def _check_sb3_parallelism(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """SB3 ``env_assembler`` vectorisation settings (fail-loud, §8).
+
+    ``parallelism_mode`` resolves to a concrete ``(n_envs, vec_type)`` at
+    launch via :mod:`application.training.envs.auto_parallelism` — auto on the
+    training machine's hardware, manual from the canvas values. This validates
+    the canvas inputs that auto-resolution / manual pass-through can't fix:
+      * an unknown ``parallelism_mode`` (not auto / manual);
+      * in manual mode, an unknown ``vec_type`` or ``n_envs < 1`` (ERROR), and
+        ``n_envs == 1`` (WARN — single-env robot RL trains very slowly).
+    Auto mode is NOT count-validated here: it may legitimately resolve to a
+    small n_envs on a weak machine (auto_parallelism logs that at launch).
+    """
+    out: List[ValidationIssue] = []
+    backend = (getattr(getattr(spec, "algorithm", None), "backend", "") or "").lower()
+    if backend not in _SB3_BACKENDS:
+        return out
+    env_cfg = getattr(spec, "env", None)
+    if env_cfg is None:
+        return out
+
+    mode = (getattr(env_cfg, "parallelism_mode", "auto") or "auto").strip().lower()
+    if mode not in ("auto", "manual"):
+        out.append(ValidationIssue(
+            code=IssueCode.SB3_PARALLELISM_INVALID,
+            severity=Severity.ERROR,
+            field="env_assembler.parallelism_mode",
+            message=(
+                f"parallelism_mode={mode!r} is not 'auto' or 'manual'. "
+                f"'auto' adapts n_envs/vec_type to this machine's CPU+RAM; "
+                f"'manual' uses the canvas n_envs/vec_type."
+            ),
+        ))
+        return out
+
+    if mode == "manual":
+        n_envs = int(getattr(env_cfg, "n_envs", 8) or 8)
+        vec_type = (getattr(env_cfg, "vec_type", "subproc") or "subproc").strip().lower()
+        if vec_type not in ("dummy", "subproc"):
+            out.append(ValidationIssue(
+                code=IssueCode.SB3_PARALLELISM_INVALID,
+                severity=Severity.ERROR,
+                field="env_assembler.vec_type",
+                message=(
+                    f"vec_type={vec_type!r} is not 'dummy' or 'subproc' "
+                    f"(manual parallelism_mode)."
+                ),
+            ))
+        if n_envs < 1:
+            out.append(ValidationIssue(
+                code=IssueCode.SB3_PARALLELISM_INVALID,
+                severity=Severity.ERROR,
+                field="env_assembler.n_envs",
+                message=f"n_envs={n_envs} must be >= 1 (manual parallelism_mode).",
+            ))
+        elif n_envs == 1:
+            out.append(ValidationIssue(
+                code=IssueCode.SB3_PARALLELISM_INVALID,
+                severity=Severity.WARNING,
+                field="env_assembler.n_envs",
+                message=(
+                    "n_envs=1 — robot RL trains very slowly with a single env. "
+                    "Use parallelism_mode='auto' to size it to your hardware, "
+                    "or set n_envs higher."
+                ),
+            ))
+    return out
+
+
+def _check_terrain_curriculum(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """缺口④ — terrain curriculum + sub-terrain mix integrity (fail-loud, §8).
+
+    Guards the four ways the play_ground_setting terrain knobs can be wired
+    into a config that silently does the wrong thing:
+      1. curriculum_enabled on a flat scene — terrain_levels needs a
+         ``generator`` terrain, so it would never engage.
+      2. all sub-terrain proportions zero — the generator has nothing to
+         build.
+      3. max_init_terrain_level >= difficulty_levels — initial row is out of
+         the generated grid.
+      4. SB3 backend + rough/curriculum — the MuJoCo gym env has no terrain
+         generator at all, so the setting would be silently dropped (the
+         broader SB3-parity gate is deferred; this narrow one ships with the
+         terrain feature so it cannot create a new "用户设置≠实际运行").
+    """
+    out: List[ValidationIssue] = []
+    scene = getattr(spec, "scene", None)
+    if scene is None:
+        return out
+    scene_type = (getattr(scene, "scene_type", "flat") or "flat").strip().lower()
+    rough = getattr(scene, "rough", None)
+    curriculum_enabled = bool(getattr(rough, "curriculum_enabled", False)) if rough is not None else False
+    backend = (getattr(getattr(spec, "algorithm", None), "backend", "") or "").lower()
+    is_rough = scene_type == "rough"
+
+    # (4) SB3 cannot honour terrain / terrain curriculum.
+    if backend in _SB3_BACKENDS and (is_rough or curriculum_enabled):
+        out.append(ValidationIssue(
+            code=IssueCode.TERRAIN_CURRICULUM_INVALID,
+            severity=Severity.ERROR,
+            field="play_ground_setting.scene_type",
+            message=(
+                "rough terrain / terrain curriculum is IsaacLab-only; the SB3 "
+                "(MuJoCo) backend has no terrain generator and would silently "
+                "run on flat ground. Switch the training backend to IsaacLab, "
+                "or set scene_type='flat' (and disable curriculum)."
+            ),
+        ))
+        return out
+
+    # (1) curriculum on flat terrain never engages.
+    if curriculum_enabled and not is_rough:
+        out.append(ValidationIssue(
+            code=IssueCode.TERRAIN_CURRICULUM_INVALID,
+            severity=Severity.ERROR,
+            field="play_ground_setting.curriculum_enabled",
+            message=(
+                "terrain curriculum requires a 'generator' terrain — set "
+                "play_ground_setting.scene_type='rough' or disable "
+                "curriculum_enabled."
+            ),
+        ))
+
+    if is_rough and rough is not None:
+        # (2) at least one sub-terrain must have positive weight.
+        props = getattr(rough, "proportions", {}) or {}
+        if sum(float(v) for v in props.values()) <= 0.0:
+            out.append(ValidationIssue(
+                code=IssueCode.TERRAIN_CURRICULUM_INVALID,
+                severity=Severity.ERROR,
+                field="play_ground_setting.prop_*",
+                message=(
+                    "all rough sub-terrain proportions are zero — the terrain "
+                    "generator has nothing to build. Give at least one "
+                    "sub-terrain a positive proportion."
+                ),
+            ))
+        # (3) initial difficulty row must be inside the generated grid.
+        diff = int(getattr(rough, "difficulty_levels", 0) or 0)
+        max_init = int(getattr(rough, "max_init_terrain_level", 0) or 0)
+        if diff > 0 and max_init >= diff:
+            out.append(ValidationIssue(
+                code=IssueCode.TERRAIN_CURRICULUM_INVALID,
+                severity=Severity.ERROR,
+                field="play_ground_setting.max_init_terrain_level",
+                message=(
+                    f"max_init_terrain_level ({max_init}) must be < "
+                    f"difficulty_levels ({diff}) — the initial row would be "
+                    f"outside the generated terrain grid."
+                ),
+            ))
+    return out
+
+
+def _check_custom_terrain(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """Custom heightfield terrain integrity (fail-loud, §8).
+
+    Guards canvas-time the ways ``scene_type='custom'`` can be wired into a
+    silently-wrong run. Both engines DO support custom heightfields (the
+    MuJoCo <hfield> + IsaacLab terrain-function lowerings), so — unlike
+    rough — custom is NOT SB3-rejected.
+
+      1. scene_type='custom' but no terrain configured (enabled False /
+         empty source_path) — nothing to build.
+      2. custom + terrain curriculum — curriculum is deferred for custom
+         terrain (施工规划 v2 §1 / PV 修正 3); a single fixed tile cannot
+         drive a difficulty grid, so reject the combination loudly rather
+         than silently ignore the curriculum flag.
+      3. unknown source_format — not a registered terrain loader.
+      4. source file missing on disk.
+
+    Deep structural validity (2-D, finite, >=2x2, square cells for
+    IsaacLab) is enforced fail-loud at the loader / lowering boundary
+    (``validate_terrain_contract`` + ``heightfield_to_isaaclab``) when the
+    asset is actually read at compile time — kept out of the validator so
+    it does not load a megapixel array on every validate pass.
+    """
+    out: List[ValidationIssue] = []
+    scene = getattr(spec, "scene", None)
+    if scene is None:
+        return out
+    scene_type = (getattr(scene, "scene_type", "flat") or "flat").strip().lower()
+    if scene_type != "custom":
+        return out
+
+    custom = getattr(scene, "custom", None)
+    src = str(getattr(custom, "source_path", "") or "").strip() if custom else ""
+
+    # (1) custom selected but nothing configured.
+    if custom is None or not bool(getattr(custom, "enabled", False)) or not src:
+        out.append(ValidationIssue(
+            code=IssueCode.CUSTOM_TERRAIN_INVALID,
+            severity=Severity.ERROR,
+            field="play_ground_setting.custom_terrain_path",
+            message=(
+                "scene_type='custom' but no heightfield is imported. Import a "
+                "terrain height-map (.npz / .npy / .png) on the Play Ground "
+                "Setting node, or switch scene_type to 'flat' / 'rough'."
+            ),
+        ))
+        return out
+
+    # (2) custom + curriculum — deferred this phase.
+    rough = getattr(scene, "rough", None)
+    if rough is not None and bool(getattr(rough, "curriculum_enabled", False)):
+        out.append(ValidationIssue(
+            code=IssueCode.CUSTOM_TERRAIN_INVALID,
+            severity=Severity.ERROR,
+            field="play_ground_setting.curriculum_enabled",
+            message=(
+                "terrain curriculum is not supported for custom terrain (a "
+                "single imported tile has no difficulty grid). Disable "
+                "curriculum_enabled, or use scene_type='rough' for a "
+                "curriculum-driven generator."
+            ),
+        ))
+
+    # (3) format must be a registered terrain loader.
+    fmt = str(getattr(custom, "source_format", "") or "").strip()
+    try:
+        from application.training.terrain.loaders import list_loader_formats
+        known = list_loader_formats()
+    except Exception:  # noqa: BLE001 - terrain pkg import failure surfaces below
+        known = []
+    if fmt and known and fmt not in known:
+        out.append(ValidationIssue(
+            code=IssueCode.CUSTOM_TERRAIN_INVALID,
+            severity=Severity.ERROR,
+            field="play_ground_setting.custom_terrain_format",
+            message=(
+                f"custom terrain source_format={fmt!r} is not a known terrain "
+                f"loader. Known: {known!r}."
+            ),
+        ))
+
+    # (4) source file must exist on disk.
+    try:
+        from pathlib import Path as _P
+        exists = _P(src).is_file()
+    except Exception:  # noqa: BLE001
+        exists = False
+    if not exists:
+        out.append(ValidationIssue(
+            code=IssueCode.CUSTOM_TERRAIN_INVALID,
+            severity=Severity.ERROR,
+            field="play_ground_setting.custom_terrain_path",
+            message=(
+                f"custom terrain file not found: {src!r}. Re-import the "
+                f"height-map or fix the path."
+            ),
+        ))
+    return out
+
+
+# The SB3 backend has exactly ONE id. No "sb3" kind, no tolerant fallback.
+_SB3_BACKENDS = ("sb3_mujoco",)
+
+
+def _check_sb3_obs_terms(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """缺口⑤ P1/F3 — SB3 observation-term alignment (fail-loud, §8).
+
+    The SB3 (MuJoCo gym) path now assembles its observation through the
+    shared obs_term_engine, term-by-term from ``obs_action.il_terms`` — the
+    same layout the deploy ObsBuilder replays, so "train == deploy" holds by
+    construction. Terms the engine cannot compute from a MuJoCo state alone
+    (``height_scan`` needs a ray-caster the gym env does not have;
+    reference-motion / phase terms need an AMP adapter) would be silently
+    dropped by the old hardcoded layout. Reject them here so the operator
+    re-wires instead of training a policy whose obs contract it can never
+    satisfy at deploy.
+    """
+    out: List[ValidationIssue] = []
+    backend = (getattr(getattr(spec, "algorithm", None), "backend", "") or "").lower()
+    if backend not in _SB3_BACKENDS:
+        return out
+    obs_action = getattr(spec, "obs_action", None)
+    il_terms = getattr(obs_action, "il_terms", None) if obs_action is not None else None
+    if not il_terms or not isinstance(il_terms, dict):
+        return out  # empty → default proprio layout (all engine terms)
+
+    from application.training.envs import obs_term_engine as _obs_eng
+
+    for term_name in il_terms:
+        if not _obs_eng.is_engine_term(str(term_name)):
+            out.append(ValidationIssue(
+                code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+                severity=Severity.ERROR,
+                field="il_observation.obs_terms",
+                message=(
+                    f"observation term {term_name!r} cannot be computed by the "
+                    f"SB3 (MuJoCo) backend — only proprioceptive terms "
+                    f"({sorted(_obs_eng.ENGINE_TERMS)}) are supported. "
+                    f"height_scan needs a ray-caster and reference/phase terms "
+                    f"need an AMP adapter, both IsaacLab-only. Remove the term "
+                    f"or switch the training backend to IsaacLab."
+                ),
+            ))
+    return out
+
+
+def _check_sb3_unsupported(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """缺口⑤ F1/F2/F5 — features the SB3 (MuJoCo gym) backend cannot honour.
+
+    The SB3 path now genuinely consumes everything the MuJoCo engine can do
+    (obs terms, PD, domain rand, terminations, command, multi-stage). The
+    remainder is IsaacLab/rsl_rl-only and used to be silently dropped or
+    "warn-and-continue" (the CLAUDE.md §8 anti-pattern the user called out).
+    Each now fails loud at validation so the operator switches backend or
+    removes the feature — never trains a policy whose config the runtime
+    silently ignores.
+
+      * F1 AMP / motion clips — the discriminator + reference-motion replay
+        live in rsl_rl's AMPOnPolicyRunner; SB3 only has PPO/SAC/TD3. (The
+        ``AMP_PPO`` training_mode is already gated by
+        :func:`_check_backend_algorithm`; this also catches a wired
+        ``motion_ref`` left on a PPO canvas.)
+      * F2 gait — the Walk-These-Ways gait command/obs/rewards are emitted
+        only on the IsaacLab side.
+      * F5 RSI — ``init_pose.mode == "reference_frame_0"`` needs reference
+        motion clips, same dependency as AMP.
+
+    F3 (height_scan) is handled per-term in :func:`_check_sb3_obs_terms`;
+    F4 (rough terrain / terrain curriculum) in :func:`_check_terrain_curriculum`.
+    """
+    out: List[ValidationIssue] = []
+    backend = (getattr(getattr(spec, "algorithm", None), "backend", "") or "").lower()
+    if backend not in _SB3_BACKENDS:
+        return out
+
+    # P8 gate — the MuJoCo gym env only implements PD joint-position control.
+    # A non-joint_position action_type used to warn-and-continue (running PD
+    # anyway); fail loud so the operator's torque/velocity choice isn't
+    # silently ignored.
+    for _src, _obj in (
+        ("obs_action.action_type", getattr(spec, "obs_action", None)),
+        ("physics.action_type", getattr(spec, "physics", None)),
+    ):
+        at = (getattr(_obj, "action_type", "joint_position") or "joint_position").lower()
+        if at not in ("joint_position", "position"):
+            out.append(ValidationIssue(
+                code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+                severity=Severity.ERROR,
+                field=_src,
+                message=(
+                    f"action_type={at!r} is not supported by the SB3 backend — "
+                    f"the MuJoCo gym env only runs PD joint-position control. "
+                    f"Set action_type='joint_position', or switch to IsaacLab."
+                ),
+            ))
+
+    # F1 — AMP / motion clips wired (independent of training_mode).
+    il = getattr(spec, "il", None)
+    motion_ref = getattr(il, "motion_ref", None) if il is not None else None
+    if motion_ref is not None and getattr(motion_ref, "clip_paths", None):
+        out.append(ValidationIssue(
+            code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+            severity=Severity.ERROR,
+            field="il.motion_ref",
+            message=(
+                "AMP / reference-motion clips are IsaacLab/rsl_rl-only — the "
+                "SB3 backend has no discriminator or motion-replay runner and "
+                "would silently train a plain PPO policy ignoring the clips. "
+                "Switch the training backend to IsaacLab, or remove the "
+                "TrainingMotion / AMP wiring."
+            ),
+        ))
+
+    # F2 — gait (Walk These Ways) command/obs/rewards.
+    gait = getattr(getattr(spec, "motion", None), "gait", None)
+    if gait is not None and bool(getattr(gait, "enabled", False)):
+        out.append(ValidationIssue(
+            code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+            severity=Severity.ERROR,
+            field="motion.gait.enabled",
+            message=(
+                "gait (Walk-These-Ways phase command / obs / rewards) is not "
+                "supported by the SB3 backend yet — it would be silently "
+                "dropped. Switch to IsaacLab, or disable gait on the "
+                "TrainingMotion node."
+            ),
+        ))
+
+    # F3 — height-scan sensor (ray-caster) has no MuJoCo gym equivalent. The
+    # per-term form is caught in _check_sb3_obs_terms; this catches the scene
+    # sensor being enabled on the play-ground node.
+    height_scan = getattr(getattr(spec, "scene", None), "height_scan", None)
+    if height_scan is not None and bool(getattr(height_scan, "enabled", False)):
+        out.append(ValidationIssue(
+            code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+            severity=Severity.ERROR,
+            field="scene.height_scan.enabled",
+            message=(
+                "height_scan (terrain ray-caster) is IsaacLab-only — the SB3 "
+                "backend has no ray-caster sensor. Disable height_scan, or "
+                "switch the training backend to IsaacLab."
+            ),
+        ))
+
+    # F5 — RSI init pose needs reference motion clips.
+    init_pose = getattr(getattr(spec, "actor", None), "init_pose", None)
+    mode = (getattr(init_pose, "mode", "default") or "default").strip().lower()
+    if mode == "reference_frame_0":
+        out.append(ValidationIssue(
+            code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+            severity=Severity.ERROR,
+            field="actor.init_pose.mode",
+            message=(
+                "init_pose.mode='reference_frame_0' (RSI) needs reference "
+                "motion clips, which the SB3 backend cannot replay. Use "
+                "'default' / 'keyframe' / 'custom', or switch to IsaacLab."
+            ),
+        ))
+    return out
+
+
+def _check_recurrent_policy(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """缺口① — recurrent policy field integrity (fail-loud, §8).
+
+    The il_policy_network enum already constrains ``rnn_type`` at the UI, and
+    the compiler coerces; this is the belt-and-suspenders spec-level guard so a
+    hand-edited / programmatically-built spec can't carry a bad recurrent
+    config into training. ``rnn_type='none'`` (MLP) skips all checks.
+    """
+    out: List[ValidationIssue] = []
+    pn = getattr(getattr(spec, "algorithm", None), "policy_net", None)
+    if pn is None:
+        return out
+    rnn_type = (getattr(pn, "rnn_type", "none") or "none").strip().lower()
+    if rnn_type not in ("none", "gru", "lstm"):
+        out.append(ValidationIssue(
+            code=IssueCode.UNKNOWN_PARAM_VALUE,
+            severity=Severity.ERROR,
+            field="rnn_type",
+            message=(
+                f"il_policy_network.rnn_type={rnn_type!r} is invalid; expected "
+                f"one of 'none' / 'gru' / 'lstm'."
+            ),
+        ))
+        return out
+    if rnn_type != "none":
+        if int(getattr(pn, "rnn_hidden_size", 0)) <= 0:
+            out.append(ValidationIssue(
+                code=IssueCode.UNKNOWN_PARAM_VALUE,
+                severity=Severity.ERROR,
+                field="rnn_hidden_size",
+                message=(
+                    f"il_policy_network.rnn_hidden_size must be a positive int "
+                    f"when rnn_type={rnn_type!r} (got "
+                    f"{getattr(pn, 'rnn_hidden_size', None)!r})."
+                ),
+            ))
+        if int(getattr(pn, "rnn_num_layers", 0)) <= 0:
+            out.append(ValidationIssue(
+                code=IssueCode.UNKNOWN_PARAM_VALUE,
+                severity=Severity.ERROR,
+                field="rnn_num_layers",
+                message=(
+                    f"il_policy_network.rnn_num_layers must be a positive int "
+                    f"when rnn_type={rnn_type!r} (got "
+                    f"{getattr(pn, 'rnn_num_layers', None)!r})."
+                ),
+            ))
+    return out
 
 
 def _check_stage_schedule(spec: "TrainingSpec") -> List[ValidationIssue]:
@@ -637,6 +1164,13 @@ def _check_contact_sensor_coverage(ir: "WorkflowIR") -> List[ValidationIssue]:
     is missing + which IR roles to add).
     """
     out: List[ValidationIssue] = []
+    # ContactSensor coverage is an IsaacLab concern: the SB3 MuJoCo env has no
+    # ContactSensor (illegal_contact reads data.contact directly with a
+    # hardcoded family body set, identical to IsaacLab by design), and
+    # contact_body_names is hidden on SB3 canvases. Validating picker coverage
+    # there would force the user to populate a field SB3 never reads.
+    if (getattr(ir, "backend", "") or "").strip() == "sb3_mujoco":
+        return out
     by_id = {n.schema_id: n for n in ir.nodes}
 
     actor_node = by_id.get("actor_setting")
@@ -791,6 +1325,17 @@ def _check_contact_sensor_coverage(ir: "WorkflowIR") -> List[ValidationIssue]:
                     terms_raw = {}
             if not isinstance(terms_raw, dict):
                 continue
+            # 缺口③ — reward_terms is paged; flatten across pages so contact
+            # rewards on any page (Global or joint) are seen.
+            from application.compiler.term_payload import (
+                is_paged_reward_terms, iter_reward_pages,
+            )
+            if is_paged_reward_terms(terms_raw):
+                _flat: Dict[str, Any] = {}
+                for _pid, _pt in iter_reward_pages(terms_raw):
+                    for _fk, _pl in _pt.items():
+                        _flat.setdefault(_fk, _pl)
+                terms_raw = _flat
             for term_key, term_val in terms_raw.items():
                 if term_key not in _CONTACT_REWARD_CATEGORIES:
                     continue
@@ -985,7 +1530,7 @@ def _check_sb3_reward_term_kinds(spec: "TrainingSpec") -> List[ValidationIssue]:
     """
     out: List[ValidationIssue] = []
     backend = (getattr(spec.algorithm, "backend", "") or "").lower()
-    if backend not in ("sb3", "sb3_mujoco"):
+    if backend not in _SB3_BACKENDS:
         return out
     try:
         from application.training.envs.reward_terms import known_reward_kinds
@@ -1026,7 +1571,7 @@ def _check_sb3_termination_kinds(spec: "TrainingSpec") -> List[ValidationIssue]:
     """
     out: List[ValidationIssue] = []
     backend = (getattr(spec.algorithm, "backend", "") or "").lower()
-    if backend not in ("sb3", "sb3_mujoco"):
+    if backend not in _SB3_BACKENDS:
         return out
     try:
         from application.training.envs.reward_terms import known_termination_kinds
@@ -1179,9 +1724,11 @@ def _check_backend_algorithm(spec: "TrainingSpec") -> List[ValidationIssue]:
         # OK — Isaac Lab supports AMP via il_ppo_trainer.
         pass
     if backend == "sb3_mujoco" and mode == "AMP_PPO":
-        # AMP-PPO on SB3 is Stage 8 (SB3 AMP launcher hasn't landed). The
-        # subprocess will hard-fail at startup; surface this *before* submit
-        # so the play button doesn't burn a slot on a guaranteed crash.
+        # AMP-PPO on SB3 is not wired (no SB3 AMP runner); surface it *before*
+        # submit so the play button doesn't burn a slot on a guaranteed crash.
+        # (Also caught by _check_sb3_unsupported.) Requires spec.algorithm.backend
+        # to be the canonical engine id sb3_mujoco — see the backend-id
+        # unification (no "sb3" kind allowed).
         out.append(ValidationIssue(
             code=IssueCode.BACKEND_ALGORITHM_MISMATCH,
             severity=Severity.ERROR,
@@ -1201,7 +1748,7 @@ def _check_backend_registries(spec: "TrainingSpec") -> List[ValidationIssue]:
     wrong vocabulary."""
     out: List[ValidationIssue] = []
     algo_backend = spec.algorithm.backend
-    expected = "isaac_lab" if algo_backend == "isaac_lab" else "sb3"
+    expected = "isaac_lab" if algo_backend == "isaac_lab" else "sb3_mujoco"
     for path, actual in (
         ("rewards.backend", spec.rewards.backend),
         ("terminations.backend", spec.terminations.backend),

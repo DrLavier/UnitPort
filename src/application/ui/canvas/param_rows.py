@@ -278,15 +278,8 @@ class ParamRow(QGraphicsItem):
     # ---- conditional_on visibility ----
 
     @staticmethod
-    def _eval_conditional(meta: Any, host_params: dict) -> bool:
-        """Evaluate ``meta['conditional_on']`` against host params.
-
-        Schema: ``{"key": str, "op": "=="|"!="|"in"|"not in", "value": Any}``.
-        Missing/malformed → visible (default to showing the row).
-        """
-        if not isinstance(meta, dict):
-            return True
-        cond = meta.get("conditional_on")
+    def _eval_one_conditional(cond: Any, host_params: dict) -> bool:
+        """Evaluate a single ``{key, op, value}`` condition. Malformed → True."""
         if not isinstance(cond, dict):
             return True
         key = cond.get("key")
@@ -309,6 +302,27 @@ class ParamRow(QGraphicsItem):
         except Exception:
             return True
         return True
+
+    @staticmethod
+    def _eval_conditional(meta: Any, host_params: dict) -> bool:
+        """Evaluate ``meta['conditional_on']`` against host params.
+
+        ``conditional_on`` is either a single ``{"key","op","value"}`` dict OR a
+        LIST of such dicts, in which case ALL must pass (logical AND). The list
+        form lets a row require both a backend gate (``backend == isaac_lab``)
+        AND an intra-node toggle (``gait_enabled == true``) — needed because
+        gating only the parent toggle does not hide a child whose stored parent
+        value already satisfies the child's condition. Missing/malformed →
+        visible (default to showing the row).
+        """
+        if not isinstance(meta, dict):
+            return True
+        cond = meta.get("conditional_on")
+        if isinstance(cond, (list, tuple)):
+            return all(
+                ParamRow._eval_one_conditional(c, host_params) for c in cond
+            )
+        return ParamRow._eval_one_conditional(cond, host_params)
 
     def update_visibility(self, host_params: dict) -> bool:
         """Apply conditional_on visibility against host_params.
@@ -1678,6 +1692,11 @@ class _ChoicePickerRow(_PickerRowMixin, ParamRow):
         return True
 
 
+#: Sentinel scene_id in the scene picker that opens the terrain import
+#: dialog instead of selecting a scene (handled in SceneTypeRow.set_value).
+_IMPORT_TERRAIN_SENTINEL = "__import_terrain__"
+
+
 class SceneTypeRow(_ChoicePickerRow):
     """``widget="picker_scene"`` → registry-backed scene_id picker.
 
@@ -1708,7 +1727,7 @@ class SceneTypeRow(_ChoicePickerRow):
     def _detect_backend(self) -> str:
         sc = self.scene()
         if sc is None:
-            return "sb3"
+            return "sb3_mujoco"
         try:
             for it in sc.items():
                 manifest = getattr(it, "manifest", None)
@@ -1719,7 +1738,7 @@ class SceneTypeRow(_ChoicePickerRow):
                     return "isaac_lab"
         except Exception:
             pass
-        return "sb3"
+        return "sb3_mujoco"
 
     def _detect_family(self) -> Optional[str]:
         sc = self.scene()
@@ -1772,6 +1791,16 @@ class SceneTypeRow(_ChoicePickerRow):
                     "title": str(getattr(s, "name", sid)) or sid,
                     "desc": str(getattr(s, "description", "")),
                 }
+            # Sentinel entry → opens the terrain import dialog (handled in
+            # set_value) rather than selecting a scene. Always last.
+            ids.append(_IMPORT_TERRAIN_SENTINEL)
+            meta[_IMPORT_TERRAIN_SENTINEL] = {
+                "title": tr("terrain.import.menu", "➕ Import terrain…"),
+                "desc": tr(
+                    "terrain.import.menu_desc",
+                    "Import a PNG / .npy / .npz height-map as a custom terrain.",
+                ),
+            }
             if ids:
                 return ids, meta
         except Exception as exc:
@@ -1799,6 +1828,14 @@ class SceneTypeRow(_ChoicePickerRow):
         return True
 
     def set_value(self, v: Any) -> None:  # type: ignore[override]
+        # Sentinel: open the terrain import dialog instead of selecting a
+        # scene. On success, re-enter set_value with the freshly-imported
+        # scene_id (now registered) so its defaults cascade as normal.
+        if v == _IMPORT_TERRAIN_SENTINEL:
+            new_sid = self._launch_terrain_import()
+            if new_sid:
+                self.set_value(new_sid)
+            return
         super().set_value(v)
         if not isinstance(v, str) or not v:
             return
@@ -1841,6 +1878,37 @@ class SceneTypeRow(_ChoicePickerRow):
                     notify(k, val)
                 except Exception:
                     pass
+
+    def _launch_terrain_import(self) -> str:
+        """Open the terrain import dialog; return the imported scene_id (or "").
+
+        Self-contained launch point for custom-terrain import — keeps the
+        SDK choice popup untouched (no footer-action hook there). On success
+        the new scene is already registered (import_terrain_scene), so the
+        caller re-selects it to cascade defaults.
+        """
+        try:
+            from application.ui.dialogs.terrain_import_dialog import (
+                TerrainImportDialog,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log_warning(f"[play_ground.scene_id] terrain import dialog unavailable: {exc}")
+            return ""
+        sc = self.scene()
+        parent = None
+        try:
+            views = sc.views() if sc is not None else []
+            parent = views[0].window() if views else None
+        except Exception:
+            parent = None
+        dlg = TerrainImportDialog(parent)
+        try:
+            from PyQt6.QtWidgets import QDialog
+            if dlg.exec() == QDialog.DialogCode.Accepted:
+                return str(dlg.imported_scene_id or "")
+        finally:
+            dlg.deleteLater()
+        return ""
 
 
 class TaskTypeRow(_ChoicePickerRow):
@@ -2603,7 +2671,7 @@ class RegistryItemListRow(_GearedPickerRowMixin, ParamRow):
         meta = self.spec.meta or {}
         # Pick registry id from the canvas-bound backend (params['backend']
         # is injected by CanvasPage). Falls back to the registry_id meta hint.
-        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        backend = str(self._owner.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
         if backend == "isaac_lab":
             registry_id = str(meta.get("registry_id_il") or meta.get("registry_id") or self.spec.key)
         else:
@@ -2620,12 +2688,20 @@ class RegistryItemListRow(_GearedPickerRowMixin, ParamRow):
             kind = "reward"
         items = _parse_dict_value(self._value)
         view = _view_of(event)
+        # 缺口③ — supply the canvas robot SKU so the per-joint-subset
+        # partition picker can list the family's PD joint groups. Soft: None
+        # when no Robot node is wired (picker shows a bind-robot hint).
+        try:
+            robot_sku = _scene_robot_sku(self._owner)
+        except Exception:                                         # noqa: BLE001
+            robot_sku = None
         result = open_reward_function_editor(
             view, dict(items),
             registry_id=registry_id,
             kind=kind,
             canvas_backend=backend,
             conflicting_keys=self._compute_conflicting_keys(),
+            robot_sku=robot_sku,
         )
         if result is None:
             return True
@@ -2725,7 +2801,7 @@ class TrainingItemsRow(_GearedPickerRowMixin, ParamRow):
 
         items = _parse_dict_value(self._value)
         view = _view_of(event)
-        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        backend = str(self._owner.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
         result = open_training_motion_editor(
             view, dict(items), canvas_backend=backend,
         )
@@ -3044,7 +3120,7 @@ def _resolve_active_format(params: Dict[str, Any], asset: Any) -> str:
         return raw.upper()
     if asset is None:
         return ""
-    backend = str(params.get("backend", "sb3") or "sb3").strip()
+    backend = str(params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
     if backend == "isaac_lab":
         order = ("usd", "urdf", "mjcf")
     else:
@@ -4957,15 +5033,50 @@ class RegistryModuleInlineRow(_InlineTableRow):
         self._refresh_payloads()
 
     def set_value(self, v):  # type: ignore[override]
-        super().set_value(v)
+        # 缺口③ — page-aware: when meta.paged, the widget edits ONE page
+        # (reward_active_page) of a paged reward_terms ``{page: {func: payload}}``.
+        # Internal editors produce the flat page terms ``v``; wrap them back into
+        # the stored paged dict so the persisted param stays the single source of
+        # truth (the compiler reads it page-by-page). Non-paged → unchanged.
+        if self._is_paged():
+            from application.compiler.term_payload import (
+                migrate_reward_terms_to_paged,
+            )
+            page_terms = _parse_dict_value(v) or {}
+            paged = migrate_reward_terms_to_paged(_parse_dict_value(self._value) or {})
+            paged[self._active_page()] = page_terms
+            super().set_value(_serialize_for_spec(self.spec, paged))
+        else:
+            super().set_value(v)
         self._refresh_payloads()
+
+    # ── 缺口③ paging helpers ──────────────────────────────────────────
+    def _is_paged(self) -> bool:
+        return bool((self.spec.meta or {}).get("paged", False))
+
+    def _active_page(self) -> str:
+        key = str((self.spec.meta or {}).get("active_page_key", "") or "")
+        if not key:
+            return "__global__"
+        return str(self._owner.params.get(key, "__global__") or "__global__")
+
+    def _current_terms(self) -> dict:
+        """The flat term dict the widget displays/edits — the active page when
+        paged, else the whole value (legacy / terminations / obs)."""
+        if self._is_paged():
+            from application.compiler.term_payload import (
+                migrate_reward_terms_to_paged,
+            )
+            paged = migrate_reward_terms_to_paged(_parse_dict_value(self._value) or {})
+            return dict(paged.get(self._active_page(), {}))
+        return _parse_dict_value(self._value) or {}
 
     def _kind(self) -> str:
         meta = self.spec.meta or {}
         return _kind_from_registry_id(str(meta.get("registry_id", "")))
 
     def _backend(self) -> str:
-        return str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        return str(self._owner.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
 
     def _lookup_item(self, key: str):
         try:
@@ -4975,7 +5086,7 @@ class RegistryModuleInlineRow(_InlineTableRow):
             return None
 
     def _refresh_payloads(self) -> None:
-        d = _parse_dict_value(self._value) or {}
+        d = self._current_terms()
         payloads = []
         applies_to_key = str((self.spec.meta or {}).get("applies_to_key", "applies_to"))
         for key, val in d.items():
@@ -5388,7 +5499,7 @@ class RegistryModuleInlineRow(_InlineTableRow):
         """
         grace_s = max(0.0, float(grace_s))
         payload["grace_period_s"] = grace_s
-        d = _parse_dict_value(self._value) or {}
+        d = self._current_terms()
         cur = d.get(payload["key"])
         if isinstance(cur, dict):
             cur = dict(cur)
@@ -5511,7 +5622,7 @@ class RegistryModuleInlineRow(_InlineTableRow):
         item = payload.get("item")
         default = float(getattr(item, "il_value_default", 0.0) or 0.0)
         value = float(value)
-        d = _parse_dict_value(self._value) or {}
+        d = self._current_terms()
         cur = d.get(payload["key"])
         if isinstance(cur, dict):
             cur = dict(cur)
@@ -5870,7 +5981,7 @@ class RegistryModuleInlineRow(_InlineTableRow):
         single ``set_value`` entrypoint.
         """
         payload["applies_to"] = list(applies)
-        d = _parse_dict_value(self._value) or {}
+        d = self._current_terms()
         cur = d.get(payload["key"])
         if isinstance(cur, dict):
             cur = dict(cur)
@@ -5910,7 +6021,7 @@ class RegistryModuleInlineRow(_InlineTableRow):
         if step is not None and step > 0:
             v = round(v / step) * step
         payload["weight"] = v
-        d = _parse_dict_value(self._value) or {}
+        d = self._current_terms()
         cur = d.get(payload["key"])
         if isinstance(cur, dict):
             cur["weight"] = v
@@ -6077,7 +6188,17 @@ class RegistryModuleInlineRow(_InlineTableRow):
             return False
         if not registry:
             return False
-        d = _parse_dict_value(self._value) or {}
+        d = self._current_terms()
+        # 缺口③ — on a joint page, only joint-paginable rewards may be added;
+        # the global page offers all. Filtering the popup's candidate list keeps
+        # the canvas in sync with what the compiler will accept (§8).
+        if self._is_paged() and self._active_page() != "__global__":
+            registry = {
+                k: v for k, v in registry.items()
+                if str(getattr(v, "il_partition_source", "") or "")
+            }
+            if not registry:
+                return False
         # popup 卡片标题用 TaskModuleItem.title，desc 当副标题 —— 与 Canvas 行
         # 和 Editor 列表的标签规则一致。
         meta_map: dict = {}
@@ -6127,7 +6248,7 @@ class RegistryModuleInlineRow(_InlineTableRow):
             registry_id = str(meta.get("registry_id_il") or meta.get("registry_id") or self.spec.key)
         else:
             registry_id = str(meta.get("registry_id") or self.spec.key)
-        items = _parse_dict_value(self._value)
+        items = self._current_terms()
         result = open_reward_function_editor(
             _view_of(event), dict(items),
             registry_id=registry_id, kind=self._kind(),
@@ -6138,7 +6259,13 @@ class RegistryModuleInlineRow(_InlineTableRow):
         return True
 
     def maybe_refresh_for_asset_change(self) -> None:
-        # Rebuild on canvas backend swap or sibling param change.
+        # Rebuild on canvas backend swap or sibling param change. 缺口③ — re-read
+        # self._value from params first so an external write to reward_terms /
+        # reward_active_page (by the joint pager) is reflected: the pager
+        # manipulates the FULL paged dict + the active-page cursor, both of
+        # which land in params, and this row must project the (possibly new)
+        # active page.
+        self._value = self._read_value()
         self._refresh_payloads()
         self.update()
 
@@ -6252,7 +6379,7 @@ class TrainingItemsInlineRow(_InlineTableRow):
         v = max(0.0, min(1.5, float(v)))
         v = round(v / 0.05) * 0.05
         payload["smax"] = v
-        d = _parse_dict_value(self._value) or {}
+        d = self._current_terms()
         cur = d.get(payload["key"])
         if isinstance(cur, dict):
             speed = list(cur.get("speed") or [0.0, 1.0])
@@ -6343,7 +6470,7 @@ class TrainingItemsInlineRow(_InlineTableRow):
         from application.ui.dialogs import open_training_motion_editor
 
         items = _parse_dict_value(self._value)
-        backend = str(self._owner.params.get("backend", "sb3") or "sb3").strip()
+        backend = str(self._owner.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
         result = open_training_motion_editor(
             _view_of(event), dict(items), canvas_backend=backend,
         )
@@ -7286,6 +7413,30 @@ def _upstream_robot_sku(actor_node: "NodeItem") -> str:
         "Actor 节点的 robot_pipe 端口虽有连接，但所有 connection 的 src_port "
         "都解析失败 — 画布数据可能损坏，请重新连接 Robot 节点。"
     )
+
+
+def _scene_robot_sku(node: "NodeItem") -> Optional[str]:
+    """Resolve the canvas's RobotNode SKU by scanning the scene (single robot
+    per canvas). Returns ``None`` when no Robot node / asset_id is present.
+
+    Unlike :func:`_upstream_robot_sku` (which walks a ``robot_pipe`` edge),
+    this is for nodes that have no direct robot edge — e.g. the Rewards node,
+    whose joint-subset partition picker (缺口③) needs the robot family. Soft
+    by design: a missing robot is not an error here (the picker shows a
+    "bind a robot" hint), so this returns None rather than raising.
+    """
+    from .items import NodeItem
+    sc = node.scene() if node is not None else None
+    if sc is None:
+        return None
+    for it in sc.items():
+        if isinstance(it, NodeItem) and str(getattr(it.manifest, "id", "") or "") == "robot":
+            asset_id = str((getattr(it, "params", None) or {}).get("asset_id", "") or "")
+            if not asset_id:
+                return None
+            from registers.robots import resolve_id
+            return resolve_id(asset_id) or asset_id
+    return None
 
 
 def _upstream_robot_family(actor_node: "NodeItem") -> str:
@@ -8563,6 +8714,318 @@ class RegistryPresetPickerRow(ParamRow):
 
 
 # =============================================================================
+# 缺口③ — Reward joint-partition pager (widget="reward_joint_pager")
+# =============================================================================
+
+_RJP_GLOBAL = "__global__"
+_RJP_OPS_W = 34.0       # Operations column (delete button)
+_RJP_COUNT_W = 96.0     # Rewards-count column
+
+
+class RewardJointPagerRow(_InlineTableRow):
+    """Joint-partition pager for the Rewards node (above ``reward_terms``).
+
+    Same layout as the reward_terms inline table:
+      header  ``joint_group: [ {n} Groups v ]``  (no gear -- selector only)
+      table   columns ``[ Joints Group | Rewards Count | Operations ]``,
+              one row per page (``Global`` + each pd_group page) showing the
+              page reward count + a delete button (Global is not deletable).
+              Clicking a row switches ``reward_terms`` to that page via the
+              ``reward_active_page`` cursor; the active row is drawn with the
+              ``highlight`` background + ``alt_t1`` text.
+
+    Stores no data of its own -- pages live in ``reward_terms`` keys (single
+    source of truth). The dropdown multi-selects the robot family pd_groups.
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._refresh_payloads()
+
+    # ---- sibling param keys ----
+    def _terms_key(self) -> str:
+        return str((self.spec.meta or {}).get("terms_key", "reward_terms"))
+
+    def _active_key(self) -> str:
+        return str((self.spec.meta or {}).get("active_page_key", "reward_active_page"))
+
+    # ---- header (label + picker; no gear) ----
+    def _key_text(self) -> str:
+        return "joint_group"
+
+    def _header_summary_text(self) -> str:
+        n = sum(1 for p in self._row_payloads if p.get("deletable"))
+        return tr("canvas.reward_pager.summary", "{n} Groups").replace("{n}", str(n))
+
+    def _hdr_gear_rect(self) -> QRectF:
+        return QRectF()
+
+    def _hdr_picker_rect(self) -> QRectF:
+        band = self._hdr_band_rect()
+        x_start = band.left() + self._key_text_width() + _INL_KEY_GAP
+        x_end = band.right() - _INL_GAP
+        return QRectF(x_start, band.top() + 2, max(40.0, x_end - x_start), band.height() - 4)
+
+    def _paint_header(self, painter: QPainter) -> None:
+        key_rect = self._hdr_key_rect()
+        painter.setPen(QPen(QColor(Config.get_color("canvas_node_param_text", "#C8C8C8"))))
+        painter.setFont(self._key_font())
+        painter.drawText(key_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         self._key_text() + ":")
+        btn = self._hdr_picker_rect()
+        bg = QColor(Config.get_color("btn_1"))
+        if self._is_hovering(btn):
+            bg = bg.lighter(115)
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(QColor(Config.get_color("border_1")), 1.0))
+        painter.drawRoundedRect(btn, 3, 3)
+        tcol = QColor(Config.get_color("main_t1"))
+        painter.setPen(QPen(tcol))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 11)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        text_rect = btn.adjusted(8, 0, -18, 0)
+        painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         fm.elidedText(self._header_summary_text(), Qt.TextElideMode.ElideRight, text_rect.width()))
+        painter.setBrush(QBrush(tcol))
+        painter.setPen(Qt.PenStyle.NoPen)
+        cx = btn.right() - 10.0
+        cy = btn.top() + btn.height() * 0.5
+        painter.drawPolygon(QPolygonF([
+            QPointF(cx, cy + 3.0), QPointF(cx - 4.5, cy - 2.5), QPointF(cx + 4.5, cy - 2.5),
+        ]))
+
+    # ---- 3-column geometry: [ group name | count | ops ] ----
+    def _row_ops_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        return QRectF(r.right() - _RJP_OPS_W, r.top(), _RJP_OPS_W, r.height())
+
+    def _row_count_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        ops = self._row_ops_rect(idx)
+        return QRectF(ops.left() - _RJP_COUNT_W, r.top(), _RJP_COUNT_W, r.height())
+
+    def _row_groupname_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        cnt = self._row_count_rect(idx)
+        return QRectF(r.left() + 6, r.top(), max(20.0, cnt.left() - r.left() - 10), r.height())
+
+    def _row_del_btn_rect(self, idx: int) -> QRectF:
+        ops = self._row_ops_rect(idx)
+        s = min(16.0, ops.height() - 6)
+        return QRectF(ops.center().x() - s / 2, ops.center().y() - s / 2, s, s)
+
+    def _paint_col_header(self, painter: QPainter) -> None:
+        if not self._row_payloads:
+            return
+        hdr = self._col_header_rect()
+        color = QColor(Config.get_color("main_c2", "#888888"))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(color))
+        fm = QFontMetricsF(font)
+        nr = self._row_groupname_rect(0)
+        cr = self._row_count_rect(0)
+        orr = self._row_ops_rect(0)
+        painter.drawText(QRectF(nr.left(), hdr.top(), nr.width(), hdr.height()),
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         fm.elidedText(tr("canvas.reward_pager.col_group", "Joints Group"),
+                                       Qt.TextElideMode.ElideRight, max(0.0, nr.width())))
+        painter.drawText(QRectF(cr.left(), hdr.top(), cr.width(), hdr.height()),
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                         fm.elidedText(tr("canvas.reward_pager.col_count", "Rewards Count"),
+                                       Qt.TextElideMode.ElideRight, max(0.0, cr.width())))
+        painter.drawText(QRectF(orr.left(), hdr.top(), orr.width(), hdr.height()),
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignHCenter),
+                         fm.elidedText(tr("canvas.reward_pager.col_ops", "Ops"),
+                                       Qt.TextElideMode.ElideRight, max(0.0, orr.width())))
+        sep = QColor(Config.get_color("border_1", "#444444"))
+        sep.setAlpha(160)
+        painter.setPen(QPen(sep, 0.8))
+        painter.drawLine(QPointF(hdr.left() + 2, hdr.bottom()), QPointF(hdr.right() - 2, hdr.bottom()))
+
+    def _paint_row(self, painter: QPainter, idx: int, payload: dict) -> None:
+        row = self._row_rect(idx)
+        active = (payload.get("page_id") == self._active_page())
+        if active:
+            painter.setBrush(QBrush(QColor(Config.get_color("highlight", "#F6D393"))))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(row, 3, 3)
+            text_color = QColor(Config.get_color("alt_t1", "#1E1E1E"))
+        else:
+            text_color = QColor(Config.get_color("main_t1", "#D6D3C7"))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 11)))
+        painter.setFont(font)
+        fm = QFontMetricsF(font)
+        nr = self._row_groupname_rect(idx)
+        if payload.get("page_id") == _RJP_GLOBAL:
+            label = tr("canvas.reward_pager.global", "Global (all joints)")
+        else:
+            label = str(payload.get("page_id"))
+        painter.setPen(QPen(text_color))
+        painter.drawText(nr, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         fm.elidedText(label, Qt.TextElideMode.ElideRight, max(0.0, nr.width())))
+        cr = self._row_count_rect(idx)
+        painter.drawText(cr, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                         str(int(payload.get("count", 0))))
+        if payload.get("deletable"):
+            db = self._row_del_btn_rect(idx)
+            bg = QColor(Config.get_color("btn_1", "#343636"))
+            if self._is_hovering(self._row_ops_rect(idx)):
+                bg = bg.lighter(115)
+            painter.setBrush(QBrush(bg))
+            painter.setPen(QPen(QColor(Config.get_color("border_1", "#444444")), 1.0))
+            painter.drawRoundedRect(db, 3, 3)
+            painter.setPen(QPen(QColor(Config.get_color("danger_zone", "#C84B4B")), 1.4))
+            m = 4.0
+            painter.drawLine(QPointF(db.left() + m, db.top() + m), QPointF(db.right() - m, db.bottom() - m))
+            painter.drawLine(QPointF(db.left() + m, db.bottom() - m), QPointF(db.right() - m, db.top() + m))
+
+    # ---- payloads / pages ----
+    def _paged_terms(self) -> dict:
+        from application.compiler.term_payload import migrate_reward_terms_to_paged
+        raw = self._owner.params.get(self._terms_key())
+        return migrate_reward_terms_to_paged(_parse_dict_value(raw) or {})
+
+    def _active_page(self) -> str:
+        return str(self._owner.params.get(self._active_key(), _RJP_GLOBAL) or _RJP_GLOBAL)
+
+    def _ordered_pages(self):
+        paged = self._paged_terms()
+        groups = sorted(k for k in paged if k != _RJP_GLOBAL)
+        return [_RJP_GLOBAL] + groups, paged
+
+    def _refresh_payloads(self) -> None:
+        pages, paged = self._ordered_pages()
+        self._row_payloads = [
+            {"page_id": pid, "count": len(paged.get(pid, {}) or {}),
+             "deletable": pid != _RJP_GLOBAL}
+            for pid in pages
+        ]
+        self._set_height(self._compute_height())
+
+    def maybe_refresh_for_asset_change(self) -> None:
+        self._refresh_payloads()
+        self.update()
+
+    # ---- robot family + partition choices ----
+    def _robot_family(self) -> Optional[str]:
+        try:
+            sku = _scene_robot_sku(self._owner)
+        except Exception:                                         # noqa: BLE001
+            sku = None
+        if not sku:
+            return None
+        try:
+            from registers.robots import get_robot_spec
+            rs = get_robot_spec(sku)
+            fams = list(getattr(rs, "families", []) or []) if rs is not None else []
+            return fams[0] if fams else None
+        except Exception:                                         # noqa: BLE001
+            return None
+
+    def _partition_choices(self) -> List[str]:
+        fam = self._robot_family()
+        if not fam:
+            return []
+        try:
+            from registers import pd_groups
+            return list(pd_groups.list_group_ids(fam))
+        except Exception:                                         # noqa: BLE001
+            return []
+
+    # ---- interaction ----
+    def _interactive_regions(self) -> List[QRectF]:
+        regions = [self._hdr_picker_rect()]
+        for i in range(len(self._row_payloads)):
+            regions.append(self._row_rect(i))
+            if self._row_payloads[i].get("deletable"):
+                regions.append(self._row_del_btn_rect(i))
+        return regions
+
+    def _handle_click(self, event) -> bool:
+        pos = event.pos()
+        if self._hdr_picker_rect().contains(pos):
+            return self._on_selector_clicked(event)
+        for idx, payload in enumerate(self._row_payloads):
+            if payload.get("deletable") and self._row_del_btn_rect(idx).contains(pos):
+                self._delete_page(str(payload.get("page_id")))
+                return True
+        for idx, payload in enumerate(self._row_payloads):
+            if self._row_rect(idx).contains(pos):
+                self._switch_active_page(str(payload.get("page_id")))
+                return True
+        return False
+
+    def _handle_double_click(self, event) -> bool:
+        return self._handle_click(event)
+
+    def _on_selector_clicked(self, event) -> bool:
+        choices = self._partition_choices()
+        if not choices:
+            return False
+        _pages, paged = self._ordered_pages()
+        current = [k for k in paged if k != _RJP_GLOBAL]
+
+        def _commit(selected):
+            sel = list(selected) if isinstance(selected, (list, tuple)) else (
+                [selected] if selected else [])
+            self._apply_partition_selection(sel)
+
+        open_choice_popup(
+            view=_view_of(event), row=self,
+            choices=choices, current=current,
+            multi=True, leading_mode="checkbox",
+            on_commit=_commit,
+        )
+        return True
+
+    def _on_modal_clicked(self, event) -> bool:
+        return False
+
+    # ---- mutations ----
+    def _apply_partition_selection(self, selected) -> None:
+        sel = set(str(s) for s in selected)
+        paged = self._paged_terms()
+        new = {_RJP_GLOBAL: paged.get(_RJP_GLOBAL, {})}
+        for g in sel:
+            new[g] = paged.get(g, {})
+        self._write_full_terms(new)
+        if self._active_page() not in new:
+            self._switch_active_page(_RJP_GLOBAL)
+        self._refresh_payloads()
+        self.update()
+
+    def _delete_page(self, page_id: str) -> None:
+        if page_id == _RJP_GLOBAL:
+            return
+        paged = self._paged_terms()
+        if page_id not in paged:
+            return
+        paged.pop(page_id, None)
+        self._write_full_terms(paged)
+        if self._active_page() == page_id:
+            self._switch_active_page(_RJP_GLOBAL)
+        self._refresh_payloads()
+        self.update()
+
+    def _write_full_terms(self, paged_dict: dict) -> None:
+        key = self._terms_key()
+        self._owner.params[key] = paged_dict
+        notify = getattr(self._owner, "on_param_changed", None)
+        if callable(notify):
+            notify(key, paged_dict)
+
+    def _switch_active_page(self, page_id: str) -> None:
+        _write_sibling_param(self._owner, self._active_key(), str(page_id))
+        self.update()
+
+
+# =============================================================================
 # Factory / dispatcher —— 节点脚本 → 图形的「自动转换」入口
 # =============================================================================
 
@@ -8587,6 +9050,7 @@ WIDGET_DISPATCH = {
     "registry_module":            RegistryModuleInlineRow,
     "training_items":             TrainingItemsInlineRow,
     "registry_preset_picker":     RegistryPresetPickerRow,
+    "reward_joint_pager":         RewardJointPagerRow,  # 缺口③
     "stage_editor":               StageEditorRow,
     "curve":                      CurveRow,
     "buffer_size":                BufferSizeRow,

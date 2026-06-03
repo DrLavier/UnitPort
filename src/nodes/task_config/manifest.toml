@@ -79,20 +79,9 @@ widget = "range"
 description = "目标偏航角速度 / Target yaw rate"
 meta = { min = -3.14, max = 3.14, step = 0.05 }
 
-[[parameters]]
-key = "curriculum"
-type = "bool"
-default = false
-description = "启用 curriculum / Enable curriculum"
-
-[[parameters]]
-key = "success_threshold"
-type = "float"
-default = 0.8
-widget = "range"
-description = "成功阈值 / Success threshold"
-meta = { min = 0.0, max = 1.0, step = 0.01 }
-
+# curriculum / success_threshold removed (2026-06): zero readers. task.command
+# curriculum is driven by the TrainingMotion node's command_curriculum_*, not
+# task.curriculum; success_threshold lives on eval_config (IsaacLab-only).
 [[parameters]]
 key = "truncation_max_steps"
 type = "int"
@@ -101,18 +90,6 @@ widget = "index"
 description = "截断最大步数（0=禁用） / Truncation max steps (0 = disabled)"
 meta = { min = 0, max = 1000000 }
 
-[[parameters]]
-key = "curriculum_schedule"
-type = "json"
-default = "{}"
-widget = "code"
-description = "curriculum 调度 (JSON) / Curriculum schedule"
-meta = { language = "json" }
-
-[[parameters]]
-key = "resampling_time_range"
-type = "list"
-default = "[0.0, 0.0]"
-widget = "range_list"
-description = "命令重采样时间窗 / Command resampling time range"
-meta = { min = 0.0, max = 30.0, step = 0.1 }
+# curriculum_schedule removed (2026-06): zero readers. resampling_time_range
+# removed: a dead duplicate of TrainingMotion.resampling_time_range (the live
+# one both backends read); the task_config copy was never consumed.

@@ -156,9 +156,13 @@ class SB3TrainingTask(TrainingTask):
 
         if mtype == MSG_PROGRESS:
             try:
-                step, total, reward, _best, _ep, _phase = data
+                step, total, reward, _best, _ep, _unit = data
             except (TypeError, ValueError):
                 return
+            # 6th slot is the progress unit ("iter" for PPO / "step" for
+            # off-policy). Label with it so the count matches the budget unit
+            # (PPO's budget is max_iterations, not raw env steps).
+            unit = str(_unit or "step")
             self._last_step = int(step)
             self._last_total = int(total)
             if isinstance(reward, (int, float)) and reward > self._last_reward:
@@ -168,7 +172,7 @@ class SB3TrainingTask(TrainingTask):
             try:
                 self.progress_line(
                     ratio,
-                    f"step {step}/{total}  reward={reward:.3f}",
+                    f"{unit} {step}/{total}  reward={reward:.3f}",
                 )
             except Exception:
                 pass

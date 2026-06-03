@@ -153,6 +153,62 @@ def _extract_vec_normalize_stats(vec_env: Any, *, obs_dim: int) -> Optional[Dict
 
 
 # ---------------------------------------------------------------------------
+# Per-item obs tail (SB3 per-item-reward canvases)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_per_item_obs(spec: Any) -> Optional[Dict[str, Any]]:
+    """Per-item observation-tail spec for the deploy contract, or ``None``.
+
+    When the canvas wires per-item rewards (``rewards.terms_by_item``), the SB3
+    env exposes a tail ``[cmd_norm, soft_weight per item]`` on the policy obs
+    (``GenericMujocoEnv._expose_active_item_obs``) — so the trained network's
+    input is ``base_obs + (1 + n_items)``. The deployed actor therefore needs
+    the same tail, which the deploy stack reconstructs from the command via the
+    SAME ItemResolver. This returns the data the contract must carry for that
+    reconstruction: item order, per-item command_ranges, and the blend width.
+
+    Gating mirrors :func:`application.training.envs.generic_mujoco_env.make_env`
+    exactly (same item_id order = ``terms_by_item`` insertion order). Raises
+    (§8) if per-item rewards are wired but ``training_items`` is missing — the
+    policy was trained with the tail, so a self-contained bundle (§9) MUST be
+    able to rebuild it; silently dropping it would ship a wrong-dim contract.
+    """
+    rewards_cfg = getattr(spec, "rewards", None)
+    motion_cfg = getattr(spec, "motion", None)
+    raw_per_item = (getattr(rewards_cfg, "terms_by_item", None) or {}) if rewards_cfg else {}
+    if not raw_per_item:
+        return None
+    training_items = (getattr(motion_cfg, "training_items", None) or {}) if motion_cfg else {}
+    if not training_items:
+        raise ValueError(
+            "[bundle_exporter] spec.rewards.terms_by_item is set but "
+            "spec.motion.training_items is missing — the trained policy's obs "
+            "carries a per-item tail (cmd_norm + item weights) that the deploy "
+            "contract cannot reconstruct without each item's command_ranges. "
+            "Wire the TrainingMotion node's command envelopes, or remove the "
+            "per-item reward edges. (CLAUDE.md §8/§9 — the bundle must be "
+            "self-contained.)"
+        )
+    item_ids = [str(k) for k in raw_per_item.keys()]
+    command_ranges: Dict[str, Dict[str, List[float]]] = {}
+    for iid in item_ids:
+        payload = training_items.get(iid)
+        ranges = payload.get("command_ranges") if isinstance(payload, dict) else None
+        command_ranges[iid] = {
+            str(ch): [float(span[0]), float(span[1])]
+            for ch, span in (ranges or {}).items()
+            if isinstance(span, (list, tuple)) and len(span) == 2
+        }
+    blend_width = float(getattr(motion_cfg, "deadzone", 0.10) or 0.10)
+    return {
+        "item_ids": item_ids,
+        "command_ranges": command_ranges,
+        "blend_width": blend_width,
+    }
+
+
+# ---------------------------------------------------------------------------
 # SB3 deploy_contract construction
 # ---------------------------------------------------------------------------
 
@@ -291,8 +347,12 @@ def _build_sb3_deploy_contract(
     # level (per-joint list-of-pairs is overkill for SB3's scalar canvas
     # knob); the scalar mirror lands on manifest.action_space.clip
     # outside this function.
+    # action_scale is read from the ACTOR (single authority = actor_setting,
+    # the node IsaacLab reads too). It used to be read from obs_action — a
+    # divergent second knob that made SB3 and IsaacLab scale actions
+    # differently. The env now also reads actor.action_scale.
     action_scale = (
-        float(getattr(obs_action, "action_scale", 1.0) or 1.0) if obs_action else 1.0
+        float(getattr(actor, "action_scale", 0.25) or 0.25) if actor else 0.25
     )
     use_default_offset = bool(
         getattr(actor, "action_use_default_offset", True)
@@ -303,30 +363,51 @@ def _build_sb3_deploy_contract(
         "offset_mode": "default_joint_pos" if use_default_offset else "zero",
     }
 
-    # Observations — mirror GenericMujocoEnv._build_obs layout exactly.
+    # Observations — built from the SAME ``il_terms`` layout the training env
+    # assembled, through the shared obs_term_engine. This is the SSOT that
+    # makes "train == export == deploy" hold by construction (CLAUDE.md §8/§11):
+    # the env's _build_obs and this contract iterate one resolved layout, and
+    # the deploy ObsBuilder reads the contract back through the same engine.
+    # An empty il_terms (SB3 canvas with no il_observation node) yields the
+    # default proprio layout, byte-equal in dim/order to the legacy contract.
+    from application.training.envs import obs_term_engine as _obs_eng
+
     obs_clip = (
         float(getattr(obs_action, "obs_clip_range", 0.0) or 0.0) if obs_action else 0.0
     )
     obs_clip_pair: Optional[List[float]] = (
         [-obs_clip, obs_clip] if obs_clip > 0.0 else None
     )
+    il_terms = getattr(obs_action, "il_terms", None) if obs_action is not None else None
+    legacy_default = not il_terms
+    layout = _obs_eng.normalize_obs_layout(il_terms, num_joints=n, action_dim=n)
 
-    hist_len = max(1, int(frame_stack))
+    # Per-item obs tail spec — resolved from the TrainingSpec BEFORE the loop
+    # below shadows the ``spec`` name with a per-term dict. None when the canvas
+    # has no per-item rewards.
+    per_item_obs = _resolve_per_item_obs(spec)
 
-    def _obs_term(dim: int) -> Dict[str, Any]:
-        out: Dict[str, Any] = {"dim": int(dim), "scale": 1.0, "history_length": hist_len}
-        if obs_clip_pair is not None:
-            out["clip"] = list(obs_clip_pair)
-        return out
-
-    observations: Dict[str, Any] = {
-        "base_ang_vel": _obs_term(3),
-        "projected_gravity": _obs_term(3),
-        "joint_pos": _obs_term(n),
-        "joint_vel": _obs_term(n),
-        "last_action": _obs_term(n),
-        "commands": _obs_term(3),
-    }
+    observations: Dict[str, Any] = {}
+    for term in layout:
+        spec: Dict[str, Any] = {"dim": int(term.dim)}
+        spec["scale"] = (
+            [float(v) for v in term.scale]
+            if isinstance(term.scale, (list, tuple)) else float(term.scale)
+        )
+        # History: per-term value from il_terms (the IsaacLab-aligned
+        # mechanism). For the legacy default layout (no il_terms) we fold the
+        # whole-frame VecFrameStack count into each term so existing SB3
+        # bundles keep their obs_dim. (Per-term history + frame_stack>1
+        # together is a P7 concern; frame_stack defaults to 1.)
+        hist = int(term.history_length)
+        if legacy_default and int(frame_stack) > 1:
+            hist = int(frame_stack)
+        spec["history_length"] = hist
+        if term.clip is not None:
+            spec["clip"] = [float(term.clip[0]), float(term.clip[1])]
+        elif obs_clip_pair is not None:
+            spec["clip"] = list(obs_clip_pair)
+        observations[term.name] = spec
 
     # ``robot_sku`` is intentionally NOT written here. The bundle's SKU
     # lives in ``manifest.robot.sku`` (the single source of truth);
@@ -357,8 +438,25 @@ def _build_sb3_deploy_contract(
         "commands": {},
         "base_body_name": "",
     }
+    # Per-item obs tail: deploy ObsBuilder reconstructs [cmd_norm, item weights]
+    # from the command via ItemResolver, so the deployed obs == the trained obs
+    # (CLAUDE.md §11). item_ids order == the env's item_id_order (terms_by_item
+    # insertion order) so the trained input permutation can't drift.
+    if per_item_obs is not None:
+        contract["per_item_obs"] = {
+            "item_ids": list(per_item_obs["item_ids"]),
+            "command_ranges": per_item_obs["command_ranges"],
+            "blend_width": float(per_item_obs["blend_width"]),
+        }
     if velocity_val > 0.0:
         contract["velocity_limit"] = [velocity_val] * n
+        # saturation_effort is REQUIRED alongside velocity_limit for the deploy
+        # DCMotor torque-speed envelope to engage (pd_controller.compute gates
+        # on BOTH). Without it the deploy stack silently ignored velocity_limit
+        # — and SB3 training applied no envelope either. We set it = effort_limit
+        # (the zero-speed peak), and GenericMujocoEnv applies the identical
+        # envelope during training, so velocity_limit is honored consistently.
+        contract["saturation_effort"] = list(effort_arr)
 
     # init_base_pos: only carry when the canvas set a non-default spawn
     # height. ``actor.init_pos_z`` is None when the user didn't override
@@ -440,6 +538,7 @@ class BundleExporter:
         algorithm: str = "",
         amp_metadata: Optional[Dict[str, Any]] = None,
         inference_convention: Optional[str] = None,
+        joint_array_format: Optional[str] = None,
         extra: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Compose a v1 manifest dict from explicit fields.
@@ -555,6 +654,23 @@ class BundleExporter:
             # sim2sim failure mode. See plan
             # release-demo-sim2sim-policy-a-unitport-a-nifty-micali.md.
             manifest["inference_convention"] = str(inference_convention)
+
+        if joint_array_format:
+            # Articulation order the bundle's per-joint arrays use (USD for
+            # Isaac Lab, MJCF for SB3/MuJoCo). DISTINCT from
+            # inference_convention (obs frame) — both backends are
+            # "isaac_lab" obs-frame, but only Isaac Lab is USD-ordered.
+            # The deploy stack (PolicyRunner USD-reorder, ObsBuilder
+            # joint-order check) keys off THIS field, never off
+            # inference_convention. See
+            # joint_space.resolve_joint_array_format.
+            fmt = str(joint_array_format).strip().upper()
+            if fmt not in ("MJCF", "USD", "URDF"):
+                raise ValueError(
+                    f"BundleExporter.build_manifest: joint_array_format "
+                    f"must be one of MJCF/USD/URDF, got {joint_array_format!r}"
+                )
+            manifest["joint_array_format"] = fmt
 
         if amp_metadata is not None:
             manifest["amp_metadata"] = dict(amp_metadata)
@@ -892,31 +1008,41 @@ class BundleExporter:
             overwrite = bool(getattr(export_cfg, "overwrite", True))
 
         # ── Resolve obs/action dims ──
-        obs_dim = 0
+        # The base obs dim is the SUM of the resolved obs-term layout — the
+        # SAME layout the training env (_build_obs) and the deploy contract
+        # (_build_sb3_deploy_contract) use, via obs_term_engine. Deriving it
+        # from a hardcoded formula instead silently diverged from il_terms
+        # (e.g. an added base_lin_vel term: formula said 45, the layout is 48).
         action_dim = int(spec.robot.num_joints if hasattr(spec.robot, "num_joints") else len(spec.robot.joint_order))
         oa = getattr(spec, "obs_action", None)
-        if oa is not None:
-            preset = (getattr(oa, "contract_preset", "") or "").strip()
-            if preset and preset != "custom":
-                from application.training.obs_contracts import get_obs_contract
-                contract = get_obs_contract(preset)
-                if contract is not None:
-                    obs_dim = int(contract["obs_dim"])
-                    action_dim = int(contract["action_dim"])
-        if obs_dim <= 0:
-            # Fall back to env-shape inference: ang_vel(3) + grav(3) + qpos(N)
-            # + qvel(N) + last_action(N) + cmd(3); same as GenericMujocoEnv.
-            obs_dim = 3 + 3 + action_dim + action_dim + action_dim + 3
-        # Track the per-frame ("base") dim before frame-stack — the deploy
-        # contract's per-term entries report this number with
-        # ``history_length=frame_stack`` so the deploy stack stacks the
-        # right number of frames on its side. The manifest's top-level
-        # observation_space.dim is the stacked dim the policy actually
-        # consumes.
-        base_obs_dim = int(obs_dim)
+        from application.training.envs import obs_term_engine as _obs_eng
+        _il_terms = getattr(oa, "il_terms", None) if oa is not None else None
+        _layout = _obs_eng.normalize_obs_layout(
+            _il_terms, num_joints=action_dim, action_dim=action_dim,
+        )
+        base_obs_dim = int(sum(int(t.dim) * int(t.history_length) for t in _layout))
         frame_stack = int(getattr(oa, "frame_stack", 1) or 1) if oa is not None else 1
-        if frame_stack > 1:
-            obs_dim = base_obs_dim * frame_stack
+
+        # Per-item obs tail (cmd_norm + soft weight per training item). The env
+        # appends it INSIDE _build_obs, so it is part of the per-frame obs the
+        # policy network — and VecNormalize — see. The deploy ObsBuilder
+        # reconstructs it from the command (same ItemResolver), so the contract
+        # only needs the item spec (added in _build_sb3_deploy_contract).
+        _per_item = _resolve_per_item_obs(spec)
+        tail_dim = (1 + len(_per_item["item_ids"])) if _per_item is not None else 0
+        if tail_dim > 0 and frame_stack > 1:
+            raise ValueError(
+                "[bundle_exporter] per-item rewards (obs tail) combined with "
+                f"obs_action.frame_stack={frame_stack} is not supported — the "
+                "deploy ObsBuilder appends the per-item tail once per frame, "
+                "not stacked. Set frame_stack=1, or remove the per-item reward "
+                "edges. (CLAUDE.md §8 — refusing to ship a mismatched contract.)"
+            )
+
+        # Per-frame obs = term layout + per-item tail (what VecNormalize sees).
+        # The network/manifest obs_dim then frame-stacks the per-frame obs.
+        per_frame_obs_dim = base_obs_dim + tail_dim
+        obs_dim = per_frame_obs_dim * frame_stack
 
         action_type = str(
             getattr(oa, "action_type", "joint_position") or "joint_position"
@@ -995,6 +1121,20 @@ class BundleExporter:
             policy_format="onnx",
             algorithm=algorithm_name,
             deploy_contract=deploy_contract,
+            # SB3 training now assembles obs through the shared obs_term_engine
+            # in the Isaac-Lab convention (body-frame base velocity,
+            # default-relative joint_pos, correct projected_gravity sign), so
+            # the deploy ObsBuilder must use the same convention. Set it
+            # explicitly rather than relying on the stiffness-inference
+            # heuristic in ObsBuilder.__init__.
+            inference_convention="isaac_lab",
+            # SB3 trains on MuJoCo, so the policy's joint slots — and hence
+            # every per-joint array in this bundle — are in MJCF (per-leg)
+            # order, NOT Isaac Lab's USD (per-type) order. Declaring this
+            # stops the deploy stack from permuting the contract to USD
+            # (which would scramble every joint) or rejecting it as
+            # "not USD-ordered". (CLAUDE.md §8/§9/§11.)
+            joint_array_format="MJCF",
         )
 
         # build_manifest mirrors deploy_contract.action.scale into
@@ -1020,13 +1160,60 @@ class BundleExporter:
         # PolicyRunner._load_bundle_normalizer picks them up at load time.
         extra_files: Dict[str, Union[bytes, str]] = {}
         # VecNormalize sits below VecFrameStack so its obs_rms shape is the
-        # PER-FRAME (base) dim, not the stacked one. Check against base.
-        norm_payload = _extract_vec_normalize_stats(vec_env, obs_dim=base_obs_dim)
+        # PER-FRAME dim — which includes the per-item obs tail (the tail is
+        # appended inside GenericMujocoEnv._build_obs, below VecNormalize), NOT
+        # just the term layout. Check against per_frame_obs_dim (base + tail).
+        norm_payload = _extract_vec_normalize_stats(vec_env, obs_dim=per_frame_obs_dim)
+        include_norm = bool(getattr(export_cfg, "include_normalization", True))
         if norm_payload is not None:
+            if not include_norm:
+                # The policy trained on VecNormalize-normalized observations.
+                # Shipping it WITHOUT the running mean/std would feed the deploy
+                # policy raw (out-of-distribution) obs → train≠deploy drift. We
+                # refuse rather than silently honor the flag into a broken
+                # bundle (CLAUDE.md §8). Disable env_assembler.obs_normalize if
+                # you genuinely want an un-normalized policy.
+                raise ValueError(
+                    "[bundle_exporter] export.include_normalization=False but "
+                    "VecNormalize was active during training — omitting the "
+                    "normalization stats would make deploy observations "
+                    "mismatch training (train != deploy). Enable "
+                    "include_normalization, or turn off "
+                    "env_assembler.obs_normalize."
+                )
             extra_files["normalization.json"] = json.dumps(
                 norm_payload, indent=2, sort_keys=False
             )
             manifest["normalization"] = {"file": "normalization.json"}
+
+        # TorchScript companion artifact (P7) — when the canvas requests it,
+        # trace the same actor net to ``policy.pt`` and ship it alongside the
+        # ONNX policy. ONNX stays the primary deploy format; the .pt lets a
+        # TorchScript-only runtime (deploy JITEngine) consume the bundle. The
+        # manifest records the aux file so the deploy side can find it.
+        export_cfg2 = getattr(spec, "export", None)
+        if export_cfg2 is not None and bool(getattr(export_cfg2, "include_torchscript", False)):
+            try:
+                from application.training.sb3_onnx_export import (
+                    export_to_torchscript_bytes,
+                )
+                extra_files["policy.pt"] = export_to_torchscript_bytes(model, obs_dim)
+                manifest["aux_policy"] = {"file": "policy.pt", "format": "jit"}
+            except Exception as exc:  # noqa: BLE001
+                log_warning(
+                    f"[bundle_exporter] TorchScript export requested but failed "
+                    f"({exc}); shipping ONNX only."
+                )
+
+        # Custom terrain — embed the heightfield self-contained in the bundle
+        # (§9), symmetric with the IsaacLab finalizer. The cross-engine
+        # consistency gate runs inside embed_custom_terrain before any bytes
+        # are written (§8). SB3 trains on the MuJoCo <hfield> derived from the
+        # same source, so the bundle terrain matches what was trained.
+        from application.training.terrain.bundle_io import embed_custom_terrain
+        _terrain_files = embed_custom_terrain(spec, manifest)
+        if _terrain_files:
+            extra_files.update(_terrain_files)
 
         source_meta = {
             "type": "training",

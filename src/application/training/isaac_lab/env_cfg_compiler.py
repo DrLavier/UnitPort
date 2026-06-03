@@ -2186,6 +2186,12 @@ class IsaacLabConfigCompiler:
                 _GAIT_INLINE_BY_CLASS[gait_spec.class_name].splitlines()
             )
             lines.append("")
+        # Module-level UNITPORT_TERRAIN_CFG must precede SceneCfg, which
+        # references it (rough canvases only; flat emits nothing).
+        lines += self._terrain_generator_literal()
+        # Custom heightfield generator (scene_type='custom'); emits nothing
+        # otherwise. Also precedes SceneCfg.
+        lines += self._custom_terrain_generator_literal()
         lines += self._scene_cfg()
         lines += self._observations_cfg()
         lines += self._actions_cfg()
@@ -2193,6 +2199,8 @@ class IsaacLabConfigCompiler:
         lines += self._rewards_cfg()
         lines += self._terminations_cfg()
         lines += self._events_cfg()
+        # CurriculumCfg must precede UnitPortEnvCfg, which references it.
+        lines += self._curriculum_manager_cfg()
         lines += self._root_env_cfg()
         lines += self._ppo_runner_cfg()
         lines += self._unitport_curriculum_cfg()
@@ -2378,12 +2386,14 @@ class IsaacLabConfigCompiler:
             "from isaaclab.managers import ObservationTermCfg as ObsTerm",
             "from isaaclab.managers import RewardTermCfg as RewTerm",
             "from isaaclab.managers import SceneEntityCfg",
+            "from isaaclab.managers import CurriculumTermCfg as CurrTerm",
             "from isaaclab.managers import TerminationTermCfg as DoneTerm",
             "from isaaclab.actuators import ImplicitActuatorCfg, DCMotorCfg, ActuatorNetMLPCfg, ActuatorNetLSTMCfg, IdealPDActuatorCfg, RemotizedPDActuatorCfg",
             "from isaaclab.scene import InteractiveSceneCfg",
             "from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns",
             "from isaaclab.sim import PhysxCfg, RenderCfg, SimulationCfg",
-            "from isaaclab.terrains import TerrainImporterCfg",
+            "from isaaclab.terrains import TerrainGeneratorCfg, TerrainImporterCfg",
+            "import isaaclab.terrains as terrain_gen",
             "from isaaclab.utils import configclass",
             "",
             "from isaaclab.assets import ArticulationCfg",
@@ -2445,13 +2455,16 @@ class IsaacLabConfigCompiler:
                 continue
             if not isinstance(reward_terms, dict):
                 continue
-            for entry in reward_terms.values():
-                if isinstance(entry, dict):
-                    applies = entry.get("applies_to") or []
-                    if isinstance(applies, str):
-                        applies = [s.strip() for s in applies.split(",") if s.strip()]
-                    if applies:
-                        return True
+            # 缺口③ — reward_terms is paged; scan term payloads across all pages.
+            from application.compiler.term_payload import iter_reward_pages
+            for _pid, page_terms in iter_reward_pages(reward_terms):
+                for entry in page_terms.values():
+                    if isinstance(entry, dict):
+                        applies = entry.get("applies_to") or []
+                        if isinstance(applies, str):
+                            applies = [s.strip() for s in applies.split(",") if s.strip()]
+                        if applies:
+                            return True
         return False
 
     def _scan_rewards_for_item_masking(self) -> bool:
@@ -2511,7 +2524,14 @@ class IsaacLabConfigCompiler:
                 continue
             if not isinstance(reward_terms, dict):
                 continue
-            for func_key, payload in reward_terms.items():
+            # 缺口③ — reward_terms is paged; emit inline for funcs across all pages.
+            from application.compiler.term_payload import iter_reward_pages
+            _flat_terms = [
+                (fk, pl)
+                for _pid, page_terms in iter_reward_pages(reward_terms)
+                for fk, pl in page_terms.items()
+            ]
+            for func_key, payload in _flat_terms:
                 item = lookup(func_key, kind="reward", backend=BACKEND_ISAAC)
                 if item is None or not item.il_inline:
                     continue
@@ -2727,6 +2747,194 @@ class IsaacLabConfigCompiler:
             f"))"
         )
 
+    def _rough_playground_pid(self) -> Optional[str]:
+        """Return the play_ground_setting node id iff scene_type == 'rough'.
+
+        Centralises the "is this a rough/generator canvas" predicate shared
+        by the terrain generator literal, the scene cfg, and the curriculum
+        manager cfg. flat canvases (or no playground node) → None.
+        """
+        pids = self._find_by_type("play_ground_setting")
+        if not pids:
+            return None
+        pid = pids[0]
+        if self._p(pid, "scene_type").strip().lower() == "rough":
+            return pid
+        return None
+
+    def _terrain_generator_literal(self) -> List[str]:
+        """Emit module-level ``UNITPORT_TERRAIN_CFG`` for rough canvases.
+
+        Structurally identical to Isaac Lab's ``ROUGH_TERRAINS_CFG``
+        (isaaclab/terrains/config/rough.py) — only ``num_rows`` (=
+        difficulty_levels) and each sub-terrain ``proportion`` are
+        canvas-driven; the inner ranges (step heights, slope/noise ranges)
+        stay at the stock values so a default canvas is byte-equivalent to
+        the prior ``ROUGH_TERRAINS_CFG`` path. ``curriculum`` is left to the
+        env ``__post_init__`` (driven by whether a terrain_levels curriculum
+        term is present). flat canvases emit nothing.
+        """
+        pid = self._rough_playground_pid()
+        if pid is None:
+            return []
+        num_rows = max(1, self._pi(pid, "difficulty_levels"))
+        p_stairs = self._pf(pid, "prop_pyramid_stairs")
+        p_stairs_inv = self._pf(pid, "prop_pyramid_stairs_inv")
+        p_boxes = self._pf(pid, "prop_boxes")
+        p_rough = self._pf(pid, "prop_random_rough")
+        p_slope = self._pf(pid, "prop_slope")
+        p_slope_inv = self._pf(pid, "prop_slope_inv")
+        return [
+            "# " + "=" * 70,
+            "# UnitPort rough-terrain generator — canvas-driven sub-terrain mix",
+            "# (proportions) + difficulty rows (num_rows). Inner ranges mirror",
+            "# Isaac Lab's ROUGH_TERRAINS_CFG. curriculum flag set by",
+            "# UnitPortEnvCfg.__post_init__ from the terrain_levels curriculum term.",
+            "# " + "=" * 70,
+            "UNITPORT_TERRAIN_CFG = TerrainGeneratorCfg(",
+            "    size=(8.0, 8.0),",
+            "    border_width=20.0,",
+            f"    num_rows={num_rows},",
+            "    num_cols=20,",
+            "    horizontal_scale=0.1,",
+            "    vertical_scale=0.005,",
+            "    slope_threshold=0.75,",
+            "    use_cache=False,",
+            "    sub_terrains={",
+            f'        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(',
+            f"            proportion={p_stairs}, step_height_range=(0.05, 0.23), step_width=0.3,",
+            "            platform_width=3.0, border_width=1.0, holes=False,",
+            "        ),",
+            f'        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(',
+            f"            proportion={p_stairs_inv}, step_height_range=(0.05, 0.23), step_width=0.3,",
+            "            platform_width=3.0, border_width=1.0, holes=False,",
+            "        ),",
+            f'        "boxes": terrain_gen.MeshRandomGridTerrainCfg(',
+            f"            proportion={p_boxes}, grid_width=0.45, grid_height_range=(0.05, 0.2), platform_width=2.0,",
+            "        ),",
+            f'        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(',
+            f"            proportion={p_rough}, noise_range=(0.02, 0.10), noise_step=0.02, border_width=0.25,",
+            "        ),",
+            f'        "hf_pyramid_slope": terrain_gen.HfPyramidSlopedTerrainCfg(',
+            f"            proportion={p_slope}, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,",
+            "        ),",
+            f'        "hf_pyramid_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(',
+            f"            proportion={p_slope_inv}, slope_range=(0.0, 0.4), platform_width=2.0, border_width=0.25,",
+            "        ),",
+            "    },",
+            ")",
+            "",
+            "",
+        ]
+
+    def _curriculum_manager_cfg(self) -> List[str]:
+        """Emit the IsaacLab-native ``CurriculumCfg`` manager group.
+
+        Carries the ``terrain_levels`` curriculum term (Isaac Lab's stock
+        distance-based difficulty promote/demote, ``terrain_levels_vel``,
+        keyed to our ``base_velocity`` command) ONLY when the canvas has a
+        rough playground with curriculum_enabled. Otherwise an empty group
+        — the env ``__post_init__`` then forces the generator's curriculum
+        flag off. This is distinct from the custom ``UNITPORT_CURRICULUM``
+        dict (per-iteration schedules read by the runner); this is the
+        engine-side CurriculumManager.
+        """
+        lines = ["@configclass", "class CurriculumCfg:", '    """Curriculum terms for the MDP."""', ""]
+        pid = self._rough_playground_pid()
+        enabled = False
+        if pid is not None:
+            enabled = str(self._p(pid, "curriculum_enabled")).strip().lower() in ("true", "1", "yes", "on")
+        if enabled:
+            lines.append("    terrain_levels = CurrTerm(func=velocity_mdp.terrain_levels_vel)")
+        else:
+            lines.append("    pass")
+        lines += ["", ""]
+        return lines
+
+    def _custom_terrain_generator_literal(self) -> List[str]:
+        """Emit module-level ``UNITPORT_CUSTOM_TERRAIN_CFG`` for
+        ``scene_type='custom'``.
+
+        Loads the canvas's canonical heightfield ``.npz`` and code-gens a
+        ``TerrainGeneratorCfg`` with one custom sub-terrain whose function
+        (``application.training.terrain.isaaclab_runtime``) rebuilds the tile
+        in the Kit worker from that same ``.npz`` — no USD. Emits nothing for
+        non-custom canvases; fail-loud (§8) if custom is selected but the
+        heightfield is missing/invalid.
+        """
+        pids = self._find_by_type("play_ground_setting")
+        if not pids:
+            return []
+        pid = pids[0]
+        if self._p(pid, "scene_type").strip().lower() != "custom":
+            return []
+        src = self._p(pid, "custom_terrain_path").strip()
+        if not src:
+            raise ValueError(
+                "[UnitPort][Compiler] scene_type='custom' but "
+                "custom_terrain_path is empty — import a heightfield on the "
+                "Play Ground Setting node (§8)."
+            )
+        vscale = self._pf(pid, "custom_terrain_vertical_scale")
+        if not (vscale > 0.0):
+            vscale = 0.005
+        from application.training.terrain.isaaclab_lowering import (
+            emit_custom_terrain_generator_cfg,
+        )
+        from application.training.terrain.loaders.npz import NpzHeightFieldLoader
+
+        contract = NpzHeightFieldLoader().load(src)  # validates + sha256
+        return emit_custom_terrain_generator_cfg(
+            src, contract.height_field, vertical_scale=vscale
+        )
+
+    def _terrain_importer_lines(
+        self, pid: str, terrain_type_literal: str,
+        mu_s: float, mu_d: float, restitution: float,
+    ) -> List[str]:
+        """Emit the ``terrain = TerrainImporterCfg(...)`` block for SceneCfg.
+
+        Split out of :meth:`_scene_cfg` (which also derives robot/actuator
+        gains and so cannot run without an MJCF) so the terrain wiring is
+        unit-testable on its own. ``plane`` → flat ground; ``rough_generator``
+        → the canvas-driven ``UNITPORT_TERRAIN_CFG`` + ``max_init_terrain_level``
+        from the node (curriculum start row).
+        """
+        lines = [
+            "    terrain = TerrainImporterCfg(",
+            '        prim_path="/World/ground",',
+        ]
+        if terrain_type_literal == "plane":
+            lines.append('        terrain_type="plane",')
+        elif terrain_type_literal == "custom_generator":
+            # User-imported heightfield — a single fixed tile (no curriculum
+            # this phase), built by the module-level UNITPORT_CUSTOM_TERRAIN_CFG
+            # (_custom_terrain_generator_literal). No max_init_terrain_level:
+            # there is no difficulty grid to start partway up.
+            lines.append('        terrain_type="generator",')
+            lines.append("        terrain_generator=UNITPORT_CUSTOM_TERRAIN_CFG,")
+            lines.append("        collision_group=-1,")
+        else:
+            # The rough generator's sub-terrain inner ranges (noise/slope/step)
+            # stay at ROUGH_TERRAINS_CFG values; only proportions + num_rows are
+            # canvas-driven (the removed roughness_amplitude/slope_max sliders
+            # never fed these ranges). Parameterising inner geometry is a
+            # separate future feature.
+            max_init = self._pi(pid, "max_init_terrain_level")
+            lines.append('        terrain_type="generator",')
+            lines.append("        terrain_generator=UNITPORT_TERRAIN_CFG,")
+            lines.append(f"        max_init_terrain_level={max_init},")
+            lines.append("        collision_group=-1,")
+        lines.append("        physics_material=sim_utils.RigidBodyMaterialCfg(")
+        lines.append(
+            f"            static_friction={mu_s}, "
+            f"dynamic_friction={mu_d}, restitution={restitution},"
+        )
+        lines.append("        ),")
+        lines.append("        debug_vis=False,")
+        lines.append("    )")
+        return lines
+
     def _scene_cfg(self) -> List[str]:
         lines = ["@configclass", "class SceneCfg(InteractiveSceneCfg):", '    """Scene configuration."""', ""]
 
@@ -2742,18 +2950,13 @@ class IsaacLabConfigCompiler:
         # Our IL Terrain Config dropdown offers "flat" / "rough" / "stairs"
         # / "slopes" / "stepping_stones" — which map as follows:
         #
-        #   flat                                       → "plane"
-        #   rough / stairs / slopes / stepping_stones  → "generator"
-        #                                                 + ROUGH_TERRAINS_CFG
-        #                                                 (Isaac Lab pre-built
-        #                                                 generator that ships
-        #                                                 a mix of all four
-        #                                                 sub-terrain types)
-        #
-        # We do NOT yet expose per-sub-terrain weight knobs in the canvas;
-        # the user gets the standard rough mix when they pick anything other
-        # than flat. Customising the mix requires editing this method or
-        # adding a TerrainGeneratorNode to the canvas (future work).
+        #   flat   → "plane"
+        #   rough  → "generator" + UNITPORT_TERRAIN_CFG (emitted module-level
+        #            by _terrain_generator_literal; the canvas drives the
+        #            per-sub-terrain proportions + num_rows, and — when
+        #            curriculum_enabled — a terrain_levels CurriculumTerm
+        #            promotes/demotes difficulty per the robot's walked
+        #            distance).
         # §2 Scene — unified Play Ground Setting node is the single
         # source of truth. The old il_terrain_config fallback path has
         # been removed as part of the 6-section migration.
@@ -2772,43 +2975,26 @@ class IsaacLabConfigCompiler:
             # ``restitution_range``.
             restitution = 0.0
             # Explicit dispatch — silent fallback to ROUGH_TERRAINS_CFG used to
-            # send canvases with scene_type="custom" (or any non-"flat" value
-            # not in the node enum) onto a 6-tile rough generator, dropping
-            # per-iter speed by 5-10× before the user knew anything had gone
-            # wrong. Match the play_ground_setting node's enum
-            # (["flat", "rough"]) and raise loudly on anything else.
+            # send canvases with an unexpected scene_type onto a 6-tile rough
+            # generator, dropping per-iter speed by 5-10× before the user knew
+            # anything had gone wrong. Match the play_ground_setting node's enum
+            # (["flat", "rough", "custom"]) and raise loudly on anything else.
             if stype == "flat":
                 terrain_type_literal = "plane"
             elif stype == "rough":
                 terrain_type_literal = "rough_generator"
+            elif stype == "custom":
+                # User-imported heightfield → custom TerrainGenerator (no USD).
+                terrain_type_literal = "custom_generator"
             else:
                 raise ValueError(
                     f"\n[UnitPort][Compiler] play_ground_setting.scene_type="
                     f"{stype!r} is not a supported terrain type. "
-                    f"Valid values: 'flat', 'rough'.\n"
-                    f"  Got 'custom'? The picker_scene widget probably wrote "
-                    f"this when you selected a custom scene_id; the IsaacLab "
-                    f"backend has no custom-USD terrain branch yet. Pick "
-                    f"'flat' or 'rough' from the Play Ground Setting node "
-                    f"enum to unblock training."
+                    f"Valid values: 'flat', 'rough', 'custom'."
                 )
-            lines.append(f"    terrain = TerrainImporterCfg(")
-            lines.append(f'        prim_path="/World/ground",')
-            if terrain_type_literal == "plane":
-                lines.append(f'        terrain_type="plane",')
-            else:
-                lines.append(f'        terrain_type="generator",')
-                lines.append(f"        terrain_generator=ROUGH_TERRAINS_CFG,")
-                lines.append(f"        max_init_terrain_level=5,")
-                lines.append(f"        collision_group=-1,")
-            lines.append(f"        physics_material=sim_utils.RigidBodyMaterialCfg(")
-            lines.append(
-                f"            static_friction={mu_s}, "
-                f"dynamic_friction={mu_d}, restitution={restitution},"
+            lines += self._terrain_importer_lines(
+                pid, terrain_type_literal, mu_s, mu_d, restitution
             )
-            lines.append(f"        ),")
-            lines.append(f"        debug_vis=False,")
-            lines.append(f"    )")
 
         # Robot
         # Actuator config — canonical (omega_n, zeta) PD parameterization
@@ -3564,30 +3750,15 @@ class IsaacLabConfigCompiler:
                 if len(item_indices) == 1
                 else f"({indices_literal})"
             )
-            for func, entry in reward_terms.items():
-                if isinstance(entry, dict):
-                    weight = entry.get("weight", 0.0)
-                else:
-                    weight = entry
-                try:
-                    w = float(weight)
-                except (ValueError, TypeError) as exc:
-                    raise CanvasConfigError(
-                        nid=rid,
-                        key="reward_terms",
-                        schema_id=self._types.get(rid, ""),
-                        reason=(
-                            f"reward weight for {func!r} is not a valid float: "
-                            f"{weight!r} ({type(weight).__name__})"
-                        ),
-                    ) from exc
+            # 缺口③ — iterate ALL reward pages (Global + joint pages). Group-page
+            # terms carry their joint filter in params_str + a unique field_base.
+            for func, field_base, w, params_str, _applies in self._resolve_reward_emit_terms(rid):
                 mdp_module, mdp_func = self._reward_func_ref(func)
-                params_str = self._reward_extra_params_from_node(rid, func)
                 func_ref = f"{mdp_module}.{mdp_func}" if mdp_module else mdp_func
                 wrapped = f"unitport_item_mask({func_ref}, {mask_args})"
-                # Field-name disambiguation: same func across multiple
+                # Field-name disambiguation: same field across multiple
                 # rewards nodes → suffix subsequent ones with ``__n<rid>``.
-                field = func if func not in seen_field_names else f"{func}__n{rid}"
+                field = field_base if field_base not in seen_field_names else f"{field_base}__n{rid}"
                 seen_field_names.add(field)
                 lines.append(
                     f"    {field} = RewTerm(func={wrapped}, weight={w}{params_str})"
@@ -3627,31 +3798,13 @@ class IsaacLabConfigCompiler:
                 reason="reward_terms is empty — at least one reward term required.",
             )
         phase_masked = False
-        for func, entry in reward_terms.items():
-            applies_to: List[str] = []
-            if isinstance(entry, dict):
-                weight = entry.get("weight", 0.0)
-                raw_applies = entry.get("applies_to") or []
-                if isinstance(raw_applies, str):
-                    applies_to = [s.strip() for s in raw_applies.split(",") if s.strip()]
-                elif isinstance(raw_applies, (list, tuple)):
-                    applies_to = [str(s).strip() for s in raw_applies if str(s).strip()]
-            else:
-                weight = entry
-            try:
-                w = float(weight)
-            except (ValueError, TypeError) as exc:
-                raise CanvasConfigError(
-                    nid=rid,
-                    key="reward_terms",
-                    schema_id=self._types.get(rid, ""),
-                    reason=(
-                        f"reward weight for {func!r} is not a valid float: "
-                        f"{weight!r} ({type(weight).__name__})"
-                    ),
-                ) from exc
+        any_emitted = False
+        # 缺口③ — iterate ALL reward pages (Global + joint pages). Group-page
+        # terms carry their joint filter in params_str + a unique field_base;
+        # applies_to (phase mask) still wraps every emitted term.
+        for func, field_base, w, params_str, applies_to in self._resolve_reward_emit_terms(rid):
+            any_emitted = True
             mdp_module, mdp_func = self._reward_func_ref(func)
-            params_str = self._reward_extra_params_from_node(rid, func)
             func_ref = f"{mdp_module}.{mdp_func}" if mdp_module else mdp_func
             if applies_to:
                 phases_literal = ", ".join(repr(p) for p in applies_to)
@@ -3661,13 +3814,20 @@ class IsaacLabConfigCompiler:
                     else f"unitport_phase_mask({func_ref}, ({phases_literal}))"
                 )
                 lines.append(
-                    f"    {func} = RewTerm(func={wrapped}, weight={w}{params_str})"
+                    f"    {field_base} = RewTerm(func={wrapped}, weight={w}{params_str})"
                 )
                 phase_masked = True
             else:
                 lines.append(
-                    f"    {func} = RewTerm(func={func_ref}, weight={w}{params_str})"
+                    f"    {field_base} = RewTerm(func={func_ref}, weight={w}{params_str})"
                 )
+        if not any_emitted:
+            raise CanvasConfigError(
+                nid=rid,
+                key="reward_terms",
+                schema_id=self._types.get(rid, ""),
+                reason="reward_terms has no reward terms across any page — at least one required.",
+            )
         if phase_masked:
             self._needs_phase_mask_helper = True
         lines += ["", ""]
@@ -4233,12 +4393,23 @@ class IsaacLabConfigCompiler:
             "    rewards: RewardsCfg = RewardsCfg()",
             "    terminations: TerminationsCfg = TerminationsCfg()",
             "    events: EventCfg = EventCfg()",
+            "    curriculum: CurriculumCfg = CurriculumCfg()",
             "",
             "    # Required ManagerBasedRLEnvCfg root fields — no canvas",
             "    # equivalents today, derived from sim_config.dt + the",
             "    # time_out termination at compile time.",
             f"    decimation: int = {decimation}",
             f"    episode_length_s: float = {episode_length_s}",
+            "",
+            "    def __post_init__(self):",
+            "        # Terrain curriculum: enable the generator's difficulty",
+            "        # progression iff a terrain_levels CurriculumTerm is present",
+            "        # (canvas curriculum_enabled + rough/generator terrain).",
+            "        # getattr-guarded so flat / no-terrain canvases are safe.",
+            "        _terrain = getattr(self.scene, \"terrain\", None)",
+            "        _gen = getattr(_terrain, \"terrain_generator\", None) if _terrain is not None else None",
+            "        if _gen is not None:",
+            "            _gen.curriculum = getattr(self.curriculum, \"terrain_levels\", None) is not None",
             "",
             "",
         ]
@@ -4878,6 +5049,7 @@ class IsaacLabConfigCompiler:
         terms_param_key: str,
         kind: str,
         func_key: str,
+        payload: Any = None,
     ) -> Optional[str]:
         """Return the variant's ``il_params`` template, or None.
 
@@ -4897,13 +5069,16 @@ class IsaacLabConfigCompiler:
             from application.service.scripts import resolver as _resolver
         except Exception:                                         # noqa: BLE001
             return None
-        try:
-            terms = self._parse_json_param(nid, terms_param_key)
-        except Exception:                                         # noqa: BLE001
-            return None
-        if not isinstance(terms, dict):
-            return None
-        payload = terms.get(func_key)
+        if payload is None:
+            # 缺口③ — paged reward_terms: caller normally passes the per-page
+            # payload. Fall back to a flat re-read for non-paged callers.
+            try:
+                terms = self._parse_json_param(nid, terms_param_key)
+            except Exception:                                     # noqa: BLE001
+                return None
+            if not isinstance(terms, dict):
+                return None
+            payload = terms.get(func_key)
         if payload is None:
             return None
         try:
@@ -4921,8 +5096,12 @@ class IsaacLabConfigCompiler:
             return None
         return resolved.il_params_override or None
 
-    def _reward_extra_params(self, nid: str, func_key: str) -> str:
+    def _reward_extra_params(self, nid: str, func_key: str, payload: Any = None) -> str:
         """Build the ``params={...}`` kwarg string for a RewTerm.
+
+        缺口③ — ``payload`` is the term's per-page payload (reward_terms is
+        paged); threaded into variant + item_value resolution so a term on
+        different pages resolves its own variant/value.
 
         Reads the ``il_params`` template from the registry, substitutes
         node-level values (``{node_std}``, ``{node_threshold}``), then
@@ -4950,7 +5129,7 @@ class IsaacLabConfigCompiler:
         # preset template entirely when the canvas-side variant tag
         # declares one in its variants.toml.
         variant_il_params = self._lookup_variant_il_params(
-            nid, "reward_terms", "reward", func_key,
+            nid, "reward_terms", "reward", func_key, payload=payload,
         )
         if variant_il_params is not None:
             params_str = variant_il_params
@@ -4970,25 +5149,173 @@ class IsaacLabConfigCompiler:
         params_str = params_str.format(
             node_std=self._pf(nid, "std"),
             node_threshold=self._pf(nid, "threshold"),
-            item_value=self._resolve_reward_item_value(nid, func_key),
+            item_value=self._resolve_reward_item_value(nid, func_key, payload=payload),
         )
         return ", params={" + params_str + "}"
 
-    def _resolve_reward_item_value(self, nid: str, func_key: str) -> float:
+    def _resolve_partition_joint_names(
+        self, group_id: str, *, rid: str, func: str
+    ) -> List[str]:
+        """Physical joint names for a PD-group partition on the bound robot.
+
+        缺口③ — expands one joint-subset partition (a ``pd_groups`` family
+        group id, e.g. ``hip_y`` / ``knee`` / ``shoulder_pitch``) into the
+        concrete physical joint names a ``SceneEntityCfg`` needs. Reuses the
+        family-keyed PD joint-group regex (single source of truth) + the
+        compiler's ``JointIRResolver`` for IR-role → physical translation.
+
+        Fail-loud (CLAUDE.md §8): no bound robot, robot without a family, an
+        unknown partition for the family, a missing joint table, or a
+        partition that matches NONE of the robot's joints all raise — never a
+        silent empty joint set (which would emit a no-op reward that looks
+        configured but does nothing = "user setting != actual running").
+        """
+        import re as _re
+        from registers import pd_groups
+
+        if self._robot is None:
+            raise CanvasConfigError(
+                nid=rid, key="reward_terms", schema_id=self._types.get(rid, ""),
+                reason=(
+                    f"reward {func!r} uses joint partitions but no robot is bound "
+                    f"to the compiler — cannot resolve partition {group_id!r} to "
+                    f"physical joints. Wire a Robot node on the canvas."
+                ),
+            )
+        families = list(getattr(self._robot, "families", []) or [])
+        if not families:
+            raise CanvasConfigError(
+                nid=rid, key="reward_terms", schema_id=self._types.get(rid, ""),
+                reason=(
+                    f"reward {func!r} uses joint partitions but robot "
+                    f"{self._robot.sku!r} declares no family — partitions are "
+                    f"resolved against the family's PD joint groups."
+                ),
+            )
+        family = families[0]
+        g = pd_groups.get_group(family, group_id)
+        if g is None:
+            valid = pd_groups.list_group_ids(family)
+            raise CanvasConfigError(
+                nid=rid, key="reward_terms", schema_id=self._types.get(rid, ""),
+                reason=(
+                    f"reward {func!r} references joint partition {group_id!r}, "
+                    f"which is not a PD joint group for family {family!r}. "
+                    f"Valid partitions for this family: {valid}. Fix: pick a "
+                    f"partition that exists for this robot's family on the "
+                    f"Rewards node, or remove it."
+                ),
+            )
+        resolver = self._joint_ir_resolver
+        if resolver is None:
+            raise CanvasConfigError(
+                nid=rid, key="reward_terms", schema_id=self._types.get(rid, ""),
+                reason=(
+                    f"reward {func!r} partition {group_id!r} needs a joint table "
+                    f"to resolve IR roles → physical names, but robot "
+                    f"{self._robot.sku!r} has none for the active format. Run "
+                    f"Dump in the Robot Asset card first."
+                ),
+            )
+        regex = _re.compile(g["ir_role_regex"])
+        matched = [r for r in resolver.ir_roles if regex.fullmatch(r)]
+        if not matched:
+            raise CanvasConfigError(
+                nid=rid, key="reward_terms", schema_id=self._types.get(rid, ""),
+                reason=(
+                    f"reward {func!r} partition {group_id!r} (family {family!r}, "
+                    f"regex {g['ir_role_regex']!r}) matches NONE of robot "
+                    f"{self._robot.sku!r}'s IR roles {resolver.ir_roles}. The "
+                    f"partition has no joints on this robot — pick a partition "
+                    f"this robot actually has, or remove it from the Rewards node."
+                ),
+            )
+        return [resolver.to_physical(r) for r in matched]
+
+    def _reward_is_paginable(self, func: str) -> bool:
+        """True iff reward ``func`` may live on a joint page (il_partition_source set)."""
+        from scripts import lookup, BACKEND_ISAAC
+        item = lookup(func, kind="reward", backend=BACKEND_ISAAC)
+        return bool(item and getattr(item, "il_partition_source", ""))
+
+    def _resolve_reward_emit_terms(self, rid: str):
+        """缺口③ — yield ``(func, field_base, weight, params_str, applies_to)`` for
+        EVERY reward across ALL pages of node ``rid``'s paged ``reward_terms``.
+
+        Global page (``PAGE_GLOBAL``): no joint filter, ``field_base=func``,
+        params from the registry (variant/value resolved against the page
+        payload). Group page (a pd_group id): the reward is restricted to that
+        partition's physical joints via ``SceneEntityCfg(joint_names=…)`` and
+        ``field_base=f"{func}_{group}"``. Group pages accept ONLY joint-
+        paginable rewards (fail-loud §8). Legacy flat reward_terms migrates to
+        the global page transparently (R6 byte-identical emit).
+        """
+        from application.compiler.term_payload import iter_reward_pages, PAGE_GLOBAL
+        reward_terms = self._parse_json_param(rid, "reward_terms")
+        for page_id, page_terms in iter_reward_pages(reward_terms):
+            for func, entry in page_terms.items():
+                applies_to: List[str] = []
+                if isinstance(entry, dict):
+                    weight = entry.get("weight", 0.0)
+                    raw_applies = entry.get("applies_to") or []
+                    if isinstance(raw_applies, str):
+                        applies_to = [s.strip() for s in raw_applies.split(",") if s.strip()]
+                    elif isinstance(raw_applies, (list, tuple)):
+                        applies_to = [str(s).strip() for s in raw_applies if str(s).strip()]
+                else:
+                    weight = entry
+                try:
+                    w = float(weight)
+                except (ValueError, TypeError) as exc:
+                    raise CanvasConfigError(
+                        nid=rid, key="reward_terms", schema_id=self._types.get(rid, ""),
+                        reason=(
+                            f"reward weight for {func!r} (page {page_id!r}) is not a "
+                            f"valid float: {weight!r} ({type(weight).__name__})"
+                        ),
+                    ) from exc
+                if page_id == PAGE_GLOBAL:
+                    params_str = self._reward_extra_params_from_node(rid, func, payload=entry)
+                    field_base = func
+                else:
+                    if not self._reward_is_paginable(func):
+                        raise CanvasConfigError(
+                            nid=rid, key="reward_terms", schema_id=self._types.get(rid, ""),
+                            reason=(
+                                f"reward {func!r} is on joint page {page_id!r} but is "
+                                f"not joint-paginable (no il_partition_source). Only "
+                                f"joint-subset rewards (joint_deviation_l1, "
+                                f"dof_pos_limits, joint_*_penalty) belong on a joint "
+                                f"page; move {func!r} to the Global page."
+                            ),
+                        )
+                    joint_names = self._resolve_partition_joint_names(page_id, rid=rid, func=func)
+                    params_str = (
+                        ', params={"asset_cfg": SceneEntityCfg("robot", '
+                        f"joint_names={joint_names!r})}}"
+                    )
+                    field_base = f"{func}_{page_id}"
+                yield func, field_base, w, params_str, applies_to
+
+    def _resolve_reward_item_value(self, nid: str, func_key: str, payload: Any = None) -> float:
         """Return the per-item ``{item_value}`` for a reward term (or 0.0).
 
-        Reads the reward's payload on node ``nid`` and decodes the optional
-        ``value`` field (the canvas "Value" chip). ``None`` / absent → 0.0,
-        the brand-neutral "auto" sentinel the reward function interprets
-        itself (e.g. ``_unitport_base_height_l2`` resolves 0.0 → the asset's
-        nominal spawn z). Never reaches back into the Robot node.
+        Decodes the optional ``value`` field (the canvas "Value" chip). ``None``
+        / absent → 0.0, the brand-neutral "auto" sentinel the reward function
+        interprets itself. Never reaches back into the Robot node.
+
+        缺口③ — ``reward_terms`` is now PAGED, so the caller passes the term's
+        ``payload`` directly (a term can appear on multiple pages with different
+        values). When ``payload`` is None we fall back to a flat re-read (legacy
+        / non-paged callers).
         """
         from application.compiler.term_payload import parse_item_value
-        try:
-            terms = self._parse_json_param(nid, "reward_terms")
-        except Exception:                                         # noqa: BLE001
-            terms = {}
-        payload = terms.get(func_key) if isinstance(terms, dict) else None
+        if payload is None:
+            try:
+                terms = self._parse_json_param(nid, "reward_terms")
+            except Exception:                                     # noqa: BLE001
+                terms = {}
+            payload = terms.get(func_key) if isinstance(terms, dict) else None
         v = parse_item_value(payload)
         return float(v) if v is not None else 0.0
 
@@ -5268,8 +5595,8 @@ class IsaacLabConfigCompiler:
                 pass
         return out
 
-    def _reward_extra_params_from_node(self, nid: str, func_key: str) -> str:
-        return self._reward_extra_params(nid, func_key)
+    def _reward_extra_params_from_node(self, nid: str, func_key: str, payload: Any = None) -> str:
+        return self._reward_extra_params(nid, func_key, payload=payload)
 
 
 # ---------------------------------------------------------------------------

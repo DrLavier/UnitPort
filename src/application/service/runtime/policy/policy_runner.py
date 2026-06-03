@@ -405,6 +405,15 @@ class PolicyRunner:
             self._engine = self._engine_for_format(bundle.policy_format)
 
         self._engine.load(bundle.policy_file)
+        # 缺口① — recurrent policy: declare the GRU/LSTM contract to the engine
+        # so it threads the hidden state internally. ONNXEngine self-detects
+        # and cross-checks (raises on mismatch §8); JITEngine REQUIRES this
+        # (TorchScript inputs are unnamed). MLP bundles (recurrent is None)
+        # skip this entirely → byte-identical replay (R6).
+        _contract = getattr(bundle, "deploy_contract", None)
+        _rec = getattr(_contract, "recurrent", None) if _contract is not None else None
+        if _rec is not None:
+            self._engine.set_recurrent(_rec.rnn_type, _rec.hidden_size, _rec.num_layers)
         self._normalizer = self._load_bundle_normalizer(bundle)
 
         self._policy_id = Path(bundle_path).name
@@ -465,13 +474,25 @@ class PolicyRunner:
         ``isaac_lab_joint_order`` field that used to back this was
         removed in favour of trusting the dumped USD table directly.
         """
-        inference_convention = str(
-            (raw_manifest or {}).get("inference_convention", "") or ""
-        ).strip().lower()
-        if inference_convention != "isaac_lab":
-            return False
         sku = str(getattr(contract, "robot_sku", "") or "")
         if not sku:
+            return False
+        # Reorder ONLY when the bundle declares (or is inferred to be) in
+        # USD articulation order. SB3/MuJoCo bundles are MJCF-ordered and
+        # MUST NOT be permuted — doing so would scramble every joint slot
+        # relative to the trained policy. Keys off joint_array_format, NOT
+        # inference_convention (SB3 bundles carry the isaac_lab obs
+        # convention yet are MJCF-ordered). See
+        # joint_space.resolve_joint_array_format.
+        from .joint_space import resolve_joint_array_format
+
+        order_fmt = resolve_joint_array_format(
+            raw_manifest or {},
+            getattr(contract, "joint_sdk_names", None) or (),
+            sku,
+            stiffness=getattr(contract, "stiffness", None),
+        )
+        if order_fmt != "USD":
             return False
         try:
             from registers.robots import get_robot_spec
@@ -987,6 +1008,12 @@ class PolicyRunner:
             self._obs_builder.reset()
         except Exception:
             pass
+        # 缺口① — recurrent policy: zero the hidden state at the episode
+        # boundary (mirrors train-time ``actor_critic.reset(dones)``). No-op
+        # for feed-forward engines, so MLP replay is unchanged (R6). hasattr
+        # guard (not try/except) so a genuine reset error still propagates (§8).
+        if hasattr(self._engine, "reset_state"):
+            self._engine.reset_state()
 
         last_action = np.zeros(self._bundle.action_dim, dtype=np.float32)
         steps_run = 0

@@ -63,7 +63,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from unitport_sdk import Task, log_info, log_warning
+from unitport_sdk import Task, load_data, log_info, log_warning
 
 from application.service.robot_init_poses import InitPoseOverride
 
@@ -139,7 +139,11 @@ class MujocoReviewTask(Task):
 
         self.check_cancelled()
         actor = MjActor.from_sku(self._sku)
-        field = _resolve_field(self._scene_id)
+        # Prefer the bundle's embedded custom terrain (the policy was trained
+        # on it); fall back to the scene_id field for non-custom bundles.
+        field = _load_bundle_terrain_field(self._bundle_path) or _resolve_field(
+            self._scene_id
+        )
         env = MjSimEnv.build(actor=actor, field=field)
         self.check_cancelled()
 
@@ -427,6 +431,43 @@ def _resolve_review_command(runner: Any) -> Optional[list]:
     # pads to the term's declared dim, so we hand over the values in
     # obs-index order without trying to align to a frame here.
     return [val for _idx, val in indexed]
+
+
+def _load_bundle_terrain_field(bundle_path: Path):
+    """Build an ``MjField`` from the bundle's embedded custom terrain, or
+    ``None`` when the bundle declares no terrain.
+
+    Reads the bundle's ``manifest.yaml`` ``terrain`` fragment and loads the
+    self-contained heightfield (§9 — only within the bundle dir, sha256
+    verified §8). A declared-but-corrupt terrain raises (fail-loud: never
+    review a custom-terrain policy on the wrong ground); a bundle with no
+    terrain key simply returns ``None`` so review falls back to the scene.
+    """
+    from .mj_field import MjField
+
+    manifest_path = Path(bundle_path) / "manifest.yaml"
+    if not manifest_path.is_file():
+        return None
+    try:
+        raw = load_data(manifest_path)
+    except Exception as exc:  # noqa: BLE001 - manifest unreadable → scene fallback
+        log_warning(
+            f"[review/mujoco] could not read manifest for terrain ({exc}); "
+            f"falling back to scene field"
+        )
+        return None
+    frag = raw.get("terrain") if isinstance(raw, dict) else None
+    if not isinstance(frag, dict):
+        return None
+
+    from application.training.terrain.bundle_io import load_terrain_from_bundle
+
+    contract = load_terrain_from_bundle(bundle_path, frag)  # §9 + sha256 §8
+    log_info(
+        f"[review/mujoco] using bundle custom terrain "
+        f"({contract.height_field.n_rows}x{contract.height_field.n_cols} grid)"
+    )
+    return MjField.from_heightfield(contract.height_field)
 
 
 def _resolve_field(scene_id: str):

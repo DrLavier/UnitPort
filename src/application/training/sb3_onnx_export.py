@@ -179,6 +179,27 @@ def export_to_torchscript(model, obs_dim: int, out_path: Union[Path, str]) -> Pa
     return out
 
 
+def export_to_torchscript_bytes(model, obs_dim: int) -> bytes:
+    """Export the actor as TorchScript (JIT trace) in-memory; returns the
+    serialized ``.pt`` bytes (no temp-file round-trip)."""
+    import io
+    import torch
+
+    net = build_actor_net(model)
+    try:
+        export_device = next(net.parameters()).device
+    except StopIteration:
+        export_device = torch.device("cpu")
+    net = net.to(export_device)
+
+    dummy = torch.zeros(1, int(obs_dim), dtype=torch.float32, device=export_device)
+    with torch.no_grad():
+        traced = torch.jit.trace(net, dummy)
+    buf = io.BytesIO()
+    torch.jit.save(traced, buf)
+    return buf.getvalue()
+
+
 __all__ = [
     "build_ppo_onnx_net",
     "build_sac_onnx_net",
@@ -186,4 +207,5 @@ __all__ = [
     "export_to_onnx",
     "export_to_onnx_bytes",
     "export_to_torchscript",
+    "export_to_torchscript_bytes",
 ]

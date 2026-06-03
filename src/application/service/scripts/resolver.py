@@ -87,10 +87,9 @@ _VALID_KINDS = frozenset(_KIND_TO_DIR.keys())
 # (e.g. ``spec_compiler``'s ``canvas_backend_kind``) feed it in
 # directly without an extra branch.
 _ENGINE_TO_BACKEND: Dict[str, str] = {
-    "sb3_mujoco": "sb3",
+    "sb3_mujoco": "sb3_mujoco",
     "isaac_lab": "isaac_lab",
     "newton": "newton",
-    "sb3": "sb3",
 }
 
 

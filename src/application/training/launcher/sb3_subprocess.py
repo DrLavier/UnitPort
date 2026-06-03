@@ -56,7 +56,9 @@ MSG_CANCELLED = "cancelled"
 
 _PROGRESS_RE = re.compile(
     r"\[UnitPort\]\[PROGRESS\]\s+"
-    r"step=(?P<step>\d+)\s+total=(?P<total>\d+)\s+reward=(?P<reward>[-+]?[\d.]+|nan)"
+    r"step=(?P<step>\d+)\s+total=(?P<total>\d+)"
+    r"(?:\s+unit=(?P<unit>\w+))?"
+    r"\s+reward=(?P<reward>[-+]?[\d.]+|nan)"
 )
 _METRICS_RE = re.compile(r"\[UnitPort\]\[METRICS\]\s+(?P<json>\{.*\})")
 _FINISHED_RE = re.compile(r"\[UnitPort\]\[FINISHED\]\s+(?P<json>\{.*\})")
@@ -293,9 +295,14 @@ class SB3SubprocessBackend:
                 rew_val = float("nan") if rew == "nan" else float(rew)
             except (TypeError, ValueError):
                 return
+            unit = (m.group("unit") or "step")
+            # 7-tuple: (count, total, reward, best_reward, ep_len, unit). The
+            # 6th slot historically carried an unused "training" phase string;
+            # it now carries the progress unit ("iter"/"step") so the UI label
+            # matches the budget. (sb3_task tolerates the 6- or 7-tuple.)
             self._emit({
                 "type": MSG_PROGRESS,
-                "data": (step, total, rew_val, rew_val, 0.0, "training"),
+                "data": (step, total, rew_val, rew_val, 0.0, unit),
             })
             return
 

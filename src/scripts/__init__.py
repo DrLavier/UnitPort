@@ -129,17 +129,11 @@ from scripts.gait.presets import (
 )
 
 # ── Scene presets ────────────────────────────────────────────────────
-from scripts.scenes.registry import (
-    Scene,
-    SceneValidationError,
-    clear_registry,
-    get_scene,
-    has_scene,
-    list_review_scenes,
-    list_scenes,
-    register_scene,
-    rescan,
-)
+# Removed 2026-06: the scripts.scenes subpackage was a duplicate of the
+# live registry (application.training.scene_registry) with zero consumers
+# of its scripts-level re-exports — deleted to avoid a double source of
+# truth. The training/review scene catalogue lives in
+# application.training.scene_registry.
 
 # ── Isaac Lab environment presets ────────────────────────────────────
 from scripts.il_envs.presets import (
@@ -245,16 +239,6 @@ __all__ = [
     "DEFAULT_PRESETS",
     "default_presets",
     "default_presets_json",
-    # Scenes
-    "Scene",
-    "SceneValidationError",
-    "register_scene",
-    "get_scene",
-    "has_scene",
-    "list_scenes",
-    "list_review_scenes",
-    "clear_registry",
-    "rescan",
     # IL envs
     "ILPreset",
     "IL_PRESETS",

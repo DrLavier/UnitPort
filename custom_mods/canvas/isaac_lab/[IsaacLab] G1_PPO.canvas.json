@@ -750,13 +750,13 @@
       "params": {
         "obs_terms": {
           "name": "obs_terms",
-          "value": "{\"base_lin_vel\": 2.0, \"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
+          "value": "{\"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
           "param_type": "json"
         },
         "group_name": {
           "name": "group_name",
           "value": "policy",
-          "param_type": "string"
+          "param_type": "enum"
         },
         "enable_corruption": {
           "name": "enable_corruption",
@@ -799,6 +799,64 @@
       "opaque_code": null,
       "disabled": false,
       "color_override": "#561450"
+    },
+    {
+      "id": "1016",
+      "schema_id": "il_observation",
+      "kind": "custom",
+      "params": {
+        "obs_terms": {
+          "name": "obs_terms",
+          "value": "{\"base_lin_vel\": 2.0, \"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
+          "param_type": "json"
+        },
+        "group_name": {
+          "name": "group_name",
+          "value": "critic",
+          "param_type": "enum"
+        },
+        "enable_corruption": {
+          "name": "enable_corruption",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "corruption_noise_std": {
+          "name": "corruption_noise_std",
+          "value": "0.05",
+          "param_type": "float"
+        },
+        "obs_noise_curriculum_enabled": {
+          "name": "obs_noise_curriculum_enabled",
+          "value": "false",
+          "param_type": "bool"
+        },
+        "obs_noise_curriculum_start": {
+          "name": "obs_noise_curriculum_start",
+          "value": "0.25",
+          "param_type": "float"
+        },
+        "obs_noise_curriculum_end": {
+          "name": "obs_noise_curriculum_end",
+          "value": "1.0",
+          "param_type": "float"
+        },
+        "obs_noise_curriculum_ramp_iters": {
+          "name": "obs_noise_curriculum_ramp_iters",
+          "value": "500",
+          "param_type": "int"
+        }
+      },
+      "ui": {
+        "x": -1193.9350079229343,
+        "y": 850.8341518955251,
+        "width": 324.0,
+        "height": 571.0,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#561450",
+      "display_name_override": "Critic Obs (privileged)"
     },
     {
       "id": "1009",
@@ -1792,6 +1850,22 @@
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_critic_actor_g1",
+      "source_node": "1010",
+      "source_port": "actor_pipe",
+      "target_node": "1016",
+      "target_port": "actor_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_critic_cmd_g1",
+      "source_node": "1012",
+      "source_port": "command_pipe",
+      "target_node": "1016",
+      "target_port": "command_pipe",
       "edge_type": "flow"
     }
   ],

@@ -245,6 +245,133 @@ def _infer_dims_from_stripped_sd(
 
 
 # ---------------------------------------------------------------------------
+# Recurrent actor reconstruction (缺口①)
+# ---------------------------------------------------------------------------
+
+def _detect_recurrent(stripped_sd: Dict[str, Any]) -> bool:
+    """True iff the stripped actor state dict carries an RNN memory cell.
+
+    The vendored ``ActorCriticRecurrent`` (C5) puts the whole actor under the
+    ``actor.`` namespace, so after the exporter strips that prefix the
+    recurrent keys appear as ``rnn.weight_ih_l0`` / ``mlp.0.weight`` …
+    (standard torch nn.GRU/LSTM param names). Presence of ``rnn.weight_ih_l0``
+    is the discriminator.
+    """
+    return any(k.startswith("rnn.") and k.endswith("weight_ih_l0") for k in stripped_sd)
+
+
+def _infer_recurrent_spec(stripped_sd: Dict[str, Any]) -> Dict[str, Any]:
+    """Infer ``(rnn_type, input_size, hidden_size, num_layers, hidden_dims,
+    action_dim, activation-agnostic)`` from a recurrent actor's tensor shapes.
+
+    Fail-loud (§8): inconsistent / unrecognised RNN gate ratio raises rather
+    than guessing — a wrong rebuild would silently export a broken policy.
+    """
+    ih0 = stripped_sd.get("rnn.weight_ih_l0")
+    hh0 = stripped_sd.get("rnn.weight_hh_l0")
+    if ih0 is None or hh0 is None:
+        raise ValueError(
+            "recurrent actor missing rnn.weight_ih_l0 / rnn.weight_hh_l0 — "
+            f"cannot rebuild. Keys: {sorted(stripped_sd)}"
+        )
+    gates_h, input_size = int(ih0.shape[0]), int(ih0.shape[1])
+    hidden_size = int(hh0.shape[1])
+    if hidden_size <= 0 or gates_h % hidden_size != 0:
+        raise ValueError(
+            f"recurrent actor rnn shapes inconsistent: weight_ih_l0={tuple(ih0.shape)}, "
+            f"weight_hh_l0={tuple(hh0.shape)} (gates*H={gates_h} not a multiple of H={hidden_size})"
+        )
+    ratio = gates_h // hidden_size
+    rnn_type = {3: "gru", 4: "lstm"}.get(ratio)
+    if rnn_type is None:
+        raise ValueError(
+            f"recurrent actor RNN gate ratio {ratio} (gates*H/H) is neither GRU(3) "
+            f"nor LSTM(4) — unsupported cell type, refusing to guess."
+        )
+    num_layers = 0
+    while f"rnn.weight_ih_l{num_layers}" in stripped_sd:
+        num_layers += 1
+    # MLP head dims from the mlp.* subset (re-use the flat-Sequential inferer).
+    mlp_sd = {k[len("mlp."):]: v for k, v in stripped_sd.items() if k.startswith("mlp.")}
+    if not mlp_sd:
+        raise ValueError("recurrent actor has no mlp.* head keys")
+    mlp_in, hidden_dims, action_dim = _infer_dims_from_stripped_sd(mlp_sd)
+    if mlp_in != hidden_size:
+        raise ValueError(
+            f"recurrent actor head input dim {mlp_in} != rnn hidden_size {hidden_size} "
+            f"— state dict inconsistent"
+        )
+    return {
+        "rnn_type": rnn_type,
+        "input_size": input_size,
+        "hidden_size": hidden_size,
+        "num_layers": num_layers,
+        "hidden_dims": hidden_dims,
+        "action_dim": action_dim,
+    }
+
+
+def _build_recurrent_actor(stripped_sd: Dict[str, Any], activation: str):
+    """Rebuild the vendored ``RecurrentActor`` from a stripped state dict and
+    wrap it for export. Returns ``(export_module, spec)`` where export_module's
+    ``forward`` takes ``(obs, h_in[, c_in])`` and returns ``(action, h_out[, c_out])``."""
+    import torch.nn as nn
+    from application.training.amp.algorithms.actor_critic_recurrent import RecurrentActor
+
+    spec = _infer_recurrent_spec(stripped_sd)
+    actor = RecurrentActor(
+        num_obs=spec["input_size"],
+        num_actions=spec["action_dim"],
+        hidden_dims=spec["hidden_dims"],
+        activation=activation,
+        rnn_type=spec["rnn_type"],
+        rnn_hidden_size=spec["hidden_size"],
+        rnn_num_layers=spec["num_layers"],
+    )
+    actor.load_state_dict(stripped_sd, strict=True)
+    actor.eval()
+
+    if spec["rnn_type"] == "lstm":
+        class _LSTMExport(nn.Module):
+            def __init__(self, a): super().__init__(); self.a = a
+            def forward(self, obs, h_in, c_in):
+                mean, (h, c) = self.a(obs, (h_in, c_in))
+                return mean, h, c
+        module = _LSTMExport(actor)
+    else:
+        class _GRUExport(nn.Module):
+            def __init__(self, a): super().__init__(); self.a = a
+            def forward(self, obs, h_in):
+                mean, h = self.a(obs, h_in)
+                return mean, h
+        module = _GRUExport(actor)
+    module.eval()
+    return module, spec
+
+
+def _recurrent_export_io(spec: Dict[str, Any]):
+    """Build dummy inputs + ONNX names/axes for a recurrent actor export."""
+    import torch
+    L, H = spec["num_layers"], spec["hidden_size"]
+    obs = torch.zeros(1, spec["input_size"], dtype=torch.float32)
+    h_in = torch.zeros(L, 1, H, dtype=torch.float32)
+    if spec["rnn_type"] == "lstm":
+        c_in = torch.zeros(L, 1, H, dtype=torch.float32)
+        inputs = (obs, h_in, c_in)
+        in_names = ["obs", "h_in", "c_in"]
+        out_names = ["action", "h_out", "c_out"]
+        axes = {"obs": {0: "batch"}, "h_in": {1: "batch"}, "c_in": {1: "batch"},
+                "action": {0: "batch"}, "h_out": {1: "batch"}, "c_out": {1: "batch"}}
+    else:
+        inputs = (obs, h_in)
+        in_names = ["obs", "h_in"]
+        out_names = ["action", "h_out"]
+        axes = {"obs": {0: "batch"}, "h_in": {1: "batch"},
+                "action": {0: "batch"}, "h_out": {1: "batch"}}
+    return inputs, in_names, out_names, axes
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -321,7 +448,37 @@ def export_rsl_rl_actor_to_onnx(
     except ValueError as exc:
         raise ValueError(f"{checkpoint_path} {exc}") from exc
 
-    # ── 3. Infer dims directly from tensor shapes ─────────────────────
+    # ── 3. Recurrent (GRU/LSTM) actor → export with hidden-state ports ─
+    if _detect_recurrent(sd_clean):
+        module, spec = _build_recurrent_actor(sd_clean, activation)
+        inputs, in_names, out_names, axes = _recurrent_export_io(spec)
+        onnx_out_path.parent.mkdir(parents=True, exist_ok=True)
+        with torch.no_grad():
+            torch.onnx.export(
+                module, inputs, str(onnx_out_path),
+                input_names=in_names, output_names=out_names,
+                dynamic_axes=axes, opset_version=17, do_constant_folding=True,
+            )
+        log.info(
+            "Exported recurrent rsl_rl actor → ONNX: %s (obs=%d action=%d "
+            "rnn=%s hidden=%d layers=%d head=%s activation=%s)",
+            onnx_out_path, spec["input_size"], spec["action_dim"],
+            spec["rnn_type"], spec["hidden_size"], spec["num_layers"],
+            spec["hidden_dims"], activation,
+        )
+        return {
+            "obs_dim": spec["input_size"],
+            "action_dim": spec["action_dim"],
+            "hidden_dims": spec["hidden_dims"],
+            "activation": activation,
+            "recurrent": {
+                "rnn_type": spec["rnn_type"],
+                "hidden_size": spec["hidden_size"],
+                "num_layers": spec["num_layers"],
+            },
+        }
+
+    # ── 3b. Feed-forward MLP actor (default) ──────────────────────────
     obs_dim, hidden_dims, action_dim = _infer_dims_from_stripped_sd(sd_clean)
     log.info(
         "Detected %s actor: obs=%d hidden=%s action=%d activation=%s",
@@ -413,6 +570,31 @@ def export_rsl_rl_actor_to_torchscript(
     # is a fresh trainer artifact under PROJECTS_DIR. Plan P1-1.
     ckpt = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
     sd_clean, fmt = _extract_actor_mlp_state_dict(ckpt)
+
+    # Recurrent (GRU/LSTM) actor → trace with hidden-state inputs (缺口①).
+    if _detect_recurrent(sd_clean):
+        module, spec = _build_recurrent_actor(sd_clean, activation)
+        inputs, _in, _out, _ax = _recurrent_export_io(spec)
+        ts_out_path.parent.mkdir(parents=True, exist_ok=True)
+        with torch.no_grad():
+            scripted = torch.jit.trace(module, inputs)
+        scripted.save(str(ts_out_path))
+        log.info(
+            "Exported recurrent rsl_rl actor → TorchScript: %s (rnn=%s hidden=%d layers=%d)",
+            ts_out_path, spec["rnn_type"], spec["hidden_size"], spec["num_layers"],
+        )
+        return {
+            "obs_dim": spec["input_size"],
+            "action_dim": spec["action_dim"],
+            "hidden_dims": spec["hidden_dims"],
+            "activation": activation,
+            "recurrent": {
+                "rnn_type": spec["rnn_type"],
+                "hidden_size": spec["hidden_size"],
+                "num_layers": spec["num_layers"],
+            },
+        }
+
     obs_dim, hidden_dims, action_dim = _infer_dims_from_stripped_sd(sd_clean)
 
     mlp = _build_actor_mlp(obs_dim, action_dim, hidden_dims, activation)

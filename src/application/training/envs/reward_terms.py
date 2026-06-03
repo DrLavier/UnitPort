@@ -219,14 +219,116 @@ def _t_joint_limit_violation(env, threshold: float) -> bool:
     return count >= int(threshold)
 
 
+def _t_time_out(env, threshold: float) -> bool:
+    # IsaacLab models the episode horizon as a ``time_out`` DoneTerm; the SB3
+    # env already truncates at ``max_episode_steps`` (the gym ``truncated``
+    # flag), so this is a recognised no-op — present only so ``time_out`` in
+    # the conditions dict is not warned as an unknown kind.
+    return False
+
+
+def _illegal_contact_body_ids(env) -> frozenset:
+    """Resolve + cache the MuJoCo body ids that must never touch the ground.
+
+    Family-aware. **Intentionally diverges from the IsaacLab
+    ``illegal_contact`` body set** (``env_cfg_compiler._terminations_cfg``):
+    IsaacLab forbids quadruped *calves* too (to catch a robot bracing its
+    lower legs as a crutch), and can do so because USD ships the foot as a
+    SEPARATE link, so the calf ContactSensor never fires on a normal
+    footstep.
+
+    MuJoCo Go2-class MJCFs have NO separate foot body — the foot contact
+    sphere is a geom parented to the ``*_calf`` body (verified: scene.xml
+    ``FL`` geom lives on body ``FL_calf``). A body-id contact test therefore
+    cannot tell a normal footstep apart from a calf-crutch, so forbidding
+    ``calf`` here would terminate the episode on the very first ground
+    contact (the "ep_len < 10 / instant fall" symptom). We deliberately drop
+    calf from the MuJoCo set and rely on the ``base_height`` termination to
+    catch the crutch/collapse failure instead — a height floor is robust
+    regardless of foot/calf geom topology and does not depend on spawn
+    contact state (so it also works for an airborne start, unlike any
+    init-contact heuristic).
+
+    Per family: biped/humanoid → upper body; quadruped/wheeled → base +
+    thighs (NOT calves); else → the articulation root. Matched
+    case-insensitively against MuJoCo body names.
+    """
+    cached = getattr(env, "_illegal_contact_body_ids_cache", None)
+    if cached is not None:
+        return cached
+    import re as _re
+    import mujoco as _mj
+
+    families = set(getattr(getattr(env, "_robot", None), "families", []) or [])
+    if families & {"biped", "humanoid"}:
+        pat = r"torso|pelvis|waist|shoulder|base"
+    elif families & {"quadruped", "wheeled"}:
+        # calf intentionally excluded — see docstring (foot geom lives on the
+        # calf body in MuJoCo; base_height covers the calf-crutch failure).
+        pat = r"base|trunk|thigh"
+    else:
+        pat = r"base|trunk|torso|pelvis|body"
+    rx = _re.compile(pat, _re.IGNORECASE)
+    ids = set()
+    for bid in range(int(env._model.nbody)):
+        name = _mj.mj_id2name(env._model, _mj.mjtObj.mjOBJ_BODY, bid) or ""
+        if name and rx.search(name):
+            ids.add(int(bid))
+    out = frozenset(ids)
+    env._illegal_contact_body_ids_cache = out
+    return out
+
+
+def _t_illegal_contact(env, threshold: float) -> bool:
+    """True when a forbidden body touches the GROUND above ``threshold`` (N).
+
+    MuJoCo-resident equivalent of IsaacLab's ContactSensor illegal_contact:
+    iterate ``data.contact`` and consider only contacts between a forbidden
+    body and the world body (id 0, which owns the floor plane) — self-
+    collisions (e.g. a thigh brushing the base) are NOT illegal_contact. For
+    a qualifying ground contact, compute the normal force via
+    ``mj_contactForce`` and compare its magnitude to the threshold;
+    ``threshold`` <= 0 means "any ground contact on a forbidden body".
+    """
+    ids = _illegal_contact_body_ids(env)
+    if not ids:
+        return False
+    import mujoco as _mj
+
+    data = env._data
+    model = env._model
+    ncon = int(data.ncon)
+    if ncon <= 0:
+        return False
+    force = np.zeros(6, dtype=np.float64)
+    thr = float(threshold)
+    for i in range(ncon):
+        con = data.contact[i]
+        b1 = int(model.geom_bodyid[con.geom1])
+        b2 = int(model.geom_bodyid[con.geom2])
+        # Ground contact only: one side forbidden, the other the world body.
+        is_ground = (b1 in ids and b2 == 0) or (b2 in ids and b1 == 0)
+        if not is_ground:
+            continue
+        if thr <= 0.0:
+            return True
+        _mj.mj_contactForce(model, data, i, force)
+        if float(np.linalg.norm(force[:3])) > thr:
+            return True
+    return False
+
+
 _DONE_FNS: Dict[str, Callable[[Any, float], bool]] = {
     # SB3 termination keys
     "min_height": _t_min_height,
     "fall_threshold_roll": _t_fall_tilt,
     "fall_threshold_pitch": _t_fall_tilt,
     "joint_limit_violation": _t_joint_limit_violation,
-    # Mirror of the IL key — same semantics on this env (base z below threshold).
-    "base_height": _t_min_height,
+    # Mirror of the IL keys — same semantics on this env.
+    "base_height": _t_min_height,        # base z below threshold
+    "bad_orientation": _t_fall_tilt,     # roll/pitch tilt magnitude
+    "illegal_contact": _t_illegal_contact,
+    "time_out": _t_time_out,             # no-op (truncation handles the horizon)
 }
 
 
@@ -317,19 +419,45 @@ def build_reward_fn_with_breakdown(terms: Any) -> EnvRewardFnRich:
     return _compose
 
 
-def build_done_fn(conditions: Any) -> EnvDoneFn:
-    """Compile a ``{kind_key: threshold}`` dict into a termination closure.
+def _parse_done_condition(val: Any) -> Tuple[float, float]:
+    """Parse a termination condition value → ``(threshold, grace_period_s)``.
 
-    Always returns True on non-finite physics state. Unknown kinds warned once
-    and skipped. Empty input → only the non-finite guard fires.
+    Accepts the same two payload shapes as the IsaacLab side (Design A,
+    co-located grace): a bare scalar (grace 0) or a dict
+    ``{"weight"|"threshold": x, "grace_period_s": g}``. Raises ValueError on a
+    non-numeric threshold / negative grace (fail-loud §8; the env-build
+    caller turns this into a clear error rather than silently dropping the
+    condition the way the old ``float(val)`` swallow did).
     """
-    pairs: List[Tuple[Callable[[Any, float], bool], float]] = []
+    if isinstance(val, dict):
+        thr_raw = val.get("weight", val.get("threshold"))
+        grace_raw = val.get("grace_period_s", 0.0)
+    else:
+        thr_raw, grace_raw = val, 0.0
+    threshold = float(thr_raw)
+    grace_s = float(grace_raw or 0.0)
+    if grace_s < 0.0:
+        raise ValueError(f"grace_period_s must be >= 0, got {grace_s}")
+    return threshold, grace_s
+
+
+def build_done_fn(conditions: Any) -> EnvDoneFn:
+    """Compile a ``{kind_key: threshold | {weight, grace_period_s}}`` dict into
+    a termination closure.
+
+    Parity with the IsaacLab termination manager (CLAUDE.md §11): supports
+    ``base_height`` / ``bad_orientation`` / ``illegal_contact`` / ``time_out``
+    in addition to the legacy SB3 keys, and honours per-condition
+    ``grace_period_s`` (the condition cannot fire while
+    ``step_count < ceil(grace_s / control_dt)`` — the spawn/settle transient).
+    Always returns True on non-finite physics state. Unknown kinds warned once
+    and skipped; a malformed threshold/grace raises (no silent drop, §8).
+    """
+    import math as _math
+
+    pairs: List[Tuple[Callable[[Any, float], bool], float, float]] = []
     if isinstance(conditions, dict):
         for key, val in conditions.items():
-            try:
-                threshold = float(val)
-            except (TypeError, ValueError):
-                continue
             fn = _DONE_FNS.get(str(key))
             if fn is None:
                 if key not in _warned_unknown_done_keys:
@@ -339,12 +467,25 @@ def build_done_fn(conditions: Any) -> EnvDoneFn:
                         f"Known: {sorted(_DONE_FNS)}"
                     )
                 continue
-            pairs.append((fn, threshold))
+            try:
+                threshold, grace_s = _parse_done_condition(val)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"[reward_terms] termination condition {key!r}={val!r} is "
+                    f"malformed: {exc}. Fix the terminations node (CLAUDE.md §8)."
+                ) from exc
+            pairs.append((fn, threshold, grace_s))
 
     def _compose(env) -> bool:
         if not (np.all(np.isfinite(env._qpos)) and np.all(np.isfinite(env._qvel))):
             return True
-        for fn, th in pairs:
+        control_dt = float(getattr(getattr(env, "_d", None), "control_dt", 0.0) or 0.0)
+        step_count = int(getattr(env, "_step_count", 0) or 0)
+        for fn, th, grace_s in pairs:
+            if grace_s > 0.0 and control_dt > 0.0:
+                grace_steps = int(_math.ceil(grace_s / control_dt))
+                if step_count < grace_steps:
+                    continue  # spawn/settle transient — condition suppressed
             try:
                 if fn(env, th):
                     return True

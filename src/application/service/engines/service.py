@@ -546,6 +546,10 @@ class EngineService(QObject):
 
 LOCAL_PREFIX = "local::"
 LOCAL_NONE = "local::__none__"
+# Backend-agnostic "run on this machine" local target. Used by non-IsaacLab
+# engines (e.g. sb3_mujoco) whose local runtime is the project venv — always
+# available, no per-install selection, never prompts to register Isaac.
+LOCAL_THIS = "local::__this__"
 CLOUD_TOKEN = "cloud"
 
 
@@ -565,30 +569,45 @@ def format_isaac_install_label(entry: Dict[str, Any]) -> str:
     )
 
 
-def build_local_target_options(svc: EngineService) -> List[Dict[str, str]]:
-    """Build the ordered combo options for [Local(ver)…, Cloud].
+def build_local_target_options(
+    svc: EngineService, *, backend_id: str = "isaac_lab"
+) -> List[Dict[str, str]]:
+    """Build the ordered [Local…, Cloud] combo options for the canvas backend.
 
-    Returns a list of ``{"data", "label"}`` dicts:
-      * one ``local::<root>`` entry per registered Isaac install, labelled
-        ``Local (<drive/ver>)``;
-      * when none are registered AND the user has not opted into cloud-only, a
-        single ``local::__none__`` entry labelled ``Local`` that the combo wires
-        to the "no local Isaac" prompt;
-      * always a trailing ``cloud`` entry labelled ``Cloud``.
+    The local target is backend-specific:
+
+      * ``isaac_lab`` — one ``local::<root>`` entry per registered Isaac
+        install (``Local (<drive/ver>)``); when none are registered AND the
+        user hasn't opted into cloud-only, a single ``local::__none__`` entry
+        (``Local``) wired to the "no local Isaac" prompt. (IsaacLab needs a
+        per-install pick because each Kit install is a separate runtime.)
+      * **any other engine (e.g. ``sb3_mujoco``)** — a single ``local::__this__``
+        entry (``Local``): the local runtime is the project venv, always
+        available, no install enumeration, no Isaac prompt. This is what makes
+        the option set follow the canvas backend.
+
+    Always a trailing ``cloud`` entry.
     """
     options: List[Dict[str, str]] = []
-    installs = svc.list_isaac_installations()
-    if installs:
-        for e in installs:
-            short = format_isaac_install_label(e)
+    if (backend_id or "").strip() == "isaac_lab":
+        installs = svc.list_isaac_installations()
+        if installs:
+            for e in installs:
+                short = format_isaac_install_label(e)
+                options.append({
+                    "data": f"{LOCAL_PREFIX}{e.get('root', '')}",
+                    "label": tr("progressrow.target.local_ver", "Local ({short})")
+                    .format(short=short),
+                })
+        elif not svc.is_no_isaac_prompt_dismissed():
             options.append({
-                "data": f"{LOCAL_PREFIX}{e.get('root', '')}",
-                "label": tr("progressrow.target.local_ver", "Local ({short})")
-                .format(short=short),
+                "data": LOCAL_NONE,
+                "label": tr("progressrow.target.local", "Local"),
             })
-    elif not svc.is_no_isaac_prompt_dismissed():
+    else:
+        # Non-IsaacLab engines train in the project venv → "this machine".
         options.append({
-            "data": LOCAL_NONE,
+            "data": LOCAL_THIS,
             "label": tr("progressrow.target.local", "Local"),
         })
     options.append({

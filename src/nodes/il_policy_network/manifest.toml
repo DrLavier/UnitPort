@@ -51,3 +51,30 @@ default = -1.0
 widget = "range"
 description = "初始噪声 std（-1=自动）"
 meta = { min = -1.0, max = 2.0, step = 0.001 }
+
+# 缺口① — recurrent policy (GRU/LSTM). 'none' = feed-forward MLP (default,
+# byte-identical to the pre-recurrent path). 'gru'/'lstm' wrap the actor in a
+# memory cell (legged_gym ActorCriticRecurrent); critic stays MLP. The hidden
+# state is threaded through training + ONNX export + deploy.
+[[parameters]]
+key = "rnn_type"
+type = "enum"
+default = "none"
+choices = ["none", "gru", "lstm"]
+description = "循环策略类型 / Recurrent policy type (none = MLP)"
+
+[[parameters]]
+key = "rnn_hidden_size"
+type = "int"
+default = 256
+widget = "index"
+description = "RNN 隐藏维度 / RNN hidden size (only when rnn_type != none)"
+meta = { min = 1, max = 4096 }
+
+[[parameters]]
+key = "rnn_num_layers"
+type = "int"
+default = 1
+widget = "index"
+description = "RNN 层数 / RNN num layers (only when rnn_type != none)"
+meta = { min = 1, max = 8 }

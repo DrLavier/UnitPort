@@ -52,9 +52,14 @@ def _emit_line(line: str) -> None:
     sys.stdout.flush()
 
 
-def emit_progress(step: int, total: int, reward: float) -> None:
+def emit_progress(step: int, total: int, reward: float, unit: str = "step") -> None:
     rew_s = "nan" if reward != reward else f"{reward:.6f}"
-    _emit_line(f"[UnitPort][PROGRESS] step={step} total={total} reward={rew_s}")
+    # ``unit`` is "iter" for PPO (on-policy; the budget is max_iterations) or
+    # "step" for SAC/TD3 (off-policy; no rollout iteration). The parent labels
+    # the progress line with it so the displayed count matches the budget unit.
+    _emit_line(
+        f"[UnitPort][PROGRESS] step={step} total={total} unit={unit} reward={rew_s}"
+    )
 
 
 def emit_metrics(payload: Dict[str, Any]) -> None:
@@ -89,7 +94,21 @@ def _make_progress_callback(total_timesteps: int):
             return True
 
         def _on_rollout_end(inner_self) -> None:
-            step = int(inner_self.num_timesteps)
+            # PPO is iteration-based (the canvas budget is max_iterations):
+            # report iter = num_timesteps / (n_steps × n_envs), total =
+            # max_iterations. SAC/TD3 (no .n_steps) stay step-based.
+            num_ts = int(inner_self.num_timesteps)
+            n_steps = getattr(inner_self.model, "n_steps", None)
+            n_envs = int(getattr(inner_self.model, "n_envs", 1) or 1)
+            if n_steps:
+                rollout = max(1, int(n_steps) * n_envs)
+                count = num_ts // rollout
+                count_total = max(1, total_timesteps // rollout)
+                unit = "iter"
+            else:
+                count = num_ts
+                count_total = total_timesteps
+                unit = "step"
             # Best-effort reward + mean episode length read from SB3's
             # ep_info_buffer. ``r`` and ``l`` are the per-episode return /
             # length that ``Monitor`` always logs. ep_len_mean is the canonical
@@ -110,10 +129,20 @@ def _make_progress_callback(total_timesteps: int):
                         ep_len_mean = sum(lengths) / len(lengths)
             except Exception:
                 pass
-            emit_progress(step, total_timesteps, reward)
+            emit_progress(count, count_total, reward, unit)
             if ep_len_mean is not None:
+                # The metrics sample MUST share the progress X unit: the chart
+                # keys its X-axis on "step", and emitting a different scale here
+                # (raw num_timesteps while progress reports iterations) puts two
+                # wildly different X scales on the same axis → the curve appears
+                # to jump back and forth (worsened by large n_envs, which grows
+                # num_timesteps n_envs× faster per rollout). So "step" = the same
+                # ``count`` (iter for PPO / env-steps for off-policy) emit_progress
+                # used. Raw env-step count is kept under "total_steps" (a
+                # non-series metadata key) for any consumer that wants it.
                 emit_metrics({
-                    "step": step,
+                    "step": count,
+                    "total_steps": num_ts,
                     "ep_len_mean": ep_len_mean,
                 })
 

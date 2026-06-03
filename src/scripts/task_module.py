@@ -22,7 +22,7 @@ from typing import FrozenSet
 # These tags let the UI filter which preset functions are applicable to
 # the user's current training context (engine x algorithm).
 
-BACKEND_SB3 = "sb3"
+BACKEND_SB3 = "sb3_mujoco"   # the SB3 training-engine id (single source; NOT "sb3", which is the stable_baselines3 *library* component probe)
 BACKEND_ISAAC = "isaac_lab"
 BACKEND_NEWTON = "newton"
 ALL_BACKENDS: FrozenSet[str] = frozenset({BACKEND_SB3, BACKEND_ISAAC, BACKEND_NEWTON})
@@ -109,6 +109,19 @@ class TaskModuleItem:
     il_value_step: float = 0.01
     il_value_unit: str = ""
 
+    # ── Per-joint-subset partitioning (缺口③) ─────────────────────────
+    # When non-empty, this reward can be split into multiple per-joint-subset
+    # instances from ONE canvas term — the legged_gym hip/arm/waist_dof_deviation
+    # pattern. The value names the partition taxonomy the UI + compiler draw
+    # from; today the only source is ``"pd_groups"`` (the family-keyed PD joint
+    # groups: hip_x/hip_y/knee/shoulder_*/elbow/wrist_*/waist/...). The Rewards
+    # node then stores a ``partitions`` map ``{pd_group_id: weight}`` (see
+    # term_payload.parse_partitions); the compiler fans it out into one RewTerm
+    # per partition, each ``SceneEntityCfg("robot", joint_names=[...])`` resolved
+    # via JointIRResolver from that partition's IR-role regex. Empty ⇒ the term
+    # runs on all joints (legacy scalar-weight path, byte-identical).
+    il_partition_source: str = ""
+
 
 def reward_item(
     *,
@@ -133,6 +146,7 @@ def reward_item(
     il_value_max: float = 0.0,
     il_value_step: float = 0.01,
     il_value_unit: str = "",
+    il_partition_source: str = "",
 ) -> TaskModuleItem:
     return TaskModuleItem(
         key=key,
@@ -157,6 +171,7 @@ def reward_item(
         il_value_max=il_value_max,
         il_value_step=il_value_step,
         il_value_unit=il_value_unit,
+        il_partition_source=il_partition_source,
     )
 
 

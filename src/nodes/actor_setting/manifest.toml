@@ -145,22 +145,26 @@ key = "contact_body_names"
 type = "json"
 default = "[]"
 widget = "ir_body_picker"
-description = "接触 body IR 角色 / Contact-sensor body IR roles (multi-select; from upstream Robot Node). WYSIWYG: empty picker = empty ContactSensor (no /Robot/.* fallback); R5 _check_contact_sensor_coverage rejects compile when reward/termination consume contact_forces but picker omits required bodies."
-meta = { source = "body", default_select_all = true, language = "json" }
+description = "接触 body IR 角色 / Contact-sensor body IR roles (IsaacLab ContactSensor; multi-select from upstream Robot Node). SB3 has no ContactSensor (its illegal_contact reads data.contact with a hardcoded family body set — identical to IsaacLab by design), so this is hidden on SB3 canvases."
+meta = { source = "body", default_select_all = true, language = "json", conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
+# Contact history + air-time tracking are IsaacLab ContactSensor features; the
+# SB3 MuJoCo env reads neither (its illegal_contact uses data.contact directly,
+# no history; no air-time terms). Hidden on SB3 canvases.
 [[parameters]]
 key = "contact_history_length"
 type = "int"
 default = 3
 widget = "index"
-description = "接触历史长度 / Contact history length"
-meta = { min = 1, max = 64 }
+description = "接触历史长度 / Contact history length (IsaacLab only)"
+meta = { min = 1, max = 64, conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "contact_track_air_time"
 type = "bool"
 default = true
-description = "追踪 air time / Track air time"
+description = "追踪 air time / Track air time (IsaacLab only)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 # ---------------------------------------------------------------------------
 # Parameters — §4 Actuator overrides: MOVED to RobotNode (2026-05).
@@ -200,11 +204,15 @@ description = "动作使用默认 offset / Use default joint offset"
 # Parameters — §6 Action-scale curriculum
 # ---------------------------------------------------------------------------
 
+# action_scale curriculum is IsaacLab-only (consumed by env_cfg_compiler's
+# CurriculumCfg; the SB3 trainer has no action-scale curriculum callback).
+# Hidden on SB3 canvases so the user isn't offered a knob SB3 silently drops.
 [[parameters]]
 key = "action_scale_curriculum_enabled"
 type = "bool"
 default = false
-description = "启用 action_scale 课程 / Enable action-scale curriculum"
+description = "启用 action_scale 课程 / Enable action-scale curriculum (IsaacLab only)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
 [[parameters]]
 key = "action_scale_curriculum_start"
@@ -212,7 +220,7 @@ type = "float"
 default = 0.15
 widget = "range"
 description = "课程起始 scale / Curriculum start scale"
-meta = { min = 0.0, max = 5.0, step = 0.01 }
+meta = { min = 0.0, max = 5.0, step = 0.01, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "action_scale_curriculum_enabled", op = "==", value = true } ] }
 
 [[parameters]]
 key = "action_scale_curriculum_end"
@@ -220,7 +228,7 @@ type = "float"
 default = 0.25
 widget = "range"
 description = "课程结束 scale / Curriculum end scale"
-meta = { min = 0.0, max = 5.0, step = 0.01 }
+meta = { min = 0.0, max = 5.0, step = 0.01, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "action_scale_curriculum_enabled", op = "==", value = true } ] }
 
 [[parameters]]
 key = "action_scale_curriculum_ramp_iters"
@@ -228,7 +236,7 @@ type = "int"
 default = 300
 widget = "index"
 description = "课程 ramp 迭代数 / Curriculum ramp iterations"
-meta = { min = 1, max = 1000000 }
+meta = { min = 1, max = 1000000, conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "action_scale_curriculum_enabled", op = "==", value = true } ] }
 
 # ---------------------------------------------------------------------------
 # Parameters — §7 Review Pose 按钮 (full-width teal button)

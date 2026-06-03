@@ -82,19 +82,27 @@ description = "Aggregated SB3 env config consumed by TrainNode"
 # ---------------------------------------------------------------------------
 
 [[parameters]]
+key = "parallelism_mode"
+type = "enum"
+default = "auto"
+choices = ["auto", "manual"]
+description = "并行度模式: auto=按本机 CPU/RAM 自适应, manual=用下方 n_envs/vec_type / Parallelism: auto = adapt to this machine's CPU+RAM, manual = use n_envs/vec_type below"
+
+[[parameters]]
 key = "n_envs"
 type = "int"
 default = 8
 widget = "index"
-description = "并行 env 数 (1 不可接受) / Parallel envs (1 = unacceptable for robot RL)"
-meta = { min = 1, max = 4096 }
+description = "并行 env 数 (仅 manual 生效; 1 不可接受) / Parallel envs (manual mode only; 1 = unacceptable)"
+meta = { min = 1, max = 4096, conditional_on = { key = "parallelism_mode", op = "==", value = "manual" } }
 
 [[parameters]]
 key = "vec_type"
 type = "enum"
 default = "subproc"
 choices = ["dummy", "subproc"]
-description = "向量化类型 / Vectorisation type"
+description = "向量化类型 (仅 manual 生效) / Vectorisation type (manual mode only)"
+meta = { conditional_on = { key = "parallelism_mode", op = "==", value = "manual" } }
 
 # ---------------------------------------------------------------------------
 # Parameters — Wrapper stack
@@ -136,22 +144,7 @@ widget = "range"
 description = "ActionClip 包装范围 / ActionClip wrapper range [-x, x]"
 meta = { min = 0.0, max = 100.0, step = 0.01 }
 
-[[parameters]]
-key = "enable_monitor"
-type = "bool"
-default = true
-description = "启用 Monitor 包装 / Monitor wrapper (records episode stats)"
-
-[[parameters]]
-key = "time_limit_override"
-type = "int"
-default = 0
-widget = "index"
-description = "TimeLimit 覆盖 (0 = 继承 PhysicsConfig) / TimeLimit override (0 = inherit)"
-meta = { min = 0, max = 100000000 }
-
-[[parameters]]
-key = "eval_disable_rand"
-type = "bool"
-default = true
-description = "评估时禁用域随机化 / Disable domain randomisation during eval"
+# enable_monitor / time_limit_override / eval_disable_rand removed (2026-06):
+# all three had zero readers. Monitor is always wrapped (build_vec_env); the
+# episode horizon comes only from physics.episode_max_steps / task
+# .truncation_max_steps; eval reuses the same env build (DR untouched).

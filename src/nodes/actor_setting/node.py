@@ -40,6 +40,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from application.compiler.nodes import (
+    manifest_from_toml,
     NODE_MANIFEST_SCHEMA,
     BaseNode,
     NodeKind,
@@ -55,123 +56,7 @@ class ActorSettingNode(BaseNode):
     # ---- DEMO 行为契约（class-level 提示，画布 UI 读取） ----
     _OPTIONAL_INPUTS: set = set()
 
-    MANIFEST = NodeManifest(
-        schema=NODE_MANIFEST_SCHEMA,
-        id="actor_setting",
-        kind=NodeKind.CUSTOM,
-        version="1.0.0",
-        category="config",
-        layer="A",
-        display_name_key="node.actor_setting.display",
-        description_key="node.actor_setting.desc",
-        icon="actor_setting.svg",
-        inputs=[
-            PortSpec(
-                name="robot_pipe", type="robot_pipe",
-                description="Structural body list / joint names / PD parameterization from the paired Robot node",
-            ),
-        ],
-        outputs=[
-            PortSpec(
-                name="actor_pipe", type="actor_pipe",
-                description="Superset Actor block consumed by rewards / DR / obs / action / cmd",
-            ),
-        ],
-        parameters=[
-            # §1 Init pose
-            ParamSpec(key="init_pos_x", type="float", default=0.0, widget="range",
-                      description="初始 X 位置 / Init world-frame X (m)",
-                      meta={"min": -100.0, "max": 100.0, "step": 0.01}),
-            ParamSpec(key="init_pos_y", type="float", default=0.0, widget="range",
-                      description="初始 Y 位置 / Init world-frame Y (m)",
-                      meta={"min": -100.0, "max": 100.0, "step": 0.01}),
-            ParamSpec(key="init_pos_z", type="float", default=0.4, widget="range",
-                      description="初始 Z 位置 / Init world-frame Z (m)",
-                      meta={"min": 0.0, "max": 2.4, "step": 0.01}),
-            # §2 Init joint angles — slider editor (widget="joint_pose_table")
-            ParamSpec(key="init_joint_angles", type="json", default="{}",
-                      widget="joint_pose_table",
-                      description="初始关节角 (IR-role → radians) / Init joint angles (slider editor)",
-                      meta={"language": "json"}),
-            # §2.5 Episode init-pose strategy (migrated from init_pose node)
-            ParamSpec(key="init_pose_mode", type="enum", default="default",
-                      choices=["default", "reference_frame_0", "keyframe", "custom"],
-                      description="起始姿态模式 / Episode init-pose mode"),
-            ParamSpec(key="init_pose_noise_scale", type="float", default=0.05, widget="range",
-                      description="起始姿态噪声 (rad) / Init-pose joint noise",
-                      meta={"min": 0.0, "max": 1.0, "step": 0.001}),
-            ParamSpec(key="init_pose_keyframe_name", type="string", default="home",
-                      description="MJCF keyframe 名 (mode=keyframe) / Keyframe name",
-                      meta={"conditional_on": {"key": "init_pose_mode", "op": "==", "value": "keyframe"}}),
-            ParamSpec(key="init_pose_rsi_prob", type="float", default=1.0, widget="range",
-                      description="RSI 概率 (mode=reference_frame_0) / RSI probability",
-                      meta={"min": 0.0, "max": 1.0, "step": 0.01,
-                            "conditional_on": {"key": "init_pose_mode", "op": "==", "value": "reference_frame_0"}}),
-            ParamSpec(key="init_pose_rsi_sample_mode", type="enum", default="frame_0",
-                      choices=["frame_0", "uniform_phase"],
-                      description="RSI 采样模式 / RSI sample mode",
-                      meta={"conditional_on": {"key": "init_pose_mode", "op": "==", "value": "reference_frame_0"}}),
-            # §3 Contact sensors
-            ParamSpec(key="contact_body_names", type="json", default="[]",
-                      widget="ir_body_picker",
-                      description="接触 body 名 / Contact-sensor body IR roles (multi-select; from upstream Robot Node)",
-                      meta={"source": "body", "default_select_all": False, "language": "json"}),
-            ParamSpec(key="contact_history_length", type="int", default=3, widget="index",
-                      description="接触历史长度 / Contact history length",
-                      meta={"min": 1, "max": 64}),
-            ParamSpec(key="contact_track_air_time", type="bool", default=True,
-                      description="追踪 air time / Track air time"),
-            # §4 Actuator overrides — MOVED to RobotNode (2026-05).
-            # stiffness/damping were dead for IsaacLab (gains derive from the
-            # RobotNode (omega_n, zeta) + mass-weighted solver, §10) and only
-            # the SB3-on-MuJoCo legacy path read the raw scalars. Both engines
-            # now source PD from (omega_n, zeta); effort_limit / velocity_limit
-            # live on the RobotNode (hidden params edited via its pd_param_table
-            # panel). Existing canvases are migrated by
-            # bootstrap/migrate_canvas_actuator_to_robot.py.
-            # §5 Action space
-            # Empty list ``[]`` = "all joints" (matches spec_validator
-            # _check_action_joints, which skips the check when expr is
-            # empty). The IR joint picker pre-selects every upstream IR
-            # role at open time; user deselects to suspend specific
-            # joints from the action space.
-            ParamSpec(key="action_joint_names_expr", type="json", default="[]",
-                      widget="ir_joint_picker",
-                      description="动作关节 IR 角色 / Action joint IR roles (multi-select; empty = all)",
-                      meta={"source": "joint", "default_select_all": True, "language": "json"}),
-            ParamSpec(key="action_scale", type="float", default=0.25, widget="range",
-                      description="动作缩放 / Action scale",
-                      meta={"min": 0.0, "max": 5.0, "step": 0.01}),
-            ParamSpec(key="action_use_default_offset", type="bool", default=True,
-                      description="动作使用默认 offset / Use default joint offset"),
-            # §6 Action-scale curriculum
-            ParamSpec(key="action_scale_curriculum_enabled", type="bool", default=False,
-                      description="启用 action_scale 课程 / Enable action-scale curriculum"),
-            ParamSpec(key="action_scale_curriculum_start", type="float", default=0.15,
-                      widget="range",
-                      description="课程起始 scale / Curriculum start scale",
-                      meta={"min": 0.0, "max": 5.0, "step": 0.01}),
-            ParamSpec(key="action_scale_curriculum_end", type="float", default=0.25,
-                      widget="range",
-                      description="课程结束 scale / Curriculum end scale",
-                      meta={"min": 0.0, "max": 5.0, "step": 0.01}),
-            ParamSpec(key="action_scale_curriculum_ramp_iters", type="int", default=300,
-                      widget="index",
-                      description="课程 ramp 迭代数 / Curriculum ramp iterations",
-                      meta={"min": 1, "max": 1_000_000}),
-            # §7 Review Pose — engine picker + full-width teal button.
-            # The button submits a ReviewTask in the selected engine
-            # (MuJoCo passive viewer in-process vs Isaac Sim Kit
-            # subprocess) against the upstream RobotNode's resolved SKU.
-            ParamSpec(key="review_pose_engine", type="enum", default="mujoco",
-                      choices=["mujoco", "isaac_sim"],
-                      description="Review 引擎 / Review engine (mujoco = MJCF, isaac_sim = USD)"),
-            ParamSpec(key="_review_pose", type="string", default="",
-                      widget="actor_review_pose_button",
-                      description="▶ Review init pose in selected engine",
-                      meta={"full_width_widget": True}),
-        ],
-    )
+    MANIFEST = manifest_from_toml(__file__)
 
     # ------------------------------------------------------------------
     # Phase 5 IR-only joint contract — canvas-edit-time validation

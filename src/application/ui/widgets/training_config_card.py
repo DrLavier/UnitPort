@@ -1757,7 +1757,7 @@ class _RobotConfigSection(_SectionFrame):
                 self._robot_node_id, "active_override", "auto",
             ),
             "backend": self._page.get_node_param(
-                self._robot_node_id, "backend", "sb3",
+                self._robot_node_id, "backend", "sb3_mujoco",
             ),
         }
         try:

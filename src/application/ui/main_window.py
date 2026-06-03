@@ -955,6 +955,14 @@ class MainWindow(QMainWindow):
             set_current_backend(backend_id)
         except Exception as exc:                           # pragma: no cover
             log_warning(f"[ui] _on_canvas_loaded: backend broadcast failed: {exc}")
+        # Rebuild the train-target (Local/Cloud) combo for the just-loaded
+        # canvas's backend — sb3_mujoco shows "Local (this machine)", isaac_lab
+        # enumerates installs. Without this the options stayed Isaac-centric
+        # and did not follow the backend switch.
+        try:
+            self._populate_target_combo()
+        except Exception as exc:                           # pragma: no cover
+            log_warning(f"[ui] _on_canvas_loaded: target combo refresh failed: {exc}")
         # Sync the sidebar Project Files highlight to the just-loaded canvas
         # so the row stays selected even when the load came from the picker /
         # last-canvas auto-open (rather than a row click).
@@ -3130,25 +3138,32 @@ class MainWindow(QMainWindow):
                 btn.setIcon(QIcon())
                 btn.setText(fallback)
 
-    def _target_selection_token(self) -> str:
+    def _target_selection_token(self, backend_id: str = "") -> str:
         """The combo data token matching the persisted user.ini selection.
 
-        ``cloud`` / ``local::<root>`` / ``local::__none__`` — see
-        ``application.service.engines.build_local_target_options``.
+        Backend-aware (mirrors ``build_local_target_options``):
+          * ``cloud`` when the link target is cloud;
+          * ``isaac_lab`` local → ``local::<root>`` (resolved install) or
+            ``local::__none__`` (no install + not dismissed);
+          * any other engine (e.g. ``sb3_mujoco``) local → ``local::__this__``
+            (this machine's venv — always available).
         """
         from application.service.engines import (
             CLOUD_TOKEN,
             LOCAL_NONE,
             LOCAL_PREFIX,
+            LOCAL_THIS,
             get_engine_service,
         )
         svc = get_engine_service()
         if svc.get_link_target() == "cloud":
             return CLOUD_TOKEN
-        active = svc.resolve_active_local_isaac()
-        if active is not None:
-            return f"{LOCAL_PREFIX}{active.get('root', '')}"
-        return CLOUD_TOKEN if svc.is_no_isaac_prompt_dismissed() else LOCAL_NONE
+        if (backend_id or "").strip() == "isaac_lab":
+            active = svc.resolve_active_local_isaac()
+            if active is not None:
+                return f"{LOCAL_PREFIX}{active.get('root', '')}"
+            return CLOUD_TOKEN if svc.is_no_isaac_prompt_dismissed() else LOCAL_NONE
+        return LOCAL_THIS
 
     def _populate_target_combo(self) -> None:
         """(Re)build the train-target combo from the install registry + prefs.
@@ -3162,8 +3177,12 @@ class MainWindow(QMainWindow):
             build_local_target_options,
             get_engine_service,
         )
-        opts = build_local_target_options(get_engine_service())
-        want = self._target_selection_token()
+        # Backend-aware: an sb3_mujoco canvas trains in the project venv, so
+        # "Local" is this machine (always available); only isaac_lab enumerates
+        # per-install local targets. Follows the currently-loaded canvas.
+        bid = self._current_canvas_backend()
+        opts = build_local_target_options(get_engine_service(), backend_id=bid)
+        want = self._target_selection_token(bid)
         self._target_syncing = True
         try:
             self._target_combo.clear()
@@ -3213,7 +3232,10 @@ class MainWindow(QMainWindow):
         svc.set_link_target(kind)
         if data.startswith(LOCAL_PREFIX):
             root = data[len(LOCAL_PREFIX):]
-            if root:
+            # "__this__" is the backend-agnostic local target (sb3_mujoco venv)
+            # — not an Isaac install root, so it must NOT touch the Isaac
+            # install selection.
+            if root and root != "__this__":
                 svc.set_local_selection_root(root)
         # Keep the card in sync without re-triggering its own persist.
         if self._mission_control_panel is not None:

@@ -230,6 +230,18 @@ def list_groups(family: str) -> List[Dict[str, Any]]:
     ]
 
 
+def list_group_ids(family: str) -> List[str]:
+    """Return the group ids declared for ``family`` (insertion order).
+
+    Used by the reward joint-subset partition picker (缺口③) and error
+    messages that enumerate the valid partitions for a robot's family.
+    Returns ``[]`` for unknown families.
+    """
+    if not _state["loaded"]:
+        load()
+    return list(_state["definitions"].get(family, {}).keys())
+
+
 def get_group(family: str, group_id: str) -> Optional[Dict[str, Any]]:
     if not _state["loaded"]:
         load()

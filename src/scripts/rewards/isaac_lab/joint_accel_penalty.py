@@ -43,4 +43,5 @@ ENTRY = reward_item(
     il_func='_unitport_joint_acc_l2',
     il_module=IL_MOD_INLINE,
     il_inline=INLINE_SOURCE,
+    il_partition_source='pd_groups',  # 缺口③ — joint-subset paginable
 )

@@ -37,13 +37,33 @@ description = "Per-item reward feed (connect to training_motion item rows)"
 # Parameters
 # ---------------------------------------------------------------------------
 
+# 缺口③ — joint-partition pager. Sits ABOVE reward_terms; a multi-select of
+# the robot family's pd_groups + a table (Global + per-partition pages with
+# reward counts). Clicking a page switches reward_terms to that page. Stores no
+# data of its own — pages live in reward_terms keys; active page in
+# reward_active_page. Pure view/controller widget.
+[[parameters]]
+key = "reward_joint_pages"
+type = "string"
+default = ""
+widget = "reward_joint_pager"
+description = "关节分区页 / Joint-partition reward pages (Global + pd_group pages)"
+meta = { partition_source = "pd_groups", terms_key = "reward_terms", active_page_key = "reward_active_page" }
+
+# UI cursor: which reward_terms page the editor below shows. Compiler ignores it.
+[[parameters]]
+key = "reward_active_page"
+type = "string"
+default = "__global__"
+description = "当前编辑的关节页 / Active reward page (UI cursor)"
+
 [[parameters]]
 key = "reward_terms"
 type = "json"
 default = "{}"
 widget = "registry_module"
-description = "奖励项字典 / Reward terms (registry-backed editor)"
-meta = { registry_id = "rewards", registry_id_il = "il_rewards", backend_keyed = true, pin_on_collapse = true }
+description = "奖励项字典 / Reward terms (paged by joint partition)"
+meta = { registry_id = "rewards", registry_id_il = "il_rewards", backend_keyed = true, pin_on_collapse = true, paged = true, active_page_key = "reward_active_page" }
 
 [[parameters]]
 key = "std"

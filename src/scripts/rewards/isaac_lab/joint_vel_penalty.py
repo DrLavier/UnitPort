@@ -39,4 +39,5 @@ ENTRY = reward_item(
     il_module=IL_MOD_INLINE,
     il_params='"asset_cfg": SceneEntityCfg("robot")',
     il_inline=INLINE_SOURCE,
+    il_partition_source='pd_groups',  # 缺口③ — joint-subset paginable
 )
