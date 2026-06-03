@@ -128,3 +128,10 @@ col_threshold = 阈值
 col_value = 值
 col_weight = 权重
 
+[reward_pager]
+global = 全局（所有关节）
+summary = {n} 个分区
+col_group = 关节分区
+col_count = 奖励数
+col_ops = 操作
+

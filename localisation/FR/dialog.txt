@@ -8,9 +8,9 @@ unsaved_text = {name} contient des modifications non enregistrées. Enregistrer 
 unsaved_title = Modifications non enregistrées
 pd_table_no_sku = Aucun robot valide n'est associé au Robot Node (asset_id). Sélectionnez d'abord un robot dans la carte Robot Asset.
 pd_table_unavailable = Impossible d'ouvrir le panneau PD
-registry_preset_apply_failed = Preset 应用失败
-registry_preset_picker_empty = 该家族没有可选 preset
-registry_preset_picker_empty_detail = family={family} 在 registry={registry} 里没有声明 preset。
-registry_preset_picker_unavailable = 无法打开 Preset 选单
-registry_preset_picker_unknown = 未知 registry={key!r}；支持的 registry: {keys}
+registry_preset_apply_failed = Échec de l'application du préréglage
+registry_preset_picker_empty = Cette famille n'a aucun préréglage disponible
+registry_preset_picker_empty_detail = family={family} ne déclare aucun préréglage dans registry={registry}.
+registry_preset_picker_unavailable = Impossible d'ouvrir le menu des préréglages
+registry_preset_picker_unknown = registry={key!r} inconnu ; registries pris en charge : {keys}
 

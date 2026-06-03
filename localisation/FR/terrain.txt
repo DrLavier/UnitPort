@@ -1,0 +1,12 @@
+[import]
+browse = Parcourir
+cancel = Annuler
+err_id = L'identifiant de scène est requis.
+err_src = Choisissez un fichier de carte de hauteur valide.
+menu = ➕ Importer un terrain…
+menu_desc = Importer une carte de hauteur PNG / .npy / .npz comme terrain personnalisé.
+ok = Importer
+scene_id_ph = ex. my_hills
+source_ph = .png / .npy / .npz
+title = Importer un terrain
+

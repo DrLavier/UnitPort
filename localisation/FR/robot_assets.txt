@@ -41,12 +41,12 @@ view_mapping = Voir le mappage des articulations
 view_mapping_error_title = Mappage des articulations indisponible
 ignore_package = Ignorer
 ignore_package_tip = Ignorer ce dossier lors des prochaines actualisations
-inertia_calib_done = Inertia overlay {status}: {n} body override(s) written to {rel}.
-inertia_calib_done_title = Inertia calibration complete
-inertia_calib_error_title = Inertia calibration failed
-inertia_calib_ignored = {n} body(ies) below tolerance — see the overlay's ignored_bodies audit list.
-inertia_calib_offer_body = Compare the training USD's per-body mass / inertia against the MuJoCo MJCF and write a non-destructive overlay (the original MJCF is never changed). This closes the IsaacLab→MuJoCo sim2sim gap for robots whose MJCF ships placeholder inertia. The USD harvest may take 5–30 s.
-inertia_calib_offer_title = Calibrate inertia from USD?
+inertia_calib_done = Overlay d'inertie {status} : {n} remplacement(s) de body écrits dans {rel}.
+inertia_calib_done_title = Calibration d'inertie terminée
+inertia_calib_error_title = Échec de la calibration d'inertie
+inertia_calib_ignored = {n} body(s) sous la tolérance — consultez la liste d'audit ignored_bodies de l'overlay.
+inertia_calib_offer_body = Comparer la masse / inertie par body du USD d'entraînement avec le MJCF MuJoCo et écrire un overlay non destructif (le MJCF d'origine n'est jamais modifié). Cela réduit l'écart sim2sim IsaacLab→MuJoCo pour les robots dont le MJCF contient des inerties fictives. La collecte USD peut prendre 5 à 30 s.
+inertia_calib_offer_title = Calibrer l'inertie depuis l'USD ?
 
 [status]
 cloud = cloud

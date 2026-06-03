@@ -128,3 +128,10 @@ col_threshold = Seuil
 col_value = Valeur
 col_weight = Poids
 
+[reward_pager]
+global = Global (toutes)
+summary = {n} groupes
+col_group = Partition
+col_count = Récompenses
+col_ops = Actions
+

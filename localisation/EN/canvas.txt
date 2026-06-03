@@ -128,3 +128,10 @@ col_threshold = Threshold
 col_value = Value
 col_weight = Weight
 
+[reward_pager]
+global = Global (all joints)
+summary = {n} Groups
+col_group = Joints Group
+col_count = Rewards Count
+col_ops = Ops
+

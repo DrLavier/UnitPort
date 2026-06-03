@@ -1,0 +1,12 @@
+[import]
+browse = 浏览
+cancel = 取消
+err_id = 场景 ID 为必填项。
+err_src = 请选择有效的高度图文件。
+menu = ➕ 导入地形…
+menu_desc = 将 PNG / .npy / .npz 高度图导入为自定义地形。
+ok = 导入
+scene_id_ph = 例如：my_hills
+source_ph = .png / .npy / .npz
+title = 导入地形
+

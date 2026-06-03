@@ -1,0 +1,12 @@
+[import]
+browse = Browse
+cancel = Cancel
+err_id = Scene id is required.
+err_src = Pick a valid height-map file.
+menu = ➕ Import terrain…
+menu_desc = Import a PNG / .npy / .npz height-map as a custom terrain.
+ok = Import
+scene_id_ph = e.g. my_hills
+source_ph = .png / .npy / .npz
+title = Import terrain
+
