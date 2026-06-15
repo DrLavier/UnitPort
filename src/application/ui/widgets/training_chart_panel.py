@@ -112,6 +112,14 @@ _NON_SERIES_KEYS = {
     "reward_extrinsic", "reward_intrinsic",
 }
 
+# Per-command reward series (emitted by UnitportWeightedVelocityCommand via
+# backend.parse_cmdmetrics_line as ``cmd_reward_<item_id>``). These are NOT in
+# _SERIES_CATALOG because the item ids are canvas DATA (stand/walk/turn — or
+# whatever the canvas names them), not a fixed enum; they ride the dynamic
+# auto-discovery path. The prefix lets the chart give each command a distinct
+# default colour (reusing the pie-editor palette) and a localized label.
+_CMD_REWARD_PREFIX = "cmd_reward_"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -768,6 +776,13 @@ class TrainingChartPanel(QWidget):
         # value is persisted to user.ini and read back via Config) or on
         # cancel (the value is dropped, falling back to system.ini).
         self._picker_preview: Dict[str, str] = {}
+        # Per-command series → palette index, assigned in encounter order (=
+        # the canvas item order, since the producer emits items in that order).
+        # Used to hand each cmd_reward_<id> series a distinct default colour
+        # from the shared pie-item palette so the commands are visually
+        # consistent with the Training Motion weight pie.
+        self._cmd_color_index: Dict[str, int] = {}
+        self._cmd_color_counter: int = 0
 
         self._build_ui()
         self.apply_theme()
@@ -944,7 +959,7 @@ class TrainingChartPanel(QWidget):
                 if spec is not None:
                     _, display_name, _slot, dashed = spec
                 else:
-                    display_name = key
+                    display_name = self._series_label(key)
                     dashed = False
                 color = self._resolve_color(key)
                 visible = self._series_visible.get(key, True)
@@ -989,7 +1004,20 @@ class TrainingChartPanel(QWidget):
         if key in self._picker_preview:
             return self._picker_preview[key]
         slot = self._slot_for(key)
-        fallback = Config.get_color("chart_line_default")
+        # Per-command series have no system.ini slot of their own (item ids are
+        # canvas data); their DEFAULT colour comes from the shared pie-item
+        # palette, indexed in encounter order, so each command is distinct and
+        # matches the Training Motion weight pie. A user colour-pick still wins:
+        # it persists to user.ini[Theme][chart_line_cmd_reward_<id>] (the unique
+        # per-key slot), which Config.get_color reads ahead of this fallback.
+        if key.startswith(_CMD_REWARD_PREFIX):
+            idx = self._cmd_color_index.get(key, 0)
+            palette_slot = f"pie_item_color_{(idx % 12) + 1}"
+            fallback = Config.get_color(
+                palette_slot, fallback=Config.get_color("chart_line_default")
+            )
+        else:
+            fallback = Config.get_color("chart_line_default")
         return Config.get_color(slot, fallback=fallback)
 
     def _open_color_picker(self, key: str) -> None:
@@ -1046,6 +1074,9 @@ class TrainingChartPanel(QWidget):
             return
         self._known_series.append(key)
         self._series_visible.setdefault(key, True)
+        if key.startswith(_CMD_REWARD_PREFIX) and key not in self._cmd_color_index:
+            self._cmd_color_index[key] = self._cmd_color_counter
+            self._cmd_color_counter += 1
 
         row = QWidget(self._series_inner)
         row.setObjectName("trainingChartSeriesRow")
@@ -1094,6 +1125,10 @@ class TrainingChartPanel(QWidget):
         if spec is not None:
             _, display_name, _, _ = spec
             return display_name
+        if key.startswith(_CMD_REWARD_PREFIX):
+            item_id = key[len(_CMD_REWARD_PREFIX):]
+            prefix = tr("chart.series.cmd_reward", "Command reward")
+            return f"{prefix} · {item_id}"
         return key
 
     def _style_series_checkbox(self, cb: QCheckBox, key: str) -> None:

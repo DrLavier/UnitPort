@@ -37,13 +37,14 @@ DEMO 对应：
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 from PyQt6.QtCore import QPoint, QSize, Qt
 from PyQt6.QtGui import QDoubleValidator, QFont, QIcon, QIntValidator, QKeyEvent
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
     QLayout,
     QLineEdit,
     QPushButton,
@@ -77,6 +78,30 @@ def _set_svg_icon(btn: QPushButton, stem: str) -> None:
         p = None
     if p is not None:
         btn.setIcon(QIcon(str(p)))
+
+
+def _broadcast_floats(value: Any, n: int) -> list:
+    """Expand ``value`` (scalar or list) to ``n`` floats for the array popup.
+
+    Scalar → broadcast; length-``n`` list → as-is; single-element list →
+    broadcast; mismatched length → padded/truncated to ``n`` with 0.0."""
+    if isinstance(value, (list, tuple)) and value:
+        vs: list = []
+        for x in value:
+            try:
+                vs.append(float(x))
+            except (TypeError, ValueError):
+                vs.append(0.0)
+        if len(vs) == n:
+            return vs
+        if len(vs) == 1:
+            return vs * n
+        return (vs + [0.0] * n)[:n]
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        f = 0.0
+    return [f] * n
 
 
 # =============================================================================
@@ -206,9 +231,20 @@ class Node_DataInput(QFrame):
         maximum: Optional[float] = None,
         decimals: int = 6,
         placeholder: str = "",
+        array_labels: Optional[Sequence[str]] = None,
         on_commit: Optional[Callable[[Any], None]] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
+        # Array mode: ``array_labels`` (one caption per channel) turns the popup
+        # into N side-by-side float fields editing a vector (e.g. an obs term's
+        # per-channel scale, legged_gym ``commands_scale = [2, 2, 0.25]``).
+        # value → list; on_commit(list[float]). All sizing / zoom-scaling / icon
+        # logic below is shared with the scalar path. None ⇒ the classic single
+        # [LineEdit][✓][✗] (byte-identical to before).
+        self._array_labels: list = [str(x) for x in (array_labels or [])]
+        self._array: bool = bool(self._array_labels)
+        if self._array:
+            dtype = "float"
         if dtype not in ("string", "int", "float"):
             dtype = "string"
         super().__init__(
@@ -263,6 +299,11 @@ class Node_DataInput(QFrame):
             QLineEdit[dataInput="true"][invalid="true"] {{
                 border-color: {err};
             }}
+            QLabel[chanCap="true"] {{
+                color: {Config.get_color("main_t2", "#9a9a9a")};
+                background: transparent;
+                border: 0;
+            }}
             QPushButton[dataInputBtn="true"] {{
                 background: {btn_bg};
                 color: {fg};
@@ -285,33 +326,66 @@ class Node_DataInput(QFrame):
         row.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
         self._row_layout = row
 
-        # ---- LineEdit -----------------------------------------------------
-        self._input = QLineEdit(self)
-        self._input.setProperty("dataInput", True)
-        if self._dtype == "string":
-            self._input.setText(str(value or ""))
-            if placeholder:
-                self._input.setPlaceholderText(placeholder)
-        elif self._dtype == "int":
-            lo = int(minimum) if minimum is not None else -2**31
-            hi = int(maximum) if maximum is not None else 2**31 - 1
-            self._input.setValidator(QIntValidator(lo, hi, self))
-            try:
-                self._input.setText(str(int(value)))
-            except (TypeError, ValueError):
-                self._input.setText("0")
-        else:  # float
+        # ---- LineEdit(s) --------------------------------------------------
+        # ``self._inputs`` is the uniform list every method iterates (length 1
+        # for the scalar path; N for the array path). ``self._input`` aliases the
+        # first field so existing references (show_at focus, etc.) keep working.
+        self._inputs: list = []
+        self._captions: list = []
+        if not self._array:
+            self._input = QLineEdit(self)
+            self._input.setProperty("dataInput", True)
+            if self._dtype == "string":
+                self._input.setText(str(value or ""))
+                if placeholder:
+                    self._input.setPlaceholderText(placeholder)
+            elif self._dtype == "int":
+                lo = int(minimum) if minimum is not None else -2**31
+                hi = int(maximum) if maximum is not None else 2**31 - 1
+                self._input.setValidator(QIntValidator(lo, hi, self))
+                try:
+                    self._input.setText(str(int(value)))
+                except (TypeError, ValueError):
+                    self._input.setText("0")
+            else:  # float
+                lo = float(minimum) if minimum is not None else -1e15
+                hi = float(maximum) if maximum is not None else 1e15
+                self._input.setValidator(QDoubleValidator(lo, hi, self._decimals, self))
+                try:
+                    self._input.setText(f"{float(value):.6g}")
+                except (TypeError, ValueError):
+                    self._input.setText("0")
+            self._input.setFixedWidth(96)
+            self._input.selectAll()
+            self._input.returnPressed.connect(self._accept_if_valid)
+            row.addWidget(self._input, 0)
+            self._inputs = [self._input]
+        else:
             lo = float(minimum) if minimum is not None else -1e15
             hi = float(maximum) if maximum is not None else 1e15
-            self._input.setValidator(QDoubleValidator(lo, hi, self._decimals, self))
-            try:
-                self._input.setText(f"{float(value):.6g}")
-            except (TypeError, ValueError):
-                self._input.setText("0")
-        self._input.setFixedWidth(96)
-        self._input.selectAll()
-        self._input.returnPressed.connect(self._accept_if_valid)
-        row.addWidget(self._input, 0)
+            vals = _broadcast_floats(value, len(self._array_labels))
+            for label, v in zip(self._array_labels, vals):
+                col = QWidget(self)
+                cv = QVBoxLayout(col)
+                cv.setContentsMargins(0, 0, 0, 0)
+                cv.setSpacing(1)
+                cap = QLabel(str(label), col)
+                cap.setProperty("chanCap", True)
+                cap.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+                cv.addWidget(cap)
+                le = QLineEdit(col)
+                le.setProperty("dataInput", True)
+                le.setValidator(QDoubleValidator(lo, hi, self._decimals, le))
+                try:
+                    le.setText(f"{float(v):.6g}")
+                except (TypeError, ValueError):
+                    le.setText("0")
+                le.returnPressed.connect(self._accept_if_valid)
+                cv.addWidget(le)
+                row.addWidget(col, 0)
+                self._inputs.append(le)
+                self._captions.append(cap)
+            self._input = self._inputs[0]
 
         # ---- ✓ 按钮 -------------------------------------------------------
         self._ok_btn = QPushButton("", self)
@@ -319,7 +393,7 @@ class Node_DataInput(QFrame):
         self._ok_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._ok_btn.clicked.connect(self._accept_if_valid)
         _set_svg_icon(self._ok_btn, "icon_yes")
-        row.addWidget(self._ok_btn, 0)
+        row.addWidget(self._ok_btn, 0, Qt.AlignmentFlag.AlignBottom)
 
         # ---- ✗ 按钮 -------------------------------------------------------
         self._cancel_btn = QPushButton("", self)
@@ -327,7 +401,7 @@ class Node_DataInput(QFrame):
         self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cancel_btn.clicked.connect(self.close)
         _set_svg_icon(self._cancel_btn, "icon_no")
-        row.addWidget(self._cancel_btn, 0)
+        row.addWidget(self._cancel_btn, 0, Qt.AlignmentFlag.AlignBottom)
 
         # NOTE：DEMO 末尾有 addStretch(1) 让 3 个组件左对齐；RELEASE 改成
         # 严格固定 layout 尺寸（SetFixedSize + 精确算 total_w），让 popup 外框
@@ -351,9 +425,21 @@ class Node_DataInput(QFrame):
         font_px = max(12, round(h * 0.45))
         f = QFont()
         f.setPixelSize(font_px)
-        input_w = max(96, round(h * 3.2))
-        self._input.setFixedSize(input_w, h)
-        self._input.setFont(f)
+        # Array fields are narrower (a vector of small numbers); the scalar field
+        # keeps its proven width. Both follow the same zoom-scaled height ``h``.
+        input_w = max(96, round(h * 3.2)) if not self._array else max(52, round(h * 2.2))
+        for le in self._inputs:
+            le.setFixedSize(input_w, h)
+            le.setFont(f)
+        cap_h = 0
+        if self._array:
+            cap_px = max(8, round(h * 0.34))
+            cf = QFont()
+            cf.setPixelSize(cap_px)
+            cap_h = cap_px + 3
+            for cap in self._captions:
+                cap.setFont(cf)
+                cap.setFixedHeight(cap_h)
         self._ok_btn.setFixedSize(h, h)
         self._ok_btn.setFont(f)
         self._cancel_btn.setFixedSize(h, h)
@@ -362,11 +448,12 @@ class Node_DataInput(QFrame):
         self._ok_btn.setIconSize(ico_sz)
         self._cancel_btn.setIconSize(ico_sz)
 
-        # popup 总宽 = LineEdit + ✓ + ✗ + 2 个 spacing 间隙；高度直接 = h
-        # （contents margins 已 setContentsMargins(0,0,0,0)，spacing=1 见构造）
+        # popup 总宽 = N×field + ✓ + ✗ + (N+1) 个 spacing 间隙；高度 = caption + h
+        # （array 时多一行通道名；scalar 时 cap_h=0 → 退化为原公式）。
         spacing = self._row_layout.spacing()
-        total_w = input_w + h + h + spacing * 2
-        self.setFixedSize(total_w, h)
+        n = len(self._inputs)
+        total_w = n * input_w + h + h + spacing * (n + 1)
+        self.setFixedSize(total_w, h + cap_h)
 
     def show_at(self, anchor: QPoint, row_h: int = 0) -> None:
         """Anchor + show. 等价 DEMO ``DataInput.show_at``，外加越屏校正.
@@ -401,6 +488,29 @@ class Node_DataInput(QFrame):
     def _accept_if_valid(self) -> None:
         if self._committed:
             return
+        if self._array:
+            out: list = []
+            for i, le in enumerate(self._inputs):
+                raw_i = (le.text() or "").strip()
+                try:
+                    num_i = float(raw_i)
+                except (TypeError, ValueError):
+                    self._mark_invalid(True, i)
+                    return
+                if self._min is not None and num_i < self._min:
+                    self._mark_invalid(True, i)
+                    return
+                if self._max is not None and num_i > self._max:
+                    self._mark_invalid(True, i)
+                    return
+                out.append(num_i)
+            for i in range(len(self._inputs)):
+                self._mark_invalid(False, i)
+            self._committed = True
+            if self._on_commit is not None:
+                self._on_commit(out)
+            self.close()
+            return
         raw = (self._input.text() or "").strip()
         if self._dtype == "string":
             self._mark_invalid(False)
@@ -426,12 +536,13 @@ class Node_DataInput(QFrame):
             self._on_commit(num)
         self.close()
 
-    def _mark_invalid(self, invalid: bool) -> None:
-        self._input.setProperty("invalid", "true" if invalid else "false")
-        self._input.style().unpolish(self._input)
-        self._input.style().polish(self._input)
-        self._input.setFocus()
-        self._input.selectAll()
+    def _mark_invalid(self, invalid: bool, idx: Optional[int] = None) -> None:
+        le = self._inputs[idx] if (idx is not None and idx < len(self._inputs)) else self._input
+        le.setProperty("invalid", "true" if invalid else "false")
+        le.style().unpolish(le)
+        le.style().polish(le)
+        le.setFocus()
+        le.selectAll()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() == Qt.Key.Key_Escape:

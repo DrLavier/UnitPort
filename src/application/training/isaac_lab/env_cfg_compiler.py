@@ -105,6 +105,12 @@ class _PerTermObsConfig:
 
 _PER_TERM_OBS_FIELDS = frozenset({"scale", "clip", "history_length"})
 
+# UI-only metadata an obs term dict may carry that the compiler accepts but
+# IGNORES (no effect on the emitted ObservationTermCfg). ``data_type`` records
+# which scale input shape the canvas editor offers for the term (scalar / list /
+# both) — purely an authoring affordance; the runtime obs uses ``scale`` only.
+_OBS_UI_META_FIELDS = frozenset({"data_type"})
+
 
 def _normalize_obs_terms(
     raw: Any,
@@ -218,14 +224,14 @@ def _normalize_obs_terms(
 
         # (3) strongly-typed dict
         if isinstance(value, dict):
-            unknown = set(value.keys()) - _PER_TERM_OBS_FIELDS
+            unknown = set(value.keys()) - _PER_TERM_OBS_FIELDS - _OBS_UI_META_FIELDS
             if unknown:
                 raise CanvasConfigError(
                     nid=nid, key="obs_terms", schema_id=schema_id,
                     reason=(
                         f"obs_terms[{term_key!r}] has unknown sub-key(s) "
                         f"{sorted(unknown)}; allowed = "
-                        f"{sorted(_PER_TERM_OBS_FIELDS)}."
+                        f"{sorted(_PER_TERM_OBS_FIELDS | _OBS_UI_META_FIELDS)}."
                     ),
                 )
 
@@ -943,6 +949,56 @@ class UnitportWeightedVelocityCommand(_UnitportWVCommandTerm):
         self._weight_floor = float(cfg.weight_floor)
         self._weight_ceil = float(cfg.weight_ceil)
 
+        # ── Adaptive item sampling state (Phase C, §2A-2C). When
+        # cfg.adaptive_enabled, the term accumulates each step's per-env
+        # reward into per-item buckets (keyed by _current_item_id) and every
+        # adaptive_update_interval_steps re-biases self._weights toward
+        # under-performing (low mean-reward) items, bounded by
+        # [weight_floor, weight_ceil] via set_weights. Lives env-side (here)
+        # rather than runner-side because the vanilla rsl_rl OnPolicyRunner
+        # used by plain-PPO exposes no per-iteration hook — this way plain
+        # PPO and AMP get identical behaviour with no runner changes.
+        self._num_items = m
+        self._adaptive_enabled = bool(getattr(cfg, "adaptive_enabled", False))
+        self._adaptive_interval = int(
+            getattr(cfg, "adaptive_update_interval_steps", 0) or 0
+        )
+        self._adaptive_smoothing = float(getattr(cfg, "adaptive_smoothing", 0.5))
+        self._item_reward_sum = _wv_torch.zeros(m, dtype=_wv_torch.float32, device=device)
+        self._item_step_count = _wv_torch.zeros(m, dtype=_wv_torch.float32, device=device)
+        self._adaptive_step_counter = 0
+
+        # ── Per-command reward telemetry (Mission Control chart). ALWAYS ON,
+        # independent of adaptive sampling: every step we scatter the per-env
+        # reward into per-item buckets keyed by _current_item_id, and every
+        # _metric_emit_interval steps print a machine-parseable
+        # [UnitPort][CMDMETRICS] line (backend.py turns each item into a
+        # cmd_reward_<id> chart series) then reset the buckets. Kept on its own
+        # accumulators + cadence so toggling adaptive sampling never perturbs
+        # the chart. Emits env-side — like adaptive sampling — because the
+        # vanilla rsl_rl OnPolicyRunner used by plain PPO exposes no
+        # per-iteration hook; this way plain PPO and AMP behave identically.
+        self._metric_emit_interval = int(
+            getattr(cfg, "metric_emit_interval_steps", 0) or 0
+        )
+        self._metric_reward_sum = _wv_torch.zeros(m, dtype=_wv_torch.float32, device=device)
+        self._metric_step_count = _wv_torch.zeros(m, dtype=_wv_torch.float32, device=device)
+        self._metric_emit_counter = 0
+
+        # Heading-command mode (legged_gym parity). When on, the yaw
+        # channel is closed-loop: a target world-heading is sampled per
+        # resample and ang_vel_z is recomputed each step from the heading
+        # error (see _update_command). The per-env clip bounds are the
+        # selected item's ang_vel_z range (so the recomputed rate stays
+        # inside the command envelope the policy was trained on).
+        self._heading_command = bool(getattr(cfg, "heading_command", False))
+        self._heading_stiffness = float(getattr(cfg, "heading_control_stiffness", 0.5))
+        self._heading_lo = float(getattr(cfg, "heading_lo", -3.141592653589793))
+        self._heading_hi = float(getattr(cfg, "heading_hi", 3.141592653589793))
+        self._heading_target = _wv_torch.zeros(n, device=device)
+        self._angz_lo = _wv_torch.zeros(n, device=device)
+        self._angz_hi = _wv_torch.zeros(n, device=device)
+
     @property
     def command(self):
         return self._command
@@ -1011,11 +1067,162 @@ class UnitportWeightedVelocityCommand(_UnitportWVCommandTerm):
             standing.unsqueeze(-1), _wv_torch.zeros_like(vals), vals
         )
         self._command[env_ids] = vals
-        self._current_item_id[env_ids] = _wv_torch.where(
-            standing, _wv_torch.full_like(item_ids, -1), item_ids
+        # Standing (zero-command) envs KEEP their sampled item identity. A
+        # standing "walk" env is still running the walk item, just handed a
+        # zero velocity command for this window, and MUST still receive that
+        # item's rewards — legged_gym rewards standing with the tracking term
+        # (error 0 -> exp(0) = 1). The standing state is tracked separately in
+        # self._is_standing, which the reward masks read for phase routing
+        # (see unitport_item_mask / unitport_phase_mask). The previous
+        # ``where(standing, -1, item_ids)`` folded "standing" into the item id,
+        # which made unitport_item_mask (item_id == idx) evaluate False and
+        # ZERO every reward on ~rel_standing_envs of the fleet — a CLAUDE.md §8
+        # illusion (the canvas configured a tracking reward that silently never
+        # ran on the standing envs) and a cross-engine divergence (the SB3 env
+        # always rewards its standing envs).
+        self._current_item_id[env_ids] = item_ids
+
+        if self._heading_command:
+            # Sample a fresh target heading and latch the picked item's
+            # ang_vel_z range as this env's yaw-rate clip bounds. The
+            # open-loop vals[:, 2] just sampled above is overwritten every
+            # step by the heading controller in _update_command.
+            self._heading_target[env_ids] = self._heading_lo + _wv_torch.rand(
+                n, device=device
+            ) * (self._heading_hi - self._heading_lo)
+            self._angz_lo[env_ids] = self._ranges_lo[item_ids, 2]
+            self._angz_hi[env_ids] = self._ranges_hi[item_ids, 2]
+
+    def _recompute_heading_yaw(self):
+        # Closed-loop yaw: ang_vel_z = clip(stiffness * wrap_to_pi(target -
+        # yaw_world), item ang_vel_z range). Mirrors legged_gym's
+        # _post_physics_step_callback heading branch. Reads the base world
+        # yaw from the articulation (IsaacLab ArticulationData.heading_w),
+        # the same source IsaacLab's own UniformVelocityCommand uses.
+        asset = self._env.scene[self.cfg.asset_name]
+        yaw = asset.data.heading_w
+        err = self._heading_target - yaw
+        # wrap_to_pi — legged_gym convention (π maps to +π, not −π).
+        two_pi = 2.0 * _wv_torch.pi
+        err = err % two_pi
+        err = err - two_pi * (err > _wv_torch.pi).to(err.dtype)
+        raw = self._heading_stiffness * err
+        angz = _wv_torch.maximum(
+            _wv_torch.minimum(raw, self._angz_hi), self._angz_lo
+        )
+        self._command[:, 2] = _wv_torch.where(
+            self._is_standing, _wv_torch.zeros_like(angz), angz
         )
 
+    def _adaptive_step(self):
+        # Phase C adaptive sampling. Every step: scatter the current per-env
+        # reward into per-item buckets keyed by the env's active item. Every
+        # _adaptive_interval steps: turn the per-item mean reward into new
+        # sampling weights (under-performers up-weighted), EMA-blend with the
+        # current weights, hand to set_weights (which clamps to
+        # [floor, ceil] and renormalises), then reset the accumulators.
+        if self._num_items < 2 or self._adaptive_interval <= 0:
+            return
+        # command_manager.compute runs AFTER reward_manager.compute in the env
+        # step, so reward_buf holds THIS step's reward when we're called.
+        reward = getattr(self._env, "reward_buf", None)
+        if reward is None:
+            return
+        ids = self._current_item_id
+        valid = ids >= 0  # envs not yet resampled carry the -1 sentinel
+        if bool(valid.any()):
+            v_ids = ids[valid]
+            v_r = reward[valid].to(self._item_reward_sum.dtype)
+            self._item_reward_sum.index_add_(0, v_ids, v_r)
+            self._item_step_count.index_add_(0, v_ids, _wv_torch.ones_like(v_r))
+
+        self._adaptive_step_counter += 1
+        if self._adaptive_step_counter < self._adaptive_interval:
+            return
+        self._adaptive_step_counter = 0
+
+        seen = self._item_step_count > 0
+        if int(seen.sum().item()) < 2:
+            # <2 items sampled this window — can't compare; wait for coverage.
+            self._item_reward_sum.zero_()
+            self._item_step_count.zero_()
+            return
+        mean_r = self._item_reward_sum / _wv_torch.clamp(self._item_step_count, min=1.0)
+        r_seen = mean_r[seen]
+        r_min = r_seen.min()
+        spread = r_seen.max() - r_min
+        scale = _wv_torch.clamp(r_seen.abs().mean(), min=1e-6)
+        # Deadband: ignore noise-level reward spread, keep current weights.
+        if float(spread.item()) <= 1e-3 * float(scale.item()):
+            self._item_reward_sum.zero_()
+            self._item_step_count.zero_()
+            return
+        # Priority ∝ (1 − normalised_reward) + 0.1: worst seen item → ~1.1,
+        # best → ~0.1. Redistribute the seen items' current weight mass by
+        # priority; unseen items keep their current weight. set_weights does
+        # the floor/ceil clamp + renormalise.
+        norm = (mean_r - r_min) / spread
+        priority = (1.0 - norm) + 0.1
+        target = self._weights.clone()
+        seen_mass = self._weights[seen].sum()
+        pr = priority[seen]
+        pr = pr / pr.sum() * seen_mass
+        target[seen] = pr
+        a = self._adaptive_smoothing
+        new_w = (1.0 - a) * self._weights + a * target
+        self.set_weights(new_w)
+        self._item_reward_sum.zero_()
+        self._item_step_count.zero_()
+
+    def _metric_step(self):
+        # Per-command reward telemetry. Mirrors _adaptive_step's bucketing but
+        # with independent accumulators and an independent (rollout-length)
+        # cadence, so enabling/disabling adaptive sampling never moves the
+        # chart series. command_manager.compute runs AFTER reward_manager.compute
+        # in the env step, so reward_buf holds THIS step's reward here.
+        if self._metric_emit_interval <= 0:
+            return
+        reward = getattr(self._env, "reward_buf", None)
+        if reward is not None:
+            ids = self._current_item_id
+            valid = ids >= 0  # envs not yet resampled carry the -1 sentinel
+            if bool(valid.any()):
+                v_ids = ids[valid]
+                v_r = reward[valid].to(self._metric_reward_sum.dtype)
+                self._metric_reward_sum.index_add_(0, v_ids, v_r)
+                self._metric_step_count.index_add_(0, v_ids, _wv_torch.ones_like(v_r))
+        self._metric_emit_counter += 1
+        if self._metric_emit_counter < self._metric_emit_interval:
+            return
+        self._metric_emit_counter = 0
+        self._emit_command_metrics()
+
+    def _emit_command_metrics(self):
+        # Print mean per-item reward over the window as a single machine-
+        # parseable line. Items NOT sampled this window are omitted — never a
+        # fake zero (CLAUDE.md §8). backend.py's parse_cmdmetrics_line turns
+        # each "<item_id>=<mean>" token into a cmd_reward_<item_id> series.
+        counts = self._metric_step_count
+        means = self._metric_reward_sum / _wv_torch.clamp(counts, min=1.0)
+        parts = []
+        for i, item_id in enumerate(self._item_ids_list):
+            if float(counts[i].item()) <= 0.0:
+                continue
+            safe = "".join(
+                c if (c.isalnum() or c == "_") else "_" for c in str(item_id)
+            )
+            parts.append(safe + "=" + format(float(means[i].item()), ".5f"))
+        self._metric_reward_sum.zero_()
+        self._metric_step_count.zero_()
+        if parts:
+            print("[UnitPort][CMDMETRICS] " + " ".join(parts), flush=True)
+
     def _update_command(self):
+        # Per-command reward telemetry first — runs every step regardless of
+        # whether adaptive sampling is enabled.
+        self._metric_step()
+        if self._adaptive_enabled:
+            self._adaptive_step()
         # Velocity commands don't evolve between resamples — except when
         # cmd_step_change_prob > 0, in which case each env independently
         # re-samples its own command at the configured per-step probability.
@@ -1031,6 +1238,10 @@ class UnitportWeightedVelocityCommand(_UnitportWVCommandTerm):
             env_ids = flip.nonzero(as_tuple=False).squeeze(-1)
             if env_ids.numel() > 0:
                 self._resample_command(env_ids)
+        # Heading controller runs every step (after any step-change resample
+        # above), so the yaw command tracks the target heading continuously.
+        if self._heading_command:
+            self._recompute_heading_yaw()
 
     def _update_metrics(self):
         pass
@@ -1056,9 +1267,26 @@ class UnitportWeightedVelocityCommandCfg(_UnitportWVCommandTermCfg):
     weight_floor: float = 0.03
     weight_ceil: float = 0.30
     adaptive_enabled: bool = False
+    # Phase C adaptive sampling: re-weight cadence in ENV STEPS (the compiler
+    # converts the canvas's iteration-count via num_steps_per_env) and the
+    # EMA blend factor applied to each weight update (0 = frozen, 1 = no
+    # smoothing). 0 interval keeps the term in pure-uniform mode.
+    adaptive_update_interval_steps: int = 0
+    adaptive_smoothing: float = 0.5
     # Per-step command resample probability — canvas training_motion.
     # 0 keeps the legacy "only resample at resampling_time_range" behavior.
     cmd_step_change_prob: float = 0.0
+    # Heading-command mode (legged_gym parity). False = open-loop yaw
+    # sampling (legacy). heading_lo/hi are the world-heading target sample
+    # range (rad); stiffness maps heading error → yaw rate.
+    heading_command: bool = False
+    heading_control_stiffness: float = 0.5
+    heading_lo: float = -3.141592653589793
+    heading_hi: float = 3.141592653589793
+    # Per-command reward telemetry emit cadence in ENV STEPS. The compiler
+    # sets it to the trainer's num_steps_per_env so one [UnitPort][CMDMETRICS]
+    # emit ~ one PPO/AMP iteration; 0 disables the telemetry line entirely.
+    metric_emit_interval_steps: int = 0
 # =======================================================================
 '''
 
@@ -1164,12 +1392,26 @@ def unitport_phase_mask(base_fn, phases_to_match):
         if not item_phases:
             return base
         device = base.device if hasattr(base, "device") else item_id.device
+        # Standing (zero-command) envs route to the "static" phase regardless
+        # of which item they belong to. They now KEEP their item id in
+        # _current_item_id (so unitport_item_mask still rewards them), so the
+        # standing signal is read from _is_standing instead of the old
+        # ``item_id == -1`` sentinel. A None flag (foreign command term)
+        # degrades to "nothing is standing" (matches the pre-decoupling path
+        # when no env was standing).
+        is_standing = getattr(cmd, "_is_standing", None)
+        if is_standing is not None:
+            moving = (~is_standing).to(base.dtype)
+            standing_f = is_standing.to(base.dtype)
+        else:
+            moving = _torch.ones(item_id.shape[0], dtype=base.dtype, device=device)
+            standing_f = _torch.zeros(item_id.shape[0], dtype=base.dtype, device=device)
         mask = _torch.zeros(item_id.shape[0], dtype=base.dtype, device=device)
         for idx, phase_id in enumerate(item_phases):
             if phase_id and phase_id in phases_set:
-                mask = mask + (item_id == idx).to(base.dtype)
+                mask = mask + (item_id == idx).to(base.dtype) * moving
         if "static" in phases_set:
-            mask = mask + (item_id == -1).to(base.dtype)
+            mask = mask + standing_f
         mask = _torch.clamp(mask, max=1.0)
         return base * mask
 
@@ -1262,6 +1504,11 @@ def unitport_item_mask(base_fn, item_indices_to_match):
         item_id = getattr(cmd, "_current_item_id", None)
         if item_id is None:
             return base
+        # Standing (zero-command) envs retain their sampled item id (the
+        # command term no longer overwrites it with a -1 sentinel), so they
+        # match here exactly like a moving env of the same item and receive
+        # the item's rewards — that is what rewards a standing env for holding
+        # the commanded zero velocity (legged_gym parity, CLAUDE.md §8).
         device = base.device if hasattr(base, "device") else item_id.device
         mask = _torch.zeros(item_id.shape[0], dtype=base.dtype, device=device)
         for idx in idx_set:
@@ -1759,6 +2006,40 @@ class IsaacLabConfigCompiler:
                 ),
             )
         return enabled
+
+    def _resolve_initial_item_weights(
+        self, cid: str, items: List[dict]
+    ) -> List[float]:
+        """Build the ``initial_weights`` list aligned to ``items`` order.
+
+        Reads the optional per-item ``weight`` from the canvas
+        ``training_items`` dict (the Weight Set pie editor's data of record),
+        keyed by item id. A missing weight defaults to the uniform share
+        ``1/N`` so an untouched canvas (no ``weight`` keys) stays uniform.
+        The result is normalised to sum 1; if every weight is non-positive
+        the function falls back to a uniform vector.
+
+        Negative / NaN weights are not silently coerced — they are a malformed
+        canvas input that ``spec_validator._check_item_weights`` rejects loudly
+        (CLAUDE.md §8) before compilation reaches here; the ``float()`` below
+        would also raise on a non-numeric value rather than paper over it.
+        """
+        n = len(items)
+        if n == 0:
+            return []
+        uniform = 1.0 / n
+        raw_ti = self._parse_json_param(cid, "training_items") or {}
+        if not isinstance(raw_ti, dict):
+            raw_ti = {}
+        weights: List[float] = []
+        for it in items:
+            raw = raw_ti.get(str(it.get("id", "")), {})
+            wv = raw.get("weight") if isinstance(raw, dict) else None
+            weights.append(uniform if wv is None else float(wv))
+        total = sum(weights)
+        if total <= 0.0:
+            return [uniform] * n
+        return [w / total for w in weights]
 
     def _has_training_motion(self) -> bool:
         return bool(self._find_by_type("training_motion"))
@@ -3380,11 +3661,51 @@ class IsaacLabConfigCompiler:
     def _observations_cfg(self) -> List[str]:
         lines = ["@configclass", "class ObservationsCfg:", '    """Observation configuration."""', ""]
 
-        obs_ids = self._find_by_type("il_observation")
+        # 缺口② — the Observation node is consumed BY EDGE (the one wired to
+        # il_policy_network.obs_vector), NOT by type. The policy/critic split is
+        # now a SINGLE node (``obs_terms`` = policy; ``critic_privileged_terms`` =
+        # the extra terms the value fn additionally sees). An il_observation node
+        # whose obs_vector output is unwired has no legitimacy (canvas contract:
+        # wiring = use) and must never silently compile. Mirrors the rewards-by-
+        # edge pattern (_rewards_cfg). spec_validator._check_il_observation_wired
+        # is the primary fail-loud; this raise is defense-in-depth.
+        pol_ids = self._find_by_type("il_policy_network")
+        wired = [
+            oid for oid in self._find_by_type("il_observation")
+            if any(
+                dst in pol_ids and ss == "obs_vector" and ds == "obs_vector"
+                for (dst, ss, ds) in self._downstream.get(oid, [])
+            )
+        ]
+        if not wired:
+            raise CanvasConfigError(
+                reason=(
+                    "il_observation.obs_vector is not wired to il_policy_network "
+                    "— an unwired Observation node would silently compile to no "
+                    "policy obs. Connect the Observation node's obs_vector output "
+                    "to the Policy Network node (canvas contract: a node must be "
+                    "wired to be used)."
+                ),
+            )
+        if len(wired) > 1:
+            raise CanvasConfigError(
+                reason=(
+                    f"{len(wired)} il_observation nodes are wired to "
+                    f"il_policy_network ({wired!r}); exactly one is supported. The "
+                    f"policy/critic split is now a single node "
+                    f"(critic_privileged_terms), not a second node — run the "
+                    f"obs-merge migration on this canvas."
+                ),
+            )
+        for oid in self._find_by_type("il_observation"):
+            if oid not in wired:
+                log.warning(
+                    "[il-compile] ignoring un-wired il_observation node %r "
+                    "(obs is consumed by edge to il_policy_network).", oid,
+                )
+        oid = wired[0]
 
         # ``height_scan`` needs a SceneEntityCfg("height_scanner") backing.
-        # §2 Scene — prefer the new Play Ground Setting node; fall back
-        # to the legacy IL Terrain Config node during the transition.
         has_height_scanner = False
         pg_ids = self._find_by_type("play_ground_setting")
         if pg_ids:
@@ -3392,142 +3713,127 @@ class IsaacLabConfigCompiler:
                 self._p(pg_ids[0], "height_scan_enabled").lower() == "true"
             )
 
-        for oid in obs_ids:
-            gname = self._p(oid, "group_name")
-            noise_std = self._pf(oid, "corruption_noise_std")
-            enable_noise = self._p(oid, "enable_corruption").lower() == "true"
+        noise_std = self._pf(oid, "corruption_noise_std")
+        enable_noise = self._p(oid, "enable_corruption").lower() == "true"
+        apply_noise = enable_noise and noise_std > 0
 
-            # Parse obs_terms JSON, then normalise to the strong contract
-            # ``Dict[str, _PerTermObsConfig]``. This is the single place that
-            # decides per-term scale / clip / history_length for both the
-            # emitted ObsTerm Python string AND the deploy_meta.json sidecar
-            # (compile_to_file → _build_obs_metadata_sidecar). Anything wrong
-            # with the upstream shape raises CanvasConfigError here so the
-            # user is pointed at the canvas node instead of getting a
-            # mysteriously-bad bundle downstream.
-            obs_terms_raw = self._parse_json_param(oid, "obs_terms")
-            obs_terms_resolved: Dict[str, _PerTermObsConfig] = (
-                _normalize_obs_terms(
-                    obs_terms_raw, nid=oid, schema_id=self._types.get(oid, ""),
-                )
+        # Gait obs terms (Walk These Ways) — appended to BOTH groups so the
+        # critic stays a strict superset of the policy (缺口②: critic = policy ∪
+        # privileged). Stable order (freq → phase sin/cos → body_h → step_h).
+        gait_terms: Optional[List[str]] = None
+        obs_spec = self._resolve_gait_spec()
+        if obs_spec is not None:
+            gait_terms = list(_GAIT_OBS_TERMS_BY_CLASS[obs_spec.class_name])
+
+        self._resolved_obs_terms_by_group: Dict[str, Dict[str, _PerTermObsConfig]] = (
+            getattr(self, "_resolved_obs_terms_by_group", {}) or {}
+        )
+
+        # POLICY group (the DEPLOYED obs) from ``obs_terms``.
+        policy_resolved = _normalize_obs_terms(
+            self._parse_json_param(oid, "obs_terms"),
+            nid=oid, schema_id=self._types.get(oid, ""),
+        )
+        self._resolved_obs_terms_by_group["policy"] = dict(policy_resolved)
+        self._emit_obs_group(
+            lines, "PolicyCfg", "policy", policy_resolved,
+            has_height_scanner=has_height_scanner,
+            enable_corruption=enable_noise, apply_noise=apply_noise,
+            noise_std=noise_std, gait_terms=gait_terms,
+        )
+
+        # CRITIC group (privileged, training-only) = policy ∪ critic_privileged_terms.
+        # Emitted ONLY when privileged terms are declared; empty / absent ⇒
+        # PolicyCfg only (symmetric, byte-identical to a single-policy canvas).
+        # The privileged critic is NOISELESS (enable_corruption=False, no per-term
+        # Unoise) — it is the value fn's clean ground-truth input. NEVER enters
+        # the deploy bundle (that reads obs_terms = policy only).
+        priv_raw = {}
+        if "critic_privileged_terms" in self._params.get(oid, {}):
+            priv_raw = self._parse_json_param(oid, "critic_privileged_terms")
+        if priv_raw:
+            priv_resolved = _normalize_obs_terms(
+                priv_raw, nid=oid, schema_id=self._types.get(oid, ""),
             )
-            obs_terms = obs_terms_resolved  # keep the existing iteration var
-            # Stash for compile_to_file's sidecar writer.
-            self._resolved_obs_terms_by_group: Dict[str, Dict[str, _PerTermObsConfig]] = (
-                getattr(self, "_resolved_obs_terms_by_group", {}) or {}
+            critic_resolved = {**policy_resolved, **priv_resolved}
+            self._resolved_obs_terms_by_group["critic"] = dict(critic_resolved)
+            self._emit_obs_group(
+                lines, "CriticCfg", "critic", critic_resolved,
+                has_height_scanner=has_height_scanner,
+                enable_corruption=False, apply_noise=False,
+                noise_std=noise_std, gait_terms=gait_terms,
             )
-            self._resolved_obs_terms_by_group[gname] = dict(obs_terms_resolved)
-
-            lines.append("    @configclass")
-            lines.append(f"    class {gname.capitalize()}Cfg(ObsGroup):")
-            # ``concatenate_terms = True`` makes ``ObservationManager.compute()``
-            # return a single flat tensor of shape ``(num_envs, sum_of_term_dims)``
-            # for this group instead of a dict-of-tensors. The Isaac Lab
-            # ObsGroup default IS True, but we set it explicitly so the
-            # behaviour can't drift across versions and so the AMP runner's
-            # actor MLP always sees a real torch.Tensor (not a dict / not a
-            # TensorDict subclass with a __torch_function__ that breaks
-            # nn.Linear's dispatch).
-            lines.append(f"        concatenate_terms = True")
-            # ``enable_corruption`` is a real ObsGroup class-level marker
-            # that ObservationManager honours. ``corruption_noise_std``
-            # is NOT — Isaac Lab models noise as a per-term ``noise=``
-            # field on each ObsTerm (Unoise / Gnoise instances), not as
-            # a group-level scalar. Emitting it as a class attribute
-            # makes ObservationManager._prepare_terms() raise:
-            #   TypeError: Configuration for the term 'corruption_noise_std'
-            #   is not of type ObservationTermCfg. Received: '<class 'float'>'.
-            # Translate the canvas's single std value into a per-term
-            # Unoise(n_min=-std, n_max=std) attached to each ObsTerm.
-            apply_noise = enable_noise and noise_std > 0
-            if enable_noise:
-                lines.append(f"        enable_corruption = True")
-
-            for term_type in obs_terms:
-                if term_type == "height_scan" and not has_height_scanner:
-                    lines.append(
-                        f"        # height_scan SKIPPED: no height_scanner node "
-                        f"on the canvas. Add a height-scanner sensor before "
-                        f"re-enabling this term, or remove it from obs_terms."
-                    )
-                    continue
-                func_name = self._obs_term_func(term_type)
-
-                # ── Term-specific params ──
-                # Most observation funcs in isaaclab.envs.mdp.observations
-                # work with no params (they read defaults from the env's
-                # standard "robot" / "contact_sensor" SceneEntityCfgs).
-                # The exceptions are functions that operate on a *named*
-                # subsystem and need a string handle:
-                #
-                #   generated_commands  → command_name  (which command to fetch)
-                #
-                # The only command we currently emit is ``base_velocity``
-                # from il_velocity_cmd → CommandsCfg.base_velocity. When
-                # the user adds more command nodes / sources we'll need
-                # a richer registry, but ``base_velocity`` covers every
-                # current canvas.
-                params_str = ""
-                if func_name == "generated_commands":
-                    params_str = ', params={"command_name": "base_velocity"}'
-                elif term_type == "height_scan":
-                    # mdp.height_scan requires a SceneEntityCfg pointing
-                    # at the ray-caster sensor emitted by _scene_cfg
-                    # when enable_height_scan=true. The Isaac Lab stock
-                    # offset convention subtracts 0.5m from the raw
-                    # raycasts so values cluster around 0 for flat
-                    # ground (matches legged_gym / robot_lab defaults).
-                    params_str = (
-                        ', params={"sensor_cfg": SceneEntityCfg('
-                        '"height_scanner"), "offset": 0.5}'
-                    )
-
-                # Compose the per-term args. Each piece is appended only
-                # when the resolved ``_PerTermObsConfig`` carries a non-None
-                # value for that field — None passes through to the sidecar
-                # unchanged so the downstream contract knows exactly which
-                # fields the compiler decided vs. left to Isaac Lab.
-                term_cfg = obs_terms_resolved[term_type]
-                args: List[str] = [f"func=mdp.{func_name}"]
-                if apply_noise:
-                    args.append(
-                        f"noise=Unoise(n_min=-{noise_std}, n_max={noise_std})"
-                    )
-                if term_cfg.scale is not None:
-                    args.append(f"scale={_format_scale_literal(term_cfg.scale)}")
-                # ``clip=(-100, 100)`` (the historical default) caps every
-                # policy/critic obs before the MLP sees it — protects the
-                # value function from physics blow-ups. If the user
-                # explicitly sets clip on this term, theirs wins; otherwise
-                # we keep the historical safety guard. (See
-                # amp_obs_terms.py::_AMP_OBS_CLIP for the matching guard on
-                # the discriminator's input side.)
-                clip_tuple = term_cfg.clip if term_cfg.clip is not None else (-100.0, 100.0)
-                args.append(f"clip=({clip_tuple[0]}, {clip_tuple[1]})")
-                if term_cfg.history_length is not None:
-                    args.append(f"history_length={int(term_cfg.history_length)}")
-                lines.append(
-                    f"        {term_type} = ObsTerm({', '.join(args)}{params_str})"
-                )
-
-            # P2.1 — append 4 Walk These Ways gait observation terms to
-            # the policy group (only to "policy" by convention; private
-            # obs groups like "critic" are free to add their own if the
-            # user configures a second obs node later). Ordering is
-            # stable (freq → phase sin/cos → body_h → step_h) so the
-            # trained policy's input permutation can't drift.
-            if gname == "policy":
-                obs_spec = self._resolve_gait_spec()
-                if obs_spec is not None:
-                    lines.extend(
-                        _GAIT_OBS_TERMS_BY_CLASS[obs_spec.class_name]
-                    )
-
-            lines.append("")
-            lines.append(f"    {gname}: {gname.capitalize()}Cfg = {gname.capitalize()}Cfg()")
 
         lines += ["", ""]
         return lines
+
+    def _emit_obs_group(
+        self,
+        lines: List[str],
+        class_name: str,
+        attr_name: str,
+        resolved_terms: "Dict[str, _PerTermObsConfig]",
+        *,
+        has_height_scanner: bool,
+        enable_corruption: bool,
+        apply_noise: bool,
+        noise_std: float,
+        gait_terms: Optional[List[str]],
+    ) -> None:
+        """Emit one ``class <class_name>Cfg(ObsGroup)`` + its ``attr: Cfg = Cfg()``.
+
+        Shared by the policy and critic groups (缺口② single-node split). The
+        critic passes ``enable_corruption=False`` + ``apply_noise=False`` (clean
+        privileged input). ``gait_terms`` (pre-indented source lines) append to
+        both groups so the critic stays a strict superset of the policy.
+        """
+        lines.append("    @configclass")
+        lines.append(f"    class {class_name}(ObsGroup):")
+        # concatenate_terms → flat (num_envs, sum_dims) tensor, not dict.
+        lines.append("        concatenate_terms = True")
+        # enable_corruption is a real ObsGroup marker; corruption_noise_std is
+        # NOT (it becomes a per-term Unoise below, never a class attribute).
+        if enable_corruption:
+            lines.append("        enable_corruption = True")
+
+        for term_type in resolved_terms:
+            if term_type == "height_scan" and not has_height_scanner:
+                lines.append(
+                    f"        # height_scan SKIPPED: no height_scanner node "
+                    f"on the canvas. Add a height-scanner sensor before "
+                    f"re-enabling this term, or remove it from obs_terms."
+                )
+                continue
+            func_name = self._obs_term_func(term_type)
+            # Term-specific params: only named-subsystem funcs need a handle.
+            params_str = ""
+            if func_name == "generated_commands":
+                params_str = ', params={"command_name": "base_velocity"}'
+            elif term_type == "height_scan":
+                params_str = (
+                    ', params={"sensor_cfg": SceneEntityCfg('
+                    '"height_scanner"), "offset": 0.5}'
+                )
+            term_cfg = resolved_terms[term_type]
+            args: List[str] = [f"func=mdp.{func_name}"]
+            if apply_noise:
+                args.append(f"noise=Unoise(n_min=-{noise_std}, n_max={noise_std})")
+            if term_cfg.scale is not None:
+                args.append(f"scale={_format_scale_literal(term_cfg.scale)}")
+            # clip=(-100, 100) historical safety guard unless user overrides.
+            clip_tuple = term_cfg.clip if term_cfg.clip is not None else (-100.0, 100.0)
+            args.append(f"clip=({clip_tuple[0]}, {clip_tuple[1]})")
+            if term_cfg.history_length is not None:
+                args.append(f"history_length={int(term_cfg.history_length)}")
+            lines.append(
+                f"        {term_type} = ObsTerm({', '.join(args)}{params_str})"
+            )
+
+        if gait_terms is not None:
+            lines.extend(gait_terms)
+
+        lines.append("")
+        lines.append(f"    {attr_name}: {class_name} = {class_name}()")
 
     def _actions_cfg(self) -> List[str]:
         lines = ["@configclass", "class ActionsCfg:", '    """Action configuration."""', ""]
@@ -3634,10 +3940,40 @@ class IsaacLabConfigCompiler:
             # the deployment-side CommandBus envelope and no longer
             # define the training command space.
             items = self._build_training_items_list(cid)
-            initial_weights = [1.0 / len(items)] * len(items)
+            # Per-item initial sampling weight (Weight Set pie editor). Each
+            # enabled item may carry an optional ``weight`` in the canvas
+            # ``training_items`` dict; align it to the enabled-item order
+            # ``_build_training_items_list`` produced. A missing weight falls
+            # back to the uniform share (1/N) — so an untouched canvas stays
+            # uniform (legacy behaviour). The vector is normalised here; the
+            # command term's ``__init__`` re-normalises, which is harmless.
+            initial_weights = self._resolve_initial_item_weights(cid, items)
             resample = self._p(cid, "resampling_time_range")
-            rel_standing = self._pf(cid, "zero_command_probability")
+            # Standing is provided by the explicit 'stand' training item (zero
+            # ranges), NOT a separate zero-command probability — the
+            # `zero_command_probability` node param was removed (it double-counted
+            # standing). The command term keeps rel_standing_envs for API
+            # compatibility; we pin it to 0 so nothing zeroes commands behind the
+            # item sampler's back.
+            rel_standing = 0.0
             cmd_step_change_prob = self._pf(cid, "cmd_step_change_prob")
+            # Phase C adaptive item sampling. Canvas exposes the cadence in
+            # ITERATIONS (intuitive); convert to env-steps the command term
+            # counts via the trainer's rollout length (num_steps_per_env).
+            adaptive_enabled = self._pi_bool(cid, "adaptive_motion_enabled", False)
+            adaptive_floor = self._pf(cid, "adaptive_weight_floor")
+            adaptive_ceil = self._pf(cid, "adaptive_weight_ceil")
+            adaptive_iters = self._pi(cid, "adaptive_update_interval")
+            _trainer_ids = self._find_by_type("il_ppo_trainer")
+            _steps_per_env = (
+                self._pi(_trainer_ids[0], "num_steps_per_env") if _trainer_ids else 24
+            )
+            adaptive_interval_steps = max(1, int(adaptive_iters) * int(_steps_per_env))
+            heading_command = self._pi_bool(cid, "heading_command", False)
+            heading_stiffness = self._pf(cid, "heading_control_stiffness")
+            import json as _json_hdg
+            _hr = _json_hdg.loads(self._p(cid, "heading_range"))
+            heading_lo, heading_hi = float(_hr[0]), float(_hr[1])
             # CLAUDE.md §1.8: emit body_name so env.yaml records the
             # articulation root link. Without this the deploy manifest_parser
             # used to silently default to "base", which is wrong for any
@@ -3651,13 +3987,22 @@ class IsaacLabConfigCompiler:
             lines.append(f"        items={items!r},")
             lines.append(f"        initial_weights={initial_weights!r},")
             lines.append(f"        rel_standing_envs={rel_standing},")
-            # Adaptive-sampling fields. Phase C wires these to canvas
-            # params (adaptive_motion_enabled/weight_floor/weight_ceil).
-            # Static defaults below keep the term in pure-uniform mode.
-            lines.append(f"        weight_floor=0.03,")
-            lines.append(f"        weight_ceil=0.30,")
-            lines.append(f"        adaptive_enabled=False,")
+            # Adaptive-sampling fields (Phase C) wired to the training_motion
+            # canvas params. adaptive_enabled=False keeps initial_weights
+            # (uniform) frozen for the whole run — the legacy behaviour.
+            lines.append(f"        weight_floor={adaptive_floor},")
+            lines.append(f"        weight_ceil={adaptive_ceil},")
+            lines.append(f"        adaptive_enabled={adaptive_enabled!r},")
+            lines.append(f"        adaptive_update_interval_steps={adaptive_interval_steps},")
             lines.append(f"        cmd_step_change_prob={cmd_step_change_prob},")
+            lines.append(f"        heading_command={heading_command!r},")
+            lines.append(f"        heading_control_stiffness={heading_stiffness},")
+            lines.append(f"        heading_lo={heading_lo},")
+            lines.append(f"        heading_hi={heading_hi},")
+            # Per-command reward telemetry: emit one [UnitPort][CMDMETRICS]
+            # line per rollout (num_steps_per_env), so the Mission Control
+            # chart gets ~one point per training iteration per command.
+            lines.append(f"        metric_emit_interval_steps={int(_steps_per_env)},")
             lines.append(f"        resampling_time_range={resample},")
             lines.append(f"        debug_vis=False,")
             lines.append(f"    )")
@@ -4119,6 +4464,72 @@ class IsaacLabConfigCompiler:
                     f"params={{\"limit_angle\": {limit}}})"
                 )
 
+        # Per-axis roll / pitch termination (legged_gym asymmetric tilt). Unlike
+        # the symmetric ``bad_orientation`` cone, these gate ONE axis each so a
+        # canvas can tolerate fore/aft lean (pitch) more than sideways tip-over
+        # (roll). Inline DoneTerm reads projected_gravity_b directly (no native
+        # mdp). ONE wrapper covers graced + non-graced: the episode_length_buf
+        # gate is a no-op when grace_steps == 0. ``_cond`` records provenance
+        # into ``_prov`` as a side effect, same as the siblings above.
+        _axis_tilt = {
+            # key -> (fn name, numerator gravity component): roll=g_y, pitch=g_x
+            "fall_threshold_roll": ("_unitport_term_fall_roll", "g[:, 1]"),
+            "fall_threshold_pitch": ("_unitport_term_fall_pitch", "g[:, 0]"),
+        }
+        for _akey, (_fname, _gcomp) in _axis_tilt.items():
+            if _akey not in items:
+                continue
+            ax_limit, ax_grace = _cond(_akey)
+            if _fname not in _emitted_wrappers:
+                _emitted_wrappers.add(_fname)
+                _wrapper_lines.extend([
+                    f"def {_fname}(env, limit, grace_steps):",
+                    f"    import torch",
+                    f'    g = env.scene["robot"].data.projected_gravity_b',
+                    f"    angle = torch.atan2({_gcomp}, -g[:, 2]).abs()",
+                    f"    return (angle > limit) & (env.episode_length_buf >= grace_steps)",
+                    "",
+                ])
+            lines.append(
+                f"    {_akey} = DoneTerm(func={_fname}, "
+                f"params={{\"limit\": {ax_limit}, \"grace_steps\": {ax_grace}}})"
+            )
+
+        # Command-follow timeout (survival-side pressure to actually move). Past
+        # the HALFWAY point of the episode, if a non-trivial velocity command is
+        # given but the robot's command-relative velocity error is still above
+        # ``threshold``, terminate. Self-gates on command magnitude so the stand
+        # item (cmd ~= 0) is exempt; emitted as a real failure termination (NOT
+        # time_out) so it feeds the terminated buffer and incurs the
+        # termination penalty. Inline DoneTerm reads the command + body velocity
+        # + episode length directly (no native mdp).
+        if "command_follow_timeout" in items:
+            cft_threshold, cft_grace = _cond("command_follow_timeout")
+            _cft_fn = "_unitport_term_command_follow_timeout"
+            if _cft_fn not in _emitted_wrappers:
+                _emitted_wrappers.add(_cft_fn)
+                _wrapper_lines.extend([
+                    f"def {_cft_fn}(env, threshold, grace_steps):",
+                    f"    import torch",
+                    f'    asset = env.scene["robot"]',
+                    f'    cmd = env.command_manager.get_command("base_velocity")',
+                    f"    # only enforce in the SECOND HALF of the episode",
+                    f"    half = float(env.max_episode_length) * 0.5",
+                    f"    in_second_half = env.episode_length_buf.float() >= half",
+                    f"    # self-gate on command magnitude: a near-zero (stand) command is exempt",
+                    f"    commanded = torch.norm(cmd, dim=1) > 0.15",
+                    f"    lin_err = torch.sum(torch.square(asset.data.root_lin_vel_b[:, :2] - cmd[:, :2]), dim=1)",
+                    f"    ang_err = torch.square(asset.data.root_ang_vel_b[:, 2] - cmd[:, 2])",
+                    f"    err = torch.sqrt(lin_err + ang_err)",
+                    f"    fired = in_second_half & commanded & (err > threshold)",
+                    f"    return fired & (env.episode_length_buf >= grace_steps)",
+                    "",
+                ])
+            lines.append(
+                f"    command_follow_timeout = DoneTerm(func={_cft_fn}, "
+                f"params={{\"threshold\": {cft_threshold}, \"grace_steps\": {cft_grace}}})"
+            )
+
         lines += ["", ""]
         # Stash termination provenance for the deploy_meta.json sidecar
         # (audit trail of every threshold + grace_period_s → grace_steps).
@@ -4186,28 +4597,45 @@ class IsaacLabConfigCompiler:
                 # work can expose mass_operation as a UI knob.
                 op = self._p(did, "mass_operation")
 
-                # ── body name resolution ──
-                # If the user picked a canonical role name ("base",
-                # "trunk", "torso"), resolve through the joints_mapping
-                # IR so the compiled config uses the correct USD link
-                # name for the active robot family.  A custom literal
-                # body name (e.g. "FR_hip") is passed through verbatim.
-                _canonical_roles = {"base", "trunk", "torso", "pelvis", "body"}
-                if body in _canonical_roles:
-                    # Strict: canonical role must resolve through the
-                    # joints_mapping IR. The historical regex fallback
-                    # ``"(base|trunk)"`` silently coexisted with a
-                    # missing body_mapping and is exactly the kind of
-                    # default the 2026-05-11 contract bans.
-                    body_expr = f'"{self._resolve_body("base")}"'
-                else:
-                    body_expr = f'"{body}"'
+                # ── target-body resolution (canvas mass_target_scope) ──
+                # Canvas-authoritative, user-selectable (NOT hardcoded):
+                #   root       — the robot's ACTUAL articulation-root link via
+                #                _resolve_base_body_name() (base→pelvis→torso→
+                #                trunk→body); 1:1 legged_gym props[0] base-mass.
+                #   all_bodies — body_names=".*"; perturb every link's mass.
+                #   custom     — mass_target_body, resolved as an IR role when
+                #                possible (e.g. "torso"→"torso_link"), else
+                #                passed verbatim as a USD link name / regex.
+                # The historical path hardcoded _resolve_body("base"), which on
+                # a biped/humanoid (root="pelvis", "base" role unmapped) fell
+                # through to the literal "base" → IsaacLab matched zero bodies
+                # → the (swallowed) timeline-callback error left the class-based
+                # event term un-instantiated → crash at apply (CLAUDE.md §8).
+                scope = self._p(did, "mass_target_scope")
+                if scope == "all_bodies":
+                    body_names_literal = '".*"'
+                elif scope == "custom":
+                    # Resolve via the bound RobotSpec (same source as the root
+                    # path), so an IR role maps to its USD link; a literal link
+                    # name / regex passes verbatim. self._robot is always bound
+                    # (compiler requires robot=, CLAUDE.md §1.8).
+                    fmt = self._active_format or "MJCF"
+                    role_to_body: Dict[str, str] = {}
+                    try:
+                        for _bn, _role in self._robot.bodies_role_map_for(fmt).items():
+                            role_to_body.setdefault(str(_role), str(_bn))
+                    except Exception:
+                        pass
+                    resolved_body = role_to_body.get(body, body)
+                    body_names_literal = f'["{resolved_body}"]'
+                else:  # "root" (default — legged parity)
+                    body_names_literal = f'["{self._resolve_base_body_name()}"]'
 
                 lines.append(f"    add_base_mass = EventTerm(")
                 lines.append(f'        func=mdp.randomize_rigid_body_mass,')
                 lines.append(f'        mode="{mode}",')
                 lines.append(f"        params={{")
-                lines.append(f'            "asset_cfg": SceneEntityCfg("robot", body_names=[{body_expr}]),')
+                lines.append(f'            "asset_cfg": SceneEntityCfg("robot", body_names={body_names_literal}),')
                 lines.append(f'            "mass_distribution_params": {mr},')
                 lines.append(f'            "operation": "{op}",')
                 lines.append(f"        }},")
@@ -4465,11 +4893,41 @@ class IsaacLabConfigCompiler:
             lines.append(f"    actor_hidden_dims = {self._p(nid, 'actor_hidden_dims')}")
             lines.append(f"    critic_hidden_dims = {self._p(nid, 'critic_hidden_dims')}")
             lines.append(f'    activation = "{self._p(nid, "activation")}"')
-            # Canvas stores log_std (community convention, e.g. -1.0 → std ≈ 0.37).
-            # The compiled config emits the direct std that rsl_rl / ActorCritic expects.
-            import math as _math
-            _log_std = self._pf(nid, 'init_noise_std')
-            lines.append(f"    init_noise_std = {_math.exp(_log_std):.6f}  # exp({_log_std})")
+            # init_noise_std is the DIRECT initial action std (legged_gym
+            # convention: 1.0 == std 1.0), emitted verbatim. The framework
+            # honours the user's typed value — it does NOT exp() it. (The
+            # pre-2026-06 build treated this as log_std and applied exp(),
+            # silently inflating a user's 1.0 into std e≈2.718; that was a bug.)
+            # A non-positive std is invalid input → fail loud (§8); legacy
+            # log-space canvases (value ≤ 0) must be run through
+            # bootstrap/migrate_canvas_init_noise_std_direct.py first.
+            _std = self._pf(nid, 'init_noise_std')
+            if _std <= 0.0:
+                raise CanvasConfigError(
+                    nid=nid,
+                    key="init_noise_std",
+                    schema_id="il_policy_network",
+                    reason=(
+                        f"init_noise_std must be a positive direct std "
+                        f"(legged_gym: 1.0 = std 1.0), got {_std}. Non-positive "
+                        f"values were the old log-space convention — re-author "
+                        f"the node or run "
+                        f"bootstrap/migrate_canvas_init_noise_std_direct.py."
+                    ),
+                )
+            lines.append(f"    init_noise_std = {_std:.6f}")
+            # 缺口① — recurrent policy (GRU/LSTM). These three fields are read
+            # back by the launcher (_p("rnn_type"/"rnn_hidden_size"/
+            # "rnn_num_layers")) to select rsl_rl's ActorCriticRecurrent vs the
+            # feed-forward ActorCritic. They MUST be emitted here — without
+            # them _p() fell back to "none" and silently trained an MLP while
+            # the bundle's deploy_contract.recurrent (built from this same node)
+            # said GRU, so deploy crashed with "ONNX graph has no 'h_in'"
+            # (CLAUDE.md §8/§11 — producer and consumer must agree). "none" =
+            # feed-forward (byte-identical to the pre-recurrent path).
+            lines.append(f'    rnn_type = "{self._p(nid, "rnn_type")}"')
+            lines.append(f"    rnn_hidden_size = {self._pi(nid, 'rnn_hidden_size')}")
+            lines.append(f"    rnn_num_layers = {self._pi(nid, 'rnn_num_layers')}")
             # AMP discriminator hidden dims — only emitted when an
             # explicit DiscriminatorNode is wired on the canvas. The
             # legacy fallback to ``il_policy_network.disc_hidden_dims``
@@ -4871,11 +5329,31 @@ class IsaacLabConfigCompiler:
                 f"Asset card and run 'Dump MJCF' before training."
             )
 
+        # Resolve the USD→MJCF inertia overlay (link inertia → the USD the
+        # policy actually trains/deploys on) so m_eff is derived on the same
+        # link inertia BOTH engines realize (CLAUDE.md §10/§11). Absent overlay
+        # = None = raw MJCF (unchanged behavior). The bundle finalizer resolves
+        # the SAME overlay by SKU so its m_eff matches this one (the 1e-6 parity
+        # guard there enforces it).
+        inertia_overlay = None
+        try:
+            from application.service.robot_assets.runtime import (
+                read_mjcf_inertia_overlay,
+            )
+            inertia_overlay = read_mjcf_inertia_overlay(sku) if sku else None
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "[env_cfg_compiler] inertia overlay read failed for sku=%r "
+                "(%s); deriving m_eff on raw MJCF.", sku, exc,
+            )
+            inertia_overlay = None
+
         try:
             inertia = effective_inertia_diag(
                 mjcf_path=Path(mjcf_path),
                 joint_order_physical=physical,
                 nominal_qpos=None,  # MJCF keyframe-0 / qpos0; matches finalizer
+                inertia_overlay=inertia_overlay,
             )
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
@@ -4900,6 +5378,23 @@ class IsaacLabConfigCompiler:
         kp_by_name = {name: float(v) for name, v in zip(physical, gains.kp)}
         kd_by_name = {name: float(v) for name, v in zip(physical, gains.kd)}
 
+        # Per-joint armature keyed by physical NAME (CLAUDE.md §10). EXPLICIT
+        # by-name alignment, NOT by index: ``inertia.armature`` is parallel to
+        # ``physical`` (MJCF joint order) and we key it by name here; the emit
+        # helper renders ``armature={name: value}`` which IsaacLab resolves by
+        # joint name against the USD articulation (USD joint order ≠ MJCF order).
+        # So the MJCF→USD permutation cannot mis-pair armature with the wrong
+        # joint — the same name-keyed contract stiffness/damping already use.
+        if len(inertia.armature) != len(physical):
+            raise RuntimeError(
+                f"[env_cfg_compiler] effective_inertia_diag returned "
+                f"{len(inertia.armature)} armature entries for {len(physical)} "
+                f"joints (sku={sku!r}) — cannot align armature by name."
+            )
+        armature_by_name = {
+            name: float(v) for name, v in zip(physical, inertia.armature)
+        }
+
         # effort_limit / velocity_limit live on the RobotNode (moved from
         # ActorSetting in 2026-05 so all actuator/PD knobs sit on one node next
         # to (omega_n, zeta)). ``actuator_pd_node_id`` IS the robot node id (see
@@ -4907,10 +5402,137 @@ class IsaacLabConfigCompiler:
         eff = self._pf(actuator_pd_node_id, "effort_limit")
         vel = self._pf(actuator_pd_node_id, "velocity_limit")
 
+        # Per-joint actuator caps (legged_gym parity): clip EACH joint to its
+        # own real motor limit, captured by Dump USD into the registry
+        # (physics_per_format.USD DriveAPI max_force / max_velocity), keyed by IR
+        # role. A flat scalar starves the load-bearing joints of a humanoid
+        # (G1 hip/knee need 88–139 N·m; the manifest default 30 N·m made the
+        # robot collapse). Joints absent from the capture fall back to the
+        # RobotNode scalar; if that scalar is itself the bare manifest default
+        # (i.e. the user never set it AND there is no USD capture) we FAIL LOUD
+        # (CLAUDE.md §8) — a silent manifest-default 30 N·m torque-starves the
+        # robot and "looks like it worked". The user must run Dump USD (captures
+        # real per-joint limits) or set the caps in the PD Group panel.
+        from application.physics.actuator_caps import resolve_per_joint_caps
+        _caps_by_role = resolve_per_joint_caps(sku, fmt="USD")
+        _user_set_eff = "effort_limit" in (self._params.get(actuator_pd_node_id) or {})
+        _user_set_vel = "velocity_limit" in (self._params.get(actuator_pd_node_id) or {})
+        effort_by_name: Dict[str, float] = {}
+        velocity_by_name: Dict[str, float] = {}
+        _eff_fallback: List[str] = []
+        _vel_fallback: List[str] = []
+        for _name, _role in zip(physical, ir_roles):
+            _cap = _caps_by_role.get(_role) or {}
+            _e = _cap.get("effort")
+            _v = _cap.get("velocity")
+            if _e is None:
+                _e = eff
+                _eff_fallback.append(_name)
+            if _v is None:
+                _v = vel
+                _vel_fallback.append(_name)
+            effort_by_name[_name] = float(_e)
+            velocity_by_name[_name] = float(_v)
+        if _eff_fallback and not _user_set_eff:
+            raise CanvasConfigError(
+                nid=actuator_pd_node_id,
+                key="effort_limit",
+                schema_id=self._types.get(actuator_pd_node_id, ""),
+                reason=(
+                    f"robot sku={sku!r} has no per-joint actuator torque limits "
+                    f"and the RobotNode's effort_limit is unset, so joints "
+                    f"{_eff_fallback} would silently fall back to the manifest "
+                    f"default {float(eff):.1f} N·m — which torque-starves "
+                    f"load-bearing joints (the 2026-06 G1 'limp collapse'). "
+                    f"Fix: run 'Dump USD' on the Robot Asset card to capture the "
+                    f"real per-joint limits (max_force), OR set the actuator caps "
+                    f"explicitly in the RobotNode's PD Group panel. Refusing to "
+                    f"train with a guessed torque ceiling (CLAUDE.md §8)."
+                ),
+            )
+        elif _eff_fallback:
+            log.warning(
+                "[env_cfg_compiler] joints %s have no per-joint USD effort "
+                "capture; using the RobotNode scalar effort_limit=%.1f for them "
+                "(sku=%r).", _eff_fallback, float(eff), sku,
+            )
+        if _vel_fallback and not _user_set_vel:
+            log.warning(
+                "[env_cfg_compiler] joints %s have no per-joint USD velocity "
+                "capture; using manifest/RobotNode velocity_limit=%.1f (sku=%r).",
+                _vel_fallback, float(vel), sku,
+            )
+
+        # ---- Stage 0 audit producer: scene friction + foot-geometry hash ----
+        # scene_contract: the single-source ground friction (canvas
+        # play_ground_setting). PhysX RigidBodyMaterialCfg, the SB3 MuJoCo env
+        # AND the deploy MuJoCo (method A — PolicyRunner applies it) all consume
+        # this ONE value. Absent playground node → None (the audit marks the row
+        # n/a; never default-to-1, §8).
+        _scene_contract = None
+        _pg_ids = self._find_by_type("play_ground_setting")
+        if _pg_ids:
+            _pg = _pg_ids[0]
+            _scene_contract = {
+                "friction_static": float(self._pf(_pg, "friction_static")),
+                "friction_dynamic": float(self._pf(_pg, "friction_dynamic")),
+            }
+
+        # foot_geometry: pose-invariant hash of the robot's foot collision geoms
+        # (Layer-1 realized==designed). A legged robot whose registry
+        # bodies_per_format.MJCF lacks resolvable foot geoms gets a loud WARN +
+        # status='unavailable' — NOT a training abort (that would regress
+        # existing canvases); the deploy-side self-check only bites on
+        # status='ok'. Manipulator (no foot roles) → status='not_applicable'.
+        _foot_geometry = None
+        try:
+            import mujoco as _mj_fg
+            from application.physics.foot_geometry import hash_foot_geometry
+            from application.training.validation.mjcf_base_calibration import (
+                resolve_foot_roles_for_sku,
+            )
+            from registers import robots as _robots_reg_fg
+            _spec_fg = _robots_reg_fg.get_robot(sku) if sku else None
+            _bodies_mjcf = (
+                (_spec_fg or {}).get("bodies_per_format", {}).get("MJCF", {}) or {}
+            )
+            _ir_to_body = {}
+            for _bspec in _bodies_mjcf.values():
+                if isinstance(_bspec, dict):
+                    _nm = str(_bspec.get("name", ""))
+                    _ir = str(_bspec.get("ir_role", ""))
+                    if _nm and _ir:
+                        _ir_to_body[_ir] = _nm
+            # Resolve the family canonical feet to the roles ACTUALLY present on
+            # this SKU (foot_L → ankle_roll_L → ankle_L), so a single-DOF-ankle
+            # humanoid (H1, feet mapped to ankle_*) hashes 'ok' instead of the
+            # canonical foot_* missing → 'unavailable'.
+            _foot_roles = resolve_foot_roles_for_sku(
+                primary_family, _ir_to_body.keys())
+            _fg_model = _mj_fg.MjModel.from_xml_path(str(mjcf_path))
+            _foot_geometry = hash_foot_geometry(
+                _fg_model, foot_roles=_foot_roles, ir_to_body_name=_ir_to_body,
+            )
+        except Exception as exc:  # noqa: BLE001 — FootGeometryError or load failure
+            log.warning(
+                "[env_cfg_compiler] foot-geometry hash unavailable for sku=%r "
+                "(%s); stashing status='unavailable'. The deploy-side "
+                "foot-geometry self-check is skipped for this bundle (it only "
+                "engages on status='ok').", sku, exc,
+            )
+            _foot_geometry = {
+                "schema": "unitport.foot_geometry/v1",
+                "status": "unavailable",
+                "per_role": {}, "aggregate": "",
+                "notes": [str(exc)],
+            }
+
         # Stash for deploy_meta sidecar.
         self._stashed_pd_meta = {
             "pd_param": pd_param.to_dict(),
             "physx_gains": gains.to_dict(),
+            "scene_contract": _scene_contract,
+            "foot_geometry": _foot_geometry,
             "m_eff_source": {
                 "mjcf_path": str(mjcf_path),
                 "nominal_qpos_source": inertia.nominal_qpos_source,
@@ -4918,6 +5540,17 @@ class IsaacLabConfigCompiler:
                 "qpos_sha256": inertia.qpos_sha256(),
                 "m_eff": [float(v) for v in inertia.m_eff],
                 "joint_order_physical": list(physical),
+                # armature provenance (CLAUDE.md §10): the MJCF-authoritative
+                # reflected-rotor inertia folded into m_eff, AND the value we
+                # actually emit to PhysX ImplicitActuatorCfg.armature below. Both
+                # arrays are parallel to joint_order_physical (ir_roles array
+                # ordering); the calibration gate matches them by name, never
+                # index. ``overlay_applied`` records whether m_eff was derived on
+                # the USD-corrected link inertia (so finalizer/gate agree).
+                "armature_mjcf": [float(v) for v in inertia.armature],
+                "physx_armature_emitted": [float(v) for v in inertia.armature],
+                "array_ordering": "ir_roles",
+                "overlay_applied": bool(inertia.overlay_applied),
             },
             "primary_family": primary_family,
             "resolve_at_reset": self._pi_bool(actuator_pd_node_id, "pd_resolve_at_reset", True),
@@ -4925,6 +5558,11 @@ class IsaacLabConfigCompiler:
             "skip_calibration": self._pi_bool(actuator_pd_node_id, "pd_skip_calibration", False),
             "effort_limit": float(eff),
             "velocity_limit": float(vel),
+            # Per-joint caps actually emitted (legged_gym parity). Keyed by
+            # physical NAME like kp/kd; the scalars above are the fallback used
+            # for any joint absent from the USD physics capture.
+            "effort_limit_per_joint": dict(effort_by_name),
+            "velocity_limit_per_joint": dict(velocity_by_name),
         }
 
         # Resolve the robot's remotized-actuator manifest (if any) and render
@@ -4974,9 +5612,10 @@ class IsaacLabConfigCompiler:
             physical=physical,
             kp=kp_by_name,
             kd=kd_by_name,
-            effort_limit=float(eff),
-            velocity_limit=float(vel),
+            effort_limit=effort_by_name,
+            velocity_limit=velocity_by_name,
             groups=groups,
+            armature=armature_by_name,
             implicit_cls=self._actuator_cfg_class("implicit_pd"),
         )
 

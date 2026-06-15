@@ -35,7 +35,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from unitport_sdk import get_tasks_manager, log_info, log_warning
+from unitport_sdk import (
+    Task,
+    get_tasks_manager,
+    log_error,
+    log_info,
+    log_warning,
+)
 
 
 @dataclass
@@ -241,6 +247,45 @@ def _pre_flight_warn_cross_format_coverage(
     )
 
 
+def sim2sim_residual_preflight(canvas_dict: Dict[str, Any]) -> Optional[Any]:
+    """Auto cross-engine plant-residual self-check, run BEFORE submit consumes
+    compute. Isaac Lab backend only — the PhysX-train → MuJoCo-deploy case is the
+    only cross-engine one; an SB3 canvas trains and deploys in MuJoCo.
+
+    Measure-if-stale against the plant fingerprint (sha256 of MJCF + USD): a
+    cached clean / parameterizable verdict returns instantly; a stale or missing
+    one runs the measurement (MuJoCo in-process + PhysX in the Isaac Lab venv),
+    auto-feeding the sim2sim_ranges registry that the bundle DR-coverage
+    provenance reads. Returns the :class:`Sim2SimVerdict`, or None when the check
+    does not apply (non-Isaac backend / no SKU) or could not run (logged). The UI
+    reads ``verdict.needs_ack`` to soft-block on a non-convergent dimension.
+    """
+    from application.training.backend import BACKEND_ISAAC_LAB
+
+    backend = str(canvas_dict.get("backend") or "").strip()
+    if backend != BACKEND_ISAAC_LAB:
+        return None
+    sku = str(canvas_dict.get("robot_id") or "").strip()
+    if not sku:
+        return None
+    try:
+        from pathlib import Path
+
+        from unitport_sdk import Paths
+        from application.training.validation.sim2sim_measurement.auto_selfcheck import (
+            selfcheck,
+        )
+
+        run_dir = Path(Paths.RUNTIME_DIR) / "sim2sim_selfcheck" / sku
+        return selfcheck(sku, run_dir=run_dir)
+    except Exception as exc:  # noqa: BLE001
+        # Advisory auto-optimization — a measurement glitch must not wedge the
+        # Play button (mirrors the deploy-coverage compute degradation policy).
+        # The realized==designed alignment gates at export stay the hard gate.
+        log_warning(f"[pre-train] sim2sim residual self-check skipped: {exc!r}")
+        return None
+
+
 def _make_run_id(node_id: str, *, schema_id: str = "") -> str:
     """Build the canonical ``{slug}__{utc}__{uuid6}`` run id used by every
     submit_* helper in this module."""
@@ -389,30 +434,42 @@ def submit_sb3_trainer(
     }
 
 
-def submit_canvas_training(
+def build_canvas_training_task(
     canvas_dict: Dict[str, Any],
     *,
     run_id: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Play-button entrypoint: full canvas → IR → spec → backend → submit.
+    task: Optional["Task"] = None,
+) -> tuple:
+    """Heavy canvas → IR → spec → backend → build pipeline, WITHOUT submit.
 
-    Drives the canonical Stage 12 path documented in
+    Runs the canonical Stage 12 path documented in
     :mod:`application.training.spec_compiler`'s docstring::
 
         ir = canvas_to_ir(canvas_dict)
         spec, issues = compile_training_spec(ir)
         raise_if_errors(issues)
         backend = select_backend(ir.backend or "auto")
-        task = backend.build_task(spec.to_dict(), run_id)
+        built_task = backend.build_task(spec.to_dict(), run_id)
+
+    This is the expensive part — asset dumps (subprocess), spec compilation
+    (MJCF read + mass-matrix solve + sim2sim calibration) and, for Isaac Lab,
+    env_cfg compilation inside ``build_task`` — and is therefore designed to
+    run OFF the Qt GUI thread (see :class:`CanvasTrainingPrepareTask`). It
+    deliberately does NOT call ``TasksManager.submit``: ``submit`` spawns a
+    ``QThread`` and must run on the GUI thread, so the caller submits the
+    returned (unsubmitted) task itself.
 
     Args:
         canvas_dict: IR-shape dict produced by ``CanvasPage.to_workflow_dict()``.
         run_id: optional explicit run id; auto-generated when omitted.
+        task: optional owning :class:`~unitport_sdk.Task`; when present, its
+            ``log_info`` / ``set_progress`` surface live preparation progress
+            in the cmd log, and ``check_cancelled`` is honored between stages
+            so a Stop press during prep unwinds cleanly.
 
     Returns:
-        ``{"task_id", "run_id", "backend", "algorithm", "issues"}``.
-        ``issues`` is the full validator output (warnings + non-fatal info)
-        — hard errors already raised by :func:`raise_if_errors`.
+        ``(built_task, meta)`` where ``meta`` is
+        ``{"run_id", "backend", "algorithm", "issues", "target"}``.
 
     Raises:
         ValueError:   spec validation reported hard errors.
@@ -427,6 +484,12 @@ def submit_canvas_training(
     from application.service.engines.service import get_engine_service
     from application.training.spec_compiler import compile_training_spec
     from application.training.spec_validator import raise_if_errors
+
+    def _progress(ratio: float, text: str) -> None:
+        if task is not None:
+            task.check_cancelled()
+            task.set_progress(ratio, text)
+            task.log_info(text)
 
     ir = canvas_to_ir(canvas_dict if isinstance(canvas_dict, dict) else {})
 
@@ -444,11 +507,13 @@ def submit_canvas_training(
     # resulting bundle supports). The warning lets the user know up
     # front rather than discovering it at bundle finalize / MuJoCo load.
     if ir.robot_id:
+        _progress(0.1, "Resolving robot assets…")
         _pre_flight_dump_assets(ir.robot_id, log_prefix="[play]")
         _pre_flight_warn_cross_format_coverage(
             ir.robot_id, log_prefix="[play]"
         )
 
+    _progress(0.3, "Compiling training spec…")
     spec, issues = compile_training_spec(ir)
     raise_if_errors(issues)
 
@@ -491,13 +556,9 @@ def submit_canvas_training(
     else:
         backend = select_backend(pref)
 
-    task = backend.build_task(spec.to_dict(), run_id=rid)
-    tid = get_tasks_manager().submit(task)
-
-    log_info(
-        f"[play] submit run_id={rid} target={target} backend={backend.name} "
-        f"algo={spec.algorithm.algorithm} pref={pref}"
-    )
+    _progress(0.6, "Building training task (compiling env config)…")
+    built = backend.build_task(spec.to_dict(), run_id=rid)
+    _progress(0.95, "Ready to launch")
 
     issues_out: list = []
     for issue in issues:
@@ -510,14 +571,105 @@ def submit_canvas_training(
                 pass
         issues_out.append(repr(issue))
 
-    return {
-        "task_id": tid,
+    meta = {
         "run_id": rid,
         "backend": backend.name,
         "algorithm": spec.algorithm.algorithm,
         "issues": issues_out,
         "target": target,
+        "pref": pref,
     }
+    return built, meta
+
+
+def submit_canvas_training(
+    canvas_dict: Dict[str, Any],
+    *,
+    run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Synchronous canvas → IR → spec → backend → build → submit.
+
+    Thin wrapper over :func:`build_canvas_training_task` that also submits the
+    built task to the SDK ``TasksManager``. Retained for non-UI callers (CLI
+    batch scripts, tests) that can afford to block. **The GUI Play button must
+    NOT call this** — building is heavy and would freeze the UI thread; it goes
+    through :class:`CanvasTrainingPrepareTask` instead so the build happens on a
+    worker slot.
+
+    Returns ``{"task_id", "run_id", "backend", "algorithm", "issues",
+    "target"}`` — ``issues`` is the full validator output (warnings + non-fatal
+    info); hard errors already raised by ``raise_if_errors``.
+
+    Raises:
+        ValueError:   spec validation reported hard errors.
+        RuntimeError: no training backend available.
+    """
+    built, meta = build_canvas_training_task(canvas_dict, run_id=run_id)
+    tid = get_tasks_manager().submit(built)
+    log_info(
+        f"[play] submit run_id={meta['run_id']} target={meta['target']} "
+        f"backend={meta['backend']} algo={meta['algorithm']} "
+        f"pref={meta.get('pref', '')}"
+    )
+    return {
+        "task_id": tid,
+        "run_id": meta["run_id"],
+        "backend": meta["backend"],
+        "algorithm": meta["algorithm"],
+        "issues": meta["issues"],
+        "target": meta["target"],
+    }
+
+
+class CanvasTrainingPrepareTask(Task):
+    """Off-GUI-thread heavy preparation for the Play button.
+
+    Clicking ▶ used to run the *entire* submit pipeline synchronously on the
+    Qt GUI thread: the cross-engine sim2sim self-check (drives BOTH physics
+    engines — MuJoCo in-process + PhysX in the Isaac Lab venv), asset dumps
+    (subprocess), ``compile_training_spec`` (MJCF read + mass-matrix solve +
+    calibration) and ``build_task`` (Isaac Lab env_cfg compilation). All of
+    that blocked the event loop for seconds-to-minutes — the run only reached a
+    worker thread at the final ``TasksManager.submit``. The user saw the whole
+    window freeze.
+
+    This Task moves that work onto a ``TasksManager`` slot. It returns the
+    built — but **unsubmitted** — training task plus the sim2sim verdict; the
+    GUI ``task_finished`` handler then (on the GUI thread, where it belongs)
+    shows the sim2sim acknowledgement dialog if needed, calls
+    ``TasksManager.submit`` (which spawns the training ``QThread``), and wires
+    up progress tracking.
+
+    Failures propagate as ``self.error`` (routed to the canvas/cloud error
+    dialogs by the GUI); a Stop press during prep cancels the task and unwinds
+    via ``TaskCancelledException`` (no error, silent).
+    """
+
+    def __init__(
+        self,
+        canvas_dict: Dict[str, Any],
+        *,
+        run_id: Optional[str] = None,
+    ) -> None:
+        super().__init__(name="train:prepare")
+        self._canvas_dict = canvas_dict
+        self._run_id = run_id
+
+    def run(self) -> Dict[str, Any]:
+        self.check_cancelled()
+        # Cross-engine plant-residual self-check (Isaac Lab only; measure-if-
+        # stale, cached by plant fingerprint). The heavy measurement happens
+        # here on the worker; the GUI surfaces the soft-block acknowledgement
+        # modal from the verdict after this task finishes.
+        self.set_progress(0.02, "Cross-engine sim2sim self-check…")
+        verdict = sim2sim_residual_preflight(self._canvas_dict)
+        self.check_cancelled()
+
+        built, meta = build_canvas_training_task(
+            self._canvas_dict, run_id=self._run_id, task=self,
+        )
+        self.check_cancelled()
+        return {"training_task": built, "verdict": verdict, **meta}
 
 
 def _resolve_cloud_engine_name(pref: str) -> str:
@@ -550,6 +702,9 @@ __all__ = [
     "submit_il_trainer",
     "submit_sb3_trainer",
     "submit_canvas_training",
+    "build_canvas_training_task",
+    "CanvasTrainingPrepareTask",
     "compute_deploy_coverage",
+    "sim2sim_residual_preflight",
     "DeployCoverageReport",
 ]

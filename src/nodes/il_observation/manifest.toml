@@ -32,22 +32,27 @@ key = "obs_terms"
 type = "json"
 default = "{}"
 widget = "registry_module"
-description = "观测项 dict / Observation terms (IL registry-backed)"
+description = "策略观测项 dict / Policy observation terms (the DEPLOYED obs; IL registry-backed)"
 meta = { registry_id = "il_obs" }
 
-# group_name (asymmetric actor/critic), obs corruption, and the obs-noise
-# curriculum are all IsaacLab/rsl_rl-only — the SB3 MuJoCo env reads obs noise
-# from domain_rand.obs_noise_std (not these), has no asymmetric-AC critic
-# group, and no obs-noise curriculum. Hidden on SB3 canvases (only obs_terms is
-# SB3-meaningful). conditional_on backend == isaac_lab.
+# 缺口② — asymmetric actor-critic is now a SINGLE node: this row carries the
+# PRIVILEGED terms the value fn (critic) additionally sees beyond the policy
+# (e.g. base_lin_vel — sim-only ground truth the deployed policy can't read).
+# Non-empty ⇒ compiler emits PolicyCfg + CriticCfg(=obs_terms ∪ these, noiseless).
+# Empty ⇒ symmetric (PolicyCfg only). NEVER enters the deploy bundle. Reuses the
+# same obs picker (registry_id="il_obs"). IsaacLab/rsl_rl-only (SB3 has no
+# asymmetric-AC critic group); hidden on SB3 canvases.
 [[parameters]]
-key = "group_name"
-type = "enum"
-default = "policy"
-choices = ["policy", "critic"]
-description = "ObsGroup 名 / ObsGroup name. 'policy' = actor input; 'critic' = privileged critic-only group (asymmetric actor-critic). Place a second il_observation node with group_name='critic' carrying privileged terms (e.g. base_lin_vel) to enable asymmetric AC. (IsaacLab only.)"
-meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
+key = "critic_privileged_terms"
+type = "json"
+default = '{"base_lin_vel": 2.0}'
+widget = "registry_module"
+description = "特权 critic 观测项 / Privileged critic-only obs (asymmetric AC; e.g. base_lin_vel). 空=对称 (critic=policy). IsaacLab only."
+meta = { registry_id = "il_obs", conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
+# obs corruption + the obs-noise curriculum are IsaacLab/rsl_rl-only — the SB3
+# MuJoCo env reads obs noise from domain_rand.obs_noise_std (not these), and has
+# no obs-noise curriculum. Hidden on SB3 canvases. conditional_on isaac_lab.
 [[parameters]]
 key = "enable_corruption"
 type = "bool"

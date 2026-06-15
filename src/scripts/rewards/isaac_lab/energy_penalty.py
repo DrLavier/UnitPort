@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 SU CHANG
 # SPDX-License-Identifier: Apache-2.0
 
-"""Energy Penalty — L2 penalty on torque × velocity product — minimises mechanical energy expenditure."""
+"""Energy Penalty — penalty on |torque|·|velocity| (mechanical power) — minimises energy expenditure."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ ENTRY = reward_item(
     key='energy_penalty',
     polarity='penalty',
     title='Energy Penalty',
-    desc='L2 penalty on torque × velocity product — minimises mechanical energy expenditure.',
+    desc='Penalty on |torque|·|velocity| (instantaneous mechanical power) — minimises energy expenditure.',
     default=-2e-05,
     min_value=-0.01,
     max_value=0.0,

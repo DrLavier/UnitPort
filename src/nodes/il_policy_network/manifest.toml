@@ -47,10 +47,13 @@ description = "激活函数"
 [[parameters]]
 key = "init_noise_std"
 type = "float"
-default = -1.0
+default = 1.0
 widget = "range"
-description = "初始噪声 std（-1=自动）"
-meta = { min = -1.0, max = 2.0, step = 0.001 }
+# Direct action std (legged_gym convention): 1.0 == std 1.0. NOT log-space.
+# The value the user types is the initial exploration std verbatim — the
+# framework never exp()'s it (see env_cfg_compiler / il_train_launcher).
+description = "初始动作噪声 std（直接值，legged_gym 约定：1.0=std 1.0）"
+meta = { min = 0.05, max = 3.0, step = 0.01 }
 
 # 缺口① — recurrent policy (GRU/LSTM). 'none' = feed-forward MLP (default,
 # byte-identical to the pre-recurrent path). 'gru'/'lstm' wrap the actor in a

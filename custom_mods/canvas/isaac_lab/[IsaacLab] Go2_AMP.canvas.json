@@ -4,9 +4,9 @@
   "robot_id": "b1f3e435aabe",
   "metadata": {
     "view": {
-      "zoom": 1.0,
-      "center_x": -1084.0,
-      "center_y": 49.0
+      "zoom": 0.5576598468860291,
+      "center_x": -649.1412319201515,
+      "center_y": 233.11701698789972
     }
   },
   "nodes": [
@@ -42,8 +42,31 @@
         },
         "pd_groups": {
           "name": "pd_groups",
-          "value": "{}",
+          "value": {
+            "hip_x": {
+              "omega_n": 27.3,
+              "zeta": 0.27
+            },
+            "hip_y": {
+              "omega_n": 28.7,
+              "zeta": 0.29
+            },
+            "knee": {
+              "omega_n": 39.1,
+              "zeta": 0.39
+            }
+          },
           "param_type": "json"
+        },
+        "effort_limit": {
+          "name": "effort_limit",
+          "value": 45.43000030517578,
+          "param_type": "float"
+        },
+        "velocity_limit": {
+          "name": "velocity_limit",
+          "value": 30.100001117010233,
+          "param_type": "float"
         },
         "pd_resolve_at_reset": {
           "name": "pd_resolve_at_reset",
@@ -62,10 +85,10 @@
         }
       },
       "ui": {
-        "x": -3159.98335158095,
-        "y": -237.86149252273643,
+        "x": -2277.3848336993838,
+        "y": -542.0127788117325,
         "width": 324.0,
-        "height": 656.0,
+        "height": 608.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -77,6 +100,11 @@
       "schema_id": "actor_setting",
       "kind": "custom",
       "params": {
+        "init_pose_preset": {
+          "name": "init_pose_preset",
+          "value": "",
+          "param_type": "string"
+        },
         "init_pos_x": {
           "name": "init_pos_x",
           "value": "0.0",
@@ -89,7 +117,7 @@
         },
         "init_pos_z": {
           "name": "init_pos_z",
-          "value": 0.38,
+          "value": 0.35,
           "param_type": "float"
         },
         "init_joint_angles": {
@@ -124,7 +152,28 @@
         },
         "contact_body_names": {
           "name": "contact_body_names",
-          "value": "[\"base\", \"hip_FL\", \"hip_FR\", \"hip_RL\", \"hip_RR\", \"thigh_FL\", \"thigh_FR\", \"thigh_RL\", \"thigh_RR\", \"calf_FL\", \"calf_FR\", \"calf_RL\", \"calf_RR\", \"foot_FL\", \"foot_FR\", \"foot_RL\", \"foot_RR\"]",
+          "value": [
+            "thigh_FR",
+            "calf_FR",
+            "foot_FR",
+            "hip_RL",
+            "thigh_RL",
+            "calf_RL",
+            "foot_RL",
+            "hip_RR",
+            "thigh_RR",
+            "calf_RR",
+            "base",
+            "hip_FL",
+            "misc",
+            "thigh_FL",
+            "calf_FL",
+            "foot_FL",
+            "hip_FR",
+            "sensor_imu",
+            "sensor_radar",
+            "foot_RR"
+          ],
           "param_type": "json"
         },
         "contact_history_length": {
@@ -137,29 +186,22 @@
           "value": "true",
           "param_type": "bool"
         },
-        "stiffness": {
-          "name": "stiffness",
-          "value": "25.0",
-          "param_type": "float"
-        },
-        "damping": {
-          "name": "damping",
-          "value": "0.5",
-          "param_type": "float"
-        },
-        "effort_limit": {
-          "name": "effort_limit",
-          "value": "45.0",
-          "param_type": "float"
-        },
-        "velocity_limit": {
-          "name": "velocity_limit",
-          "value": "30.0",
-          "param_type": "float"
-        },
         "action_joint_names_expr": {
           "name": "action_joint_names_expr",
-          "value": "[]",
+          "value": [
+            "calf_RR",
+            "thigh_RR",
+            "calf_RL",
+            "thigh_RL",
+            "calf_FR",
+            "thigh_FR",
+            "calf_FL",
+            "thigh_FL",
+            "hip_RR",
+            "hip_FR",
+            "hip_RL",
+            "hip_FL"
+          ],
           "param_type": "json"
         },
         "action_scale": {
@@ -189,7 +231,7 @@
         },
         "action_scale_curriculum_ramp_iters": {
           "name": "action_scale_curriculum_ramp_iters",
-          "value": "600",
+          "value": "1000",
           "param_type": "int"
         },
         "review_pose_engine": {
@@ -204,10 +246,10 @@
         }
       },
       "ui": {
-        "x": -2801.5540718826987,
-        "y": -295.1994543632097,
+        "x": -1918.9555540011324,
+        "y": -599.350740652206,
         "width": 324.0,
-        "height": 626.0,
+        "height": 482.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -229,19 +271,19 @@
           "value": "flat",
           "param_type": "enum"
         },
+        "custom_terrain_path": {
+          "name": "custom_terrain_path",
+          "value": "",
+          "param_type": "string"
+        },
+        "custom_terrain_vertical_scale": {
+          "name": "custom_terrain_vertical_scale",
+          "value": 0.005,
+          "param_type": "float"
+        },
         "gravity_z": {
           "name": "gravity_z",
           "value": "-9.81",
-          "param_type": "float"
-        },
-        "arena_extent_x": {
-          "name": "arena_extent_x",
-          "value": "10.0",
-          "param_type": "float"
-        },
-        "arena_extent_y": {
-          "name": "arena_extent_y",
-          "value": "10.0",
           "param_type": "float"
         },
         "friction_static": {
@@ -254,16 +296,6 @@
           "value": "0.8",
           "param_type": "float"
         },
-        "roughness_amplitude": {
-          "name": "roughness_amplitude",
-          "value": "0.08",
-          "param_type": "float"
-        },
-        "slope_max": {
-          "name": "slope_max",
-          "value": "20.0",
-          "param_type": "float"
-        },
         "curriculum_enabled": {
           "name": "curriculum_enabled",
           "value": "false",
@@ -273,6 +305,41 @@
           "name": "difficulty_levels",
           "value": "10",
           "param_type": "int"
+        },
+        "max_init_terrain_level": {
+          "name": "max_init_terrain_level",
+          "value": 5,
+          "param_type": "int"
+        },
+        "prop_pyramid_stairs": {
+          "name": "prop_pyramid_stairs",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_pyramid_stairs_inv": {
+          "name": "prop_pyramid_stairs_inv",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_boxes": {
+          "name": "prop_boxes",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_random_rough": {
+          "name": "prop_random_rough",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_slope": {
+          "name": "prop_slope",
+          "value": 0.1,
+          "param_type": "float"
+        },
+        "prop_slope_inv": {
+          "name": "prop_slope_inv",
+          "value": 0.1,
+          "param_type": "float"
         },
         "height_scan_enabled": {
           "name": "height_scan_enabled",
@@ -301,10 +368,10 @@
         }
       },
       "ui": {
-        "x": -2314.6173196468835,
-        "y": -311.1867669105393,
+        "x": -2310.8854020237054,
+        "y": 257.93067062408574,
         "width": 324.0,
-        "height": 280.0,
+        "height": 232.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -318,8 +385,255 @@
       "params": {
         "training_items": {
           "name": "training_items",
-          "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_backward.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [-1.2, 0.0], \"lin_vel_y\": [0.0, 0.0]}}}, \"forward_fast\": {\"enabled\": true, \"speed\": [1.0, 1.5], \"clip\": \"pack:amp_go2:go2_motion/go2_forward_fast.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [1.0, 1.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_forward.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 1.0], \"lin_vel_y\": [0.0, 0.0]}}}, \"pace\": {\"enabled\": false, \"speed\": [0.0, 1.2000000000000002], \"clip\": \"pack:amp_go2:go2_motion/go2_forward_fast.txt\", \"advanced\": {\"command_overrides\": {\"lin_vel_x\": [-0.5, 1.2000000000000002]}}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": \"pack:amp_go2:go2_motion/go2_stance.txt\", \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 0.8], \"clip\": \"pack:amp_go2:go2_motion/go2_left.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 0.0], \"lin_vel_y\": [-0.8, 0.8]}}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 0.8], \"clip\": \"pack:amp_go2:go2_motion/go2_right.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.0, 0.0], \"lin_vel_x\": [0.0, 0.0], \"lin_vel_y\": [-0.8, 0.8]}}}, \"turn\": {\"enabled\": false, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_left_fast.txt\", \"advanced\": {}}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_left.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [0.3, 1.0], \"lin_vel_x\": [0.0, 0.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_turn_right.txt\", \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.0, -0.3], \"lin_vel_x\": [0.0, 0.5], \"lin_vel_y\": [0.0, 0.0]}}}, \"walk\": {\"enabled\": false, \"speed\": [0.0, 1.0], \"clip\": \"pack:amp_go2:go2_motion/go2_forward.txt\", \"advanced\": {\"command_overrides\": {\"lin_vel_x\": [-0.35000000000000003, 1.0]}}}}",
+          "value": {
+            "backward": {
+              "enabled": true,
+              "speed": [
+                0.0,
+                1.0
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\go2_motion\\go2_backward.txt",
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    0.0,
+                    0.0
+                  ],
+                  "lin_vel_x": [
+                    -1.2,
+                    0.0
+                  ],
+                  "lin_vel_y": [
+                    0.0,
+                    0.0
+                  ]
+                }
+              },
+              "weight": 0.14
+            },
+            "forward_fast": {
+              "enabled": true,
+              "speed": [
+                1.0,
+                1.5
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\go2_motion\\go2_forward_fast.txt",
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    0.0,
+                    0.0
+                  ],
+                  "lin_vel_x": [
+                    1.0,
+                    1.5
+                  ],
+                  "lin_vel_y": [
+                    0.0,
+                    0.0
+                  ]
+                }
+              },
+              "weight": 0.14
+            },
+            "forward_slow": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.0
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\go2_motion\\go2_forward.txt",
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    0.0,
+                    0.0
+                  ],
+                  "lin_vel_x": [
+                    0.0,
+                    1.0
+                  ],
+                  "lin_vel_y": [
+                    0.0,
+                    0.0
+                  ]
+                }
+              },
+              "weight": 0.13
+            },
+            "pace": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.2000000000000002
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\mocap_motions\\pace1.txt",
+              "advanced": {
+                "command_overrides": {
+                  "lin_vel_x": [
+                    -1,
+                    1.5
+                  ]
+                }
+              }
+            },
+            "stand": {
+              "enabled": true,
+              "speed": [
+                0.0,
+                0.0
+              ],
+              "clip": null,
+              "advanced": {},
+              "weight": 0.05
+            },
+            "strafe_left": {
+              "enabled": true,
+              "speed": [
+                0.0,
+                0.8
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\go2_motion\\go2_left_fast.txt",
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    0.0,
+                    0.0
+                  ],
+                  "lin_vel_x": [
+                    0.0,
+                    0.0
+                  ],
+                  "lin_vel_y": [
+                    -0.8,
+                    0.8
+                  ]
+                }
+              },
+              "weight": 0.14
+            },
+            "strafe_right": {
+              "enabled": true,
+              "speed": [
+                0.0,
+                0.8
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\go2_motion\\go2_right_fast.txt",
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    0.0,
+                    0.0
+                  ],
+                  "lin_vel_x": [
+                    0.0,
+                    0.0
+                  ],
+                  "lin_vel_y": [
+                    -0.8,
+                    0.8
+                  ]
+                }
+              },
+              "weight": 0.14
+            },
+            "turn": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.0
+              ],
+              "clip": null,
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    -1.0,
+                    1.0
+                  ],
+                  "lin_vel_x": [
+                    0.0,
+                    0.5
+                  ],
+                  "lin_vel_y": [
+                    0.0,
+                    0.0
+                  ]
+                }
+              }
+            },
+            "turn_left": {
+              "enabled": true,
+              "speed": [
+                0.3,
+                1.0
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\go2_motion\\go2_turn_left_fast.txt",
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    0.3,
+                    1.0
+                  ],
+                  "lin_vel_x": [
+                    0.0,
+                    0.5
+                  ],
+                  "lin_vel_y": [
+                    0.0,
+                    0.0
+                  ]
+                }
+              },
+              "weight": 0.13
+            },
+            "turn_right": {
+              "enabled": true,
+              "speed": [
+                0.3,
+                1.0
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\go2_motion\\go2_turn_right_faster.txt",
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    -1.0,
+                    -0.3
+                  ],
+                  "lin_vel_x": [
+                    0.0,
+                    0.5
+                  ],
+                  "lin_vel_y": [
+                    0.0,
+                    0.0
+                  ]
+                }
+              },
+              "weight": 0.13
+            },
+            "walk": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.0
+              ],
+              "clip": "A:\\111\\UnitPort\\custom_mods\\motions\\amp_go2\\datasets\\mocap_motions\\pace1.txt",
+              "advanced": {
+                "command_overrides": {
+                  "lin_vel_x": [
+                    -0.5,
+                    1.0
+                  ]
+                }
+              }
+            }
+          },
           "param_type": "json"
+        },
+        "weight_set": {
+          "name": "weight_set",
+          "value": "",
+          "param_type": "string"
         },
         "mapping_mode": {
           "name": "mapping_mode",
@@ -388,23 +702,51 @@
         },
         "resampling_time_range": {
           "name": "resampling_time_range",
-          "value": "[10.0, 10.0]",
+          "value": [
+            10.0,
+            15.0
+          ],
           "param_type": "list"
-        },
-        "zero_command_probability": {
-          "name": "zero_command_probability",
-          "value": "0.1",
-          "param_type": "float"
         },
         "cmd_step_change_prob": {
           "name": "cmd_step_change_prob",
           "value": 0.01,
           "param_type": "float"
         },
-        "consumption_mode": {
-          "name": "consumption_mode",
-          "value": "amp_discriminator",
-          "param_type": "enum"
+        "heading_command": {
+          "name": "heading_command",
+          "value": false,
+          "param_type": "bool"
+        },
+        "heading_control_stiffness": {
+          "name": "heading_control_stiffness",
+          "value": 0.5,
+          "param_type": "float"
+        },
+        "heading_range": {
+          "name": "heading_range",
+          "value": "[-3.141592653589793, 3.141592653589793]",
+          "param_type": "list"
+        },
+        "adaptive_motion_enabled": {
+          "name": "adaptive_motion_enabled",
+          "value": false,
+          "param_type": "bool"
+        },
+        "adaptive_update_interval": {
+          "name": "adaptive_update_interval",
+          "value": 50,
+          "param_type": "int"
+        },
+        "adaptive_weight_floor": {
+          "name": "adaptive_weight_floor",
+          "value": 0.03,
+          "param_type": "float"
+        },
+        "adaptive_weight_ceil": {
+          "name": "adaptive_weight_ceil",
+          "value": 0.3,
+          "param_type": "float"
         },
         "phase_mode": {
           "name": "phase_mode",
@@ -438,7 +780,7 @@
         },
         "command_curriculum_ramp_iters": {
           "name": "command_curriculum_ramp_iters",
-          "value": "2500",
+          "value": "1000",
           "param_type": "int"
         },
         "reference_state_init_enabled": {
@@ -455,13 +797,18 @@
           "name": "rsi_joint_noise",
           "value": 0.02,
           "param_type": "float"
+        },
+        "consumption_mode": {
+          "name": "consumption_mode",
+          "value": "amp_discriminator",
+          "param_type": "enum"
         }
       },
       "ui": {
-        "x": -662.0109062723798,
-        "y": -441.5244836609231,
+        "x": -654.547071026024,
+        "y": -208.2796322123063,
         "width": 324.0,
-        "height": 867.0,
+        "height": 883.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -475,13 +822,15 @@
       "params": {
         "obs_terms": {
           "name": "obs_terms",
-          "value": "{\"base_lin_vel\": 2.0, \"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
+          "value": "{\"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
           "param_type": "json"
         },
-        "group_name": {
-          "name": "group_name",
-          "value": "policy",
-          "param_type": "string"
+        "critic_privileged_terms": {
+          "name": "critic_privileged_terms",
+          "value": {
+            "base_lin_vel": 2.0
+          },
+          "param_type": "json"
         },
         "enable_corruption": {
           "name": "enable_corruption",
@@ -515,10 +864,10 @@
         }
       },
       "ui": {
-        "x": -315.9798366934384,
-        "y": -106.26266946555896,
+        "x": -308.51600144708266,
+        "y": 126.98218198305787,
         "width": 324.0,
-        "height": 571.0,
+        "height": 530.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -530,17 +879,29 @@
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "track_lin_vel_xy": {
-              "weight": 1.5
-            },
-            "track_ang_vel_z": {
-              "weight": 0.5
-            },
-            "feet_clearance": {
-              "weight": 0.5
+            "__global__": {
+              "track_lin_vel_xy": {
+                "weight": 4.0
+              },
+              "track_ang_vel_z": {
+                "weight": 1.0
+              },
+              "feet_clearance": {
+                "weight": 0.5
+              }
             }
           },
           "param_type": "json"
@@ -557,10 +918,10 @@
         }
       },
       "ui": {
-        "x": -1131.6385885884702,
-        "y": 365.0544429867307,
+        "x": -1124.6385885884702,
+        "y": 600.0544429867307,
         "width": 324.0,
-        "height": 263.0,
+        "height": 374.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -573,47 +934,59 @@
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "alive_reward": {
-              "weight": 2.0
-            },
-            "lin_vel_xy_penalty": {
-              "weight": -3.0
-            },
-            "ang_vel_z_penalty": {
-              "weight": -1.5
-            },
-            "lin_vel_z_penalty": {
-              "weight": -2.0
-            },
-            "ang_vel_xy_penalty": {
-              "weight": -0.2
-            },
-            "flat_orientation": {
-              "weight": -10.0
-            },
-            "joint_deviation_l1": {
-              "weight": -2.0
-            },
-            "dof_pos_limits": {
-              "weight": -3.0
-            },
-            "joint_torque_penalty": {
-              "weight": -0.0005
-            },
-            "joint_accel_penalty": {
-              "weight": -5e-07
-            },
-            "action_rate_penalty": {
-              "weight": -0.02
-            },
-            "undesired_contacts": {
-              "weight": -3.0
-            },
-            "feet_slide": {
-              "weight": -0.5
+            "__global__": {
+              "alive_reward": {
+                "weight": 0.05
+              },
+              "lin_vel_xy_penalty": {
+                "weight": -3.0
+              },
+              "ang_vel_z_penalty": {
+                "weight": -1.5
+              },
+              "lin_vel_z_penalty": {
+                "weight": -2.0
+              },
+              "ang_vel_xy_penalty": {
+                "weight": -0.2
+              },
+              "flat_orientation": {
+                "weight": -10.0
+              },
+              "joint_deviation_l1": {
+                "weight": -2.0
+              },
+              "dof_pos_limits": {
+                "weight": -3.0
+              },
+              "joint_torque_penalty": {
+                "weight": -0.0005
+              },
+              "joint_accel_penalty": {
+                "weight": -5e-07
+              },
+              "action_rate_penalty": {
+                "weight": -0.02
+              },
+              "undesired_contacts": {
+                "weight": -3.0
+              },
+              "feet_slide": {
+                "weight": -0.5
+              }
             }
           },
           "param_type": "json"
@@ -633,7 +1006,7 @@
         "x": -1139.8024635057664,
         "y": -533.7648538431379,
         "width": 324.0,
-        "height": 583.0,
+        "height": 694.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -646,14 +1019,26 @@
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "track_lin_vel_xy": {
-              "weight": 0.5
-            },
-            "track_ang_vel_z": {
-              "weight": 1.5
+            "__global__": {
+              "track_lin_vel_xy": {
+                "weight": 1.0
+              },
+              "track_ang_vel_z": {
+                "weight": 4.0
+              }
             }
           },
           "param_type": "json"
@@ -670,10 +1055,10 @@
         }
       },
       "ui": {
-        "x": -1502.7420885057663,
-        "y": 91.90986875846835,
+        "x": -1498.7420885057663,
+        "y": 193.90986875846835,
         "width": 324.0,
-        "height": 231.0,
+        "height": 342.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -686,20 +1071,32 @@
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "track_lin_vel_xy": {
-              "weight": 2.5
-            },
-            "track_ang_vel_z": {
-              "weight": 0.3
-            },
-            "ang_vel_z_penalty": {
-              "weight": -0.5
-            },
-            "feet_clearance": {
-              "weight": 0.6
+            "__global__": {
+              "track_lin_vel_xy": {
+                "weight": 4.0
+              },
+              "track_ang_vel_z": {
+                "weight": 1.0
+              },
+              "ang_vel_z_penalty": {
+                "weight": -0.5
+              },
+              "feet_clearance": {
+                "weight": 0.6
+              }
             }
           },
           "param_type": "json"
@@ -716,10 +1113,10 @@
         }
       },
       "ui": {
-        "x": -1133.6746972132337,
-        "y": 57.32883365686175,
+        "x": -1138.6746972132337,
+        "y": 168.32883365686178,
         "width": 324.0,
-        "height": 295.0,
+        "height": 406.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -734,7 +1131,21 @@
       "params": {
         "termination_conditions": {
           "name": "termination_conditions",
-          "value": "{\"time_out\": 20.0, \"base_height\": 0.30, \"illegal_contact\": 1.0, \"bad_orientation\": 0.5}",
+          "value": {
+            "time_out": 30.0,
+            "base_height": {
+              "weight": 0.2,
+              "grace_period_s": 0.5
+            },
+            "illegal_contact": {
+              "weight": 1.0,
+              "grace_period_s": 0.5
+            },
+            "bad_orientation": {
+              "weight": 0.5,
+              "grace_period_s": 0.5
+            }
+          },
           "param_type": "json"
         },
         "termination_curriculum_enabled": {
@@ -759,10 +1170,10 @@
         }
       },
       "ui": {
-        "x": -319.7979558011514,
-        "y": -441.30265577684816,
+        "x": -312.3341205547956,
+        "y": -208.05780432823133,
         "width": 324.0,
-        "height": 343.0,
+        "height": 271.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -834,6 +1245,41 @@
           "value": "[50, 150]",
           "param_type": "list"
         },
+        "sb3_enable_init_pose_rand": {
+          "name": "sb3_enable_init_pose_rand",
+          "value": false,
+          "param_type": "bool"
+        },
+        "sb3_init_pos_x_range": {
+          "name": "sb3_init_pos_x_range",
+          "value": "[-0.0, 0.0]",
+          "param_type": "list"
+        },
+        "sb3_init_pos_y_range": {
+          "name": "sb3_init_pos_y_range",
+          "value": "[-0.0, 0.0]",
+          "param_type": "list"
+        },
+        "sb3_init_yaw_range": {
+          "name": "sb3_init_yaw_range",
+          "value": "[-0.0, 0.0]",
+          "param_type": "list"
+        },
+        "sb3_enable_joint_noise": {
+          "name": "sb3_enable_joint_noise",
+          "value": false,
+          "param_type": "bool"
+        },
+        "sb3_joint_pos_noise": {
+          "name": "sb3_joint_pos_noise",
+          "value": 0.0,
+          "param_type": "float"
+        },
+        "sb3_joint_vel_noise": {
+          "name": "sb3_joint_vel_noise",
+          "value": 0.0,
+          "param_type": "float"
+        },
         "enable_friction_rand": {
           "name": "enable_friction_rand",
           "value": "true",
@@ -867,6 +1313,11 @@
         "mass_mode": {
           "name": "mass_mode",
           "value": "startup",
+          "param_type": "enum"
+        },
+        "mass_target_scope": {
+          "name": "mass_target_scope",
+          "value": "root",
           "param_type": "enum"
         },
         "mass_target_body": {
@@ -956,10 +1407,10 @@
         }
       },
       "ui": {
-        "x": -1934.9637822885843,
-        "y": -327.7698983333773,
+        "x": -1931.2318646654062,
+        "y": 241.34753920124774,
         "width": 324.0,
-        "height": 746.0,
+        "height": 674.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -978,7 +1429,10 @@
         },
         "disc_hidden_dims": {
           "name": "disc_hidden_dims",
-          "value": "[1024, 512]",
+          "value": [
+            512,
+            256
+          ],
           "param_type": "json"
         },
         "amp_reward_coef": {
@@ -1053,8 +1507,8 @@
         }
       },
       "ui": {
-        "x": 43.33213879057337,
-        "y": -233.73859491037993,
+        "x": 49.28368670233557,
+        "y": 87.21892194466415,
         "width": 324.0,
         "height": 482.0,
         "collapsed": false
@@ -1087,13 +1541,28 @@
           "name": "init_noise_std",
           "value": "1.0",
           "param_type": "float"
+        },
+        "rnn_type": {
+          "name": "rnn_type",
+          "value": "none",
+          "param_type": "enum"
+        },
+        "rnn_hidden_size": {
+          "name": "rnn_hidden_size",
+          "value": 256,
+          "param_type": "int"
+        },
+        "rnn_num_layers": {
+          "name": "rnn_num_layers",
+          "value": 1,
+          "param_type": "int"
         }
       },
       "ui": {
-        "x": 43.30594235956082,
-        "y": -438.9168676118149,
+        "x": 50.76977760591657,
+        "y": -205.67201616319807,
         "width": 324.0,
-        "height": 194.0,
+        "height": 266.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -1117,7 +1586,7 @@
         },
         "max_iterations": {
           "name": "max_iterations",
-          "value": "6000",
+          "value": 4000,
           "param_type": "int"
         },
         "num_steps_per_env": {
@@ -1197,12 +1666,12 @@
         },
         "amp_reward_coef": {
           "name": "amp_reward_coef",
-          "value": 0.5,
+          "value": 2.0,
           "param_type": "float"
         },
         "task_reward_lerp": {
           "name": "task_reward_lerp",
-          "value": 0.6,
+          "value": 0.5,
           "param_type": "float"
         },
         "disc_grad_penalty": {
@@ -1257,13 +1726,13 @@
         },
         "entropy_schedule_ramp_iters": {
           "name": "entropy_schedule_ramp_iters",
-          "value": "3000",
+          "value": "1000",
           "param_type": "int"
         }
       },
       "ui": {
-        "x": 498.7132920407962,
-        "y": -350.84486878850083,
+        "x": 481.91966273649575,
+        "y": -246.35117533952052,
         "width": 324.0,
         "height": 1076.0,
         "collapsed": false
@@ -1293,13 +1762,13 @@
         },
         "last_run_id": {
           "name": "last_run_id",
-          "value": "",
+          "value": "canvas__20260614T002357Z__87d709",
           "param_type": "string"
         }
       },
       "ui": {
-        "x": -3162.4891856014,
-        "y": -335.7245929290996,
+        "x": -2279.890667719834,
+        "y": -639.8758792180959,
         "width": 324.0,
         "height": 88.0,
         "collapsed": false
@@ -1315,7 +1784,7 @@
       "params": {
         "bundle_name": {
           "name": "bundle_name",
-          "value": "AMP_TEST",
+          "value": "GO2_AMP",
           "param_type": "string"
         },
         "overwrite": {
@@ -1400,8 +1869,8 @@
         }
       },
       "ui": {
-        "x": 908.1939745759801,
-        "y": 35.3666138801661,
+        "x": 857.8130866630787,
+        "y": 39.09853150334396,
         "width": 324.0,
         "height": 537.0,
         "collapsed": false
@@ -1414,50 +1883,62 @@
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "alive_reward": {
-              "weight": 1.0
-            },
-            "lin_vel_z_penalty": {
-              "weight": -2.0
-            },
-            "ang_vel_xy_penalty": {
-              "weight": -0.05
-            },
-            "joint_accel_penalty": {
-              "weight": -2.5e-07
-            },
-            "action_rate_penalty": {
-              "weight": -0.01
-            },
-            "flat_orientation": {
-              "weight": -3.0
-            },
-            "joint_deviation_l1": {
-              "weight": -0.3
-            },
-            "joint_torque_penalty": {
-              "weight": -0.0005
-            },
-            "joint_vel_penalty": {
-              "weight": -0.001
-            },
-            "dof_pos_limits": {
-              "weight": -2.0
-            },
-            "undesired_contacts": {
-              "weight": -2.0
-            },
-            "feet_slide": {
-              "weight": -0.4
-            },
-            "feet_air_time": {
-              "weight": 0.5
-            },
-            "gait": {
-              "weight": 0.8
+            "__global__": {
+              "alive_reward": {
+                "weight": 0.01
+              },
+              "lin_vel_z_penalty": {
+                "weight": -2.0
+              },
+              "ang_vel_xy_penalty": {
+                "weight": -0.05
+              },
+              "joint_accel_penalty": {
+                "weight": -2.5e-07
+              },
+              "action_rate_penalty": {
+                "weight": -0.01
+              },
+              "flat_orientation": {
+                "weight": -3.0
+              },
+              "joint_deviation_l1": {
+                "weight": -0.3
+              },
+              "joint_torque_penalty": {
+                "weight": -0.0005
+              },
+              "joint_vel_penalty": {
+                "weight": -0.001
+              },
+              "dof_pos_limits": {
+                "weight": -2.0
+              },
+              "undesired_contacts": {
+                "weight": -2.0
+              },
+              "feet_slide": {
+                "weight": -0.4
+              },
+              "feet_air_time": {
+                "weight": 0.5
+              },
+              "gait": {
+                "weight": 0.8
+              }
             }
           },
           "param_type": "json"
@@ -1477,7 +1958,7 @@
         "x": -1501.8415687499996,
         "y": -536.0,
         "width": 324.0,
-        "height": 615.0,
+        "height": 726.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -1490,6 +1971,16 @@
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
@@ -1513,231 +2004,114 @@
         }
       },
       "ui": {
-        "x": -1505.7420885057663,
-        "y": 346.8098687584684,
+        "x": -1491.7420885057663,
+        "y": 555.8098687584684,
         "width": 324.0,
-        "height": 231.0,
+        "height": 342.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
       "display_name_override": "Base Rewards"
+    },
+    {
+      "id": "note_1",
+      "schema_id": "note",
+      "kind": "custom",
+      "params": {
+        "title": {
+          "name": "title",
+          "value": "Note",
+          "param_type": "string"
+        },
+        "body": {
+          "name": "body",
+          "value": "### IMPORTANT ###\n\nThe motion references used in this template are from this package:\nhttps://github.com/ak1raljl/amp_go2\n\nMake sure it is installed in your enviroment",
+          "param_type": "string"
+        }
+      },
+      "ui": {
+        "x": -390.25643718082375,
+        "y": -446.3976298953007,
+        "width": 430.7958687210467,
+        "height": 183.0499262271615,
+        "collapsed": false
+      },
+      "opaque_code": null,
+      "disabled": false,
+      "color_override": "#6E5F0B"
     }
   ],
   "edges": [
     {
-      "id": "e_9f69290f56bb",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__backward",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_f106904e06d8",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_fast",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_6d60fcc2c005",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_slow",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_03ce94aeda4e",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__stand",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_ac9ea5005307",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_71d048d3c79a",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_6cea80d15204",
-      "source_node": "rewards_1",
+      "id": "e_a01a4c5e000b",
+      "source_node": "1017",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__turn_right",
       "edge_type": "flow"
     },
     {
-      "id": "e_d10dbf0e350d",
-      "source_node": "1019",
+      "id": "e_a01a4c5e000a",
+      "source_node": "1017",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_a01a4c5e0009",
+      "source_node": "1018",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__strafe_right",
       "edge_type": "flow"
     },
     {
-      "id": "e_e1b9a70e4df4",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0008",
+      "source_node": "1018",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__strafe_left",
       "edge_type": "flow"
     },
     {
-      "id": "e_9871e7446304",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0007",
+      "source_node": "1016",
       "source_port": "reward_pipe",
       "target_node": "1012",
-      "target_port": "reward_in__turn_right",
+      "target_port": "reward_in__stand",
       "edge_type": "flow"
     },
     {
-      "id": "e_be925b5a2f3d",
-      "source_node": "1019",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_c9bcaaf7f2f1",
-      "source_node": "1019",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__backward",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_cf44822080d8",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0005",
+      "source_node": "1010",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__forward_fast",
       "edge_type": "flow"
     },
     {
-      "id": "e_aba28c7e7062",
-      "source_node": "1019",
+      "id": "e_a01a4c5e0004",
+      "source_node": "1010",
       "source_port": "reward_pipe",
       "target_node": "1012",
-      "target_port": "reward_in__forward_slow",
+      "target_port": "reward_in__backward",
       "edge_type": "flow"
     },
     {
-      "id": "e_5bbf03b7cfec",
-      "source_node": "1004",
-      "source_port": "checkpoint",
-      "target_node": "1005",
-      "target_port": "checkpoint",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_60c83179c4a7",
-      "source_node": "1005",
-      "source_port": "train_pipe",
-      "target_node": "1001",
-      "target_port": "train_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a7907c5a1106",
-      "source_node": "1006",
-      "source_port": "policy",
-      "target_node": "1005",
-      "target_port": "policy",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_8e9aa3942f9d",
-      "source_node": "1007",
-      "source_port": "discriminator_config",
-      "target_node": "1005",
-      "target_port": "discriminator_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_253df76f48fa",
-      "source_node": "1008",
-      "source_port": "domain_rand_config",
-      "target_node": "1005",
-      "target_port": "domain_rand_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_d3b4df4c8b95",
-      "source_node": "1009",
-      "source_port": "termination_config",
-      "target_node": "1005",
-      "target_port": "termination_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_b170d007263a",
-      "source_node": "1011",
-      "source_port": "obs_vector",
-      "target_node": "1005",
-      "target_port": "obs_vector",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_46494f5b7b1b",
-      "source_node": "1011",
-      "source_port": "obs_vector",
-      "target_node": "1006",
-      "target_port": "obs_vector",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_9d4549ded747",
-      "source_node": "1012",
-      "source_port": "reference_motion_config",
-      "target_node": "1007",
-      "target_port": "reference_motion_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_6db33846f3d8",
+      "id": "e_a01a4c5e0002",
       "source_node": "1012",
       "source_port": "command_pipe",
-      "target_node": "1011",
+      "target_node": "1005",
       "target_port": "command_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_18d0aea373f0",
-      "source_node": "1013",
-      "source_port": "scene_pipe",
-      "target_node": "1005",
-      "target_port": "scene_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_960112f23b62",
+      "id": "e_a01a4c5e0001",
       "source_node": "1014",
       "source_port": "actor_pipe",
-      "target_node": "1008",
-      "target_port": "actor_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_ec41dd06b526",
-      "source_node": "1014",
-      "source_port": "actor_pipe",
-      "target_node": "1011",
+      "target_node": "1012",
       "target_port": "actor_pipe",
       "edge_type": "flow"
     },
@@ -1750,83 +2124,203 @@
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0001",
+      "id": "e_ec41dd06b526",
       "source_node": "1014",
       "source_port": "actor_pipe",
-      "target_node": "1012",
+      "target_node": "1011",
       "target_port": "actor_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0002",
+      "id": "e_960112f23b62",
+      "source_node": "1014",
+      "source_port": "actor_pipe",
+      "target_node": "1008",
+      "target_port": "actor_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_18d0aea373f0",
+      "source_node": "1013",
+      "source_port": "scene_pipe",
+      "target_node": "1005",
+      "target_port": "scene_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_6db33846f3d8",
       "source_node": "1012",
       "source_port": "command_pipe",
-      "target_node": "1005",
+      "target_node": "1011",
       "target_port": "command_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0004",
-      "source_node": "1010",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__backward",
+      "id": "e_9d4549ded747",
+      "source_node": "1012",
+      "source_port": "reference_motion_config",
+      "target_node": "1007",
+      "target_port": "reference_motion_config",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0005",
-      "source_node": "1010",
+      "id": "e_46494f5b7b1b",
+      "source_node": "1011",
+      "source_port": "obs_vector",
+      "target_node": "1006",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_b170d007263a",
+      "source_node": "1011",
+      "source_port": "obs_vector",
+      "target_node": "1005",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_d3b4df4c8b95",
+      "source_node": "1009",
+      "source_port": "termination_config",
+      "target_node": "1005",
+      "target_port": "termination_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_253df76f48fa",
+      "source_node": "1008",
+      "source_port": "domain_rand_config",
+      "target_node": "1005",
+      "target_port": "domain_rand_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_8e9aa3942f9d",
+      "source_node": "1007",
+      "source_port": "discriminator_config",
+      "target_node": "1005",
+      "target_port": "discriminator_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_a7907c5a1106",
+      "source_node": "1006",
+      "source_port": "policy",
+      "target_node": "1005",
+      "target_port": "policy",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_60c83179c4a7",
+      "source_node": "1005",
+      "source_port": "train_pipe",
+      "target_node": "1001",
+      "target_port": "train_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_5bbf03b7cfec",
+      "source_node": "1004",
+      "source_port": "checkpoint",
+      "target_node": "1005",
+      "target_port": "checkpoint",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_cf44822080d8",
+      "source_node": "1019",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__forward_fast",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0006",
-      "source_node": "1010",
+      "id": "e_c9bcaaf7f2f1",
+      "source_node": "1019",
       "source_port": "reward_pipe",
       "target_node": "1012",
-      "target_port": "reward_in__forward_slow",
+      "target_port": "reward_in__backward",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e0007",
-      "source_node": "1016",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__stand",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0008",
-      "source_node": "1018",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e0009",
-      "source_node": "1018",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_a01a4c5e000a",
-      "source_node": "1017",
+      "id": "e_be925b5a2f3d",
+      "source_node": "1019",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__turn_left",
       "edge_type": "flow"
     },
     {
-      "id": "e_a01a4c5e000b",
-      "source_node": "1017",
+      "id": "e_9871e7446304",
+      "source_node": "1019",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__turn_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_e1b9a70e4df4",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_d10dbf0e350d",
+      "source_node": "1019",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_6cea80d15204",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_71d048d3c79a",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn_left",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_ac9ea5005307",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__strafe_right",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_03ce94aeda4e",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__stand",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_f106904e06d8",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__forward_fast",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_9f69290f56bb",
+      "source_node": "rewards_1",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__backward",
       "edge_type": "flow"
     }
   ],
@@ -1840,8 +2334,8 @@
         "1004"
       ],
       "rect": {
-        "x": -3190.4891856014,
-        "y": -378.7245929290996,
+        "x": -2307.890667719834,
+        "y": -682.8758792180959,
         "w": 726.3623275292639,
         "h": 860.8406976848177
       },
@@ -1855,8 +2349,8 @@
         "1008"
       ],
       "rect": {
-        "x": -2344.9173196468846,
-        "y": -366.9494543632098,
+        "x": -2341.1854020237065,
+        "y": 202.16798317141524,
         "w": 763.9906186083001,
         "h": 805.6626874526705
       },
@@ -1876,8 +2370,8 @@
       "rect": {
         "x": -1539.9806518327987,
         "y": -567.1522384286751,
-        "w": 760.5896250000001,
-        "h": 1206.0534951833629
+        "w": 793.5896250000001,
+        "h": 1568.0534951833629
       },
       "color_override": "#2D6A30"
     },
@@ -1892,10 +2386,10 @@
         "1006"
       ],
       "rect": {
-        "x": -677.3609062723799,
-        "y": -483.37448366092315,
-        "w": 1075.2211763129533,
-        "h": 1013.1279562500001
+        "x": -669.8970710260242,
+        "y": -250.12963221230632,
+        "w": 1078.2211763129533,
+        "h": 1090.1279562500001
       },
       "color_override": "#581938"
     }

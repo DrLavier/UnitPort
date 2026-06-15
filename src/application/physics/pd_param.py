@@ -313,6 +313,21 @@ class JointPDGains:
                     f"{self.kd!r}."
                 )
 
+    def derivation_armature(self) -> List[float]:
+        """Per-joint reflected-rotor armature recorded in ``derivation``,
+        parallel to ``joint_physical_names``. Empty when the derivation predates
+        the armature-aware solver (returns ``0.0`` per joint then). The MuJoCo
+        solver folds this armature into ``m_eff`` (``kp = m_eff·ωn²``); it is
+        surfaced here so the realized-inertia calibration gate and the PhysX
+        ``ImplicitActuatorCfg.armature`` emit path consume the SAME value."""
+        per_joint = self.derivation.get("per_joint") or []
+        by_name = {
+            e.get("physical_name"): float(e.get("armature", 0.0))
+            for e in per_joint
+            if isinstance(e, dict)
+        }
+        return [by_name.get(n, 0.0) for n in self.joint_physical_names]
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "joint_ir_roles": list(self.joint_ir_roles),

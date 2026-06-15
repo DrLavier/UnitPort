@@ -5,15 +5,15 @@
 
 Mouse contract:
 - Left button   : RubberBand 框选（默认 dragMode）/ rubber-band select.
-- Middle button : 按住拖动 → 以按下点为锚的缩放；水平方向 dx>0 放大，dx<0 缩小
-                  (drag-to-zoom anchored at press point; +x → zoom in, -x → zoom out).
-- Right button  : 按住拖动 → 平移 / hold-drag pan.
-- Wheel         : 以光标位置为锚的缩放（保留）/ wheel zoom under cursor.
+- Middle button : 按住拖动 → 平移 / hold-drag pan.
+- Right button  : 按住拖动 → 平移；按下后未拖动（单击）→ 弹出右键迷你菜单
+                  (hold-drag pan; click-without-drag → CanvasMiniMenu context menu).
+- Wheel         : 以光标位置为锚的缩放 / wheel zoom under cursor.
 """
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import QPoint, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import (
@@ -31,12 +31,15 @@ from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget
 from .lod import TIER_WORKING, tier_for_zoom
 from .node_library_panel import MIME_NODE_ID
 
+if TYPE_CHECKING:
+    from application.ui.widgets.canvas_mini_menu import CanvasMiniMenu
+
 
 class CanvasView(QGraphicsView):
     """画布视图 / Canvas view.
 
     - 鼠标滚轮缩放（在光标点为锚）
-    - 中键拖拽平移
+    - 中键 / 右键拖拽平移；右键单击弹出迷你菜单
     - 关闭抗锯齿调整以减开销（性能 hint）
     - **跟踪可见 scene rect** 与 **zoom tier** —— 用于 LOD / 视口剔除
     """
@@ -44,9 +47,10 @@ class CanvasView(QGraphicsView):
     _ZOOM_FACTOR = 1.15
     _MIN_ZOOM = 0.1
     _MAX_ZOOM = 4.0
-    # 中键拖拽缩放灵敏度：每 1px 水平位移对应的 zoom 因子。
-    # 1.005**100 ≈ 1.65；1.005**-100 ≈ 0.61，覆盖一般操作幅度。
-    _MIDDLE_ZOOM_PER_PX = 1.005
+
+    # 按下到释放的曼哈顿距离 < 此阈值（px）视为单击而非拖动 —— 右键单击据此
+    # 弹菜单、拖动据此平移；阈值吸收手抖，避免单击被误判成微小平移。
+    _CLICK_MOVE_THRESHOLD = 4
 
     # 边缘自动滚动（左键拖动节点群 / 框选 / DnD 都生效；端口拖期间跳过）
     _EDGE_SCROLL_MARGIN = 30  # px，距 viewport 任一边小于此值即触发
@@ -88,16 +92,18 @@ class CanvasView(QGraphicsView):
         # Node Library 拖入接收：仅接 application/x-unitport-node MIME
         self.setAcceptDrops(True)
 
-        # 右键被画布消费用于平移，不要让任何子组件弹出系统/Scene 上下文菜单。
+        # 右键 / 中键被画布消费用于平移与右键菜单，关闭系统/Scene 上下文菜单，
+        # 由 CanvasMiniMenu 在右键单击时手动弹出。
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
 
-        # 右键拖拽平移状态
+        # 中键 / 右键拖拽平移状态（右键未拖动 → 弹 CanvasMiniMenu）
         self._panning = False
-        self._pan_start: QPoint = QPoint()
-        # 中键拖拽缩放状态
-        self._zooming = False
-        self._zoom_anchor: QPoint = QPoint()  # 按下点（缩放锚点，viewport 坐标）
-        self._zoom_last_x: int = 0            # 上一次 move 的水平像素值
+        self._pan_button: Optional[Qt.MouseButton] = None  # 触发平移的按键
+        self._pan_start: QPoint = QPoint()    # 上一次 move 位置（增量平移用）
+        self._pan_origin: QPoint = QPoint()   # 按下点（判定单击 / 拖动用）
+        self._pan_moved = False               # 是否已越过单击阈值进入拖动
+        # 右键单击弹出的迷你菜单（懒建，复用一个实例）
+        self._mini_menu: Optional[CanvasMiniMenu] = None
         # 端口拖期间为 True；用于 mouseMove 边缘自动滚动跳过端口拖（端口拖不
         # 需要滚屏，临时连线只在视口内有效）。
         self._port_drag_active = False
@@ -141,38 +147,36 @@ class CanvasView(QGraphicsView):
         self._update_zoom_tier()
         event.accept()
 
-    # ---- 中键缩放 / 右键平移 ----
+    # ---- 中键 / 右键平移 + 右键单击菜单 ----
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton:
-            self._zooming = True
-            self._zoom_anchor = event.position().toPoint()
-            self._zoom_last_x = self._zoom_anchor.x()
-            self.setCursor(Qt.CursorShape.SizeHorCursor)
-            event.accept()
-            return
-        if event.button() == Qt.MouseButton.RightButton:
-            # 右键 = 平移。右键删除连线的旧操作已移除（太容易误触）——删除连线
-            # 改为 hover 一条线时按 Delete（见 ConnectionItem 的 hover 注册 +
-            # CanvasPage.keyPressEvent）。
+        # 中键、右键都进入平移候选态；右键若释放时未越过单击阈值则改弹菜单。
+        # 右键删除连线的旧操作已移除（太容易误触）——删除连线改为 hover 一条线
+        # 时按 Delete（见 ConnectionItem 的 hover 注册 + CanvasPage.keyPressEvent）。
+        if event.button() in (
+            Qt.MouseButton.MiddleButton,
+            Qt.MouseButton.RightButton,
+        ):
             self._panning = True
+            self._pan_button = event.button()
             self._pan_start = event.position().toPoint()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            self._pan_origin = self._pan_start
+            self._pan_moved = False
             event.accept()
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if self._zooming:
-            current = event.position().toPoint()
-            dx = current.x() - self._zoom_last_x
-            self._zoom_last_x = current.x()
-            if dx != 0:
-                self._zoom_by_factor(self._MIDDLE_ZOOM_PER_PX ** dx, self._zoom_anchor)
-            event.accept()
-            return
         if self._panning:
             current = event.position().toPoint()
+            if (
+                not self._pan_moved
+                and (current - self._pan_origin).manhattanLength()
+                >= self._CLICK_MOVE_THRESHOLD
+            ):
+                # 首次越过阈值 → 确认为拖动平移，切抓手光标。
+                self._pan_moved = True
+                self.setCursor(Qt.CursorShape.ClosedHandCursor)
             delta = current - self._pan_start
             self._pan_start = current
             hbar = self.horizontalScrollBar()
@@ -192,46 +196,31 @@ class CanvasView(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton and self._zooming:
-            self._zooming = False
-            self.unsetCursor()
-            event.accept()
-            return
-        if event.button() == Qt.MouseButton.RightButton and self._panning:
+        if self._panning and event.button() == self._pan_button:
+            was_right = self._pan_button == Qt.MouseButton.RightButton
+            moved = self._pan_moved
             self._panning = False
+            self._pan_button = None
+            self._pan_moved = False
             self.unsetCursor()
+            # 右键单击（未拖动）→ 弹出迷你菜单；拖动过则仅结束平移。
+            if was_right and not moved:
+                self._open_mini_menu(event.position().toPoint())
             event.accept()
             return
         super().mouseReleaseEvent(event)
 
-    def _zoom_by_factor(self, factor: float, viewport_anchor: QPoint) -> None:
-        """以 viewport 坐标点 ``viewport_anchor`` 为锚做缩放.
+    def _open_mini_menu(self, viewport_pos: QPoint) -> None:
+        """在 ``viewport_pos``（viewport 坐标）弹出 CanvasMiniMenu."""
+        if self._mini_menu is None:
+            # 懒导入：避免 canvas 包初始化期触发 widgets 包导入造成循环
+            # （widgets → mission_control_panel → application.ui.canvas）。
+            from application.ui.widgets.canvas_mini_menu import CanvasMiniMenu
 
-        wheelEvent 走 AnchorUnderMouse + ``self.scale``；中键拖拽期间光标会移动，
-        不能用 AnchorUnderMouse，故这里显式把锚下方的 scene 点保持不动。
-        """
-        if factor <= 0.0:
-            return
-        current = self.transform().m11()
-        new = current * factor
-        if new < self._MIN_ZOOM:
-            factor = self._MIN_ZOOM / current
-        elif new > self._MAX_ZOOM:
-            factor = self._MAX_ZOOM / current
-        if factor == 1.0:
-            return
-        scene_anchor = self.mapToScene(viewport_anchor)
-        self.scale(factor, factor)
-        new_screen = self.mapFromScene(scene_anchor)
-        delta = new_screen - viewport_anchor
-        if delta.x() != 0:
-            hbar = self.horizontalScrollBar()
-            hbar.setValue(hbar.value() + delta.x())
-        if delta.y() != 0:
-            vbar = self.verticalScrollBar()
-            vbar.setValue(vbar.value() + delta.y())
-        self._update_visible_rect()
-        self._update_zoom_tier()
+            self._mini_menu = CanvasMiniMenu(self)
+        global_pos = self.viewport().mapToGlobal(viewport_pos)
+        scene_pos = self.mapToScene(viewport_pos)
+        self._mini_menu.popup_at(global_pos, scene_pos)
 
     # ---- visible rect / zoom tier 跟踪 ----
 

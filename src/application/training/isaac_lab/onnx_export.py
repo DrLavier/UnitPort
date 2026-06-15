@@ -151,13 +151,30 @@ def _extract_actor_mlp_state_dict(
 
     Raises ``ValueError`` if neither known format is detected.
     """
-    # Flavour 1 — standard rsl_rl OnPolicyRunner + MLPModel.
+    # Flavour 1 — standard rsl_rl OnPolicyRunner + MLPModel / RNNModel.
     if isinstance(ckpt, dict) and "actor_state_dict" in ckpt:
         actor_sd = ckpt["actor_state_dict"]
         if not isinstance(actor_sd, dict):
             raise ValueError(
                 f"'actor_state_dict' is not a dict (got {type(actor_sd).__name__})"
             )
+        # Flavour 1b — new modular rsl_rl RNNModel (缺口①). RNNModel.rnn is an
+        # ``RNN`` wrapper whose ``.rnn`` is the torch GRU/LSTM, so the checkpoint
+        # keys are ``rnn.rnn.weight_ih_l0`` … plus the ``mlp.<i>.weight`` head
+        # (rsl_rl MLP == nn.Sequential, same indexing as the vendored actor).
+        # Normalise to the vendored recurrent layout (``rnn.*`` + ``mlp.*``) so
+        # the existing _detect_recurrent / _infer_recurrent_spec /
+        # _build_recurrent_actor path exports it with h_in/h_out ports. Drop
+        # obs_normalizer.* / distribution.* — export uses the deterministic mean
+        # (= mlp output); the runtime Normalizer/std live outside the ONNX.
+        if any(k.startswith("rnn.rnn.") and k.endswith("weight_ih_l0") for k in actor_sd):
+            stripped = {}
+            for k, v in actor_sd.items():
+                if k.startswith("rnn.rnn."):
+                    stripped["rnn." + k[len("rnn.rnn."):]] = v
+                elif k.startswith("mlp."):
+                    stripped[k] = v
+            return stripped, "rsl_rl_rnnmodel"
         mlp_sd = {k: v for k, v in actor_sd.items() if k.startswith("mlp.")}
         if not mlp_sd:
             raise ValueError(

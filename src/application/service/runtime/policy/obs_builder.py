@@ -279,34 +279,50 @@ class ObsBuilder:
                         order_fmt,
                     )
                     ObsBuilder._warned_legacy_joint_fmt = True
-                rs = get_robot_spec(self._robot_sku)
+                # Prefer the captured LIVE articulation order carried on the
+                # bundle (the policy's true action order = the order the bundle's
+                # per-joint arrays are actually in; bundle_finalizer reorders to
+                # it). Fall back to the registry's dumped USD order ONLY for
+                # legacy bundles without it. The registry "USD" order is USD
+                # prim-AUTHORING order, which can differ from the live PhysX
+                # articulation order (the sim2sim-twitch root cause) — comparing
+                # a correctly-ordered NEW bundle against it would FALSELY reject
+                # it (exactly what happened to the first capture-fixed bundle).
                 expected: list = []
-                if rs is not None:
-                    try:
-                        expected = list(rs.joint_ir_roles_for(order_fmt))
-                    except Exception:
-                        expected = []
+                order_source = f"registry {order_fmt} order"
+                contract_order = list(
+                    getattr(contract, "articulation_joint_order", None) or []
+                ) if contract is not None else []
+                if contract_order:
+                    expected = contract_order
+                    order_source = "bundle captured articulation_joint_order"
+                else:
+                    rs = get_robot_spec(self._robot_sku)
+                    if rs is not None:
+                        try:
+                            expected = list(rs.joint_ir_roles_for(order_fmt))
+                        except Exception:
+                            expected = []
                 if expected and actual and expected != actual:
                     # CLAUDE.md §1.8: previously logged an ERROR and continued —
                     # the policy then fed obs/action through the wrong joint
                     # slots, producing the "electric shock" twitching the user
                     # reported. A wrong-ordered bundle is unusable; refuse
-                    # to load it so the user re-exports instead of trusting
+                    # to load it so the user re-trains instead of trusting
                     # a silently-broken viewer/deploy.
                     raise RuntimeError(
                         f"[ObsBuilder] bundle joint order does NOT match the "
-                        f"declared {order_fmt} articulation order for SKU "
+                        f"expected joint order ({order_source}) for SKU "
                         f"{self._robot_sku!r} — sim2sim with this bundle "
                         f"would produce twitching policy outputs.\n"
-                        f"  expected ({order_fmt} order): {expected}\n"
+                        f"  expected ({order_source}): {expected}\n"
                         f"  bundle has              : {actual}\n"
-                        f"Re-export the bundle with the current RELEASE "
-                        f"exporter (for Isaac Lab the registry must have "
-                        f"joints_per_format[{order_fmt!r}] populated for the "
-                        f"SKU — use the Robot Asset card's \"Dump USD\" "
-                        f"button). Old bundle path: re-train this canvas "
-                        f"with the updated registry overlay, then re-launch "
-                        f"review."
+                        f"Re-train this canvas through the current pipeline so "
+                        f"the bundle carries the captured live articulation "
+                        f"order (deploy_contract.articulation_joint_order), then "
+                        f"re-launch review. (A legacy bundle without that field "
+                        f"is compared against the registry USD order, which may "
+                        f"itself be USD prim-authoring order — re-train to fix.)"
                     )
 
         if self._use_contract and contract is not None:

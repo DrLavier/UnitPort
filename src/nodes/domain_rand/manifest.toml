@@ -260,12 +260,26 @@ choices = ["reset", "interval", "startup"]
 description = "[IL] 质量事件触发模式"
 meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
+# Mass-randomization target scope. legged_gym only perturbs the root link
+# (props[0]); IsaacLab stock add_base_mass likewise attaches one body. This
+# lets the user choose per training need (not hardcoded):
+#   root       — articulation root link (pelvis/base/…); 1:1 legged parity
+#   all_bodies — every link (body_names=".*"); strongest mass robustness
+#   custom     — a specific body/role typed in mass_target_body
+[[parameters]]
+key = "mass_target_scope"
+type = "enum"
+default = "root"
+choices = ["root", "all_bodies", "custom"]
+description = "[IL] 质量随机化作用范围: root=根link(legged原样) / all_bodies=全身.* / custom=指定body"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
+
 [[parameters]]
 key = "mass_target_body"
 type = "string"
-default = "base"
-description = "[IL] 质量随机化目标 body"
-meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
+default = "torso"
+description = "[IL] 自定义质量随机化目标 body（IR 角色名如 torso，或 USD link 名如 torso_link）"
+meta = { conditional_on = [ { key = "backend", op = "==", value = "isaac_lab" }, { key = "mass_target_scope", op = "==", value = "custom" } ] }
 
 [[parameters]]
 key = "mass_offset_range"

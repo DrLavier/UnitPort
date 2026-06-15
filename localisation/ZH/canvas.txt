@@ -20,6 +20,9 @@ delete = 删除
 add_node = 添加节点
 paste_here = 粘贴到此 (Ctrl+V)
 
+[minimenu]
+placeholder = (敬请期待)
+
 [btn]
 node_lib.tip = 节点库
 
@@ -125,8 +128,8 @@ col_name = 名称
 col_param = 值
 col_scale = 缩放
 col_threshold = 阈值
-col_value = 值
 col_weight = 权重
+col_value = 值
 
 [reward_pager]
 global = 全局（所有关节）
@@ -134,4 +137,13 @@ summary = {n} 个分区
 col_group = 关节分区
 col_count = 奖励数
 col_ops = 操作
+
+[training_motion]
+weight_set.button = 采样权重
+weight_set.title = 命令项采样权重
+weight_set.hint = 拖动两个扇区之间的边界以在两项之间转移权重；或点击百分比直接输入（只改动该项）。总和恰好为 100%% 时才能应用。
+weight_set.total = 总和
+weight_set.reset = 重置为均匀
+weight_set.ok = 应用
+weight_set.cancel = 取消
 

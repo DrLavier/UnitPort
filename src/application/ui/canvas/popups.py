@@ -178,6 +178,44 @@ def open_number_popup(
 
 
 # =============================================================================
+# 多通道数字 popup —— SDK Node_DataInput(array_labels=…) 的 N 个并排 [LineEdit]
+# =============================================================================
+
+def open_number_array_popup(
+    view: Optional[QGraphicsView],
+    row: QGraphicsItem,
+    *,
+    values: Sequence[float],
+    labels: Sequence[str],
+    minimum: Optional[float] = None,
+    maximum: Optional[float] = None,
+    on_commit: Callable[[list], None],
+    sub_rect: Optional[QRectF] = None,
+) -> Node_DataInput:
+    """Anchored per-channel number popup — the array mode of SDK ``Node_DataInput``.
+
+    Passes ``array_labels`` so the SAME control renders one typeable
+    ``QLineEdit`` per channel (legged_gym ``commands_scale = [2, 2, 0.25]``),
+    reusing its zoom-following ``_apply_scale`` (font/size), screen clamping and
+    ``icon_yes``/``icon_no`` SVG buttons — no bespoke widget. ``on_commit`` gets
+    a ``list[float]``.
+    """
+    popup = Node_DataInput(
+        value=list(values),
+        dtype="float",
+        minimum=minimum,
+        maximum=maximum,
+        array_labels=list(labels),
+        on_commit=on_commit,
+        parent=None,
+    )
+    anchor, row_h = screen_anchor_for_row(view, row, sub_rect=sub_rect)
+    popup.show_at(anchor, row_h)
+    _retain_popup(view, popup)
+    return popup
+
+
+# =============================================================================
 # 选单 popup —— 直接复用 SDK Node_RichChoicePopup（已是 Qt.WindowType.Popup）
 # =============================================================================
 
@@ -352,6 +390,7 @@ __all__ = [
     "screen_anchor_for_row",
     "open_text_popup",
     "open_number_popup",
+    "open_number_array_popup",
     "open_choice_popup",
     "open_code_popup",
     "open_widget_popup",

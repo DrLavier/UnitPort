@@ -103,6 +103,16 @@ _STAGE_COMPLETE_RE = re.compile(
     r"best_reward=(?P<best>[-+]?\d*\.?\d+)"
 )
 
+# Per-command reward telemetry — UnitportWeightedVelocityCommand prints one
+# line per rollout (env-side, so it covers both plain PPO and AMP):
+#   [UnitPort][CMDMETRICS] stand=1.23456 walk=0.45678 turn=0.90123
+# Each "<item_id>=<mean_reward>" token becomes a cmd_reward_<item_id> chart
+# series. Items not sampled in the window are simply absent (no fake zero).
+_CMDMETRICS_LINE_RE = re.compile(r"\[UnitPort\]\[CMDMETRICS\]\s*(?P<body>.+)")
+_CMDMETRIC_TOKEN_RE = re.compile(
+    r"([A-Za-z0-9_]+)=(nan|[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)"
+)
+
 
 def _to_float_or_none(s: str) -> Optional[float]:
     if s is None:
@@ -155,6 +165,29 @@ def parse_amp_line(line: str) -> Optional[Dict[str, Any]]:
         "algorithm": "AMP_PPO",
         "reward_valid": rew is not None,
     }
+    return {"type": MSG_METRICS, "data": data}
+
+
+def parse_cmdmetrics_line(line: str) -> Optional[Dict[str, Any]]:
+    """Parse a ``[UnitPort][CMDMETRICS] stand=1.23 walk=0.45 ...`` line.
+
+    Emitted once per rollout by ``UnitportWeightedVelocityCommand`` (env-side,
+    so it covers both plain PPO and AMP). Each ``<item_id>=<mean_reward>``
+    token becomes a ``cmd_reward_<item_id>`` chart series. Items not sampled
+    this window are absent from the line — never substituted with a fake zero
+    (CLAUDE.md §8). Returns ``None`` when the line isn't a CMDMETRICS line or
+    carries no parseable token.
+    """
+    m = _CMDMETRICS_LINE_RE.search(line)
+    if m is None:
+        return None
+    data: Dict[str, Any] = {}
+    for item_id, raw in _CMDMETRIC_TOKEN_RE.findall(m.group("body")):
+        val = _to_float_or_none(raw)
+        if val is not None:
+            data[f"cmd_reward_{item_id}"] = val
+    if not data:
+        return None
     return {"type": MSG_METRICS, "data": data}
 
 
@@ -407,6 +440,10 @@ class IsaacLabBackend:
                     f"{self._current_stage_total}: {self._current_stage_name}"
                 ),
             })
+
+        cmd_parsed = parse_cmdmetrics_line(clean)
+        if cmd_parsed:
+            self._emit(cmd_parsed)
 
         if amp_parsed and hasattr(self, "_current_stage_idx"):
             amp_data = amp_parsed.get("data", {})

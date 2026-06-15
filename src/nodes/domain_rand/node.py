@@ -74,7 +74,8 @@ _IL_KEYS = (
     "enable_friction_rand", "friction_mode",
     "static_friction_range", "dynamic_friction_range", "restitution_range",
     # mass
-    "enable_mass_rand", "mass_mode", "mass_target_body", "mass_offset_range",
+    "enable_mass_rand", "mass_mode", "mass_target_scope", "mass_target_body",
+    "mass_offset_range",
     # push
     "enable_external_push", "push_mode", "push_interval_range_s",
     "push_velocity_x_range", "push_velocity_y_range",
@@ -119,7 +120,8 @@ _IL_DEFAULTS: Dict[str, Any] = {
     "restitution_range": "[0.0, 0.4]",
     "enable_mass_rand": True,
     "mass_mode": "reset",
-    "mass_target_body": "base",
+    "mass_target_scope": "root",
+    "mass_target_body": "torso",
     "mass_offset_range": "[-0.5, 0.5]",
     "enable_external_push": True,
     "push_mode": "interval",

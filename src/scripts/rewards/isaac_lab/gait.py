@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2026 SU CHANG
 # SPDX-License-Identifier: Apache-2.0
 
-"""Gait Rhythm — Periodic gait reward — encourages regular alternating footfalls with a target period and phase offset."""
+"""Gait Rhythm — clock-free diagonal-coordination reward: rewards the correct
+gait PATTERN (diagonal pairs in antiphase) without dictating a period."""
 
 from __future__ import annotations
 
@@ -16,64 +17,84 @@ from scripts.task_module import (
 
 
 INLINE_SOURCE = '''
-def _unitport_feet_gait(env, period=0.8, offset=None, sensor_cfg=None,
-                         threshold=0.5, command_name=None):
-    """Enforce periodic gait patterns for legged robots.
+def _unitport_feet_gait(env, offset=None, sensor_cfg=None):
+    """Reward the correct gait PATTERN — clock-free, period-free.
 
-    Per-leg contribution is +1 when the leg's contact state matches the
-    expected stance/swing phase, and -1 when it mismatches. This makes
-    "freeze all N legs while a velocity command is active" actively
-    penalised (= -N_legs) rather than merely unrewarded (= 0), which
-    was the prior behaviour and let policies skip gait collection to
-    cheat e.g. track_ang_vel_z by twisting joints in place.
+    The previous form scored each foot against an ABSOLUTE phase clock
+    (``episode_length_buf * step_dt % period``). That forced the policy to
+    lock its footfalls to an external wall-clock unrelated to its own leg
+    state, with a hand-picked period — the source of the "chaotic rhythm"
+    the user saw: mid-training the policy can never match the phantom clock,
+    so the reward flickers and never settles. This form judges ONLY the
+    relationship between the legs, so a steady rhythm is free to self-organise
+    at whatever frequency the robot's mass/legs prefer.
 
-    The command_norm gate keeps gait inactive on zero-command stances
-    (stand motion), so this stricter shaping does not collide with the
-    intent to stay still when commanded.
+    The ``offset`` (IR-role-keyed, emitted from ``{ir_gait_phase:feet}``)
+    partitions the feet into the two diagonal trot groups:
+      * group A = feet whose phase offset is ~0.0  ({FL, RR}; biped {L}),
+      * group B = feet whose phase offset is ~0.5  ({FR, RL}; biped {R}).
+    A correct trot has the two groups in ANTIPHASE at every instant: one group
+    planted while the other swings. We score that directly as the absolute
+    difference of the two groups' mean ground contact:
 
-    The default ``offset`` is resolved from ``len(sensor_cfg.body_ids)``
-    at runtime (4-foot -> trot [0, 0.5, 0.5, 0]; 2-foot -> alternating
-    [0, 0.5]). This is dispatch on the runtime-discovered foot count
-    from the sensor; the reward source carries no family-keyed literal.
+        reward = | mean(contact[group A]) - mean(contact[group B]) |   in [0,1]
+
+      * trot       (A planted, B airborne, or vice-versa) -> |1-0| = 1.0 (max),
+      * standing   (all four planted)                     -> |1-1| = 0,
+      * pronk      (all four airborne)                    -> |0-0| = 0,
+      * bound      (front pair vs back pair) -> each diagonal group is split
+        50/50 -> |0.5-0.5| = 0  (bound is correctly NOT a trot),
+      * single-leg twitch (one of a pair lifts) -> |0.5-1| = 0.5 (< a real trot).
+
+    Crucially this CANNOT be farmed statically: holding |diff|=1 requires one
+    group airborne, and airborne feet must eventually land (physics), flipping
+    the groups — so maximising the integral forces continuous alternation = a
+    self-consistent rhythm, with NO imposed period. Stride DURATION is shaped
+    separately by feet_air_time and lift height by feet_clearance; this term is
+    pure phasing, exactly as before.
+
+    ``offset`` is REQUIRED and keyed by IR role, never list position (§8): a
+    positional guess is how a trot silently mis-pairs into a bound. The two
+    groups are split at offset 0.25 so the {0.0, 0.5} trot phases land cleanly
+    on either side regardless of feet ordering.
     """
     import torch
-    # period<=0 is the "auto" sentinel the canvas compiler emits when the
-    # Rewards node "Value" chip is unset (parse_item_value -> None -> 0.0).
-    # Fall back to the canonical default so the gait period stays
-    # single-sourced here (the il_params template carries {item_value}, no
-    # second 0.8 literal).
-    if period is None or period <= 0.0:
-        period = 0.8
     if offset is None:
-        n_feet = len(sensor_cfg.body_ids)
-        if n_feet == 4:
-            offset = [0.0, 0.5, 0.5, 0.0]
-        elif n_feet == 2:
-            offset = [0.0, 0.5]
-        else:
-            raise ValueError(
-                f"[_unitport_feet_gait] offset auto-default supports "
-                f"n_feet in {{2, 4}} (resolved via len(sensor_cfg."
-                f"body_ids)); got n_feet={n_feet}. Either provide an "
-                f"explicit offset list of length {n_feet} in il_params "
-                f"or fix the feet IR mapping for the bound robot."
-            )
+        raise ValueError(
+            "[_unitport_feet_gait] offset is REQUIRED and must be the "
+            "IR-role-keyed gait phase the compiler emits from "
+            "{ir_gait_phase:feet} (one phase per foot, aligned to {ir:feet}). "
+            "Refusing to guess a positional default — that is how a trot "
+            "silently mis-pairs into a bound. Fix the feet IR mapping for the "
+            "affected robot."
+        )
+    if len(offset) != len(sensor_cfg.body_ids):
+        raise ValueError(
+            f"[_unitport_feet_gait] offset length {len(offset)} != number of "
+            f"feet {len(sensor_cfg.body_ids)} (body_ids). The IR-keyed offset "
+            f"and the {{ir:feet}} body list must be the same ordered set."
+        )
     contact_sensor = env.scene.sensors[sensor_cfg.name]
-    is_contact = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0
-    global_phase = ((env.episode_length_buf * env.step_dt) % period / period).unsqueeze(1)
-    phases = []
-    for off in offset:
-        phases.append((global_phase + off) % 1.0)
-    leg_phase = torch.cat(phases, dim=-1)
-    reward = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
-    for i in range(len(sensor_cfg.body_ids)):
-        is_stance = leg_phase[:, i] < threshold
-        match = ~(is_stance ^ is_contact[:, i])
-        reward += match.float() * 2.0 - 1.0
-    if command_name is not None:
-        cmd_norm = torch.norm(env.command_manager.get_command(command_name), dim=1)
-        reward *= (cmd_norm > 0.1).float()
-    return reward
+    is_contact = (
+        contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0
+    ).float()                                            # (n, n_feet) in {0,1}
+    # Partition feet into the two diagonal groups by their IR-keyed phase
+    # offset (~0.0 vs ~0.5). Built on the device/dtype of the contact tensor.
+    group_a = [i for i, off in enumerate(offset) if float(off) < 0.25]
+    group_b = [i for i, off in enumerate(offset) if float(off) >= 0.25]
+    if not group_a or not group_b:
+        raise ValueError(
+            "[_unitport_feet_gait] gait offset did not split into two diagonal "
+            f"groups (offset={list(offset)}). Expected ~0.0 and ~0.5 phases "
+            "from {ir_gait_phase:feet}."
+        )
+    a_idx = torch.as_tensor(group_a, device=is_contact.device, dtype=torch.long)
+    b_idx = torch.as_tensor(group_b, device=is_contact.device, dtype=torch.long)
+    mean_a = is_contact.index_select(1, a_idx).mean(dim=1)
+    mean_b = is_contact.index_select(1, b_idx).mean(dim=1)
+    # Antiphase between the two diagonal groups: 1.0 for a clean trot instant,
+    # 0 for standing / pronk / bound. Always in [0, 1] (no "don't move" valley).
+    return torch.abs(mean_a - mean_b)
 '''
 
 
@@ -81,7 +102,12 @@ ENTRY = reward_item(
     key='gait',
     polarity='reward',
     title='Gait Rhythm',
-    desc='Periodic gait reward — encourages regular alternating footfalls with a target period and phase offset. Needs params: period (s), offset (per-foot phase array).',
+    desc=(
+        'Clock-free diagonal-coordination reward: rewards the correct trot '
+        'PATTERN (diagonal foot pairs in antiphase) at every instant, with no '
+        'imposed period — a steady rhythm self-organises. Pair with Feet Air '
+        'Time (stride duration) and Feet Clearance (lift height).'
+    ),
     default=0.5,
     min_value=0.0,
     max_value=5.0,
@@ -91,21 +117,16 @@ ENTRY = reward_item(
     algorithms=frozenset({ALG_PPO, ALG_AMP}),
     il_func='_unitport_feet_gait',
     il_module=IL_MOD_INLINE,
-    # ``{item_value}`` = the per-item "Value" chip (gait period, s). 0.0 =
-    # auto -> the inline reward falls back to its canonical 0.8 s default.
-    # Period is robot-scale-dependent (longer/heavier legs swing slower), so
-    # it is tunable per-canvas here rather than a hidden constant.
-    # offset is no longer hardcoded in il_params -- the inline source
-    # resolves the default per-family from len(sensor_cfg.body_ids) at
-    # runtime (4-foot trot / 2-foot alternating). Callers may still
-    # override by adding ``"offset": [..],`` here for non-default
-    # phasings.
-    il_params='"period": {item_value}, "sensor_cfg": SceneEntityCfg("contact_forces", body_names={ir:feet}), "threshold": 0.5, "command_name": "base_velocity"',
+    # ``offset`` is emitted from ``{ir_gait_phase:feet}`` — the per-foot gait
+    # phase ``body_ir.gait_phase_offsets_for_roles`` derives from each foot's
+    # IR ROLE (not its list position), aligned 1:1 with the ``{ir:feet}``
+    # body_names. ``preserve_order=True`` keeps the contact ``body_ids`` in that
+    # same IR-resolved order so ``offset[i]`` lines up with foot i. No period /
+    # Value chip: the reward judges only the inter-leg phase relationship.
+    il_params=(
+        '"offset": {ir_gait_phase:feet}, '
+        '"sensor_cfg": SceneEntityCfg("contact_forces", body_names={ir:feet}, '
+        'preserve_order=True)'
+    ),
     il_inline=INLINE_SOURCE,
-    il_value_label='Gait Period',
-    il_value_default=0.0,
-    il_value_min=0.0,
-    il_value_max=5.0,
-    il_value_step=0.05,
-    il_value_unit='s',
 )

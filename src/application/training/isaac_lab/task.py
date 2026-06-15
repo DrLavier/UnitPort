@@ -316,12 +316,20 @@ class IsaacLabTrainingTask(TrainingTask):
             # reward_max / policy_loss / value_loss / kl / entropy /
             # ep_len_mean / amp_* all appear as their own series.
             if isinstance(data, dict):
-                try:
-                    rew = float(data.get("reward_mean", 0.0))
-                    if rew > self._last_reward:
-                        self._last_reward = rew
-                except Exception:
-                    pass
+                # Only the primary rsl_rl block carries reward_mean; auxiliary
+                # MSG_METRICS samples (per-command cmd_reward_* lines) do NOT.
+                # The old ``.get("reward_mean", 0.0)`` defaulted those to a fake
+                # 0.0 — and whenever the real running max was negative (common
+                # early in training), 0.0 > max bumped self._last_reward up to
+                # 0, sawtoothing the Best-reward curve. CLAUDE.md §8: a missing
+                # value must never be substituted with a real-looking default.
+                if "reward_mean" in data:
+                    try:
+                        rew = float(data["reward_mean"])
+                        if rew > self._last_reward:
+                            self._last_reward = rew
+                    except Exception:
+                        pass
                 sample = dict(data)
                 sample.setdefault("step", self._last_iter)
                 sample.setdefault("total_timesteps", self._last_total)
@@ -371,7 +379,16 @@ class IsaacLabTrainingTask(TrainingTask):
         without each having to recompute it from ``reward_mean``.
         """
         enriched = dict(sample)
-        if self._last_reward != float("-inf") and "best_reward" not in enriched:
+        # Best-reward (running max) rides ONLY the primary reward stream
+        # (samples carrying reward_mean). Auxiliary samples — per-command
+        # cmd_reward_* — must not inject extra points into the best_reward
+        # series (they would at best duplicate it, and any value/x skew there
+        # reintroduces the historical zig-zag the MSG_PROGRESS note describes).
+        if (
+            "reward_mean" in enriched
+            and self._last_reward != float("-inf")
+            and "best_reward" not in enriched
+        ):
             enriched["best_reward"] = float(self._last_reward)
         try:
             get_metrics_cache().record(self.run_id, enriched)

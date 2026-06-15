@@ -1330,6 +1330,41 @@ class CanvasPage(QWidget):
             log_debug("[ui.canvas] from_workflow_dict: detected legacy 'training_canvas_v1' — migrating to IR-shape")
             data = _legacy_to_ir(data)
 
+        # 缺口② — graph-level fold: merge a legacy two-node il_observation
+        # (group_name policy + critic) into a single node before per-node shims.
+        # Idempotent (metadata.obs_merge_v1). Shared with the bootstrap migrator.
+        from application.compiler.obs_group_merge import merge_obs_groups
+        merge_obs_groups(data)
+
+        # Bug#1 — reconcile legacy log-space init_noise_std to the direct-std
+        # convention (a <= 0 value is exp()'d to preserve the realized std and
+        # WARNs; positive values are kept verbatim). Idempotent
+        # (metadata.init_noise_std_direct_v1). Shared with the bootstrap migrator.
+        from application.compiler.init_noise_std_migrate import (
+            migrate_init_noise_std_direct,
+        )
+        migrate_init_noise_std_direct(data)
+
+        # RC-4 — strip deprecated AMP hyperparams off the trainer node so
+        # the discriminator node is the unambiguous single source (the
+        # consumer reads il.amp.*, populated from the discriminator).
+        # Idempotent (metadata.amp_trainer_fields_stripped_v1).
+        from application.compiler.amp_trainer_field_strip import (
+            strip_deprecated_amp_trainer_fields,
+        )
+        strip_deprecated_amp_trainer_fields(data)
+
+        # "item id IS its name" — fold legacy ``new_item_*`` training-item keys
+        # (opaque id + dead ``title`` field) to registered command ids, drop the
+        # title, rewrite ``reward_in__<old>`` edges, and register the name as a
+        # user command (inheriting a matching builtin's velocity template).
+        # Idempotent (metadata.training_item_ids_v1). Shared with the bootstrap
+        # migrator (bootstrap/migrate_canvas_training_item_ids.py).
+        from application.compiler.training_item_id_migrate import (
+            migrate_training_item_ids,
+        )
+        migrate_training_item_ids(data)
+
         # Per-schema migration shims — run once per load before any
         # IRParam construction so v2 nodes see only the canonical fields.
         for _n in (data.get("nodes") or []):

@@ -20,6 +20,9 @@ delete = Supprimer
 add_node = Ajouter un nœud
 paste_here = Coller ici (Ctrl+V)
 
+[minimenu]
+placeholder = (bientôt disponible)
+
 [btn]
 node_lib.tip = Bibliothèque de nœuds
 
@@ -125,8 +128,8 @@ col_name = Nom
 col_param = Valeur
 col_scale = Échelle
 col_threshold = Seuil
-col_value = Valeur
 col_weight = Poids
+col_value = Valeur
 
 [reward_pager]
 global = Global (toutes)
@@ -134,4 +137,13 @@ summary = {n} groupes
 col_group = Partition
 col_count = Récompenses
 col_ops = Actions
+
+[training_motion]
+weight_set.button = Poids d'échantillonnage
+weight_set.title = Poids d'échantillonnage
+weight_set.hint = Faites glisser la limite entre deux parts pour déplacer le poids entre elles ; ou cliquez sur un pourcentage pour le saisir (seul cet élément change). Appliquer s'active lorsque le total est exactement 100 %%.
+weight_set.total = Total
+weight_set.reset = Réinitialiser (uniforme)
+weight_set.ok = Appliquer
+weight_set.cancel = Annuler
 

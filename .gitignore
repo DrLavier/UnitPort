@@ -1,10 +1,19 @@
 # Python venv (dev only)
 venv/
 .venv311/
+Engines/
+
+# DEV Tools
 .claude/
 CLAUDE.md
-.gitignore
-.pytest_cache/
+.examples/
+
+
+# Local-only development notes: planning, audit evidence, design WIP,
+# Claude Code working set. Source code must not reference anything in
+# here; release packaging excludes the directory explicitly (see
+# application/service/updater/channels/source_zip.py).
+knowledge_base/
 
 # pip temp + cache (redirected by install.bat/install.sh onto the project drive)
 .pip-tmp/

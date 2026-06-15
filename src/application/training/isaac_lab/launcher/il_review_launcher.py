@@ -78,6 +78,17 @@ parser.add_argument(
          "launcher generates a minimal viewport-only experience under "
          "<root>/apps/ and selects it — avoiding the full Kit GUI "
          "omni.kit.menu.utils crash.")
+parser.add_argument(
+    "--init_base_pos", type=str, default="",
+    help="Optional UI init-pose override base pose as 'x,y,z' (m). Empty "
+         "(default) → spawn at the registry target_height. Changes only the "
+         "spawn pose, never the policy action neutral offset.")
+parser.add_argument(
+    "--init_joint_pos_by_ir", type=str, default="{}",
+    help="Optional UI init-pose override: IR-role keyed joint angles dict, "
+         "JSON-encoded. Empty dict (default) → spawn at the bundle's frozen "
+         "deploy_contract.default_joint_pos. Converted into bundle joint "
+         "order via InitPoseOverride.to_bundle_order.")
 
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -126,6 +137,10 @@ import yaml
 # Registry lookup for robot SKU → USD path.
 from registers import RegistryHub
 from registers.robots import get_robot_spec, resolve_id
+
+# Canonical IR-keyed-override → bundle-order conversion (pure dataclass,
+# Kit-safe). Same call MujocoReviewTask uses, so spawn ordering matches.
+from application.service.robot_init_poses import InitPoseOverride
 
 # ── 4. Bundle load + validation ──────────────────────────────────────────
 
@@ -278,6 +293,57 @@ print(f"[review] bundle={bundle_dir.name} sku={sku_canonical} "
 print(f"[review] n_joints={n_joints} sim_dt={sim_dt} decimation={decimation} "
       f"action_scale={action_scale}", flush=True)
 
+# ── 4b. Resolve spawn pose (optional UI init-pose override) ──────────────
+# The override changes ONLY the spawn pose. The policy action neutral
+# offset (default_pos_tensor below) stays the contract's default_joint_pos
+# — parity with MujocoReviewTask, which sets env.set_init_joint_pos_override
+# for the spawn while keeping default_joint_pos as the action offset.
+spawn_base_pos = (0.0, 0.0, float(getattr(spec, "target_height", 0.5) or 0.5))
+spawn_joint_pos = list(default_joint_pos)
+try:
+    override_ir = json.loads(args_cli.init_joint_pos_by_ir or "{}")
+except json.JSONDecodeError as exc:
+    raise ValueError(
+        f"--init_joint_pos_by_ir is not valid JSON: {exc}; got "
+        f"{args_cli.init_joint_pos_by_ir!r}"
+    ) from exc
+if not isinstance(override_ir, dict):
+    raise ValueError(
+        f"--init_joint_pos_by_ir must JSON-decode to an object; got "
+        f"{type(override_ir).__name__}"
+    )
+if override_ir:
+    cleaned_ir: dict = {}
+    for k, v in override_ir.items():
+        try:
+            cleaned_ir[str(k)] = float(v)
+        except (TypeError, ValueError):
+            continue
+    base_pos_str = str(args_cli.init_base_pos or "").strip()
+    if base_pos_str:
+        parts = [p.strip() for p in base_pos_str.split(",")]
+        if len(parts) != 3:
+            raise ValueError(
+                f"--init_base_pos must be 'x,y,z'; got {args_cli.init_base_pos!r}"
+            )
+        spawn_base_pos = (float(parts[0]), float(parts[1]), float(parts[2]))
+    override = InitPoseOverride(
+        base_pos=spawn_base_pos,
+        joint_pos_by_ir=cleaned_ir,
+    )
+    # bundle_ir_roles = joint_sdk_names (the contract joint order), identical
+    # to the MuJoCo replay call. Unmapped IR roles fall back to the bundle
+    # default at the matching index.
+    spawn_joint_pos = override.to_bundle_order(
+        bundle_ir_roles=joint_names,
+        default_joint_pos=default_joint_pos,
+    )
+    print(
+        f"[review] init_pose_override applied: base_pos={spawn_base_pos} "
+        f"overridden_ir={len(cleaned_ir)}/{n_joints}",
+        flush=True,
+    )
+
 # ── 5. Build minimal scene ───────────────────────────────────────────────
 
 @configclass
@@ -293,8 +359,8 @@ class _ReviewSceneCfg(InteractiveSceneCfg):
         prim_path="{ENV_REGEX_NS}/Robot",
         spawn=sim_utils.UsdFileCfg(usd_path=usd_path),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, 0.0, float(getattr(spec, "target_height", 0.5) or 0.5)),
-            joint_pos={name: float(p) for name, p in zip(joint_names, default_joint_pos)},
+            pos=spawn_base_pos,
+            joint_pos={name: float(p) for name, p in zip(joint_names, spawn_joint_pos)},
         ),
         actuators={
             "all_joints": ImplicitActuatorCfg(

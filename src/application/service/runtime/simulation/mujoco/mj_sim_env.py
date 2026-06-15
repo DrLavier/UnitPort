@@ -467,30 +467,40 @@ class MjSimEnv(SimEnvContext):
                                 "(deepest penetration first):\n%s",
                                 ncon, "\n".join(lines) if lines else "  (none)",
                             )
-                            foot_names = ("FL", "FR", "RL", "RR")
-                            foot_lines = []
-                            for name in foot_names:
-                                gid = mujoco.mj_name2id(
+                            # Lowest robot collision geoms by world z — the
+                            # standing footprint, family-agnostic. A hardcoded
+                            # FL/FR/RL/RR quadruped name list printed "not found"
+                            # for bipeds/humanoids (H1); the lowest collision
+                            # geoms ARE the feet at standing pose regardless of
+                            # morphology, and naming them is what this diagnostic
+                            # actually wants.
+                            geom_zs: list = []
+                            for gid in range(int(self.mj_model.ngeom)):
+                                bid = int(self.mj_model.geom_bodyid[gid])
+                                if int(self.mj_model.body_rootid[bid]) == 0:
+                                    continue
+                                if (int(self.mj_model.geom_contype[gid])
+                                        | int(self.mj_model.geom_conaffinity[gid])
+                                        ) == 0:
+                                    continue
+                                nm = mujoco.mj_id2name(
                                     self.mj_model,
-                                    int(mujoco.mjtObj.mjOBJ_GEOM),
-                                    name,
+                                    int(mujoco.mjtObj.mjOBJ_GEOM), gid,
                                 )
-                                if gid >= 0:
-                                    p = self.mj_data.geom_xpos[gid]
-                                    foot_lines.append(
-                                        f"  geom {name!r} xpos="
-                                        f"({float(p[0]):+.4f},"
-                                        f" {float(p[1]):+.4f},"
-                                        f" {float(p[2]):+.4f})"
-                                    )
-                                else:
-                                    foot_lines.append(
-                                        f"  geom {name!r} not found"
-                                    )
+                                p = self.mj_data.geom_xpos[gid]
+                                geom_zs.append(
+                                    (float(p[2]), nm or f"#{gid}",
+                                     float(p[0]), float(p[1]))
+                                )
+                            geom_zs.sort(key=lambda t: t[0])
+                            foot_lines = [
+                                f"  geom {nm!r} xpos=({x:+.4f}, {y:+.4f}, {z:+.4f})"
+                                for z, nm, x, y in geom_zs[:6]
+                            ]
                             log.info(
-                                "MjSimEnv.reset: foot world positions "
-                                "(geom_xpos):\n%s",
-                                "\n".join(foot_lines),
+                                "MjSimEnv.reset: lowest robot collision geoms "
+                                "(standing footprint, geom_xpos):\n%s",
+                                "\n".join(foot_lines) if foot_lines else "  (none)",
                             )
                         except Exception:
                             log.exception(

@@ -8,8 +8,14 @@ business widgets per RELEASE/CLAUDE.md §5 SDK extension policy).
 """
 from __future__ import annotations
 
+from .canvas_mini_menu import CanvasMiniMenu
 from .mission_control_panel import MissionControlPanel
 from .mission_control_tab import MissionControlTab
 from .sys_monitor import SysMonitorWidget
 
-__all__ = ["MissionControlPanel", "MissionControlTab", "SysMonitorWidget"]
+__all__ = [
+    "CanvasMiniMenu",
+    "MissionControlPanel",
+    "MissionControlTab",
+    "SysMonitorWidget",
+]

@@ -330,6 +330,12 @@ def _migrate_one(path: Path, *, dry_run: bool) -> bool:
     file_label = path.name
     any_change = False
     any_change |= _migrate_obs_terms_in_canvas(canvas, file_label=file_label)
+    # 缺口② — fold legacy two-node il_observation (policy+critic) → one node.
+    from application.compiler.obs_group_merge import merge_obs_groups
+    any_change |= merge_obs_groups(canvas)
+    # Bug#1 — fold legacy log-space init_noise_std → direct std (exp on <=0).
+    from application.compiler.init_noise_std_migrate import migrate_init_noise_std_direct
+    any_change |= migrate_init_noise_std_direct(canvas)
     any_change |= _migrate_joint_names_in_canvas(canvas, file_label=file_label)
     any_change |= _drop_disc_hidden_dims(canvas)
     any_change |= _drop_train_config_edges(canvas)

@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+# -----------------------------------------------------------------------------
+# Unitree Go2 - recommended PD/actuator preset (brand DATA).
+#
+# DATA ONLY. No brand-specific logic (CLAUDE.md §1); the mechanism (a
+# recommended (omega_n, zeta) preset consumed by the RobotNode pd_param_table
+# AUTO button) is generic — this file contributes only the numbers.
+#
+# WHY THIS FILE EXISTS (the bug it fixes):
+# Go2's asset USD is NVIDIA's Nucleus `Robots/Unitree/Go2/go2.usd`, whose joint
+# DriveAPI ships PLACEHOLDER "make-it-rigid" gains (stiffness=1e7, damping=1e5)
+# rather than tuned PD — the real Go2 gains live in IsaacLab's Python actuator
+# config (UNITREE_GO2_CFG), applied at runtime, NOT baked into the USD. So the
+# AUTO button's USD-drive reverse-derive (pd_preview._usd_drive_recommendation)
+# correctly REJECTS those out-of-band values (omega_n≈17400, zeta≈87) and would
+# otherwise fall through to the quadruped FAMILY default, which is tuned for the
+# BD series (over-damped for a lightweight Unitree quadruped → "mushy" hips →
+# the legs cannot swing → the trained policy never develops a forward gait).
+# A brand manifest is AUTO's HIGHEST-priority PD source (above USD and family),
+# which is exactly the layer meant to carry a robot's real gains when its USD
+# does not. Mirrors registers/brands/boston_dynamics/spot/manifest.yaml.
+#
+# Robot identity is the (brand, model) pair → canonical SKU at consume-time via
+# registers.robots; no SKU hash or free-form display name here (CLAUDE.md §7).
+# -----------------------------------------------------------------------------
+manifest_version: 1
+
+robot:
+  brand: unitree
+  model: go2
+
+# Official recommended PD preset, stored as the canonical (omega_n, zeta)
+# parameterization (CLAUDE.md §10) — NOT raw kp/kd.
+#
+# Derivation: IsaacLab UNITREE_GO2_CFG (DCMotorCfg) publishes a flat
+# stiffness=25 N·m/rad, damping=0.5 N·m·s/rad on every leg joint (hip/thigh/
+# calf), with effort_limit≈23.5 N·m and velocity_limit=30 rad/s. Back-solving
+# (omega_n, zeta) from kp=m_eff·ωn² / kd=2ζ·√(kp·m_eff) at Go2's menagerie MJCF
+# nominal-stance effective inertia (hip_x m_eff≈0.0336, hip_y≈0.0304,
+# knee≈0.0163) reproduces kp≈25, kd≈0.50 element-by-element:
+#   hip_x: ωn=27.3 ζ=0.27   hip_y: ωn=28.7 ζ=0.29   knee: ωn=39.1 ζ=0.39
+# The knee ζ=0.39 matches the empirical Unitree-series knee damping; the family
+# default (BD-aligned, ζ≈0.78) leaves Unitree knees over-damped (v1.1.0 release
+# notes, "Known limitations"). The panel re-derives exact per-joint kp/kd from
+# the live MJCF, so these are a faithful starting preset, not a hardcoded gain.
+#
+# effort_limit / velocity_limit are intentionally OMITTED: Go2's USD authors
+# real per-joint max_force (hip≈23.7, calf≈45.43 N·m) and max_velocity (30.1
+# rad/s), which the AUTO caps path consumes independently of the (rejected)
+# drive gains — a scalar here would replace those richer per-joint caps.
+recommended_actuators:
+  source: "IsaacLab UNITREE_GO2_CFG (DCMotorCfg stiffness=25, damping=0.5)"
+  pd_groups:
+    hip_x: { omega_n: 27.3, zeta: 0.27 }
+    hip_y: { omega_n: 28.7, zeta: 0.29 }
+    knee:  { omega_n: 39.1, zeta: 0.39 }

@@ -42,10 +42,10 @@ from .isaac_lab_installer import (
     IsaacLabInstaller,
 )
 from .custom_mods_manifest import (
+    BUILTIN_REFERENCE_MOTION_PACKS,
     CustomModEntry,
     entry_already_installed,
     load_manifest_entries,
-    manifest_path,
 )
 
 __all__ = [
@@ -62,7 +62,7 @@ __all__ = [
     "InstallerPreflightError",
     "InstallerSubprocessError",
     "CustomModEntry",
+    "BUILTIN_REFERENCE_MOTION_PACKS",
     "load_manifest_entries",
-    "manifest_path",
     "entry_already_installed",
 ]

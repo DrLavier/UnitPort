@@ -4,9 +4,9 @@
   "robot_id": "b1f3e435aabe",
   "metadata": {
     "view": {
-      "zoom": 0.49987377175757947,
-      "center_x": -916.2313085354541,
-      "center_y": 470.1186845105496
+      "zoom": 0.5762040991640413,
+      "center_x": -926.7549480726168,
+      "center_y": 421.72556625776383
     }
   },
   "nodes": [
@@ -32,13 +32,13 @@
         },
         "last_run_id": {
           "name": "last_run_id",
-          "value": "canvas__20260517T120118Z__4257e4",
+          "value": "canvas__20260612T185953Z__e7e8ce",
           "param_type": "string"
         }
       },
       "ui": {
-        "x": -2619.47187958425,
-        "y": 70.57405866981995,
+        "x": -2483.50188449102,
+        "y": 262.62993440298885,
         "width": 324.0,
         "height": 88.0,
         "collapsed": false
@@ -54,7 +54,7 @@
       "params": {
         "bundle_name": {
           "name": "bundle_name",
-          "value": "NEW_TEST",
+          "value": "GO2_PPO",
           "param_type": "string"
         },
         "overwrite": {
@@ -173,13 +173,28 @@
           "name": "init_noise_std",
           "value": "1.0",
           "param_type": "float"
+        },
+        "rnn_type": {
+          "name": "rnn_type",
+          "value": "none",
+          "param_type": "enum"
+        },
+        "rnn_hidden_size": {
+          "name": "rnn_hidden_size",
+          "value": 256,
+          "param_type": "int"
+        },
+        "rnn_num_layers": {
+          "name": "rnn_num_layers",
+          "value": 1,
+          "param_type": "int"
         }
       },
       "ui": {
-        "x": 3.3402298185319808,
-        "y": -100.04974915262594,
+        "x": -32.11742292260783,
+        "y": -273.9066271091824,
         "width": 324.0,
-        "height": 194.0,
+        "height": 266.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -197,7 +212,7 @@
             "illegal_contact": 1.0,
             "base_height": 0.2,
             "bad_orientation": 0.6,
-            "time_out": 15.0
+            "time_out": 30.0
           },
           "param_type": "json"
         },
@@ -226,7 +241,7 @@
         "x": -514.2056413179507,
         "y": 248.9000596213918,
         "width": 324.0,
-        "height": 343.0,
+        "height": 271.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -298,6 +313,41 @@
           "value": "[50, 150]",
           "param_type": "list"
         },
+        "sb3_enable_init_pose_rand": {
+          "name": "sb3_enable_init_pose_rand",
+          "value": false,
+          "param_type": "bool"
+        },
+        "sb3_init_pos_x_range": {
+          "name": "sb3_init_pos_x_range",
+          "value": "[-0.0, 0.0]",
+          "param_type": "list"
+        },
+        "sb3_init_pos_y_range": {
+          "name": "sb3_init_pos_y_range",
+          "value": "[-0.0, 0.0]",
+          "param_type": "list"
+        },
+        "sb3_init_yaw_range": {
+          "name": "sb3_init_yaw_range",
+          "value": "[-0.0, 0.0]",
+          "param_type": "list"
+        },
+        "sb3_enable_joint_noise": {
+          "name": "sb3_enable_joint_noise",
+          "value": false,
+          "param_type": "bool"
+        },
+        "sb3_joint_pos_noise": {
+          "name": "sb3_joint_pos_noise",
+          "value": 0.0,
+          "param_type": "float"
+        },
+        "sb3_joint_vel_noise": {
+          "name": "sb3_joint_vel_noise",
+          "value": 0.0,
+          "param_type": "float"
+        },
         "enable_friction_rand": {
           "name": "enable_friction_rand",
           "value": "true",
@@ -331,6 +381,11 @@
         "mass_mode": {
           "name": "mass_mode",
           "value": "reset",
+          "param_type": "enum"
+        },
+        "mass_target_scope": {
+          "name": "mass_target_scope",
+          "value": "root",
           "param_type": "enum"
         },
         "mass_target_body": {
@@ -420,10 +475,10 @@
         }
       },
       "ui": {
-        "x": -518.4987766462045,
-        "y": 680.5067798683476,
+        "x": -487.27613958417487,
+        "y": 694.4192632286507,
         "width": 324.0,
-        "height": 746.0,
+        "height": 674.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -431,60 +486,79 @@
       "color_override": "#6A3F2D"
     },
     {
-      "id": "1007",
+      "id": "1014",
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "action_rate_penalty": {
-              "weight": -0.01
-            },
-            "ang_vel_xy_penalty": {
-              "weight": -0.05
-            },
-            "dof_pos_limits": {
-              "weight": -2.0
-            },
-            "flat_orientation": {
-              "weight": -3.0
-            },
-            "joint_accel_penalty": {
-              "weight": -2.5e-07
-            },
-            "joint_torque_penalty": {
-              "weight": -0.0005
-            },
-            "joint_vel_penalty": {
-              "weight": -0.001
-            },
-            "lin_vel_z_penalty": {
-              "weight": -2.0
-            },
-            "joint_deviation_l1": {
-              "weight": -0.3
-            },
-            "track_lin_vel_xy": {
-              "weight": 1.5
-            },
-            "track_ang_vel_z": {
-              "weight": 0.5
-            },
-            "feet_air_time": {
-              "weight": 0.5
-            },
-            "gait": {
-              "weight": 1.0
-            },
-            "undesired_contacts": {
-              "weight": -2.0
-            },
-            "feet_slide": {
-              "weight": -0.3
-            },
-            "feet_clearance": {
-              "weight": 0.5
+            "__global__": {
+              "track_ang_vel_z": {
+                "weight": 2.0
+              },
+              "track_lin_vel_xy": {
+                "weight": 10.0
+              },
+              "track_fail_penalty": {
+                "weight": -2.0
+              },
+              "lin_vel_xy_penalty": {
+                "weight": 0.0
+              },
+              "lin_vel_z_penalty": {
+                "weight": -2.0
+              },
+              "ang_vel_xy_penalty": {
+                "weight": -0.05
+              },
+              "flat_orientation": {
+                "weight": -3.0
+              },
+              "joint_deviation_l1": {
+                "weight": -0.5
+              },
+              "dof_pos_limits": {
+                "weight": -3.0
+              },
+              "joint_torque_penalty": {
+                "weight": -0.0002
+              },
+              "joint_accel_penalty": {
+                "weight": -2.5e-07
+              },
+              "joint_vel_penalty": {
+                "weight": -2.5e-05
+              },
+              "action_rate_penalty": {
+                "weight": -0.01
+              },
+              "undesired_contacts": {
+                "weight": -2.0
+              },
+              "feet_slide": {
+                "weight": -0.2
+              },
+              "stand_still": {
+                "weight": 2.0
+              },
+              "base_height": {
+                "weight": -1.0,
+                "value": 0.28
+              },
+              "ang_vel_z_penalty": -0.1,
+              "termination_penalty": -1.0,
+              "alive_reward": 0.01
             }
           },
           "param_type": "json"
@@ -496,257 +570,20 @@
         },
         "threshold": {
           "name": "threshold",
-          "value": "0.4",
+          "value": "0.5",
           "param_type": "float"
         }
       },
       "ui": {
-        "x": -1752.7897348990668,
-        "y": -334.91372737695775,
+        "x": -1708.8296032834621,
+        "y": -348.15105777474196,
         "width": 324.0,
-        "height": 679.0,
+        "height": 918.0,
         "collapsed": false
       },
       "opaque_code": null,
       "disabled": false,
       "display_name_override": "Basic Moves Rewards",
-      "color_override": "#145511"
-    },
-    {
-      "id": "1013",
-      "schema_id": "rewards",
-      "kind": "custom",
-      "params": {
-        "reward_terms": {
-          "name": "reward_terms",
-          "value": {
-            "lin_vel_xy_penalty": {
-              "weight": -3.0
-            },
-            "ang_vel_z_penalty": {
-              "weight": -1.5
-            },
-            "lin_vel_z_penalty": {
-              "weight": -2.0
-            },
-            "ang_vel_xy_penalty": {
-              "weight": -0.2
-            },
-            "flat_orientation": {
-              "weight": -10.0
-            },
-            "joint_deviation_l1": {
-              "weight": -2.0
-            },
-            "dof_pos_limits": {
-              "weight": -3.0
-            },
-            "joint_torque_penalty": {
-              "weight": -0.0005
-            },
-            "joint_accel_penalty": {
-              "weight": -5e-07
-            },
-            "action_rate_penalty": {
-              "weight": -0.02
-            },
-            "undesired_contacts": {
-              "weight": -3.0
-            },
-            "feet_slide": {
-              "weight": -0.5
-            }
-          },
-          "param_type": "json"
-        },
-        "std": {
-          "name": "std",
-          "value": "0.5",
-          "param_type": "float"
-        },
-        "threshold": {
-          "name": "threshold",
-          "value": "0.5",
-          "param_type": "float"
-        }
-      },
-      "ui": {
-        "x": -1749.8491648808977,
-        "y": 350.29154077400386,
-        "width": 324.0,
-        "height": 551.0,
-        "collapsed": false
-      },
-      "opaque_code": null,
-      "disabled": false,
-      "display_name_override": "Stand Rewards",
-      "color_override": "#145511"
-    },
-    {
-      "id": "1014",
-      "schema_id": "rewards",
-      "kind": "custom",
-      "params": {
-        "reward_terms": {
-          "name": "reward_terms",
-          "value": {
-            "track_ang_vel_z": {
-              "weight": 1.5
-            },
-            "track_lin_vel_xy": {
-              "weight": 0.5
-            },
-            "lin_vel_xy_penalty": {
-              "weight": 0.0
-            },
-            "lin_vel_z_penalty": {
-              "weight": -2.0
-            },
-            "ang_vel_xy_penalty": {
-              "weight": -0.05
-            },
-            "flat_orientation": {
-              "weight": -2.0
-            },
-            "joint_deviation_l1": {
-              "weight": -0.5
-            },
-            "dof_pos_limits": {
-              "weight": -3.0
-            },
-            "joint_torque_penalty": {
-              "weight": -0.0008
-            },
-            "joint_accel_penalty": {
-              "weight": -2.5e-07
-            },
-            "joint_vel_penalty": {
-              "weight": -0.002
-            },
-            "action_rate_penalty": {
-              "weight": -0.01
-            },
-            "feet_air_time": {
-              "weight": 0.4
-            },
-            "gait": {
-              "weight": 0.8
-            },
-            "undesired_contacts": {
-              "weight": -2.0
-            },
-            "feet_slide": {
-              "weight": -0.4
-            }
-          },
-          "param_type": "json"
-        },
-        "std": {
-          "name": "std",
-          "value": "0.5",
-          "param_type": "float"
-        },
-        "threshold": {
-          "name": "threshold",
-          "value": "0.5",
-          "param_type": "float"
-        }
-      },
-      "ui": {
-        "x": -1351.0769630249454,
-        "y": -334.996441515051,
-        "width": 324.0,
-        "height": 679.0,
-        "collapsed": false
-      },
-      "opaque_code": null,
-      "disabled": false,
-      "display_name_override": "Turn Rewards",
-      "color_override": "#145511"
-    },
-    {
-      "id": "1015",
-      "schema_id": "rewards",
-      "kind": "custom",
-      "params": {
-        "reward_terms": {
-          "name": "reward_terms",
-          "value": {
-            "track_lin_vel_xy": {
-              "weight": 2.5
-            },
-            "track_ang_vel_z": {
-              "weight": 0.3
-            },
-            "ang_vel_z_penalty": {
-              "weight": -0.5
-            },
-            "lin_vel_z_penalty": {
-              "weight": -2.0
-            },
-            "ang_vel_xy_penalty": {
-              "weight": -0.05
-            },
-            "flat_orientation": {
-              "weight": -4.0
-            },
-            "joint_deviation_l1": {
-              "weight": -0.3
-            },
-            "dof_pos_limits": {
-              "weight": -2.0
-            },
-            "joint_torque_penalty": {
-              "weight": -0.0005
-            },
-            "joint_accel_penalty": {
-              "weight": -2.5e-07
-            },
-            "joint_vel_penalty": {
-              "weight": -0.001
-            },
-            "action_rate_penalty": {
-              "weight": -0.01
-            },
-            "feet_air_time": {
-              "weight": 0.5
-            },
-            "gait": {
-              "weight": 0.8
-            },
-            "undesired_contacts": {
-              "weight": -2.5
-            },
-            "feet_slide": {
-              "weight": -0.5
-            },
-            "feet_clearance": {
-              "weight": 0.6
-            }
-          },
-          "param_type": "json"
-        },
-        "std": {
-          "name": "std",
-          "value": "0.5",
-          "param_type": "float"
-        },
-        "threshold": {
-          "name": "threshold",
-          "value": "0.5",
-          "param_type": "float"
-        }
-      },
-      "ui": {
-        "x": -1351.484210350623,
-        "y": 353.08577807649647,
-        "width": 324.0,
-        "height": 711.0,
-        "collapsed": false
-      },
-      "opaque_code": null,
-      "disabled": false,
-      "display_name_override": "Pace & Strafe Rewards",
       "color_override": "#145511"
     },
     {
@@ -756,13 +593,15 @@
       "params": {
         "obs_terms": {
           "name": "obs_terms",
-          "value": "{\"base_lin_vel\": 2.0, \"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": 1.0, \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
+          "value": "{\"base_ang_vel\": 0.25, \"projected_gravity\": 1.0, \"velocity_command\": [2.0, 2.0, 0.25], \"joint_pos\": 1.0, \"joint_vel\": 0.05, \"last_action\": 1.0}",
           "param_type": "json"
         },
-        "group_name": {
-          "name": "group_name",
-          "value": "policy",
-          "param_type": "string"
+        "critic_privileged_terms": {
+          "name": "critic_privileged_terms",
+          "value": {
+            "base_lin_vel": 2.0
+          },
+          "param_type": "json"
         },
         "enable_corruption": {
           "name": "enable_corruption",
@@ -799,7 +638,7 @@
         "x": -507.97993739066067,
         "y": -319.8736521948979,
         "width": 324.0,
-        "height": 571.0,
+        "height": 530.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -821,19 +660,19 @@
           "value": "flat",
           "param_type": "enum"
         },
+        "custom_terrain_path": {
+          "name": "custom_terrain_path",
+          "value": "",
+          "param_type": "string"
+        },
+        "custom_terrain_vertical_scale": {
+          "name": "custom_terrain_vertical_scale",
+          "value": 0.005,
+          "param_type": "float"
+        },
         "gravity_z": {
           "name": "gravity_z",
           "value": "-9.81",
-          "param_type": "float"
-        },
-        "arena_extent_x": {
-          "name": "arena_extent_x",
-          "value": "10.0",
-          "param_type": "float"
-        },
-        "arena_extent_y": {
-          "name": "arena_extent_y",
-          "value": "10.0",
           "param_type": "float"
         },
         "friction_static": {
@@ -846,16 +685,6 @@
           "value": "0.8",
           "param_type": "float"
         },
-        "roughness_amplitude": {
-          "name": "roughness_amplitude",
-          "value": "0.08",
-          "param_type": "float"
-        },
-        "slope_max": {
-          "name": "slope_max",
-          "value": "20.0",
-          "param_type": "float"
-        },
         "curriculum_enabled": {
           "name": "curriculum_enabled",
           "value": "false",
@@ -865,6 +694,41 @@
           "name": "difficulty_levels",
           "value": "10",
           "param_type": "int"
+        },
+        "max_init_terrain_level": {
+          "name": "max_init_terrain_level",
+          "value": 5,
+          "param_type": "int"
+        },
+        "prop_pyramid_stairs": {
+          "name": "prop_pyramid_stairs",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_pyramid_stairs_inv": {
+          "name": "prop_pyramid_stairs_inv",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_boxes": {
+          "name": "prop_boxes",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_random_rough": {
+          "name": "prop_random_rough",
+          "value": 0.2,
+          "param_type": "float"
+        },
+        "prop_slope": {
+          "name": "prop_slope",
+          "value": 0.1,
+          "param_type": "float"
+        },
+        "prop_slope_inv": {
+          "name": "prop_slope_inv",
+          "value": 0.1,
+          "param_type": "float"
         },
         "height_scan_enabled": {
           "name": "height_scan_enabled",
@@ -893,10 +757,10 @@
         }
       },
       "ui": {
-        "x": -891.022584164471,
-        "y": 679.5100893759189,
+        "x": -859.7999471024414,
+        "y": 693.422572736222,
         "width": 324.0,
-        "height": 280.0,
+        "height": 232.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -910,8 +774,138 @@
       "params": {
         "training_items": {
           "name": "training_items",
-          "value": "{\"backward\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"forward_fast\": {\"enabled\": true, \"speed\": [1.0, 1.5], \"clip\": null, \"advanced\": {}}, \"forward_slow\": {\"enabled\": true, \"speed\": [0.0, 1.0], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": true, \"speed\": [0.5, 1.2], \"clip\": null, \"advanced\": {}}, \"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": null, \"advanced\": {}}, \"strafe_left\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"strafe_right\": {\"enabled\": true, \"speed\": [0.0, 1.2], \"clip\": null, \"advanced\": {}}, \"turn\": {\"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.5, 1.5]}}, \"clip\": null, \"enabled\": true, \"speed\": [0.3, 1.0]}, \"turn_left\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"turn_right\": {\"enabled\": true, \"speed\": [0.3, 1.0], \"clip\": null, \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.0, 1.5], \"clip\": null, \"advanced\": {\"command_overrides\": {\"ang_vel_z\": [-1.2, 1.2], \"lin_vel_x\": [-1.5, 1.5], \"lin_vel_y\": [-1.2, 1.2]}}}}",
+          "value": {
+            "backward": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.2
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "forward_fast": {
+              "enabled": false,
+              "speed": [
+                1.0,
+                1.5
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "forward_slow": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.0
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "pace": {
+              "enabled": false,
+              "speed": [
+                0.5,
+                1.2
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "stand": {
+              "enabled": true,
+              "speed": [
+                0.0,
+                0.0
+              ],
+              "clip": null,
+              "advanced": {},
+              "weight": 0.08
+            },
+            "strafe_left": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.2
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "strafe_right": {
+              "enabled": false,
+              "speed": [
+                0.0,
+                1.2
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "turn": {
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    -1.5,
+                    1.5
+                  ]
+                }
+              },
+              "clip": null,
+              "enabled": true,
+              "speed": [
+                0.3,
+                1.0
+              ],
+              "weight": 0.22
+            },
+            "turn_left": {
+              "enabled": false,
+              "speed": [
+                0.3,
+                1.0
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "turn_right": {
+              "enabled": false,
+              "speed": [
+                0.3,
+                1.0
+              ],
+              "clip": null,
+              "advanced": {}
+            },
+            "walk": {
+              "enabled": true,
+              "speed": [
+                0.0,
+                1.5
+              ],
+              "clip": null,
+              "advanced": {
+                "command_overrides": {
+                  "ang_vel_z": [
+                    -1.2,
+                    1.2
+                  ],
+                  "lin_vel_x": [
+                    -1.5,
+                    1.5
+                  ],
+                  "lin_vel_y": [
+                    -1.2,
+                    1.2
+                  ]
+                }
+              },
+              "weight": 0.7
+            }
+          },
           "param_type": "json"
+        },
+        "weight_set": {
+          "name": "weight_set",
+          "value": "",
+          "param_type": "string"
         },
         "mapping_mode": {
           "name": "mapping_mode",
@@ -981,25 +975,50 @@
         "resampling_time_range": {
           "name": "resampling_time_range",
           "value": [
-            4.0,
-            8.0
+            10.0,
+            15.0
           ],
           "param_type": "list"
-        },
-        "zero_command_probability": {
-          "name": "zero_command_probability",
-          "value": "0.10",
-          "param_type": "float"
         },
         "cmd_step_change_prob": {
           "name": "cmd_step_change_prob",
           "value": "0.15",
           "param_type": "float"
         },
-        "consumption_mode": {
-          "name": "consumption_mode",
-          "value": "tracking_target",
-          "param_type": "enum"
+        "heading_command": {
+          "name": "heading_command",
+          "value": false,
+          "param_type": "bool"
+        },
+        "heading_control_stiffness": {
+          "name": "heading_control_stiffness",
+          "value": 0.5,
+          "param_type": "float"
+        },
+        "heading_range": {
+          "name": "heading_range",
+          "value": "[-3.141592653589793, 3.141592653589793]",
+          "param_type": "list"
+        },
+        "adaptive_motion_enabled": {
+          "name": "adaptive_motion_enabled",
+          "value": false,
+          "param_type": "bool"
+        },
+        "adaptive_update_interval": {
+          "name": "adaptive_update_interval",
+          "value": 50,
+          "param_type": "int"
+        },
+        "adaptive_weight_floor": {
+          "name": "adaptive_weight_floor",
+          "value": 0.03,
+          "param_type": "float"
+        },
+        "adaptive_weight_ceil": {
+          "name": "adaptive_weight_ceil",
+          "value": 0.3,
+          "param_type": "float"
         },
         "phase_mode": {
           "name": "phase_mode",
@@ -1033,7 +1052,7 @@
         },
         "command_curriculum_ramp_iters": {
           "name": "command_curriculum_ramp_iters",
-          "value": "2500",
+          "value": "1000",
           "param_type": "int"
         },
         "reference_state_init_enabled": {
@@ -1050,13 +1069,18 @@
           "name": "rsi_joint_noise",
           "value": 0.02,
           "param_type": "float"
+        },
+        "consumption_mode": {
+          "name": "consumption_mode",
+          "value": "tracking_target",
+          "param_type": "enum"
         }
       },
       "ui": {
-        "x": -901.9039084417428,
-        "y": -326.88308092356675,
+        "x": -915.6294514383129,
+        "y": -345.18380491899376,
         "width": 324.0,
-        "height": 915.0,
+        "height": 707.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -1095,8 +1119,31 @@
         },
         "pd_groups": {
           "name": "pd_groups",
-          "value": "{}",
+          "value": {
+            "hip_x": {
+              "omega_n": 27.3,
+              "zeta": 0.27
+            },
+            "hip_y": {
+              "omega_n": 28.7,
+              "zeta": 0.29
+            },
+            "knee": {
+              "omega_n": 39.1,
+              "zeta": 0.39
+            }
+          },
           "param_type": "json"
+        },
+        "effort_limit": {
+          "name": "effort_limit",
+          "value": 45.43,
+          "param_type": "float"
+        },
+        "velocity_limit": {
+          "name": "velocity_limit",
+          "value": 30.1,
+          "param_type": "float"
         },
         "pd_resolve_at_reset": {
           "name": "pd_resolve_at_reset",
@@ -1115,10 +1162,10 @@
         }
       },
       "ui": {
-        "x": -2616.946829441307,
-        "y": 185.17339711827847,
+        "x": -2480.0874988776427,
+        "y": 420.4913720997349,
         "width": 324.0,
-        "height": 656.0,
+        "height": 608.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -1130,6 +1177,11 @@
       "schema_id": "actor_setting",
       "kind": "custom",
       "params": {
+        "init_pose_preset": {
+          "name": "init_pose_preset",
+          "value": "",
+          "param_type": "string"
+        },
         "init_pos_x": {
           "name": "init_pos_x",
           "value": "0.0",
@@ -1147,7 +1199,20 @@
         },
         "init_joint_angles": {
           "name": "init_joint_angles",
-          "value": "{\"hip_FL\": 0.0, \"thigh_FL\": 0.9, \"calf_FL\": -1.8, \"hip_FR\": 0.0, \"thigh_FR\": 0.9, \"calf_FR\": -1.8, \"hip_RL\": 0.0, \"thigh_RL\": 0.9, \"calf_RL\": -1.8, \"hip_RR\": 0.0, \"thigh_RR\": 0.9, \"calf_RR\": -1.8}",
+          "value": {
+            "hip_FL": 0.0,
+            "hip_FR": 0.0,
+            "hip_RL": 0.0,
+            "hip_RR": 0.0,
+            "thigh_FL": 0.9,
+            "calf_FL": -1.8,
+            "thigh_FR": 0.9,
+            "calf_FR": -1.8,
+            "thigh_RL": 0.9,
+            "calf_RL": -1.8,
+            "thigh_RR": 0.9,
+            "calf_RR": -1.8
+          },
           "param_type": "json"
         },
         "init_pose_mode": {
@@ -1177,7 +1242,28 @@
         },
         "contact_body_names": {
           "name": "contact_body_names",
-          "value": "[\"base\", \"hip_FL\", \"hip_FR\", \"hip_RL\", \"hip_RR\", \"thigh_FL\", \"thigh_FR\", \"thigh_RL\", \"thigh_RR\", \"calf_FL\", \"calf_FR\", \"calf_RL\", \"calf_RR\", \"foot_FL\", \"foot_FR\", \"foot_RL\", \"foot_RR\"]",
+          "value": [
+            "hip_FR",
+            "hip_RL",
+            "hip_RR",
+            "thigh_FR",
+            "thigh_RL",
+            "thigh_RR",
+            "calf_FL",
+            "calf_FR",
+            "calf_RL",
+            "calf_RR",
+            "foot_FL",
+            "foot_FR",
+            "foot_RL",
+            "foot_RR",
+            "base",
+            "hip_FL",
+            "thigh_FL",
+            "sensor_radar",
+            "sensor_imu",
+            "misc"
+          ],
           "param_type": "json"
         },
         "contact_history_length": {
@@ -1189,26 +1275,6 @@
           "name": "contact_track_air_time",
           "value": "true",
           "param_type": "bool"
-        },
-        "stiffness": {
-          "name": "stiffness",
-          "value": "25.0",
-          "param_type": "float"
-        },
-        "damping": {
-          "name": "damping",
-          "value": "0.5",
-          "param_type": "float"
-        },
-        "effort_limit": {
-          "name": "effort_limit",
-          "value": "45.0",
-          "param_type": "float"
-        },
-        "velocity_limit": {
-          "name": "velocity_limit",
-          "value": "30.0",
-          "param_type": "float"
         },
         "action_joint_names_expr": {
           "name": "action_joint_names_expr",
@@ -1257,10 +1323,10 @@
         }
       },
       "ui": {
-        "x": -2269.826170763608,
-        "y": 187.58201804707417,
+        "x": -2116.2454783497838,
+        "y": 449.08790095496715,
         "width": 324.0,
-        "height": 626.0,
+        "height": 482.0,
         "collapsed": false
       },
       "opaque_code": null,
@@ -1284,7 +1350,7 @@
         },
         "max_iterations": {
           "name": "max_iterations",
-          "value": 4000,
+          "value": 2000,
           "param_type": "int"
         },
         "num_steps_per_env": {
@@ -1359,42 +1425,42 @@
         },
         "headless": {
           "name": "headless",
-          "value": "true",
+          "value": true,
           "param_type": "bool"
         },
         "amp_reward_coef": {
           "name": "amp_reward_coef",
-          "value": "2.0",
+          "value": 2.0,
           "param_type": "float"
         },
         "task_reward_lerp": {
           "name": "task_reward_lerp",
-          "value": "0.5",
+          "value": 0.5,
           "param_type": "float"
         },
         "disc_grad_penalty": {
           "name": "disc_grad_penalty",
-          "value": "10.0",
+          "value": 10.0,
           "param_type": "float"
         },
         "disc_label_smoothing": {
           "name": "disc_label_smoothing",
-          "value": "0.9",
+          "value": 0.9,
           "param_type": "float"
         },
         "amp_replay_buffer_size": {
           "name": "amp_replay_buffer_size",
-          "value": "1000000",
+          "value": 1000000,
           "param_type": "int"
         },
         "num_preload_transitions": {
           "name": "num_preload_transitions",
-          "value": "2000000",
+          "value": 2000000,
           "param_type": "int"
         },
         "disc_lr": {
           "name": "disc_lr",
-          "value": "1e-4",
+          "value": 0.0001,
           "param_type": "float"
         },
         "lerp_schedule": {
@@ -1429,8 +1495,8 @@
         }
       },
       "ui": {
-        "x": 5.487496766099042,
-        "y": 107.31849088678571,
+        "x": -29.97015597504077,
+        "y": 11.239689910793949,
         "width": 324.0,
         "height": 808.0,
         "collapsed": false
@@ -1444,17 +1510,26 @@
       "schema_id": "rewards",
       "kind": "custom",
       "params": {
+        "reward_joint_pages": {
+          "name": "reward_joint_pages",
+          "value": "",
+          "param_type": "string"
+        },
+        "reward_active_page": {
+          "name": "reward_active_page",
+          "value": "__global__",
+          "param_type": "string"
+        },
         "reward_terms": {
           "name": "reward_terms",
           "value": {
-            "alive_reward": {
-              "weight": 2.0
-            },
-            "base_height": {
-              "weight": -8.0,
-              "value": 0.28
-            },
-            "termination_penalty": -200.0
+            "__global__": {
+              "feet_air_time": 1.0,
+              "gait": {
+                "weight": 0.5
+              },
+              "feet_clearance": 1.5
+            }
           },
           "param_type": "json"
         },
@@ -1470,111 +1545,38 @@
         }
       },
       "ui": {
-        "x": -1752.6927452268199,
-        "y": 919.6389936318411,
+        "x": -1336.327022479866,
+        "y": -329.0840884089931,
         "width": 324.0,
-        "height": 263.0,
+        "height": 374.0,
         "collapsed": false
       },
       "opaque_code": null,
-      "disabled": false,
-      "display_name_override": "Base Rewards"
+      "disabled": false
     }
   ],
   "edges": [
     {
-      "id": "e_875a8148d992",
-      "source_node": "1009",
-      "source_port": "scene_pipe",
-      "target_node": "1003",
-      "target_port": "scene_pipe",
+      "id": "e_654ec3d12530",
+      "source_node": "1014",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__walk",
       "edge_type": "flow"
     },
     {
-      "id": "e_91e912d14837",
-      "source_node": "1008",
-      "source_port": "obs_vector",
-      "target_node": "1003",
-      "target_port": "obs_vector",
+      "id": "e_e576504a16aa",
+      "source_node": "1014",
+      "source_port": "reward_pipe",
+      "target_node": "1012",
+      "target_port": "reward_in__turn",
       "edge_type": "flow"
     },
     {
-      "id": "e_1cfaf3d2dd2d",
-      "source_node": "1005",
-      "source_port": "domain_rand_config",
-      "target_node": "1003",
-      "target_port": "domain_rand_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_3fe49d84ac64",
-      "source_node": "1006",
-      "source_port": "termination_config",
-      "target_node": "1003",
-      "target_port": "termination_config",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_fd073454b923",
-      "source_node": "1004",
-      "source_port": "policy",
-      "target_node": "1003",
-      "target_port": "policy",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_0b798d3a55d0",
-      "source_node": "1003",
-      "source_port": "train_pipe",
-      "target_node": "1001",
-      "target_port": "train_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_b462207cd8ee",
-      "source_node": "1002",
-      "source_port": "checkpoint",
-      "target_node": "1003",
-      "target_port": "checkpoint",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_240bd906cc18",
-      "source_node": "1008",
-      "source_port": "obs_vector",
-      "target_node": "1004",
-      "target_port": "obs_vector",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_04bac6f44877",
-      "source_node": "1012",
-      "source_port": "command_pipe",
-      "target_node": "1008",
-      "target_port": "command_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_d99cd7af10af",
-      "source_node": "1011",
-      "source_port": "robot_pipe",
-      "target_node": "1010",
-      "target_port": "robot_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_848a9eb3eb76",
+      "id": "e_949f5a18fb21",
       "source_node": "1010",
       "source_port": "actor_pipe",
-      "target_node": "1008",
-      "target_port": "actor_pipe",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_dfc5c3645aa7",
-      "source_node": "1010",
-      "source_port": "actor_pipe",
-      "target_node": "1005",
+      "target_node": "1012",
       "target_port": "actor_pipe",
       "edge_type": "flow"
     },
@@ -1587,151 +1589,111 @@
       "edge_type": "flow"
     },
     {
-      "id": "e_949f5a18fb21",
+      "id": "e_dfc5c3645aa7",
       "source_node": "1010",
       "source_port": "actor_pipe",
-      "target_node": "1012",
+      "target_node": "1005",
       "target_port": "actor_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_27ea902e6aca",
-      "source_node": "1007",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__backward",
+      "id": "e_848a9eb3eb76",
+      "source_node": "1010",
+      "source_port": "actor_pipe",
+      "target_node": "1008",
+      "target_port": "actor_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_f944d679b4e8",
-      "source_node": "1007",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_fast",
+      "id": "e_d99cd7af10af",
+      "source_node": "1011",
+      "source_port": "robot_pipe",
+      "target_node": "1010",
+      "target_port": "robot_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_9d2322f6b569",
-      "source_node": "1007",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_slow",
+      "id": "e_04bac6f44877",
+      "source_node": "1012",
+      "source_port": "command_pipe",
+      "target_node": "1008",
+      "target_port": "command_pipe",
       "edge_type": "flow"
     },
     {
-      "id": "e_e5f6a7b8c9d0",
+      "id": "e_240bd906cc18",
+      "source_node": "1008",
+      "source_port": "obs_vector",
+      "target_node": "1004",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_b462207cd8ee",
+      "source_node": "1002",
+      "source_port": "checkpoint",
+      "target_node": "1003",
+      "target_port": "checkpoint",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_0b798d3a55d0",
+      "source_node": "1003",
+      "source_port": "train_pipe",
+      "target_node": "1001",
+      "target_port": "train_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_fd073454b923",
+      "source_node": "1004",
+      "source_port": "policy",
+      "target_node": "1003",
+      "target_port": "policy",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_3fe49d84ac64",
+      "source_node": "1006",
+      "source_port": "termination_config",
+      "target_node": "1003",
+      "target_port": "termination_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_1cfaf3d2dd2d",
+      "source_node": "1005",
+      "source_port": "domain_rand_config",
+      "target_node": "1003",
+      "target_port": "domain_rand_config",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_91e912d14837",
+      "source_node": "1008",
+      "source_port": "obs_vector",
+      "target_node": "1003",
+      "target_port": "obs_vector",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_875a8148d992",
+      "source_node": "1009",
+      "source_port": "scene_pipe",
+      "target_node": "1003",
+      "target_port": "scene_pipe",
+      "edge_type": "flow"
+    },
+    {
+      "id": "e_b199231976ec",
       "source_node": "1014",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_d4e5f6a7b8c9",
-      "source_node": "1014",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_c3d4e5f6a7b8",
-      "source_node": "1014",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_b2c3d4e5f6a7",
-      "source_node": "1013",
       "source_port": "reward_pipe",
       "target_node": "1012",
       "target_port": "reward_in__stand",
       "edge_type": "flow"
     },
     {
-      "id": "e_a1b2c3d4e5f6",
-      "source_node": "1007",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__walk",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_7b99fbda2d77",
-      "source_node": "1015",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__pace",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_431e21735fa5",
-      "source_node": "1015",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_ed538c3f5f5d",
-      "source_node": "1015",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_e7b66b806e67",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__backward",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_fe9c8ee27e49",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_fast",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_1807a53c6ebf",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__forward_slow",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_42fd672e2cb5",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__pace",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_2f3a7d506046",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_0d34832dac38",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__strafe_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_ab87ef66c50e",
+      "id": "e_b026e7d1b170",
       "source_node": "rewards_1",
       "source_port": "reward_pipe",
       "target_node": "1012",
@@ -1739,23 +1701,7 @@
       "edge_type": "flow"
     },
     {
-      "id": "e_445e95ce41ff",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_left",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_12cc26e4cbea",
-      "source_node": "rewards_1",
-      "source_port": "reward_pipe",
-      "target_node": "1012",
-      "target_port": "reward_in__turn_right",
-      "edge_type": "flow"
-    },
-    {
-      "id": "e_0a9023ca0c9f",
+      "id": "e_630e33d5bdf5",
       "source_node": "rewards_1",
       "source_port": "reward_pipe",
       "target_node": "1012",
@@ -1772,10 +1718,10 @@
         "1009"
       ],
       "rect": {
-        "x": -919.022584164471,
-        "y": 636.5100893759189,
+        "x": -887.7999471024414,
+        "y": 650.422572736222,
         "w": 741.490615565117,
-        "h": 813.372210236525
+        "h": 753.5098918831377
       },
       "color_override": "#6A3F2D"
     },
@@ -1788,8 +1734,8 @@
         "1010"
       ],
       "rect": {
-        "x": -2650.3777465518374,
-        "y": 27.574058669819948,
+        "x": -2509.8025577992485,
+        "y": 218.47863598814925,
         "w": 737.7981250773967,
         "h": 889.455646565712
       },
@@ -1799,17 +1745,14 @@
       "id": "2fcc9d18d835",
       "title": "Rewards",
       "members": [
-        "1007",
-        "1013",
         "1014",
-        "1015",
         "rewards_1"
       ],
       "rect": {
-        "x": -1780.7897348990668,
-        "y": -377.996441515051,
+        "x": -1739.0608014742331,
+        "y": -380.41415749564976,
         "w": 781.7127718741215,
-        "h": 1654.1034471104506
+        "h": 1008.0016399944813
       },
       "color_override": "#145511"
     },
@@ -1837,10 +1780,10 @@
         "1003"
       ],
       "rect": {
-        "x": -24.65977018146802,
-        "y": -143.04974915262594,
+        "x": -60.11742292260783,
+        "y": -316.9066271091824,
         "w": 383.14187151253594,
-        "h": 1079.6685398819168
+        "h": 1176.8911361076227
       },
       "color_override": "#5B0A0A"
     }

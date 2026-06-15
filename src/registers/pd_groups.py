@@ -53,7 +53,7 @@ API (kept symmetric with sibling registers — ``ir``, ``commands``,
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from unitport_sdk import Paths, log_warning, read_data
 
@@ -295,6 +295,32 @@ def find_group_for_role(family: str, role_id: str) -> Optional[Tuple[str, Dict[s
         if g["_compiled"].fullmatch(role_id):
             return gid, {k: v for k, v in g.items() if not k.startswith("_")}
     return None
+
+
+def groups_for_roles(family: str, role_ids: Iterable[str]) -> List[str]:
+    """Ordered pd_group ids that a SPECIFIC robot's IR roles actually belong to.
+
+    Unlike :func:`list_group_ids` (every group declared for the *family*), this
+    keeps only the groups at least one of ``role_ids`` maps to via
+    :func:`find_group_for_role` — i.e. the groups the robot in front of you
+    really has. A humanoid H1 has a single-DOF ankle (``ankle_L`` → the
+    ``ankle_pitch`` group, no ``ankle_roll``), so ``groups_for_roles`` omits
+    ``ankle_roll`` even though the humanoid family declares it.
+
+    Callers (e.g. the Rewards-node joint-partition pager) use this so the UI
+    never offers a partition the robot lacks — a frontend⇄backend mismatch the
+    env_cfg compiler would otherwise reject with a fail-loud
+    ``CanvasConfigError`` only at training time. Order follows
+    :func:`list_group_ids` (the family declaration order).
+    """
+    if not _state["loaded"]:
+        load()
+    present = set()
+    for r in role_ids:
+        hit = find_group_for_role(family, str(r))
+        if hit is not None:
+            present.add(hit[0])
+    return [gid for gid in list_group_ids(family) if gid in present]
 
 
 def merge_user_extensions(payload: Dict[str, Any]) -> int:

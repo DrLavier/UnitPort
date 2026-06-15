@@ -298,6 +298,10 @@ class RegistryModuleEditorPanel(QDialog):
         # bind the type slots here so static checkers stay happy.
         self._variant_combo: Optional[LaviComboBox] = None
         self._variant_banner: Optional[Any] = None
+        # observation kind: a per-item "Data Type" dropdown REPLACES Variant in
+        # the same slot (obs has no script variants). Decides which scale input
+        # the inline row offers (scalar / list / both).
+        self._data_type_combo: Optional[LaviComboBox] = None
         # Deep copy items so any in-flight mutation (stub promotion on first
         # visit, edits before Cancel) doesn't leak back to the caller.
         import copy as _copy
@@ -534,7 +538,27 @@ class RegistryModuleEditorPanel(QDialog):
         # ``_refresh_variant_combo``; family-hard-filtered against the
         # canvas-bound robot via ``resolver.family_filter`` when
         # ``self._robot_sku`` is set.
-        if self._kind != "training_motion":
+        if self._kind == "observation":
+            # obs has no script variants — the Variant slot becomes Data Type,
+            # deciding the scale input shape the inline row offers per item.
+            self._data_type_combo = setComboBox(
+                [
+                    ("scalar", tr("editor.dtype.scalar", "Scalar")),
+                    ("list", tr("editor.dtype.list", "List")),
+                    ("both", tr("editor.dtype.both", "Scalar/List")),
+                ],
+                height=24, i18n=False,
+            )
+            _apply_small_font(self._data_type_combo)
+            self._data_type_combo.currentIndexChanged.connect(
+                self._on_data_type_changed
+            )
+            dt_group = self._labeled_row(
+                label_id="editor.data_type", label_default="Data Type:",
+                widget=self._data_type_combo,
+            )
+            tag_row.addLayout(dt_group)
+        elif self._kind != "training_motion":
             self._variant_combo = setComboBox(
                 [("editor.variant.preset", "Preset")], height=24, i18n=False
             )
@@ -553,7 +577,7 @@ class RegistryModuleEditorPanel(QDialog):
         # Banner row that surfaces when ``self._robot_sku`` is unset —
         # tells the user the family hard-filter is off (so they
         # understand why incompatible variants are still selectable).
-        if self._robot_sku is None and self._kind != "training_motion":
+        if self._robot_sku is None and self._kind not in ("training_motion", "observation"):
             self._variant_banner = setText(
                 "editor.variant.banner",
                 default="No robot bound — family filter disabled.",
@@ -1015,8 +1039,11 @@ class RegistryModuleEditorPanel(QDialog):
             self._refresh_source_code_field(key, meta)
             # Variant dropdown depends on (kind, key) — refresh after the
             # source-code field so the user sees the new options without
-            # a perceptible flicker.
-            self._refresh_variant_combo()
+            # a perceptible flicker. obs uses Data Type in that slot instead.
+            if self._kind == "observation":
+                self._refresh_data_type_combo()
+            else:
+                self._refresh_variant_combo()
         # REMOVE is "remove from node" — only meaningful for added keys.
         self._refresh_remove_button_state()
 
@@ -1248,6 +1275,11 @@ class RegistryModuleEditorPanel(QDialog):
         return ov
 
     def _on_title_changed(self) -> None:
+        # training_motion: "the item id IS its name" — the Title field edits the
+        # dict KEY (a registered command id), not a separate ``title`` field.
+        if self._kind == "training_motion":
+            self._rename_training_item_to_title()
+            return
         d = self._ensure_dict_entry()
         if d is None:
             return
@@ -1256,6 +1288,48 @@ class RegistryModuleEditorPanel(QDialog):
         key = self._current_key
         if key is not None:
             self._refresh_list_item_label(key)
+
+    def _rename_training_item_to_title(self) -> None:
+        """Commit the Title edit by renaming the current training-item key to
+        the typed name and registering it as a command.
+
+        The typed name becomes the item id verbatim (``registers.commands``
+        gains a user command inheriting the velocity template of a matching
+        builtin — e.g. "Turn" → ``turn``). No separate ``title`` field is ever
+        stored on the node. Blank / unchanged → no-op; a collision with another
+        existing item is refused and the field reverts.
+        """
+        old_key = self._current_key
+        if old_key is None or old_key not in self._items:
+            return
+        new_name = self._title_edit.text().strip()
+        if not new_name or new_name == old_key:
+            self._title_edit.setText(old_key)
+            return
+        if new_name in self._items:
+            self._set_status(
+                tr("editor.err.dup_item",
+                   "An item named '{name}' already exists.").format(name=new_name)
+            )
+            self._title_edit.setText(old_key)
+            return
+        try:
+            from registers import commands as _commands_reg
+            new_id = _commands_reg.register_named_command(new_name)
+        except Exception as exc:
+            self._set_status(str(exc))
+            self._title_edit.setText(old_key)
+            return
+        entry = self._items.pop(old_key)
+        if isinstance(entry, dict):
+            entry.pop("title", None)
+        self._items[new_id] = entry
+        self._content_cache.pop(old_key, None)
+        self._dirty_keys.discard(old_key)
+        self._current_key = new_id
+        self._set_status("")
+        self._populate_list()
+        self._select_key(new_id)
 
     def _on_desc_changed(self) -> None:
         d = self._ensure_dict_entry()
@@ -1293,6 +1367,51 @@ class RegistryModuleEditorPanel(QDialog):
             meta.pop("variant", None)
         elif ikey.startswith("editor.variant.user:"):
             meta["variant"] = ikey.split(":", 1)[1]
+
+    # ---- observation Data Type (replaces Variant for obs) ----
+
+    def _refresh_data_type_combo(self) -> None:
+        """Reflect the selected obs item's data_type in the Data Type dropdown.
+
+        No invented default: the value is whatever the item already carries, or
+        inferred from its current scale shape (scalar→'scalar', list→'list')."""
+        if self._data_type_combo is None:
+            return
+        key = self._current_key
+        from application.ui.canvas.param_rows import parse_obs_term_value
+        _scale, dt = parse_obs_term_value(self._items.get(key)) if key else (None, "scalar")
+        self._data_type_combo.blockSignals(True)
+        self._data_type_combo.setCurrentKey(dt)
+        self._data_type_combo.blockSignals(False)
+
+    def _on_data_type_changed(self, _index: int) -> None:
+        """Write Data Type back into ``self._items[key]`` as {scale, data_type},
+        coercing the scale shape to match (list↔scalar) so the inline row's
+        type strictly equals this setting (req3). OK persists via applied_items;
+        the inline row's set_value then refreshes its cache."""
+        if self._data_type_combo is None:
+            return
+        key = self._current_key
+        if not key or key not in self._items:
+            return
+        dt = self._data_type_combo.currentKey() or "scalar"
+        from application.ui.canvas.param_rows import (
+            obs_term_channel_labels,
+            parse_obs_term_value,
+            serialize_obs_term_value,
+        )
+        scale, _old_dt = parse_obs_term_value(self._items.get(key))
+        if dt == "scalar":
+            if isinstance(scale, list):
+                scale = float(scale[0]) if scale else 1.0
+        elif dt == "list":
+            if not isinstance(scale, list):
+                base = float(scale) if isinstance(scale, (int, float)) else 1.0
+                labels = obs_term_channel_labels(key)
+                n = len(labels) if labels else 1
+                scale = [base] * n
+        # dt == "both": keep the current shape as-is.
+        self._items[key] = serialize_obs_term_value(scale, dt)
 
     def _refresh_variant_combo(self) -> None:
         """Repopulate the Variant dropdown for the currently-selected key.
@@ -1706,6 +1825,37 @@ class RegistryModuleEditorPanel(QDialog):
         self._populate_list()
         self._select_key(key)
 
+    def _finalize_training_items(self) -> None:
+        """training_motion accept guard — never emit an invalid item id.
+
+        Drops never-named draft keys (``new_item_*`` the user created but never
+        titled) and ensures every remaining key is a registered command id,
+        registering any stray name on the fly (inheriting a template). The dead
+        ``title`` field is stripped from every entry.
+        """
+        import re
+        from registers import commands as _commands_reg
+
+        out: Dict[str, Any] = {}
+        for key, entry in list(self._items.items()):
+            if re.fullmatch(r"new_item_\d+", str(key)):
+                # An unnamed draft — discard rather than emit an unknown id.
+                continue
+            resolved = key
+            if _commands_reg.get_item(key) is None:
+                try:
+                    resolved = _commands_reg.register_named_command(key)
+                except Exception as exc:
+                    log_warning(
+                        f"[RegistryModuleEditorPanel] drop unregistrable "
+                        f"training item {key!r}: {exc}"
+                    )
+                    continue
+            if isinstance(entry, dict):
+                entry.pop("title", None)
+            out[resolved] = entry
+        self._items = out
+
     def _on_remove_item(self) -> None:
         # REMOVE means "remove from the node" — never touches the registry.
         # Disabled in the UI when the current key is registry-only.
@@ -1742,6 +1892,8 @@ class RegistryModuleEditorPanel(QDialog):
         """
         if self._dirty_keys and not self._confirm_discard_unsaved("accept"):
             return
+        if self._kind == "training_motion":
+            self._finalize_training_items()
         try:
             self.applied.emit(dict(self._items))
         except Exception as e:

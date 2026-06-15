@@ -87,6 +87,20 @@ class MjActor:
         # kp/kv was the root cause of the Spot "robot flies away" sim2sim
         # regression. See _neutralize_mjcf_actuators below for details.
         _neutralize_mjcf_actuators(mj_model, mjcf_label=str(path))
+        # Strip the MJCF's passive joint dissipation (dof_damping /
+        # dof_frictionloss) so the Python PDController is the SOLE source of
+        # joint damping — exactly like the PhysX/IsaacLab ImplicitActuator the
+        # policy trained against (no passive joint damping there). Menagerie
+        # Go2 ships damping="2" on every leg joint, which otherwise stacks on
+        # top of the PD kd (~1.65) and over-damps the joint ~2.2x → the
+        # "stiff / over-forceful / won't reproduce training / won't walk on
+        # command" sim2sim regression. armature is kept (it lives in m_eff).
+        # Single shared impl so deploy / SB3-train / calibration cannot drift
+        # (CLAUDE.md §10/§11). See mjcf_pd_prep for the full rationale.
+        from application.physics.mjcf_pd_prep import (
+            neutralize_mjcf_passive_dissipation,
+        )
+        neutralize_mjcf_passive_dissipation(mj_model, mjcf_label=str(path))
         # Apply the USD→MJCF mass/inertia calibration overlay (if any) to the
         # in-memory model BEFORE building MjData, so the corrected base
         # mass/inertia (closing the sim2sim gap, CLAUDE.md §1.10 base-property
@@ -300,69 +314,30 @@ def _apply_inertia_overlay(mj_model: Any, sku: str, mjcf_label: str = "") -> Non
         return
     if not overlay:
         return
-    body_overrides = overlay.get("body_overrides") or {}
-    if not body_overrides:
-        return
 
-    import mujoco
-    import numpy as np
+    # Patch via the SHARED patcher (application.physics.inertia_overlay_apply) —
+    # the exact same function effective_inertia_diag uses when deriving m_eff, so
+    # the inertia the gains were computed against equals the inertia simulated
+    # here (CLAUDE.md §10/§11; "derive ≠ realize" gap). One impl → cannot drift.
+    from application.physics.inertia_overlay_apply import (
+        apply_inertia_overlay_to_model,
+    )
 
-    applied = 0
-    for mjcf_body, ov in body_overrides.items():
-        if not isinstance(ov, dict):
-            continue
-        bid = int(mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, str(mjcf_body)))
-        if bid < 0:
-            log.warning(
-                "MjActor: inertia overlay body %r not found in model %s; skipped",
-                mjcf_body, mjcf_label or "?",
-            )
-            continue
-        fields = list(ov.get("fields_applied") or [])
-        changes: List[str] = []
-
-        if "mass" in fields and isinstance(ov.get("mass"), dict):
-            to = ov["mass"].get("to")
-            if to is not None:
-                old = float(mj_model.body_mass[bid])
-                mj_model.body_mass[bid] = float(to)
-                changes.append(f"mass {old:.4f}→{float(to):.4f}")
-
-        if "inertia" in fields:
-            diag_to = (ov.get("diaginertia") or {}).get("to")
-            iquat_to = (ov.get("iquat") or {}).get("to")
-            if diag_to is not None:
-                old = [float(v) for v in mj_model.body_inertia[bid]]
-                mj_model.body_inertia[bid] = np.asarray(diag_to, dtype=np.float64)
-                changes.append(
-                    f"diaginertia {[round(v, 4) for v in old]}→"
-                    f"{[round(float(v), 4) for v in diag_to]}"
-                )
-            if iquat_to is not None:
-                q = np.asarray(iquat_to, dtype=np.float64)
-                n = float(np.linalg.norm(q))
-                if n > 1e-9:
-                    q = q / n
-                mj_model.body_iquat[bid] = q
-                changes.append("iquat updated")
-
-        if "com" in fields and isinstance(ov.get("com"), dict):
-            to = ov["com"].get("to")
-            if to is not None:
-                mj_model.body_ipos[bid] = np.asarray(to, dtype=np.float64)
-                changes.append("com updated")
-
-        if changes:
-            applied += 1
-            log.info("MjActor: inertia overlay · body %r ← %s",
-                     mjcf_body, "; ".join(changes))
-
-    if applied:
+    applied_changes, missing = apply_inertia_overlay_to_model(mj_model, overlay)
+    for mjcf_body in missing:
+        log.warning(
+            "MjActor: inertia overlay body %r not found in model %s; skipped",
+            mjcf_body, mjcf_label or "?",
+        )
+    for mjcf_body, changes in applied_changes:
+        log.info("MjActor: inertia overlay · body %r ← %s",
+                 mjcf_body, "; ".join(changes))
+    if applied_changes:
         log.info(
             "MjActor: applied USD→MJCF inertia overlay to %d body(ies) for "
             "sku=%r (source MJCF: %s). Original asset unmodified; overlay is "
             "the source of truth.",
-            applied, sku, mjcf_label or "?",
+            len(applied_changes), sku, mjcf_label or "?",
         )
 
 

@@ -273,6 +273,65 @@ def _body_lowest_world_z(model, data, body_id: int) -> Optional[float]:
 # Public API
 # ---------------------------------------------------------------------------
 
+def canonical_foot_roles(family: str) -> Tuple[str, ...]:
+    """The ground-contact foot/wheel IR roles for a family.
+
+    The subset of :data:`LANDMARK_IR_ROLES_PER_FAMILY` used for
+    foot-collision-geometry hashing (``application.physics.foot_geometry``):
+    only ``foot_*`` / ``wheel_*`` roles, because calf/knee are spawn-height
+    landmarks (used by the base-offset calibration above) — NOT contact feet.
+    An empty tuple means the family has no feet by design (manipulator), which
+    ``hash_foot_geometry`` renders as ``status="not_applicable"``.
+    """
+    roles = LANDMARK_IR_ROLES_PER_FAMILY.get(str(family).lower(), ())
+    return tuple(r for r in roles if r.split("_", 1)[0] in ("foot", "wheel"))
+
+
+def resolve_foot_roles_for_sku(
+    family: str, present_ir_roles: "Iterable[str]"
+) -> Tuple[str, ...]:
+    """Resolve the family's canonical feet to the IR roles ACTUALLY present on a
+    SKU, via the same per-side feet fallback the IsaacLab reward/contact resolver
+    uses (``foot_L → ankle_roll_L → ankle_L``).
+
+    ``canonical_foot_roles`` returns the family canonical (``foot_L``/``foot_R``),
+    but a single-DOF-ankle humanoid (e.g. Unitree H1) maps its feet to
+    ``ankle_L``/``ankle_R`` — the canonical ``foot_*`` roles aren't in its body
+    table, so an unresolved lookup made ``hash_foot_geometry`` raise and the
+    producer stash ``status='unavailable'``. Resolving each foot side through the
+    shared fallback maps H1's feet onto its actual ``ankle_*`` roles, which DO
+    exist in the registry's ``bodies_per_format.MJCF`` map — so the foot geometry
+    hashes ``'ok'`` and is genuinely audited (not skipped). A side with no
+    resolvable role is dropped (``hash_foot_geometry`` records it as missing)."""
+    from application.training.body_ir import _CATEGORY_FAMILY_FALLBACK
+
+    fam = str(family).lower()
+    canon = canonical_foot_roles(fam)
+    if not canon:
+        return ()
+    present = {str(r) for r in present_ir_roles}
+    fallback = _CATEGORY_FAMILY_FALLBACK.get((fam, "feet"), ())
+    resolved: List[str] = []
+    for role in canon:
+        if role in present:
+            resolved.append(role)
+            continue
+        side = role.rsplit("_", 1)[-1]   # "L" / "R" / "FL" / ...
+        pick = next(
+            (r for r in fallback
+             if r.rsplit("_", 1)[-1] == side and r in present and r not in resolved),
+            None,
+        )
+        # Keep the canonical role when no fallback resolves it (no fallback table
+        # for this family, or none present): the behaviour is then byte-identical
+        # to passing the raw canonical roles — hash_foot_geometry skips/raises
+        # exactly as before (e.g. a quadruped whose foot geoms sit on the calf
+        # body stays 'unavailable'). Dropping the role would wrongly flip such a
+        # robot to status='not_applicable' ("no feet by design").
+        resolved.append(pick if pick else role)
+    return tuple(resolved)
+
+
 def primary_family(families: List[str]) -> str:
     """Pick the family used for landmark lookup. Robots declare multiple
     families (humanoid + biped, etc.); we take the first declared family
@@ -549,6 +608,7 @@ __all__ = [
     "LandmarkSample",
     "MjcfBaseOffsetResult",
     "calibrate_mjcf_base_offset",
+    "canonical_foot_roles",
     "hash_file_sha256",
     "hash_standing_pose",
     "primary_family",

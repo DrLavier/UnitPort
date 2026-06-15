@@ -14,16 +14,21 @@ from scripts.task_module import (
 
 
 INLINE_SOURCE = '''\
-def feet_slide(foot_body_ids, contacts, root_vel):
-    """Contact-force-based penalty on foot lateral velocity while grounded.
+def feet_slide(foot_body_ids, contacts, foot_vel_w):
+    """Contact-gated penalty on foot WORLD-frame lateral velocity while grounded.
 
-    contact_indicator * ||foot_vel_xy - root_vel_xy||^2
+    contact_indicator * ||foot_vel_xy_world||^2
+    "Slide" is ground slip: a planted foot is the body's pivot (world velocity
+    ~0) and must NOT be penalized while the base moves over it. Use the foot's
+    world-frame velocity, NOT its velocity relative to the root -- the latter
+    charges every normal stance foot at the base speed (a locomotion penalty,
+    not a slide penalty). Mirrors IsaacLab ``_unitport_feet_slide``.
     Contact detection uses MuJoCo contact pairs (binary, not force magnitude).
     """
     cost = 0.0
     for bid in contacted_foot_bodies:
-        rel_vel = body_vel[bid][:2] - root_vel[:2]
-        cost += rel_vel[0]**2 + rel_vel[1]**2
+        v = foot_vel_w[bid][:2]
+        cost += v[0]**2 + v[1]**2
     return cost
 '''
 

@@ -1,6 +1,7 @@
 [default]
 already_running = A training run is already active
 no_canvas = No canvas loaded
+preparing = Preparing training run (compiling off the UI thread)…
 started = Training started: run={run} backend={backend} algo={algo}
 
 [coverage]
@@ -21,4 +22,12 @@ miss_mjcf = Roles declared in USD but missing from MJCF: {roles}
 miss_usd = Roles declared in MJCF but missing from USD: {roles}
 proceed = Proceed anyway (don't waste compute later)
 title = Reduced deploy-target coverage
+
+[sim2sim]
+body = The PhysX↔MuJoCo cross-engine measurement found dimension(s) whose residual is non-convergent (chaotic): {dims}. Domain randomization cannot cover them, and sim2sim may not faithfully reproduce this regime.
+cancel = Cancel
+header = Cross-engine residual self-check flagged robot ‘{sku}’.
+hint = Proceed records this for the current plant — you won't be asked again unless the robot asset changes.
+proceed = Proceed anyway
+title = Non-convergent sim2sim dimension
 

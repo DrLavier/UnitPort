@@ -459,6 +459,29 @@ def _usd_drive_recommendation(sku: str) -> Optional[Dict[str, Any]]:
             continue
         zeta = d / denom
 
+        # USD assets routinely ship PLACEHOLDER drive gains (Go2's USD authors
+        # stiffness=1e7, damping=1e5 "make-it-rigid" defaults; many hands ship
+        # zero-damping fingers) rather than tuned PD. Reverse-deriving those
+        # yields physically-impossible (omega_n, zeta) — Go2 hip → omega_n≈17000
+        # rad/s, zeta≈86; G1 fingers → zeta≈0. Returning them is a CLAUDE.md §8
+        # illusion: AUTO "succeeds" but writes values that blow up the PD panel
+        # (PDGroup.__post_init__ raises) and training. Reject the out-of-band
+        # joint here; the caller falls back to family defaults for PD. The caps
+        # (max_force / max_velocity) are derived independently above and stay —
+        # those USD values are real even when the drive gains are placeholders.
+        from application.physics.pd_param import (
+            OMEGA_N_MIN, OMEGA_N_MAX, ZETA_MIN, ZETA_MAX,
+        )
+        if not (OMEGA_N_MIN <= omega_n <= OMEGA_N_MAX) or not (ZETA_MIN <= zeta <= ZETA_MAX):
+            issues.append(
+                f"{usd_name} (ir={ir}): USD drive (stiffness={k:g}, damping={d:g}) "
+                f"reverse-derives to omega_n={omega_n:.1f} rad/s, zeta={zeta:.2f}, "
+                f"outside physical [{OMEGA_N_MIN}, {OMEGA_N_MAX}] x "
+                f"[{ZETA_MIN}, {ZETA_MAX}] — USD ships placeholder gains, not tuned "
+                f"PD. Skipped; PD for this group falls back to family defaults."
+            )
+            continue
+
         match = find_group_for_role(primary_family, ir)
         gid = match[0] if match else ""
         if not gid:

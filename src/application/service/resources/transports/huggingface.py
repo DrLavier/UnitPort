@@ -141,54 +141,67 @@ class HuggingFaceTransport(Transport):
 
 
 def _make_tqdm_class(ctx: TransportContext):
-    """Build a tqdm-compatible class that pumps ``ctx.on_progress``."""
+    """Build a ``tqdm`` subclass that pumps ``ctx.on_progress``.
 
-    class _Tqdm:
+    We subclass the real ``tqdm`` rather than fake it. ``huggingface_hub``
+    drives downloads through ``tqdm.contrib.concurrent.thread_map``, which
+    calls ``tqdm_class.get_lock()`` / ``set_lock()`` (the classmethods a
+    hand-rolled fake lacks — the source of the ``has no 'get_lock'`` crash)
+    and iterates the bar to consume the worker pool's result generator (so a
+    fake ``__iter__`` that yields nothing would swallow per-file download
+    exceptions — an illusion-of-success failure, §8). Inheriting from
+    ``tqdm`` gives correct ``get_lock``/``set_lock``/``__iter__``/``total``
+    bookkeeping and exception propagation for free; we only override
+    ``update``/``refresh`` to mirror progress into the UI callback (and to
+    raise on cancellation), and redirect terminal output to a null sink.
+    """
+    # WHY KEPT: tqdm ships as a hard dependency of huggingface_hub, so it is
+    # importable on every path that reaches this transport (§1.8(a)).
+    from tqdm import tqdm as _BaseTqdm
+
+    class _NullSink:
+        """Swallow tqdm's terminal writes — we render via ``ctx.on_progress``."""
+
+        def write(self, *_args, **_kwargs) -> int:
+            return 0
+
+        def flush(self, *_args, **_kwargs) -> None:
+            pass
+
+    class _Tqdm(_BaseTqdm):
         def __init__(self, *args, **kwargs):
-            self.total = kwargs.get("total") or 0
-            self.desc = kwargs.get("desc") or ""
-            self.n = 0
+            # huggingface_hub passes ``name=`` (its own tqdm subclass pops it);
+            # the base tqdm rejects it. Force the bar enabled and silent so our
+            # callback is the sole renderer regardless of global HF settings.
+            kwargs.pop("name", None)
+            kwargs["disable"] = False
+            kwargs.setdefault("file", _NullSink())
+            super().__init__(*args, **kwargs)
+            self._emit()
 
-        def update(self, inc: int = 1) -> None:
-            self.n += int(inc or 0)
+        def update(self, n=1):
             ctx.cancel_check()
-            if self.total > 0:
-                frac = max(0.05, min(self.n / self.total, 0.98))
+            ret = super().update(n)
+            self._emit()
+            return ret
+
+        def refresh(self, *args, **kwargs):
+            ret = super().refresh(*args, **kwargs)
+            self._emit()
+            return ret
+
+        def _emit(self) -> None:
+            total = self.total or 0
+            n = self.n or 0
+            desc = (self.desc or "").strip().rstrip(":")
+            if total > 0:
+                frac = max(0.05, min(n / total, 0.98))
+                pct = int(min(n / total, 1.0) * 100)
+                label = f"{desc} {pct}%".strip()
             else:
                 frac = 0.5
-            label = (
-                f"{self.desc}: {self.n} / {self.total}"
-                if self.total > 0
-                else f"{self.desc}: {self.n}"
-            )
+                label = desc or f"{n}"
             ctx.on_progress(frac, label)
-
-        def close(self) -> None:
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            self.close()
-            return False
-
-        # Some HF versions iterate ``tqdm(iter)`` — keep a minimal __iter__.
-        def __iter__(self):
-            return iter(())
-
-        def set_description(self, d, refresh: bool = True) -> None:  # noqa: D401
-            self.desc = str(d or "")
-
-        def set_postfix(self, *args, **kwargs) -> None:
-            pass
-
-        def refresh(self) -> None:
-            pass
-
-        @staticmethod
-        def write(msg, *_, **__) -> None:  # tqdm.write
-            return
 
     return _Tqdm
 

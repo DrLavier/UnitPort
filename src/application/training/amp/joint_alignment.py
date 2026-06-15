@@ -50,6 +50,11 @@ class AlignmentReport:
     # only catches *field-name* drift; this extra dict captures the
     # deeper intra-field ordering that previously went unchecked.
     canonical_mapping: Dict[str, Any] = field(default_factory=dict)
+    # Per-term reference frame BOTH producers must emit in ("base" /
+    # "world_z" / "joint"). Captured from the AMP obs term registry so
+    # the audit file records the frame contract that the toe-frame /
+    # leg-order class of bug (RC-1/RC-2) violated silently.
+    term_frames: Dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -58,6 +63,7 @@ class AlignmentReport:
             "ok": self.ok,
             "error": self.error,
             "canonical_mapping": dict(self.canonical_mapping),
+            "term_frames": dict(self.term_frames),
         }
 
 
@@ -104,6 +110,73 @@ def verify_alignment(
         )
 
 
+#: Discriminator LOGIT MARGIN (mean expert_pred − mean policy_pred) above
+#: which the disc is separating the two distributions *confidently*. This
+#: is the real health signal — NOT binary ``Disc acc``, which saturates
+#: near 1.00 even for a healthy converged AMP (accuracy is the sign of the
+#: logit; a flexible classifier almost always finds some consistent
+#: separating boundary, so acc ≈ 1.0 says nothing). A structurally
+#: separable obs (RC-1/RC-2/normalization) keeps the margin large and
+#: persistent (~2.0); a healthy run's margin collapses toward 0 (the
+#: policy nearly fools the disc, logits squeezed to ~±0.1) — empirically
+#: a healthy Go2 run is < ~0.9 by iter 100 and ~0.25 by iter 1000, while a
+#: broken run stays ~2.0 forever.
+_SEPARABLE_MARGIN_THRESHOLD: float = 1.5
+#: Don't evaluate before this — the margin spikes transiently in the first
+#: few dozen iterations even on healthy runs (the disc trains faster than
+#: the policy initially) and then collapses.
+_SEPARABLE_MIN_ITER: int = 100
+
+
+def amp_separability_warning(
+    it: int,
+    policy_pred: float,
+    expert_pred: float,
+    *,
+    margin_threshold: float = _SEPARABLE_MARGIN_THRESHOLD,
+    min_iter: int = _SEPARABLE_MIN_ITER,
+) -> Optional[str]:
+    """Return a loud diagnostic string when the discriminator is
+    separating expert from policy with a LARGE, PERSISTENT logit margin,
+    else ``None``.
+
+    A large margin that does not collapse is the fingerprint of a
+    TRIVIALLY-SEPARABLE expert-vs-policy AMP observation distribution —
+    the policy cannot close a structural obs mismatch (leg order, frame,
+    normalization), so the style reward becomes a near-constant per-step
+    survival bonus carrying no imitation gradient (RC-1 leg swap / RC-2
+    toe frame). A healthy run's margin shrinks toward 0 as the policy
+    learns to fool the disc.
+
+    ⚠️ This deliberately does NOT key on ``Disc acc``: accuracy is the
+    binary sign of the logit and saturates at ~1.00 even when the disc is
+    barely separating (margin ~0.2). Reading acc was the original
+    confusion — a perfectly healthy run shows ``Disc acc 1.00/1.00``.
+
+    Pure function (no torch / no isaac) so it is unit-testable and the
+    Kit-side runner can import it without dragging the DL stack.
+    """
+    if it < min_iter:
+        return None
+    margin = float(expert_pred) - float(policy_pred)
+    if margin < margin_threshold:
+        return None
+    return (
+        f"[UnitPort][AMP][SEPARABILITY] iter={it}: discriminator logit "
+        f"margin is large and persistent (expert_pred={expert_pred:.2f} − "
+        f"policy_pred={policy_pred:.2f} = {margin:.2f} >= {margin_threshold:.1f}). "
+        f"The expert and policy AMP observations are likely TRIVIALLY "
+        f"SEPARABLE — the policy cannot close a structural obs mismatch, so "
+        f"the style reward degenerates into a near-constant survival bonus "
+        f"with no imitation gradient. This is the RC-1 (leg-order swap) / "
+        f"RC-2 (toe reference frame) / normalization class of bug, NOT a "
+        f"hyperparameter, and NOT the (misleading) Disc-acc=1.00 readout — "
+        f"a healthy run squeezes this margin toward 0. Inspect "
+        f"amp_alignment.json (per-term frames + canonical mapping) and the "
+        f"expert-vs-env obs parity."
+    )
+
+
 def dump_alignment_report(
     run_dir: Path | str,
     env_fields: Sequence[str],
@@ -112,6 +185,7 @@ def dump_alignment_report(
     ok: bool,
     error: Optional[str] = None,
     canonical_mapping: Optional[Dict[str, Any]] = None,
+    term_frames: Optional[Dict[str, str]] = None,
 ) -> Path:
     """Write the alignment result to ``<run_dir>/amp_alignment.json``.
 
@@ -133,6 +207,7 @@ def dump_alignment_report(
         ok=bool(ok),
         error=error,
         canonical_mapping=dict(canonical_mapping or {}),
+        term_frames=dict(term_frames or {}),
     )
     out = run_dir / "amp_alignment.json"
     out.write_text(json.dumps(report.to_dict(), indent=2))

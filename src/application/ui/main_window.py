@@ -327,10 +327,16 @@ class MainWindow(QMainWindow):
         # by _bind_project from open_project.
         self._current_project: Optional[ProjectInfo] = None
 
-        # Currently-active training task id (empty = idle). Set by
-        # _on_start_training, cleared by _on_training_finished. Drives the
-        # ▶ / ■ button enabled-state via set_training_running.
+        # Currently-active training task id (empty = idle). Set after the
+        # background prepare task finishes (in _on_prepare_finished), cleared
+        # by _on_training_finished. Drives the ▶ / ■ button enabled-state via
+        # set_training_running.
         self._active_task_id: str = ""
+        # Id of the in-flight background preparation task (empty = none). The
+        # heavy canvas→IR→spec→backend→build pipeline runs on a TasksManager
+        # slot (CanvasTrainingPrepareTask) so it never blocks the GUI thread;
+        # this tracks it so ▶ stays disabled / ■ cancels it during prep.
+        self._prepare_task_id: str = ""
         # Slot index of the active training task (-1 = idle). Captured
         # synchronously from TasksManager.get_slot_status() right after
         # submit, because TaskSignal.status_changed("running") is emitted
@@ -1876,6 +1882,9 @@ class MainWindow(QMainWindow):
         self.start_clicked.connect(self._on_start_training)
         self.stop_clicked.connect(self._on_stop_training)
         ts = get_task_signal()
+        # Two finish handlers, each filters by the id it owns: the prepare
+        # task hands off the built run, then the run itself reports completion.
+        ts.task_finished.connect(self._on_prepare_finished)
         ts.task_finished.connect(self._on_training_finished)
         # Initial ▶ state: no canvas selected yet, no canvas mounted → disabled.
         # ProjectsPanel.canvas_selected (routed via _on_projects_canvas_selected)
@@ -3337,7 +3346,7 @@ class MainWindow(QMainWindow):
         """
         if self._start_btn is None:
             return
-        if self._active_task_id:
+        if self._active_task_id or self._prepare_task_id:
             self._start_btn.setEnabled(False)
             return
         has_target = (
@@ -3538,7 +3547,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_start_training(self) -> None:
-        if self._active_task_id:
+        if self._active_task_id or self._prepare_task_id:
             log_warning(
                 tr("training.already_running", "A training run is already active")
             )
@@ -3553,6 +3562,8 @@ class MainWindow(QMainWindow):
         # protects against the Go2 idle-limb-flailing pattern where every
         # reward is unconditional and the static phase has no negative
         # signal to counter unconditional positives like feet_air_time.
+        # These two checks are cheap (registry lookups) — keep them on the
+        # GUI thread so their rich modals stay synchronous with the click.
         if not self._coverage_preflight_ok(canvas_dict):
             return
         # Deploy-target coverage pre-flight: BEFORE consuming compute,
@@ -3565,13 +3576,8 @@ class MainWindow(QMainWindow):
         # proceeding ⇒ continue; cancelled ⇒ abort silently.
         if not self._deploy_coverage_preflight_ok(canvas_dict):
             return
-        # GPU BAR1 aperture pre-flight (headed Isaac Lab runs only). A headed
-        # run renders the viewport through the PCIe BAR1 aperture; if it's too
-        # small (Resizable BAR off) or already saturated, the run aborts deep
-        # inside Kit with an opaque device-lost / access-violation crash. Probe
-        # it now and let the user choose Continue / Abort instead of hitting a
-        # cryptic crash. Headless runs and any read/probe failure proceed
-        # (advisory check — never block on inability to read GPU/canvas).
+        # GPU BAR1 aperture pre-flight (headed Isaac Lab runs only; currently
+        # suspended → no-op). Cheap, stays on the GUI thread.
         if not self._bar1_preflight_ok(canvas_dict):
             return
         # Clear any leftover danger_zone marks from a previous failed
@@ -3581,77 +3587,115 @@ class MainWindow(QMainWindow):
             clear_canvas_diagnostic_marks(self)
         except Exception:  # noqa: BLE001
             pass
-        try:
-            from application.training.trainer_runtime import submit_canvas_training
-            result = submit_canvas_training(canvas_dict)
-        except Exception as exc:  # noqa: BLE001 — split: canvas issues → dialog, real bugs → cmd log
-            # Cloud-submit misconfiguration (no default server / missing SSH
-            # credential / no open project) is user-actionable — show a clear
-            # warning box rather than a cmd-log traceback. This NEVER falls
-            # back to a local run; the submit is aborted and the user is told
-            # what to fix (CLAUDE.md §8).
-            from application.training.remote.submit_task import (
-                RemoteSubmitConfigError,
-            )
-            if isinstance(exc, RemoteSubmitConfigError):
-                QMessageBox.warning(
-                    self,
-                    tr("engines.cloud_submit_error_title", "Cloud training"),
-                    str(exc),
-                )
-                log_warning(f"[play] cloud submit config error: {exc}")
-                return
-            # Canvas self-check failures (SpecValidationError /
-            # CanvasConfigError) are user-actionable misconfigurations,
-            # not application crashes — route them to the unified popup
-            # so the user sees a structured "which node, which key, why"
-            # message instead of a traceback. Anything else (programming
-            # bugs, transient IO, etc.) still lands in the cmd log with
-            # a full traceback so it stays debuggable.
-            from application.ui.dialogs import show_canvas_error_dialog
-            if show_canvas_error_dialog(exc, parent=self):
-                log_warning(f"[play] canvas check failed: {exc}")
-                return
-            import traceback
-            log_error("[play] submit failed:\n" + traceback.format_exc())
-            return
-        task_id = str(result.get("task_id") or "")
-        self._active_task_id = task_id
-        # Writeback: stamp the base_asset node's ``last_run_id`` so the
-        # Start Point picker can surface Latest on the next open
-        # (cumulative-training affordance). Lives in the canvas's normal
-        # save lifecycle — _refresh_dirty_state flags the canvas dirty
-        # so the user gets the standard unsaved-changes indicator.
-        rid = str(result.get("run_id") or "").strip()
-        if rid:
-            self._persist_base_asset_last_run(rid)
-        # Capture the slot index synchronously from the public manager API.
-        # submit() has already routed the task into a slot (or the queue) by
-        # the time it returns; get_slot_status() exposes the current task_id
-        # per slot. Queued case (-1) falls back to ratio-only progress in the
-        # progress_updated handler.
-        self._active_slot_idx = -1
-        for entry in get_tasks_manager().get_slot_status():
-            if entry.get("task_id") == task_id:
-                self._active_slot_idx = int(entry.get("index", -1))
-                break
-        # Disable ▶ + enable ■. set_training_running re-evaluates ▶ via
-        # _update_start_btn_enabled (which sees _active_task_id is now set
-        # and forces ▶ off), and flips ■ to enabled.
+        # Hand the heavy lifting — cross-engine sim2sim self-check (drives both
+        # physics engines), asset dumps, spec compilation and env_cfg build —
+        # to a TasksManager worker so the GUI thread never blocks. The
+        # remaining GUI-thread work (sim2sim ack modal, TasksManager.submit of
+        # the built run, progress wiring) runs in _on_prepare_finished once the
+        # worker reports back. See CanvasTrainingPrepareTask.
+        from application.training.trainer_runtime import (
+            CanvasTrainingPrepareTask,
+        )
+        prep = CanvasTrainingPrepareTask(canvas_dict)
+        self._prepare_task_id = prep.id
+        # Disable ▶ + enable ■ (■ cancels the prep task via _on_stop_training).
         self.set_training_running(True)
-        # Jump to Mission Control mode so the chart + bottom panel are
-        # visible while the run progresses.
+        # Switch to Mission Control IMMEDIATELY on click — before the worker
+        # does any heavy prep — so the user gets instant visual feedback and
+        # watches the "preparing…" line stream into the cmd log, instead of a
+        # dead-air gap that looks like the click did nothing.
         if self._mission_control_panel is not None:
             self._mission_control_panel.enter_mission_control_mode()
-        # Reset the cmd column to a known width so the Mission Control
-        # chart has predictable horizontal room on every run start.
+        # Reset the cmd column to a known width for the Mission Control chart.
         if self._work_splitter is not None:
             total = self._work_splitter.width()
             cmd_w = 585
             self._work_splitter.setSizes([max(total - cmd_w, 1), cmd_w])
-        # Reset the bar so a stale 100% from a prior run isn't visible while
-        # we wait for the first MSG_PROGRESS. set_progress will auto-flip
-        # IDLE → RUNNING on the first non-zero ratio (LaviProgressBar.set_progress).
+        if self._progress_bar is not None:
+            self._progress_bar.reset()
+        log_info(
+            tr(
+                "training.preparing",
+                "Preparing training run (compiling off the UI thread)…",
+            )
+        )
+        get_tasks_manager().submit(prep)
+
+    def _on_prepare_finished(
+        self, task_id: str, success: bool, result: Any
+    ) -> None:
+        """GUI-thread handoff after CanvasTrainingPrepareTask completes.
+
+        On success: show the sim2sim acknowledgement modal if the verdict
+        needs one, then submit the built (but unsubmitted) training task and
+        wire up progress tracking. On failure: route the worker's exception to
+        the same dialogs the old synchronous submit used. A cancelled prep
+        (Stop pressed, or user declined sim2sim) unwinds silently.
+        """
+        if not self._prepare_task_id or task_id != self._prepare_task_id:
+            return
+        self._prepare_task_id = ""
+
+        if not success:
+            # TaskWorker records the exception on the Task for FAILED runs, and
+            # leaves it None for a clean cancel (TaskCancelledException). Use
+            # that to split "real failure → dialog" from "user cancelled →
+            # silent".
+            task = get_tasks_manager().get_task(task_id)
+            exc = getattr(task, "error", None) if task is not None else None
+            self.set_training_running(False)
+            if self._progress_bar is not None:
+                self._progress_bar.reset()
+            if exc is None:
+                log_info("[play] training preparation cancelled")
+                return
+            self._handle_submit_exception(exc)
+            return
+
+        if not isinstance(result, dict):
+            self.set_training_running(False)
+            log_error("[play] prepare task returned no result")
+            return
+
+        # Cross-engine sim2sim soft-block: the verdict was measured off-thread;
+        # surface its one-time-per-plant acknowledgement modal here, on the GUI
+        # thread, before committing the run. Decline ⇒ discard the built task.
+        verdict = result.get("verdict")
+        if verdict is not None and getattr(verdict, "needs_ack", False):
+            if not self._show_sim2sim_residual_dialog(verdict):
+                self.set_training_running(False)
+                if self._progress_bar is not None:
+                    self._progress_bar.reset()
+                return
+
+        training_task = result.get("training_task")
+        if training_task is None:
+            self.set_training_running(False)
+            log_error("[play] prepare task produced no training task")
+            return
+
+        # Submit the built run on the GUI thread — TasksManager.submit spawns a
+        # QThread, which must be created on the main thread.
+        tid = get_tasks_manager().submit(training_task)
+        self._active_task_id = tid
+        # Writeback: stamp the base_asset node's ``last_run_id`` so the
+        # Start Point picker can surface Latest on the next open
+        # (cumulative-training affordance).
+        rid = str(result.get("run_id") or "").strip()
+        if rid:
+            self._persist_base_asset_last_run(rid)
+        # Capture the slot index synchronously: submit() has already routed the
+        # task into a slot (or the queue). Queued case (-1) falls back to
+        # ratio-only progress in the progress_updated handler.
+        self._active_slot_idx = -1
+        for entry in get_tasks_manager().get_slot_status():
+            if entry.get("task_id") == tid:
+                self._active_slot_idx = int(entry.get("index", -1))
+                break
+        # Re-assert ▶ off / ■ on now that _active_task_id is set. Mission
+        # Control mode + cmd-column layout were already entered on click
+        # (_on_start_training) so the user saw immediate feedback during prep.
+        self.set_training_running(True)
         if self._progress_bar is not None:
             self._progress_bar.reset()
         log_info(
@@ -3664,6 +3708,38 @@ class MainWindow(QMainWindow):
                 algo=result.get("algorithm", ""),
             )
         )
+
+    def _handle_submit_exception(self, exc: BaseException) -> None:
+        """Route a training-submit failure to the right surface.
+
+        Cloud-submit misconfiguration → warning box; canvas self-check
+        failures (SpecValidationError / CanvasConfigError) → unified canvas
+        error popup; anything else → cmd-log traceback. Mirrors the split the
+        old synchronous submit did inline, now driven by the exception the
+        background prepare task raised (no live ``sys.exc_info``, so the
+        traceback is formatted from the stored exception). CLAUDE.md §8: a
+        cloud misconfiguration NEVER falls back to a local run.
+        """
+        from application.training.remote.submit_task import (
+            RemoteSubmitConfigError,
+        )
+        if isinstance(exc, RemoteSubmitConfigError):
+            QMessageBox.warning(
+                self,
+                tr("engines.cloud_submit_error_title", "Cloud training"),
+                str(exc),
+            )
+            log_warning(f"[play] cloud submit config error: {exc}")
+            return
+        from application.ui.dialogs import show_canvas_error_dialog
+        if show_canvas_error_dialog(exc, parent=self):
+            log_warning(f"[play] canvas check failed: {exc}")
+            return
+        import traceback
+        tb = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )
+        log_error("[play] submit failed:\n" + tb)
 
     def _persist_base_asset_last_run(self, run_id: str) -> None:
         """Stamp ``base_asset.last_run_id`` on the active CanvasPage so
@@ -3964,6 +4040,62 @@ class MainWindow(QMainWindow):
             )
         return chosen
 
+    def _show_sim2sim_residual_dialog(self, verdict) -> bool:
+        """Soft-block modal for a non-convergent sim2sim dimension. Proceed
+        records a per-plant acknowledgement so the same plant never re-prompts."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        dims = ", ".join(verdict.chaotic_dims)
+        body = "\n".join([
+            tr(
+                "training.sim2sim.body",
+                "The PhysX↔MuJoCo cross-engine measurement found dimension(s) "
+                "whose residual is non-convergent (chaotic): {dims}. Domain "
+                "randomization cannot cover them, and sim2sim may not faithfully "
+                "reproduce this regime.",
+            ).format(dims=dims),
+            "",
+            tr(
+                "training.sim2sim.hint",
+                "Proceed records this for the current plant — you won't be asked "
+                "again unless the robot asset changes.",
+            ),
+        ])
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle(tr(
+            "training.sim2sim.title", "Non-convergent sim2sim dimension",
+        ))
+        msg.setText(tr(
+            "training.sim2sim.header",
+            "Cross-engine residual self-check flagged robot ‘{sku}’.",
+        ).format(sku=verdict.sku))
+        msg.setInformativeText(body)
+        proceed_btn = msg.addButton(
+            tr("training.sim2sim.proceed", "Proceed anyway"),
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        cancel_btn = msg.addButton(
+            tr("training.sim2sim.cancel", "Cancel"),
+            QMessageBox.ButtonRole.RejectRole,
+        )
+        msg.setDefaultButton(cancel_btn)
+        msg.exec()
+        if msg.clickedButton() is proceed_btn:
+            try:
+                from application.training.validation.sim2sim_measurement.\
+                    auto_selfcheck import acknowledge
+                acknowledge(verdict.sku, verdict.fingerprint)
+            except Exception as exc:  # noqa: BLE001
+                log_warning(f"[play] sim2sim acknowledge failed: {exc!r}")
+            log_warning(
+                f"[play] user proceeded despite non-convergent sim2sim "
+                f"dimension(s) {verdict.chaotic_dims} on sku={verdict.sku!r}"
+            )
+            return True
+        log_info(f"[play] cancelled at sim2sim residual modal (sku={verdict.sku!r})")
+        return False
+
     def _resolve_training_canvas_dict(self) -> Optional[dict]:
         """Return the IR-shape dict to feed submit_canvas_training, or None.
 
@@ -4029,6 +4161,16 @@ class MainWindow(QMainWindow):
             self._progress_bar.set_progress(ratio=ratio)
 
     def _on_stop_training(self) -> None:
+        # Stop pressed during the off-thread preparation phase: cancel the
+        # prepare task (it checks_cancelled between stages). _on_prepare_finished
+        # then unwinds silently (no error) and restores the idle button state.
+        if self._prepare_task_id:
+            ok = get_tasks_manager().cancel(self._prepare_task_id)
+            log_info(
+                f"[play] prepare cancel requested ok={ok} "
+                f"task_id={self._prepare_task_id}"
+            )
+            return
         if not self._active_task_id:
             return
         ok = get_tasks_manager().cancel(self._active_task_id)

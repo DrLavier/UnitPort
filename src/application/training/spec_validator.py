@@ -45,6 +45,7 @@ class IssueCode(Enum):
     MISSING_REQUIRED_NODE = "missing_required_node"
     MISSING_REQUIRED_PORT = "missing_required_port"
     DANGLING_PORT = "dangling_port"
+    OBS_OUTPUT_UNWIRED = "obs_output_unwired"
     AMBIGUOUS_ALGORITHM_SOURCE = "ambiguous_algorithm_source"
     BACKEND_ALGORITHM_MISMATCH = "backend_algorithm_mismatch"
     BACKEND_REGISTRY_MISMATCH = "backend_registry_mismatch"
@@ -63,6 +64,7 @@ class IssueCode(Enum):
     INVALID_CONSUMPTION_MODE = "invalid_consumption_mode"
     NON_IR_JOINT_NAME = "non_ir_joint_name"
     INVALID_COMMAND_TEMPLATE = "invalid_command_template"
+    INVALID_HEADING_COMMAND = "invalid_heading_command"
     REWARD_TERM_CONFLICT = "reward_term_conflict"
     BASE_ASSET_UNRESOLVED = "base_asset_unresolved"
     STAGE_SCHEDULE_RESERVED_FOR_H2 = "stage_schedule_reserved_for_h2"
@@ -264,7 +266,10 @@ def check_topology(ir: "WorkflowIR") -> List[ValidationIssue]:
             ))
 
     issues.extend(_check_required_ports(ir))
+    issues.extend(_check_il_observation_wired(ir))  # 缺口② — obs consumed by edge
+    issues.extend(_check_training_item_reward_coverage(ir))  # §8 — enabled item w/o reward edge = 0 reward
     issues.extend(_check_reward_term_conflicts(ir))
+    issues.extend(_check_reward_weight_bounds(ir))  # §8 — registry-declared weight bounds
     issues.extend(_check_base_asset_resolvable(ir))
     issues.extend(_check_legacy_dr_fields(ir))  # R_DR1 — Stage H migration
     issues.extend(_check_contact_sensor_coverage(ir))  # R_CONTACT1 — WYSIWYG sensor coverage
@@ -457,6 +462,183 @@ def _check_reward_term_conflicts(ir: "WorkflowIR") -> List[ValidationIssue]:
     return out
 
 
+def _check_reward_weight_bounds(ir: "WorkflowIR") -> List[ValidationIssue]:
+    """Reward weights MUST stay within the registry-declared ``[min_value,
+    max_value]`` for each reward (CLAUDE.md §8: fail loud rather than train a
+    policy whose reward is quietly broken).
+
+    The reward registry is the single source of truth for sane bounds (e.g.
+    ``joint_accel_penalty`` ∈ [-0.001, 0], ``joint_vel_penalty`` ∈ [-1.0, 0]).
+    A canvas weight outside it is almost always a units/typo error that silently
+    sabotages training: a joint-velocity / -acceleration penalty orders of
+    magnitude too large (e.g. -2.5 vs the -0.001 cap → ~1e4× / vs -2.5e-7 default
+    → ~1e7×) makes ANY joint motion catastrophically costly, so the optimal
+    policy FREEZES its joints — it stands, kneels, barely steps, and never learns
+    to walk, no matter how correct the PD / obs / gait are. Nothing enforced
+    these bounds before, so such values reached training unnoticed. Widen the
+    registry ``min_value`` / ``max_value`` (the single source) if a value outside
+    the slider range is genuinely intended.
+    """
+    import json as _json
+    from application.compiler.term_payload import (
+        iter_reward_pages, parse_term_payload,
+    )
+    try:
+        from scripts import REWARD_REGISTRY, IL_REWARD_REGISTRY
+    except Exception:                                   # pragma: no cover
+        return []
+    out: List[ValidationIssue] = []
+    for node in ir.nodes:
+        if node.schema_id != "rewards":
+            continue
+        terms_raw = _param_value(node, "reward_terms", {})
+        if isinstance(terms_raw, str):
+            try:
+                terms_raw = _json.loads(terms_raw)
+            except (ValueError, TypeError):
+                continue
+        if not isinstance(terms_raw, dict):
+            continue
+        for _pid, terms in iter_reward_pages(terms_raw):
+            if not isinstance(terms, dict):
+                continue
+            for func, payload in terms.items():
+                item = IL_REWARD_REGISTRY.get(func) or REWARD_REGISTRY.get(func)
+                if item is None:
+                    continue  # unknown reward — coverage/registry checks handle it
+                weight, _variant, _applies = parse_term_payload(payload)
+                lo, hi = float(item.min_value), float(item.max_value)
+                if weight < lo or weight > hi:
+                    out.append(ValidationIssue(
+                        code=IssueCode.PARAM_OUT_OF_RANGE,
+                        severity=Severity.ERROR,
+                        node_id=node.id,
+                        field=func,
+                        message=(
+                            f"reward {func!r} weight={weight:g} is outside its "
+                            f"valid range [{lo:g}, {hi:g}] (the reward registry "
+                            f"is the single source of truth for sane bounds). An "
+                            f"out-of-range penalty quietly breaks training: a "
+                            f"joint-velocity/acceleration weight orders of "
+                            f"magnitude too large makes joint motion "
+                            f"catastrophically costly, so the policy freezes its "
+                            f"joints and never walks. Set {func!r} within "
+                            f"[{lo:g}, {hi:g}] on the Rewards node (registry "
+                            f"default {float(item.default):g}), or widen the "
+                            f"registry min/max if this is genuinely intended."
+                        ),
+                    ))
+    return out
+
+
+def _check_il_observation_wired(ir: "WorkflowIR") -> List[ValidationIssue]:
+    """缺口② — IL family: each il_observation node's ``obs_vector`` output MUST
+    be wired to il_policy_network.
+
+    The compiler now consumes the Observation node BY EDGE (not by type), so an
+    unwired Observation node produces NO policy obs. Core canvas contract: a
+    node must be wired to be used — fail loud (§8) instead of silently compiling
+    an Observation node whose output drives nothing. (The old design discovered
+    obs nodes by ``_find_by_type`` and compiled them regardless of wiring, which
+    let a dangling 'critic' node look dead while still being emitted.)
+    """
+    out: List[ValidationIssue] = []
+    if classify_family(ir) not in (AlgorithmFamily.IL_PPO, AlgorithmFamily.IL_AMP_PPO):
+        return out
+    obs_ids = [n.id for n in ir.nodes if n.schema_id == "il_observation"]
+    pol_ids = {n.id for n in ir.nodes if n.schema_id == "il_policy_network"}
+    if not obs_ids or not pol_ids:
+        return out  # presence handled by _REQUIRED_NODES
+    wired = {
+        e.source_node for e in ir.edges
+        if e.source_port == "obs_vector"
+        and e.target_node in pol_ids
+        and e.target_port == "obs_vector"
+    }
+    for oid in obs_ids:
+        if oid not in wired:
+            out.append(ValidationIssue(
+                code=IssueCode.OBS_OUTPUT_UNWIRED,
+                severity=Severity.ERROR,
+                node_id=oid,
+                field="obs_vector",
+                message=(
+                    "il_observation.obs_vector must be wired to il_policy_network "
+                    "— an unwired Observation node silently produces no policy "
+                    "obs. Connect its obs_vector output to the Policy Network "
+                    "node (canvas contract: a node must be wired to be used)."
+                ),
+            ))
+    return out
+
+
+def _check_training_item_reward_coverage(ir: "WorkflowIR") -> List[ValidationIssue]:
+    """An enabled training_item with NO ``reward_in__<item>`` edge silently
+    earns ZERO reward for its entire env share.
+
+    The command term samples every enabled item by its weight, but the reward
+    masks (``unitport_item_mask``) only fire for item indices a Rewards node is
+    wired to via ``reward_in__<item_id>``. An enabled-but-unwired item therefore
+    has its whole fleet slice trained on a constant-0 reward — wasted compute
+    that also poisons the critic (a 1/N slice of constant-0 value targets) and
+    biases advantage normalisation. This is exactly how the G1 'Turn' item went
+    unnoticed: ``_check_per_item_reward_scale`` drops zero-budget items before
+    its skew check, so nothing saw the orphan. Fail loud (§8) — wire the item to
+    a Rewards node or disable it. Mirrors :func:`_check_il_observation_wired`
+    (a node/item must be wired to be used).
+    """
+    import json as _json
+
+    out: List[ValidationIssue] = []
+    if classify_family(ir) not in (AlgorithmFamily.IL_PPO, AlgorithmFamily.IL_AMP_PPO):
+        return out
+    tm_nodes = [n for n in ir.nodes if n.schema_id == "training_motion"]
+    if not tm_nodes:
+        return out
+    for tm in tm_nodes:
+        p = tm.params.get("training_items")
+        if p is None:
+            continue
+        raw = getattr(p, "value", p)
+        if isinstance(raw, str):
+            try:
+                items = _json.loads(raw) if raw.strip() else {}
+            except (ValueError, TypeError):
+                continue  # malformed JSON surfaced by other checks
+        else:
+            items = raw or {}
+        if not isinstance(items, dict):
+            continue
+        enabled = [
+            iid for iid, cfg in items.items()
+            if not isinstance(cfg, dict) or cfg.get("enabled", True)
+        ]
+        if not enabled:
+            continue
+        wired = {
+            str(e.target_port)[len("reward_in__"):]
+            for e in ir.edges
+            if e.target_node == tm.id and str(e.target_port).startswith("reward_in__")
+        }
+        for iid in enabled:
+            if iid not in wired:
+                out.append(ValidationIssue(
+                    code=IssueCode.GENERIC,
+                    severity=Severity.ERROR,
+                    node_id=tm.id,
+                    field=f"training_items.{iid}",
+                    message=(
+                        f"training_item {iid!r} is enabled (the command term samples "
+                        f"it by weight) but has NO reward_in__{iid} edge from any "
+                        f"Rewards node — its entire env share would train on a "
+                        f"constant-0 reward (wasted compute + critic poisoning; a §8 "
+                        f"silent failure). Fix: connect a Rewards node's reward_pipe "
+                        f"to this item's reward_in__{iid} port, or disable the item."
+                    ),
+                ))
+    return out
+
+
 def _check_required_ports(ir: "WorkflowIR") -> List[ValidationIssue]:
     """Walk every node's manifest input ports; flag unwired non-optional
     ports unless their ``conditional_on`` meta disables them given current
@@ -546,6 +728,7 @@ def check_spec(spec: "TrainingSpec") -> List[ValidationIssue]:
     issues.extend(_check_joint_ir_canonical(spec))   # R8 — Phase 5 IR-only contract
     issues.extend(_check_init_joint_angles_in_range(spec))  # R_INIT1 — joint limit pre-flight
     issues.extend(_check_command_template_contract(spec))
+    issues.extend(_check_heading_command(spec))      # heading-command sanity
     issues.extend(_check_recommended_reward_terms(spec))
     issues.extend(_check_sb3_reward_term_kinds(spec))
     issues.extend(_check_sb3_termination_kinds(spec))
@@ -557,6 +740,8 @@ def check_spec(spec: "TrainingSpec") -> List[ValidationIssue]:
     issues.extend(_check_custom_terrain(spec))       # custom heightfield terrain
     issues.extend(_check_sb3_obs_terms(spec))         # 缺口⑤ P1/F3 — SB3 obs alignment
     issues.extend(_check_sb3_unsupported(spec))       # 缺口⑤ F1/F2/F5 — SB3 fail-loud gates
+    issues.extend(_check_adaptive_sampling(spec))     # Phase C — adaptive item sampling bounds
+    issues.extend(_check_item_weights(spec))          # Weight Set — initial sampling weights
     issues.extend(_check_sb3_parallelism(spec))       # SB3 VecEnv parallelism mode
     return issues
 
@@ -971,6 +1156,170 @@ def _check_sb3_unsupported(spec: "TrainingSpec") -> List[ValidationIssue]:
                 "init_pose.mode='reference_frame_0' (RSI) needs reference "
                 "motion clips, which the SB3 backend cannot replay. Use "
                 "'default' / 'keyframe' / 'custom', or switch to IsaacLab."
+            ),
+        ))
+
+    # F6 — adaptive item sampling lives in the IsaacLab command term
+    # (UnitportWeightedVelocityCommand). The SB3 MuJoCo env runs its own
+    # command sampler with no per-item weight re-biasing, so an enabled
+    # adaptive curriculum would be silently ignored.
+    motion = getattr(spec, "motion", None)
+    if motion is not None and bool(getattr(motion, "adaptive_motion_enabled", False)):
+        out.append(ValidationIssue(
+            code=IssueCode.SB3_FEATURE_UNSUPPORTED,
+            severity=Severity.ERROR,
+            field="motion.adaptive_motion_enabled",
+            message=(
+                "adaptive item sampling is IsaacLab-only — the SB3 MuJoCo env "
+                "has no weighted multi-item command term to re-bias. Disable "
+                "adaptive_motion_enabled on the TrainingMotion node, or switch "
+                "the training backend to IsaacLab."
+            ),
+        ))
+    return out
+
+
+def _check_adaptive_sampling(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """Phase C — adaptive item-sampling field sanity (fail-loud, §8).
+
+    Only fires when ``motion.adaptive_motion_enabled``. Guards the bounds the
+    env-side re-weighter assumes: a usable [floor, ceil] window, a positive
+    update cadence, and at least two enabled training items (one item makes
+    re-weighting a no-op — surfacing it prevents a silent "curriculum that
+    never does anything").
+    """
+    out: List[ValidationIssue] = []
+    motion = getattr(spec, "motion", None)
+    if motion is None or not bool(getattr(motion, "adaptive_motion_enabled", False)):
+        return out
+
+    floor = float(getattr(motion, "adaptive_weight_floor", 0.03))
+    ceil = float(getattr(motion, "adaptive_weight_ceil", 0.30))
+    interval = int(getattr(motion, "adaptive_update_interval", 50))
+    items = getattr(motion, "training_items", {}) or {}
+    n_enabled = sum(
+        1 for v in items.values()
+        if isinstance(v, dict) and v.get("enabled", False)
+    )
+
+    if not (0.0 <= floor < ceil <= 1.0):
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.ERROR,
+            field="motion.adaptive_weight_floor",
+            message=(
+                f"adaptive sampling needs 0 <= weight_floor < weight_ceil <= 1, "
+                f"got floor={floor}, ceil={ceil}."
+            ),
+        ))
+    # Feasibility: every item clamped to >= floor must be able to coexist.
+    if n_enabled > 0 and floor * n_enabled > 1.0:
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.ERROR,
+            field="motion.adaptive_weight_floor",
+            message=(
+                f"weight_floor={floor} × {n_enabled} enabled items = "
+                f"{floor * n_enabled:.2f} > 1.0 — the per-item floor cannot be "
+                f"satisfied. Lower weight_floor to <= {1.0 / n_enabled:.3f}."
+            ),
+        ))
+    if interval < 1:
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.ERROR,
+            field="motion.adaptive_update_interval",
+            message=(
+                f"adaptive_update_interval must be >= 1 iteration, got {interval}."
+            ),
+        ))
+    if n_enabled < 2:
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.WARNING,
+            field="motion.adaptive_motion_enabled",
+            message=(
+                f"adaptive item sampling is enabled but only {n_enabled} training "
+                f"item is enabled — re-weighting needs >= 2 items to do anything. "
+                f"Enable more TrainingMotion items or turn adaptive sampling off."
+            ),
+        ))
+    return out
+
+
+def _check_item_weights(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """Weight Set — per-item initial sampling weight sanity (fail-loud, §8).
+
+    The Weight Set pie editor stores an optional ``weight`` on each
+    ``training_items[id]``. Both engines (Isaac-Lab ``initial_weights`` and the
+    SB3 ``_cmd_item_weights``) read it, default a missing weight to the uniform
+    share, then normalise. This guards the only ways the value can be malformed
+    so it never silently normalises into garbage:
+
+      * a negative or NaN/inf weight on an enabled item → ERROR (a typo /
+        bad hand-edit; normalising it would produce a nonsense distribution),
+      * every enabled item explicitly weighted 0 → ERROR (no item could ever
+        be sampled; the uniform fallback would mask the user's intent).
+
+    A weight that is simply *absent* is fine (uniform share). Weights on
+    DISABLED items are ignored (the item never enters either engine's list),
+    so they are not validated — disabling an item parks its weight harmlessly.
+    """
+    import math
+
+    out: List[ValidationIssue] = []
+    motion = getattr(spec, "motion", None)
+    if motion is None:
+        return out
+    items = getattr(motion, "training_items", {}) or {}
+    if not isinstance(items, dict):
+        return out
+
+    enabled_weights: List[float] = []
+    for item_id, cfg in items.items():
+        if not (isinstance(cfg, dict) and cfg.get("enabled")):
+            continue
+        if "weight" not in cfg:
+            continue
+        raw = cfg.get("weight")
+        try:
+            w = float(raw)
+        except (TypeError, ValueError):
+            out.append(ValidationIssue(
+                code=IssueCode.GENERIC,
+                severity=Severity.ERROR,
+                field=f"motion.training_items.{item_id}.weight",
+                message=(
+                    f"training item {item_id!r} has a non-numeric weight "
+                    f"{raw!r}; weight must be a number >= 0 (or unset for the "
+                    f"uniform share)."
+                ),
+            ))
+            continue
+        if math.isnan(w) or math.isinf(w) or w < 0.0:
+            out.append(ValidationIssue(
+                code=IssueCode.GENERIC,
+                severity=Severity.ERROR,
+                field=f"motion.training_items.{item_id}.weight",
+                message=(
+                    f"training item {item_id!r} has an invalid sampling weight "
+                    f"{w}; weight must be a finite number >= 0 (or unset for "
+                    f"the uniform share)."
+                ),
+            ))
+            continue
+        enabled_weights.append(w)
+
+    # All enabled items explicitly weighted 0 → nothing could be sampled.
+    if enabled_weights and sum(enabled_weights) <= 0.0:
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.ERROR,
+            field="motion.training_items",
+            message=(
+                "every enabled training item is weighted 0 — no command item "
+                "could ever be sampled. Give at least one enabled item a "
+                "positive Weight Set value (or leave them unset for uniform)."
             ),
         ))
     return out
@@ -1705,6 +2054,62 @@ def _check_command_template_contract(spec: "TrainingSpec") -> List[ValidationIss
     return out
 
 
+def _check_heading_command(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """Heading-command (legged_gym parity) sanity checks.
+
+    Only fires when ``motion.heading_command`` is on. Guards the two
+    closed-loop knobs that would silently misbehave: a non-positive
+    stiffness (yaw never tracks the target → §8 illusion of a heading
+    controller that does nothing) and a degenerate / out-of-range heading
+    window. Applies to both engines (IsaacLab + SB3 both implement it).
+    """
+    out: List[ValidationIssue] = []
+    motion = getattr(spec, "motion", None)
+    if motion is None or not bool(getattr(motion, "heading_command", False)):
+        return out
+    stiffness = float(getattr(motion, "heading_control_stiffness", 0.5) or 0.0)
+    if stiffness <= 0.0:
+        out.append(ValidationIssue(
+            code=IssueCode.INVALID_HEADING_COMMAND,
+            severity=Severity.ERROR,
+            node_id="training_motion",
+            field="heading_control_stiffness",
+            message=(
+                "heading_command is on but heading_control_stiffness "
+                f"{stiffness} <= 0 — the yaw channel would never track the "
+                "target heading (closed loop with zero gain). Set a positive "
+                "gain (legged_gym uses 0.5)."
+            ),
+        ))
+    hr = getattr(motion, "heading_range", None)
+    if isinstance(hr, (list, tuple)) and len(hr) == 2:
+        lo, hi = float(hr[0]), float(hr[1])
+        pi = 3.141592653589793
+        if lo >= hi:
+            out.append(ValidationIssue(
+                code=IssueCode.INVALID_HEADING_COMMAND,
+                severity=Severity.ERROR,
+                node_id="training_motion",
+                field="heading_range",
+                message=(
+                    f"heading_range lo ({lo}) must be < hi ({hi})."
+                ),
+            ))
+        if lo < -pi - 1e-6 or hi > pi + 1e-6:
+            out.append(ValidationIssue(
+                code=IssueCode.INVALID_HEADING_COMMAND,
+                severity=Severity.WARNING,
+                node_id="training_motion",
+                field="heading_range",
+                message=(
+                    f"heading_range [{lo}, {hi}] extends beyond [-π, π]; "
+                    "headings wrap, so values outside this window alias onto "
+                    "in-window targets. legged_gym uses [-π, π]."
+                ),
+            ))
+    return out
+
+
 def _check_backend_algorithm(spec: "TrainingSpec") -> List[ValidationIssue]:
     out: List[ValidationIssue] = []
     backend = spec.algorithm.backend
@@ -1799,16 +2204,26 @@ def _check_sim_dt(spec: "TrainingSpec") -> List[ValidationIssue]:
 
 def _check_action_joints(spec: "TrainingSpec") -> List[ValidationIssue]:
     """If actor.action_joint_names_expr is not empty, every *literal* name must
-    be in RobotSpec.joint_order. Regex items (containing ``.*+?[](){}|^$\\``)
-    and the bare catchall ``".*"`` are passed through to Isaac Lab as-is —
-    matching the contract documented in ``_check_joint_ir_canonical``."""
+    be a recognised IR role in ``RobotSpec.joint_ir_roles``. Regex items
+    (containing ``.*+?[](){}|^$\\``) and the bare catchall ``".*"`` are passed
+    through to Isaac Lab as-is — matching the contract documented in
+    ``_check_joint_ir_canonical``.
+
+    Phase 5 IR-only contract (CLAUDE.md §1): the canvas carries IR roles only;
+    ``joint_order`` holds *physical* joint names (``FL_hip_joint``), so the
+    membership test MUST run in IR space against ``joint_ir_roles``
+    (``hip_FL``). Comparing IR-role literals against physical ``joint_order``
+    is an IR↔physical mixing bug — the Robot node's body/joint mapping is the
+    only legal bridge between the two namespaces, and the env_cfg compiler
+    already does that translation at the JointPositionActionCfg emit site via
+    ``JointIRResolver.to_physical_list``."""
     out: List[ValidationIssue] = []
     expr = spec.actor.action_joint_names_expr
     if not expr:
         return out
-    known = set(spec.robot.joint_order)
+    known = set(spec.robot.joint_ir_roles)
     if not known:
-        return out  # robot not resolved; another check will flag
+        return out  # robot not resolved / no joints; another check will flag
     regex_chars = set(".*+?[](){}|^$\\")
     missing = [
         n for n in expr
@@ -1822,8 +2237,10 @@ def _check_action_joints(spec: "TrainingSpec") -> List[ValidationIssue]:
             severity=Severity.ERROR,
             field="actor.action_joint_names_expr",
             message=(
-                f"action joints {missing!r} not in RobotSpec.joint_order "
-                f"(robot={spec.robot.sku})"
+                f"action joints {missing!r} not in RobotSpec.joint_ir_roles "
+                f"(robot={spec.robot.sku}). List items must be IR roles "
+                f"(e.g. 'hip_FL', 'calf_RR'), not physical joint names — the "
+                f"Robot node's mapping translates them at compile time."
             ),
         ))
     return out

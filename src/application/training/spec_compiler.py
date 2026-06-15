@@ -334,6 +334,30 @@ def _as_str(v: Any, default: str) -> str:
     return str(v) if v is not None else default
 
 
+def _amp_field_differs(field: str, dv: Any, tv: Any) -> bool:
+    """Type-aware comparison of one AMP hyperparam across the
+    discriminator (``dv``) and trainer (``tv``) nodes.
+
+    Returns ``True`` only on a genuine disagreement. Normalises so that
+    cosmetically-different-but-equal values don't false-positive (e.g.
+    ``lerp_schedule_json`` ``""`` vs ``{}`` are both "empty"; ``1e-4`` vs
+    ``0.0001`` are equal floats). ``None`` on either side (field absent on
+    that node) is never a conflict.
+    """
+    if dv is None or tv is None:
+        return False
+    if field in ("amp_replay_buffer_size", "num_preload_transitions"):
+        return _as_int(dv, 0) != _as_int(tv, 0)
+    if field in ("lerp_schedule", "lerp_schedule_json"):
+        # Normalise "no schedule" spellings to "" so cosmetic differences
+        # (empty dict "{}" vs empty string "" vs None) are not flagged.
+        def _norm(v: Any) -> str:
+            s = (_as_str(v, "").strip() if v else "")
+            return "" if s in ("", "{}", "[]", "null", "none", "{ }") else s
+        return _norm(dv) != _norm(tv)
+    return abs(_as_float(dv, 0.0) - _as_float(tv, 0.0)) > 1e-9
+
+
 def _flatten_reward_pages(raw: Any) -> dict:
     """Flatten a (possibly paged) ``reward_terms`` dict to flat ``{func: payload}``.
 
@@ -701,7 +725,7 @@ def _populate_algorithm(
             actor_hidden_dims=_as_json(_p(pn, "actor_hidden_dims"), [128, 64, 32]),
             critic_hidden_dims=_as_json(_p(pn, "critic_hidden_dims"), [128, 64, 32]),
             activation=_as_str(_p(pn, "activation"), "elu"),
-            init_noise_std=_as_float(_p(pn, "init_noise_std"), -1.0),
+            init_noise_std=_as_float(_p(pn, "init_noise_std"), 1.0),
             rnn_type=_as_str(_p(pn, "rnn_type"), "none"),
             rnn_hidden_size=_as_int(_p(pn, "rnn_hidden_size"), 256),
             rnn_num_layers=_as_int(_p(pn, "rnn_num_layers"), 1),
@@ -987,8 +1011,10 @@ def _populate_obs_action(
 
     il = by_id.get("il_observation")
     if il is not None:
+        # il_terms = the POLICY obs (the DEPLOYED observation). The critic's
+        # privileged terms (critic_privileged_terms) are training-only and are
+        # deliberately NOT read here — they must never enter the deploy bundle.
         oa.il_terms = dict(_as_json(_p(il, "obs_terms"), {}))
-        oa.group_name = _as_str(_p(il, "group_name"), "policy")
         oa.enable_corruption = _as_bool(_p(il, "enable_corruption"), True)
         oa.corruption_noise_std = _as_float(_p(il, "corruption_noise_std"), 0.05)
         oa.corruption_curriculum_enabled = _as_bool(_p(il, "obs_noise_curriculum_enabled"), False)
@@ -1369,14 +1395,25 @@ def _populate_motion(
             presets=_as_str(_p(n, "gait_presets"), ""),
         ),
         resampling_time_range=_as_pair(_p(n, "resampling_time_range"), (4.0, 12.0)),
-        zero_command_probability=_as_float(_p(n, "zero_command_probability"), 0.1),
+        # zero_command_probability node param removed — standing comes from the
+        # explicit 'stand' training item. MotionConfig keeps the field (inert,
+        # default 0.0) for back-compat with deploy/SB3 readers.
         cmd_step_change_prob=_as_float(_p(n, "cmd_step_change_prob"), 0.01),
+        heading_command=_as_bool(_p(n, "heading_command"), False),
+        heading_control_stiffness=_as_float(_p(n, "heading_control_stiffness"), 0.5),
+        heading_range=_as_pair(
+            _p(n, "heading_range"), (-3.141592653589793, 3.141592653589793)
+        ),
         command_curriculum=CommandCurriculumConfig(
             enabled=_as_bool(_p(n, "command_curriculum_enabled"), False),
             start=_as_float(_p(n, "command_curriculum_start"), 0.25),
             end=_as_float(_p(n, "command_curriculum_end"), 1.0),
             ramp_iters=_as_int(_p(n, "command_curriculum_ramp_iters"), 800),
         ),
+        adaptive_motion_enabled=_as_bool(_p(n, "adaptive_motion_enabled"), False),
+        adaptive_update_interval=_as_int(_p(n, "adaptive_update_interval"), 50),
+        adaptive_weight_floor=_as_float(_p(n, "adaptive_weight_floor"), 0.03),
+        adaptive_weight_ceil=_as_float(_p(n, "adaptive_weight_ceil"), 0.30),
     )
 
     # Reference clip slice goes to spec.il.motion_ref.
@@ -1477,8 +1514,40 @@ def _populate_motion(
         phase_mode=_as_str(_p(n, "phase_mode"), "loop"),
         motion_fps=_as_float(_p(n, "motion_fps"), 50.0),
         random_start_phase=_as_bool(_p(n, "random_start_phase"), True),
+        # RSI fields travel to isaac_lab/config.py → launcher so the RSI pool
+        # gets populated; env_cfg_compiler reads the same canvas params for the
+        # reset_from_reference_motion EventTerm. Both halves stay in sync.
+        reference_state_init_enabled=_as_bool(
+            _p(n, "reference_state_init_enabled"), False
+        ),
+        rsi_prob=_as_float(_p(n, "rsi_prob"), 0.0),
+        rsi_joint_noise=_as_float(_p(n, "rsi_joint_noise"), 0.02),
         clip_paths=clip_paths,
     )
+
+    # FIX-F (RC-6): in amp_discriminator mode, an enabled command item with
+    # no reference clip (e.g. a zero-velocity 'stand' item, clip:null) has
+    # no expert style to imitate — those envs get judged by the
+    # discriminator against the MOVING-expert pool, an instant disc win
+    # with zero style gradient on that env fraction. Surface it loudly:
+    # give the command a matching clip, or accept that its style is
+    # undefined (the policy still learns it via the task reward).
+    if cm_str == "amp_discriminator":
+        _no_clip = [
+            iid for iid, p in items.items()
+            if isinstance(p, dict) and p.get("enabled") and iid not in clip_paths
+        ]
+        if _no_clip:
+            print(
+                f"[UnitPort][AMP][WARN] amp_discriminator: enabled command "
+                f"item(s) {_no_clip} have no reference clip. Those commands "
+                f"(e.g. zero-velocity 'stand') are judged by the "
+                f"discriminator against the MOVING-expert pool — an instant "
+                f"disc win with no style gradient on that env fraction. Add a "
+                f"matching reference clip, or accept that the item's style is "
+                f"undefined (it is still shaped by the task reward).",
+                flush=True,
+            )
 
     # S6: motion clips must validate against the canvas robot before submit —
     # mismatched dof / unmapped IR roles surface here, not in the subprocess.
@@ -1583,21 +1652,62 @@ def _populate_il(
     il = ImitationLearningConfig(motion_ref=spec.il.motion_ref)
     amp_node = by_id.get("amp_trainer") or by_id.get("il_ppo_trainer")
     disc = by_id.get("discriminator")
-    # discriminator is the single source of truth for the 9 AMP hyperparams.
-    # The trainer node still carries the same fields (deprecated, kept for
-    # legacy canvases that predate the discriminator split); only read them
-    # as a fallback when the canvas has no discriminator node.
-    if amp_node is not None and disc is None:
+    # The discriminator node is the SINGLE SOURCE OF TRUTH for the 9 AMP
+    # core hyperparams. The trainer node still carries the same fields but
+    # they are deprecated (UI-hidden) — kept only as a legacy fallback for
+    # canvases predating the discriminator split.
+    #
+    # ⚠️ RC-4 (fixed here): previously this fill was gated on
+    # ``amp_node is not None and disc is None`` — so whenever a
+    # discriminator node existed (every real AMP canvas) the branch was
+    # DEAD, ``il.amp`` kept its dataclass DEFAULTS (coef=2.0 / lerp=0.5),
+    # and the user's canvas values — written only into ``il.amp.disc`` —
+    # were silently ignored by every consumer that reads ``il.amp.*``
+    # (notably ``isaac_lab/config.py``). Result: the run always used
+    # coef=2.0 / lerp=0.5 no matter what the canvas said ("调了没用").
+    # Now ``il.amp.*`` is populated from the AUTHORITATIVE node so a single
+    # source flows to all consumers.
+    source_node = disc if disc is not None else amp_node
+    if source_node is not None:
+        # §8: surface a producer conflict loudly. We still USE the
+        # authoritative (discriminator) value — the trainer copy is
+        # deprecated cruft — but a genuine disagreement means the user
+        # likely edited the wrong (deprecated) node, so say so.
+        if disc is not None and amp_node is not None:
+            _conflicts = []
+            for _f in (
+                "amp_reward_coef", "task_reward_lerp", "disc_grad_penalty",
+                "disc_label_smoothing", "amp_replay_buffer_size",
+                "num_preload_transitions", "disc_lr", "lerp_schedule",
+                "lerp_schedule_json",
+            ):
+                if _amp_field_differs(_f, _p(disc, _f), _p(amp_node, _f)):
+                    _conflicts.append(
+                        f"{_f}: discriminator={_p(disc, _f)!r} vs "
+                        f"trainer={_p(amp_node, _f)!r}"
+                    )
+            if _conflicts:
+                print(
+                    "[UnitPort][AMP][WARN] PARAM_AUTHORITY_CONFLICT: the "
+                    "discriminator node and the DEPRECATED trainer-node AMP "
+                    "fields disagree — using the discriminator (authoritative) "
+                    "values and IGNORING the trainer copies:\n  "
+                    + "\n  ".join(_conflicts)
+                    + "\nEdit AMP hyperparams on the discriminator node only; "
+                    "re-save the canvas to let the migrator strip the dead "
+                    "trainer fields.",
+                    flush=True,
+                )
         il.amp = AMPConfig(
-            amp_reward_coef=_as_float(_p(amp_node, "amp_reward_coef"), 2.0),
-            task_reward_lerp=_as_float(_p(amp_node, "task_reward_lerp"), 0.5),
-            disc_grad_penalty=_as_float(_p(amp_node, "disc_grad_penalty"), 10.0),
-            disc_label_smoothing=_as_float(_p(amp_node, "disc_label_smoothing"), 0.9),
-            amp_replay_buffer_size=_as_int(_p(amp_node, "amp_replay_buffer_size"), 1_000_000),
-            num_preload_transitions=_as_int(_p(amp_node, "num_preload_transitions"), 2_000_000),
-            disc_lr=_as_float(_p(amp_node, "disc_lr"), 1e-4),
-            lerp_schedule=_as_str(_p(amp_node, "lerp_schedule"), "none"),
-            lerp_schedule_json=_as_str(_p(amp_node, "lerp_schedule_json"), ""),
+            amp_reward_coef=_as_float(_p(source_node, "amp_reward_coef"), 2.0),
+            task_reward_lerp=_as_float(_p(source_node, "task_reward_lerp"), 0.5),
+            disc_grad_penalty=_as_float(_p(source_node, "disc_grad_penalty"), 10.0),
+            disc_label_smoothing=_as_float(_p(source_node, "disc_label_smoothing"), 0.9),
+            amp_replay_buffer_size=_as_int(_p(source_node, "amp_replay_buffer_size"), 1_000_000),
+            num_preload_transitions=_as_int(_p(source_node, "num_preload_transitions"), 2_000_000),
+            disc_lr=_as_float(_p(source_node, "disc_lr"), 1e-4),
+            lerp_schedule=_as_str(_p(source_node, "lerp_schedule"), "none"),
+            lerp_schedule_json=_as_str(_p(source_node, "lerp_schedule_json"), ""),
         )
     if disc is not None:
         il.amp.disc = DiscriminatorConfig(
@@ -1611,13 +1721,35 @@ def _populate_il(
             disc_grad_penalty=_as_float(_p(disc, "disc_grad_penalty"), 10.0),
             disc_label_smoothing=_as_float(_p(disc, "disc_label_smoothing"), 0.9),
             amp_replay_buffer_size=_as_int(_p(disc, "amp_replay_buffer_size"), 1_000_000),
-            num_preload_transitions=_as_int(_p(disc, "num_preload_transitions"), 200_000),
+            num_preload_transitions=_as_int(_p(disc, "num_preload_transitions"), 2_000_000),
             amp_obs_fields=_as_str(_p(disc, "amp_obs_fields"), ""),
             auto_inject_ref_obs=_as_bool(_p(disc, "auto_inject_ref_obs"), True),
             disc_logit_clamp_max=_as_float(_p(disc, "disc_logit_clamp_max"), 4.0),
             reward_clamp_per_step=_as_float(_p(disc, "reward_clamp_per_step"), 50.0),
             policy_std_clamp_max=_as_float(_p(disc, "policy_std_clamp_max"), 1.5),
         )
+        # FIX-E heuristic (soft WARN, not a gate): an over-capacity
+        # discriminator relative to the actor wins the adversarial game
+        # faster/deeper, amplifying saturation. [1024,512] is the upstream
+        # reference pairing so this is advisory, not an error.
+        _pn = by_id.get("il_policy_network")
+        if _pn is not None:
+            _actor_dims = _as_json(_p(_pn, "actor_hidden_dims"), [])
+            _disc_dims = il.amp.disc.hidden_dims
+            try:
+                _asum = sum(int(x) for x in _actor_dims)
+                _dsum = sum(int(x) for x in _disc_dims)
+            except (TypeError, ValueError):
+                _asum = _dsum = 0
+            if _asum > 0 and _dsum > 1.5 * _asum:
+                print(
+                    f"[UnitPort][AMP][WARN] discriminator capacity "
+                    f"{_disc_dims} (Σ={_dsum}) is much larger than the actor "
+                    f"{_actor_dims} (Σ={_asum}). An over-powered discriminator "
+                    f"saturates faster/deeper; consider disc_hidden_dims ≤ the "
+                    f"actor trunk (e.g. [512,256]).",
+                    flush=True,
+                )
     spec.il = il
 
 

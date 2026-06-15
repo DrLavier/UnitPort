@@ -356,6 +356,14 @@ parser.add_argument(
          "viewport-only experience under <root>/apps/ and selects it — "
          "avoiding the full Kit GUI omni.kit.menu.utils crash.")
 
+parser.add_argument(
+    "--unitport_dump_joint_order", action="store_true", default=False,
+    help="Probe mode: build the env, print the live PhysX articulation joint "
+         "order (= the policy's true action order) alongside the registry's "
+         "dumped USD order, write articulation_joint_order.json, then exit "
+         "WITHOUT training. Use to confirm/audit the bundle joint-order "
+         "alignment per robot before retraining.")
+
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
 
@@ -735,20 +743,28 @@ def main():
     else:
         _p = lambda k, d: d
 
-    # ``init_noise_std`` has historically been interpreted two ways across
-    # UnitPort's training backends: the Isaac Lab config compiler treats it
-    # as ``log_std`` and applies ``exp()`` (so ``-1.0`` → 0.368), while the
-    # AMP vendored ActorCritic uses the value as raw std directly. The UI
-    # preset defaults to ``-1.0`` (log-space). A raw negative std silently
-    # flips exploration noise sign (Normal's validate_args is disabled for
-    # speed), then the policy diverges into NaN a few iters later. To make
-    # both paths agree with the UI convention, any non-positive value is
-    # treated as log_std and exponentiated.
+    # ``init_noise_std`` is the DIRECT initial action std (legged_gym
+    # convention: 1.0 == std 1.0), consistent across every UnitPort training
+    # backend — the AMP vendored ActorCritic already uses it as a raw std
+    # (``std_init = init_noise_std * ones``), and the Isaac Lab config compiler
+    # now emits it verbatim too. We honour the user's typed value and never
+    # exp() it. (The pre-2026-06 build exp()'d it in the compiler, silently
+    # inflating a user's 1.0 into std e≈2.718 — that was a bug.) A non-positive
+    # value is invalid input → fail loud (§8); legacy log-space canvases must be
+    # migrated (bootstrap/migrate_canvas_init_noise_std_direct.py) first.
     import math as _math
 
     def _init_std(default: float) -> float:
         v = float(_p("init_noise_std", default))
-        return _math.exp(v) if v <= 0.0 else v
+        if v <= 0.0:
+            raise ValueError(
+                f"[il_train_launcher] init_noise_std must be a positive direct "
+                f"std (legged_gym: 1.0 = std 1.0), got {v}. Non-positive values "
+                f"were the old log-space convention — re-author the "
+                f"il_policy_network node or run "
+                f"bootstrap/migrate_canvas_init_noise_std_direct.py."
+            )
+        return v
 
     # ── std parameterization (rsl_rl) ──
     # rsl_rl's GaussianDistribution has two modes:
@@ -764,21 +780,34 @@ def main():
     # where ``scalar`` is preferable. Override via canvas if ever needed.
     _STD_TYPE = "log"
 
-    # ── NaN guard on rsl_rl 5.x GaussianDistribution ──
-    # std_type="log" guarantees positivity *only while log_std_param is finite*.
-    # exp(NaN)=NaN, and Normal(mean, NaN).sample() raises
-    # "RuntimeError: normal expects all elements of std >= 0.0". Stock rsl_rl
-    # has no nan_to_num/clamp on mean or log_std_param, so a single Inf in a
-    # reward/value loss can NaN-poison the policy hours into training. The AMP
-    # path's vendored ActorCritic already guards this (amp/algorithms/
-    # actor_critic.py:184-208); port the same pattern to the from-scratch PPO
-    # path here. Idempotent — safe to re-enter on multiple launcher calls.
+    # ── NaN guard on rsl_rl GaussianDistribution ──
+    # std_type="log" keeps the sampled std positive *only while log_std_param is
+    # finite*: exp(NaN)=NaN and Normal(mean, NaN).sample() raises
+    # "normal expects all elements of std >= 0.0", so a single Inf in a
+    # reward/value loss can NaN-poison the policy hours into a run. Stock rsl_rl
+    # has no such guard; the AMP path's vendored ActorCritic does
+    # (amp/algorithms/actor_critic.py). We port a MINIMAL version here.
+    #
+    # CRITICAL (2026-06 fix): this guard must NOT constrain a *healthy* policy's
+    # exploration std. The previous version clamped log_std_param IN PLACE to
+    # max log(1.5) on EVERY forward — pinning std at exactly 1.5 for any policy
+    # that wanted more, so the std stopped being a learnable parameter, never
+    # annealed, and the deterministic mean diverged (→ deploy explosion). A NaN
+    # guard's only job is to neutralise NaN/Inf; it must never bound learning.
+    # So: (1) rewrite the parameter .data ONLY when it is actually non-finite
+    # (rescue NaN poisoning, leave a finite parameter completely untouched);
+    # (2) apply a generous sentinel clamp [1e-6, 1e3] to the LOCAL *sampling*
+    # std only, to satisfy Normal()'s positivity/finiteness precondition without
+    # touching the trainable parameter. 1e3 is far above any real exploration
+    # std — it catches Inf, not learning. Idempotent across launcher calls.
     if _has_mlp_model_cfg:
         from rsl_rl.modules.distribution import GaussianDistribution as _GD
         if not getattr(_GD, "_unitport_nan_guarded", False):
             from torch.distributions import Normal as _Normal
-            _STD_MIN, _STD_MAX = 1e-3, 1.5
-            _LOG_STD_MIN, _LOG_STD_MAX = _math.log(_STD_MIN), _math.log(_STD_MAX)
+            # Sentinels for the sampling std — NOT a learning bound.
+            _STD_SAMPLE_MIN, _STD_SAMPLE_MAX = 1e-6, 1e3
+            _LOG_STD_SENTINEL_MIN = _math.log(_STD_SAMPLE_MIN)
+            _LOG_STD_SENTINEL_MAX = _math.log(_STD_SAMPLE_MAX)
             _LOG_STD_FALLBACK = _math.log(0.3)
 
             def _guarded_update(self, mlp_output):
@@ -786,23 +815,31 @@ def main():
                 if not torch.isfinite(mean).all():
                     mean = torch.nan_to_num(mean, nan=0.0, posinf=0.0, neginf=0.0)
                 if self.std_type == "log":
-                    with torch.no_grad():
-                        self.log_std_param.data = torch.nan_to_num(
-                            self.log_std_param.data,
-                            nan=_LOG_STD_FALLBACK,
-                            posinf=_LOG_STD_MAX,
-                            neginf=_LOG_STD_MIN,
-                        ).clamp(min=_LOG_STD_MIN, max=_LOG_STD_MAX)
-                    std = torch.exp(self.log_std_param).expand_as(mean)
+                    # Rescue the trainable parameter ONLY if poisoned; a finite
+                    # log_std_param is left fully learnable / annealable.
+                    if not torch.isfinite(self.log_std_param).all():
+                        with torch.no_grad():
+                            self.log_std_param.data = torch.nan_to_num(
+                                self.log_std_param.data,
+                                nan=_LOG_STD_FALLBACK,
+                                posinf=_LOG_STD_SENTINEL_MAX,
+                                neginf=_LOG_STD_SENTINEL_MIN,
+                            )
+                    std = torch.exp(self.log_std_param).clamp(
+                        min=_STD_SAMPLE_MIN, max=_STD_SAMPLE_MAX
+                    ).expand_as(mean)
                 else:
-                    with torch.no_grad():
-                        self.std_param.data = torch.nan_to_num(
-                            self.std_param.data,
-                            nan=0.3,
-                            posinf=_STD_MAX,
-                            neginf=_STD_MIN,
-                        ).clamp(min=_STD_MIN, max=_STD_MAX)
-                    std = self.std_param.expand_as(mean)
+                    if not torch.isfinite(self.std_param).all():
+                        with torch.no_grad():
+                            self.std_param.data = torch.nan_to_num(
+                                self.std_param.data,
+                                nan=0.3,
+                                posinf=_STD_SAMPLE_MAX,
+                                neginf=_STD_SAMPLE_MIN,
+                            )
+                    std = self.std_param.clamp(
+                        min=_STD_SAMPLE_MIN, max=_STD_SAMPLE_MAX
+                    ).expand_as(mean)
                 self._distribution = _Normal(mean, std)
 
             _GD.update = _guarded_update
@@ -831,7 +868,54 @@ def main():
     # canvas (that would ship a wrong policy, §8). The AMP training path ships a
     # vendored ActorCriticRecurrent and does not depend on this.
     _ppo_rnn_type = str(_p("rnn_type", "none")).strip().lower()
-    if _ppo_rnn_type in ("gru", "lstm"):
+    if _ppo_rnn_type in ("gru", "lstm") and _has_mlp_model_cfg:
+        # 缺口① — recurrent PPO on the NEW modular rsl_rl (IsaacLab >= 2.4):
+        # the runner builds the policy from per-network model cfgs (actor /
+        # critic), exactly like the MLP path below, but with RslRlRNNModelCfg
+        # (class_name="RNNModel" → rsl_rl.models.RNNModel = MLP head fed by a
+        # GRU/LSTM). The old combined ``policy=RslRlPpoActorCriticRecurrentCfg``
+        # only fits the legacy (<=2.3) runner and is handled in the else branch.
+        # The onnx exporter detects + rebuilds the recurrent actor from the
+        # checkpoint's ``rnn.rnn.*`` + ``mlp.*`` keys (onnx_export
+        # _extract_actor_mlp_state_dict, rsl_rl_rnnmodel flavour), emitting the
+        # h_in/h_out ports the deploy contract requires — producer (this cfg)
+        # and consumer (export + deploy_contract.recurrent) now agree (§8/§11).
+        from isaaclab_rl.rsl_rl.rl_cfg import RslRlRNNModelCfg
+        _rnn_hidden = int(_p("rnn_hidden_size", 256))
+        _rnn_layers = int(_p("rnn_num_layers", 1))
+        agent_cfg = RslRlOnPolicyRunnerCfg(
+            seed=int(_p("seed", 42)),
+            num_steps_per_env=int(_p("num_steps_per_env", 24)),
+            max_iterations=int(_p("max_iterations", 1500)),
+            save_interval=int(_p("save_interval", 100)),
+            experiment_name="unitport_custom",
+            run_name="",
+            algorithm=_algo_cfg,
+            actor=RslRlRNNModelCfg(
+                class_name="RNNModel",
+                hidden_dims=eval(str(_p("actor_hidden_dims", "[128, 64, 32]"))),
+                activation=str(_p("activation", "elu")),
+                distribution_cfg=RslRlMLPModelCfg.GaussianDistributionCfg(
+                    init_std=_init_std(1.0),
+                    std_type=_STD_TYPE,
+                ),
+                rnn_type=_ppo_rnn_type,
+                rnn_hidden_dim=_rnn_hidden,
+                rnn_num_layers=_rnn_layers,
+            ),
+            critic=RslRlRNNModelCfg(
+                class_name="RNNModel",
+                hidden_dims=eval(str(_p("critic_hidden_dims", "[128, 64, 32]"))),
+                activation=str(_p("activation", "elu")),
+                rnn_type=_ppo_rnn_type,
+                rnn_hidden_dim=_rnn_hidden,
+                rnn_num_layers=_rnn_layers,
+            ),
+        )
+    elif _ppo_rnn_type in ("gru", "lstm"):
+        # Legacy (<=2.3) runner: combined recurrent policy cfg. Probe the known
+        # class name and FAIL LOUD if absent — never silently emit a
+        # feed-forward MLP under a recurrent canvas (§8).
         _RecurrentCfg = None
         try:
             from isaaclab_rl.rsl_rl.rl_cfg import (
@@ -1191,6 +1275,71 @@ def main():
     # Create environment
     env = gym.make(task_name, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
+    # ── Joint-order probe (--unitport_dump_joint_order) ──
+    # Build-and-inspect ONLY: print the live PhysX articulation joint order
+    # (= the policy's true action order, the order JointPositionAction's ".*"
+    # resolves to) next to the registry's dumped USD order, persist the
+    # sidecar, then exit WITHOUT training. Confirms/audits the X≠live
+    # joint-scramble that silently mis-orders deploy bundles.
+    if getattr(args_cli, "unitport_dump_joint_order", False):
+        try:
+            from application.training.isaac_lab.joint_order_capture import (
+                resolve_articulation_joint_order, write_joint_order_sidecar,
+            )
+            try:
+                env.reset()
+            except Exception:
+                pass
+            payload = resolve_articulation_joint_order(env)
+            live_names = payload.get("joint_names") or []
+            sku = str(getattr(args_cli, "unitport_robot_sku", "") or "")
+            registry_usd: list = []
+            live_ir_roles: list = []
+            try:
+                from registers.robots import get_robot_spec
+                spec = get_robot_spec(sku) if sku else None
+                if spec is not None:
+                    registry_usd = list(spec.joint_ir_roles_for("USD"))
+                    name_to_role = (
+                        spec.joints_role_map_for("USD")
+                        or spec.joints_role_map_for("MJCF")
+                    )
+                    live_ir_roles = [name_to_role.get(n, "?") for n in live_names]
+            except Exception as _rex:
+                print(f"[UnitPort][JOINTORDER] registry lookup failed: {_rex}", flush=True)
+            try:
+                _sidecar_path = write_joint_order_sidecar(log_dir, payload)
+            except Exception as _wex:
+                _sidecar_path = f"<write failed: {_wex}>"
+            _match = (live_ir_roles == registry_usd) if registry_usd else None
+            print("[UnitPort][JOINTORDER] ===== live articulation joint-order probe =====", flush=True)
+            print(f"[UnitPort][JOINTORDER] sku           : {sku}", flush=True)
+            print(f"[UnitPort][JOINTORDER] source        : {payload.get('source')}", flush=True)
+            print(f"[UnitPort][JOINTORDER] live names    : {live_names}", flush=True)
+            print(f"[UnitPort][JOINTORDER] live IR roles : {live_ir_roles}", flush=True)
+            print(f"[UnitPort][JOINTORDER] registry USD  : {registry_usd}", flush=True)
+            print(f"[UnitPort][JOINTORDER] live == registry USD ? {_match}", flush=True)
+            if _match is False:
+                print(
+                    "[UnitPort][JOINTORDER] >>> MISMATCH: the dumped USD (prim) "
+                    "order differs from the LIVE PhysX articulation order — "
+                    "bundles for this SKU were silently mis-ordered. The fix "
+                    "orders the bundle by the LIVE order, captured at train time. "
+                    "NOTE: re-Dumping will NOT change the registry order (the dump "
+                    "reads the USD file's prim-authoring order via stage.Traverse, "
+                    "NOT a live PhysX articulation) — the train-time capture is "
+                    "the authoritative source.",
+                    flush=True,
+                )
+            print(f"[UnitPort][JOINTORDER] sidecar       : {_sidecar_path}", flush=True)
+            print("[UnitPort][JOINTORDER] ===============================================", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[UnitPort][JOINTORDER][ABORT] probe failed: {exc}", flush=True)
+            import traceback
+            traceback.print_exc()
+        sys.stdout.flush()
+        os._exit(0)
+
     # Video recording
     if args_cli.video:
         video_kwargs = {
@@ -1218,14 +1367,31 @@ def main():
     clip_actions = getattr(agent_cfg, "clip_actions", 1.0)
 
     agent_dict = agent_cfg.to_dict() if hasattr(agent_cfg, "to_dict") else vars(agent_cfg)
-    # MLPModel only accepts: hidden_dims, activation, obs_normalization, distribution_cfg
-    # Strip everything else from actor/critic dicts to avoid unexpected keyword errors.
+    # MLPModel only accepts: hidden_dims, activation, obs_normalization, distribution_cfg.
+    # RNNModel (recurrent PPO, class_name="RNNModel") ALSO carries rnn_type /
+    # rnn_hidden_dim / rnn_num_layers — those MUST survive this strip or rsl_rl's
+    # RNNModel silently falls back to its own defaults (LSTM / hidden 256 / 1
+    # layer), discarding the canvas's il_policy_network.rnn_type & rnn_hidden_size
+    # (§8: a configured GRU/64 policy would then train as a DIFFERENT net — and a
+    # later deploy that trusts the canvas spec would build a mismatched hidden
+    # state). Strip per class_name so each model keeps exactly its own fields.
     _MLPMODEL_KEYS = {"hidden_dims", "activation", "obs_normalization", "distribution_cfg", "class_name"}
+    _RNNMODEL_KEYS = _MLPMODEL_KEYS | {"rnn_type", "rnn_hidden_dim", "rnn_num_layers"}
     for _model_key in ("actor", "critic"):
         if _model_key in agent_dict and isinstance(agent_dict[_model_key], dict):
-            agent_dict[_model_key] = {
-                k: v for k, v in agent_dict[_model_key].items() if k in _MLPMODEL_KEYS
-            }
+            _cls = str(agent_dict[_model_key].get("class_name", "")).strip()
+            _allow = _RNNMODEL_KEYS if _cls == "RNNModel" else _MLPMODEL_KEYS
+            _kept = {k: v for k, v in agent_dict[_model_key].items() if k in _allow}
+            # A recurrent model that lost its rnn fields would silently train as
+            # rsl_rl's default LSTM/256 — fail loud rather than ship the wrong net.
+            if _cls == "RNNModel" and "rnn_type" not in _kept:
+                raise RuntimeError(
+                    f"[il_train_launcher] {_model_key} class_name='RNNModel' but no "
+                    f"rnn_type survived cfg sanitisation — would silently train as "
+                    f"rsl_rl's default LSTM/256 instead of the canvas recurrent net. "
+                    f"Refusing (CLAUDE.md §8)."
+                )
+            agent_dict[_model_key] = _kept
     device = getattr(agent_cfg, "device", "cuda:0")
 
     if args_cli.unitport_algorithm == "AMP_PPO":
@@ -1272,43 +1438,48 @@ def main():
             except Exception:
                 _label_overrides = {}
 
-        # Resolve the AMP obs term list ONCE here from the robot's primary
-        # family (--unitport_robot_family carries families[0]). The same
-        # list flows into both the motion-data builder (expert side, via
-        # MotionAmpData) and the env-side AMP obs extractor below, so the
-        # discriminator's expert and policy distributions are guaranteed
-        # to share field order. Canvas-side override
-        # (--unitport_amp_obs_fields) wins when non-empty.
-        from registers.amp_obs_templates import get_obs_template
-        _family = str(args_cli.unitport_robot_family or "")
-        if not _family:
+        # The AMP obs term list is resolved APP-SIDE (isaac_lab/config.py,
+        # which runs in .venv311 with registers + PyQt6) and threaded in via
+        # --unitport_amp_obs_fields. This Kit launcher MUST NOT import
+        # registers.amp_obs_templates: registers/__init__ pulls unitport_sdk →
+        # logger → PyQt6, which is absent in the Isaac Kit venv, so the import
+        # raises ModuleNotFoundError and kills the run before training. The
+        # same threaded list flows into both the motion-data builder (expert
+        # side, via MotionAmpData) and the env-side AMP obs extractor below, so
+        # the discriminator's expert and policy distributions share field order.
+        _user_obs_fields = str(getattr(args_cli, "unitport_amp_obs_fields", "") or "").strip()
+        if not _user_obs_fields:
             print(
-                "[UnitPort][ABORT] --unitport_robot_family is empty; "
-                "cannot resolve the AMP obs template / preflight perm. "
-                "Pass the robot family slug (e.g. 'quadruped' for Go2, "
-                "'humanoid' for H1) so registers.amp_obs_templates can "
-                "return the canonical term list.",
+                "[UnitPort][ABORT] --unitport_amp_obs_fields is empty. The "
+                "app-side launcher builder (isaac_lab/config.py) must resolve "
+                "the AMP obs template (canvas discriminator override or the "
+                "robot family default) and pass it explicitly — the Kit "
+                "launcher cannot import registers (no PyQt6 in the Isaac venv).",
                 flush=True,
             )
             sys.exit(4)
-        _user_obs_fields = str(getattr(args_cli, "unitport_amp_obs_fields", "") or "").strip()
-        if _user_obs_fields:
-            amp_term_names = [
-                t.strip() for t in _user_obs_fields.split(",") if t.strip()
-            ]
+        amp_term_names = [
+            t.strip() for t in _user_obs_fields.split(",") if t.strip()
+        ]
+        print(
+            f"[UnitPort][AMP] obs fields (resolved app-side, threaded via "
+            f"--unitport_amp_obs_fields): {amp_term_names}",
+            flush=True,
+        )
+
+        # Robot primary family — a plain CLI read (NO registers import; safe
+        # in the Kit venv). Needed by the post-build amp_obs canonical-mapping
+        # preflight further below (preflight_canonical_mapping(env, family=…)).
+        _family = str(args_cli.unitport_robot_family or "")
+        if not _family:
             print(
-                f"[UnitPort][AMP] obs fields overridden by canvas: {amp_term_names}",
+                "[UnitPort][ABORT] --unitport_robot_family is empty; the "
+                "amp_obs canonical-mapping preflight needs the family slug "
+                "(e.g. 'quadruped' for Go2, 'humanoid' for H1). The app-side "
+                "builder threads it via --unitport_robot_family.",
                 flush=True,
             )
-        else:
-            amp_term_names = list(
-                get_obs_template(_family).template_terms
-            )
-            print(
-                f"[UnitPort][AMP] obs fields resolved from "
-                f"registers.amp_obs_templates[{_family!r}]: {amp_term_names}",
-                flush=True,
-            )
+            sys.exit(4)
 
         amp_data = build_amp_data_from_files(
             motion_paths,
@@ -1411,15 +1582,35 @@ def main():
         # independent term-list sources.
         clip_fields = list(amp_term_names)
         env_fields = list(amp_term_names)
+        # Capture each term's declared reference frame ("base"/"world_z"/
+        # "joint") from the AMP obs registry so amp_alignment.json records
+        # the frame contract that the RC-1/RC-2 class of bug violated
+        # silently. Best-effort (a term without a registry entry would
+        # already have failed obs assembly upstream).
+        amp_term_frames: dict = {}
+        try:
+            from application.training.amp.obs_terms import get_term as _amp_get_term
+            amp_term_frames = {
+                _n: getattr(_amp_get_term(_n), "frame", "unspecified")
+                for _n in amp_term_names
+            }
+        except Exception:
+            amp_term_frames = {}
         try:
             verify_alignment(env_fields, clip_fields)
             dump_alignment_report(
-                log_dir, env_fields, clip_fields, ok=True
+                log_dir, env_fields, clip_fields, ok=True,
+                term_frames=amp_term_frames,
             )
-            print(f"[UnitPort] amp_obs alignment OK ({len(clip_fields)} fields)", flush=True)
+            print(
+                f"[UnitPort] amp_obs alignment OK ({len(clip_fields)} fields; "
+                f"frames={amp_term_frames})",
+                flush=True,
+            )
         except AmpObsAlignmentError as exc:
             dump_alignment_report(
-                log_dir, env_fields, clip_fields, ok=False, error=str(exc)
+                log_dir, env_fields, clip_fields, ok=False, error=str(exc),
+                term_frames=amp_term_frames,
             )
             print(f"[UnitPort][ABORT] {exc}", flush=True)
             sys.exit(5)
@@ -1446,6 +1637,7 @@ def main():
             dump_alignment_report(
                 log_dir, env_fields, clip_fields, ok=True,
                 canonical_mapping=canonical_mapping,
+                term_frames=amp_term_frames,
             )
             print(
                 "[UnitPort] amp_obs canonical mapping resolved: "
@@ -1458,6 +1650,7 @@ def main():
             dump_alignment_report(
                 log_dir, env_fields, clip_fields, ok=False,
                 error=f"canonical_mapping_failed: {exc}",
+                term_frames=amp_term_frames,
             )
             print(
                 f"[UnitPort][ABORT] amp_obs canonical mapping failed: {exc}",
@@ -1904,6 +2097,33 @@ def main():
         runner.learn(
             num_learning_iterations=agent_cfg.max_iterations,
             init_at_random_ep_len=True,
+        )
+
+    # ── Capture the live articulation joint order (sim2sim joint-order fix) ──
+    # The exported ONNX emits its action vector in the LIVE PhysX articulation
+    # order (JointPositionAction's ".*" resolves to it). bundle_finalizer orders
+    # the deploy bundle's per-joint arrays by this captured order — never by a
+    # separately-dumped USD prim order, which can disagree and scramble joints.
+    # Best-effort: a capture failure must never fail an already-completed run.
+    try:
+        from application.training.isaac_lab.joint_order_capture import (
+            capture_and_write,
+        )
+        _jo = capture_and_write(env, log_dir)
+        if _jo is not None:
+            print(
+                f"[UnitPort][JOINTORDER] captured live articulation order "
+                f"(source={_jo.get('source')}, "
+                f"{len(_jo.get('joint_names') or [])} joints) "
+                f"→ articulation_joint_order.json",
+                flush=True,
+            )
+    except Exception as _jo_exc:  # noqa: BLE001
+        print(
+            f"[UnitPort][JOINTORDER] WARN: could not capture live articulation "
+            f"joint order: {_jo_exc} — bundle finalize will fall back to the "
+            f"registry USD order (UNVERIFIED; may be mis-ordered).",
+            flush=True,
         )
 
     # ── Sentinel: training loop completed ──

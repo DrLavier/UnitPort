@@ -858,6 +858,43 @@ class BackendPage(QWidget):
             default="Required for MuJoCo-based simulation and training.",
         )
         mujoco_layout.addWidget(self._cb_mujoco)
+        content_layout.addWidget(mujoco_group)
+
+        # ---- Reference Motion Libraries ------------------------------
+        # loco-mujoco (dedicated default-on flagship, cloned by its own
+        # PostSetupTask step) shares one block with the code-defined
+        # reference-motion catalog (BUILTIN_REFERENCE_MOTION_PACKS). The
+        # source of truth is custom_mods_manifest.py -- there is NO
+        # installs.txt dependency (that file was deleted at v1.0.0 and
+        # silently left the catalog empty; see custom_mods_manifest docs).
+        # Each entry shallow-clones into custom_mods/motions/<name>/.
+        motion_group = QGroupBox()
+        i18n_bind(
+            motion_group,
+            "setTitle",
+            "setup.backend.group_custom_mods",
+            default="Reference Motion Libraries",
+        )
+        motion_layout = QVBoxLayout(motion_group)
+        motion_layout.setSpacing(6)
+
+        motion_hint = QLabel()
+        motion_hint.setObjectName("pageHint")
+        motion_hint.setWordWrap(True)
+        i18n_bind(
+            motion_hint,
+            "setText",
+            "setup.backend.custom_mods_hint",
+            default=(
+                "Community reference motion / AMP repositories, each "
+                "shallow-cloned into custom_mods/motions/. Entries marked "
+                "required back a shipped canvas template — leave them "
+                "checked or the template will fail to load."
+            ),
+        )
+        motion_layout.addWidget(motion_hint)
+
+        # loco-mujoco flagship: dedicated checkbox + clone step, default on.
         self._cb_loco_mujoco = QCheckBox()
         self._cb_loco_mujoco.setChecked(True)
         i18n_bind(
@@ -875,99 +912,58 @@ class BackendPage(QWidget):
                 "Cloned from github.com/robfiras/loco-mujoco."
             ),
         )
-        mujoco_layout.addWidget(self._cb_loco_mujoco)
-        content_layout.addWidget(mujoco_group)
+        motion_layout.addWidget(self._cb_loco_mujoco)
 
-        # ---- Reference Motion Libraries (custom_mods/installs.txt) ----
-        # Hot-pluggable third-party clones. Manifest lives at
-        # custom_mods/installs.txt; each entry deploys under
-        # custom_mods/motions/<name>/. All checkboxes default off --
-        # these are optional extras, not part of the default install.
+        # Code-defined catalog (amp_go2, rl_amp, …) -- one checkbox each.
         self._custom_mod_checkboxes: Dict[str, QCheckBox] = {}
-        self._custom_mod_entries: List[CustomModEntry] = []
-        try:
-            self._custom_mod_entries = load_manifest_entries()
-        except Exception as exc:  # noqa: BLE001
-            log_warning(
-                f"[wizard] failed to load custom_mods manifest: {exc}"
-            )
-            self._custom_mod_entries = []
+        self._custom_mod_entries: List[CustomModEntry] = load_manifest_entries()
+        for entry in self._custom_mod_entries:
+            cb = QCheckBox()
+            already = entry_already_installed(entry)
+            templates_csv = ", ".join(entry.required_for)
+            required_suffix = ""
+            if entry.is_required:
+                suffix_tpl = tr(
+                    "setup.backend.custom_mod_required_suffix",
+                    default="(required for {templates})",
+                )
+                required_suffix = "  " + suffix_tpl.replace(
+                    "{templates}", templates_csv
+                )
+            if already:
+                already_tag = tr(
+                    "setup.backend.custom_mod_already_installed",
+                    default="(already installed)",
+                )
+                label_text = (
+                    f"{entry.display_name}  {already_tag}{required_suffix}"
+                )
+                cb.setChecked(False)
+                cb.setEnabled(False)
+            else:
+                label_text = f"{entry.display_name}{required_suffix}"
+                cb.setChecked(entry.is_required or entry.default_install)
+            cb.setText(label_text)
+            tooltip = f"{entry.url}\n→ custom_mods/{entry.relative_path}"
+            if entry.is_required:
+                tip_tpl = tr(
+                    "setup.backend.custom_mod_required_tip",
+                    default=(
+                        "Required by canvas template(s): {templates}. "
+                        "Uncheck only if you do not plan to use the "
+                        "listed template — otherwise the template "
+                        "will fail to load."
+                    ),
+                )
+                tooltip += "\n" + tip_tpl.replace(
+                    "{templates}", templates_csv
+                )
+            cb.setToolTip(tooltip)
+            cb.setProperty("custom_mod_key", entry.key)
+            self._custom_mod_checkboxes[entry.key] = cb
+            motion_layout.addWidget(cb)
 
-        if self._custom_mod_entries:
-            mods_group = QGroupBox()
-            i18n_bind(
-                mods_group,
-                "setTitle",
-                "setup.backend.group_custom_mods",
-                default="Reference Motion Libraries (optional)",
-            )
-            mods_layout = QVBoxLayout(mods_group)
-            mods_layout.setSpacing(6)
-
-            mods_hint = QLabel()
-            mods_hint.setObjectName("pageHint")
-            mods_hint.setWordWrap(True)
-            mods_hint.setStyleSheet("color: #888; font-size: 11px;")
-            i18n_bind(
-                mods_hint,
-                "setText",
-                "setup.backend.custom_mods_hint",
-                default=(
-                    "Optional third-party motion / AMP reference repos. "
-                    "Each is shallow-cloned into custom_mods/motions/. "
-                    "Leave unchecked to skip — you can install later "
-                    "by editing custom_mods/installs.txt."
-                ),
-            )
-            mods_layout.addWidget(mods_hint)
-
-            for entry in self._custom_mod_entries:
-                cb = QCheckBox()
-                already = entry_already_installed(entry)
-                templates_csv = ", ".join(entry.required_for)
-                required_suffix = ""
-                if entry.is_required:
-                    suffix_tpl = tr(
-                        "setup.backend.custom_mod_required_suffix",
-                        default="(required for {templates})",
-                    )
-                    required_suffix = "  " + suffix_tpl.replace(
-                        "{templates}", templates_csv
-                    )
-                if already:
-                    already_tag = tr(
-                        "setup.backend.custom_mod_already_installed",
-                        default="(already installed)",
-                    )
-                    label_text = (
-                        f"{entry.display_name}  {already_tag}{required_suffix}"
-                    )
-                    cb.setChecked(False)
-                    cb.setEnabled(False)
-                else:
-                    label_text = f"{entry.display_name}{required_suffix}"
-                    cb.setChecked(entry.is_required)
-                cb.setText(label_text)
-                tooltip = f"{entry.url}\n→ custom_mods/{entry.relative_path}"
-                if entry.is_required:
-                    tip_tpl = tr(
-                        "setup.backend.custom_mod_required_tip",
-                        default=(
-                            "Required by canvas template(s): {templates}. "
-                            "Uncheck only if you do not plan to use the "
-                            "listed template — otherwise the template "
-                            "will fail to load."
-                        ),
-                    )
-                    tooltip += "\n" + tip_tpl.replace(
-                        "{templates}", templates_csv
-                    )
-                cb.setToolTip(tooltip)
-                cb.setProperty("custom_mod_key", entry.key)
-                self._custom_mod_checkboxes[entry.key] = cb
-                mods_layout.addWidget(cb)
-
-            content_layout.addWidget(mods_group)
+        content_layout.addWidget(motion_group)
 
         # ---- ROS2 ----------------------------------------------------
         ros2_group = QGroupBox()

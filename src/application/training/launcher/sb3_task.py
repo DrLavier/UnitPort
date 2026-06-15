@@ -190,12 +190,22 @@ class SB3TrainingTask(TrainingTask):
 
         if mtype == MSG_METRICS:
             if isinstance(data, dict):
-                try:
-                    rew = float(data.get("reward_mean", 0.0))
-                    if rew > self._last_reward:
-                        self._last_reward = rew
-                except Exception:
-                    pass
+                # Only samples that actually carry reward_mean update the
+                # running max. Auxiliary MSG_METRICS samples (per-command
+                # cmd_reward_* / ep_len_mean) do NOT carry reward_mean; the old
+                # ``.get("reward_mean", 0.0)`` defaulted them to a fake 0.0,
+                # which bumped self._last_reward up to 0 whenever the real max
+                # was negative → sawtoothed the Best-reward curve (CLAUDE.md §8:
+                # never substitute a missing value with a real-looking default).
+                # The SB3 reward stream rides MSG_PROGRESS (see above), which
+                # synthesises a reward_mean-bearing sample.
+                if "reward_mean" in data:
+                    try:
+                        rew = float(data["reward_mean"])
+                        if rew > self._last_reward:
+                            self._last_reward = rew
+                    except Exception:
+                        pass
                 # Forward the trainer's full metrics dict — let the chart
                 # decide which keys to render. Inject the latest known step
                 # if the trainer didn't include one (chart needs an X value).
@@ -241,7 +251,15 @@ class SB3TrainingTask(TrainingTask):
         without each having to recompute it from ``reward_mean``.
         """
         enriched = dict(sample)
-        if self._last_reward != float("-inf") and "best_reward" not in enriched:
+        # Best-reward (running max) rides ONLY the primary reward stream
+        # (samples carrying reward_mean — on the SB3 path that's the
+        # MSG_PROGRESS-synthesised sample). Auxiliary cmd_reward_* / ep_len-only
+        # samples must not inject extra points into the best_reward series.
+        if (
+            "reward_mean" in enriched
+            and self._last_reward != float("-inf")
+            and "best_reward" not in enriched
+        ):
             enriched["best_reward"] = float(self._last_reward)
         try:
             get_metrics_cache().record(self.run_id, enriched)

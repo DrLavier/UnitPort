@@ -26,8 +26,8 @@ disambiguated by their subtree shape:
         <package>/datasets/<subdir>/*.{txt,json}
 
 The legacy ``custom_mods/archives/`` directory was consolidated into
-``custom_mods/motions/`` (see ``custom_mods/installs.txt`` — every
-hot-plug repo deploys under ``motions/``).
+``custom_mods/motions/`` — every hot-plug reference-motion repo deploys
+under ``motions/`` (catalog: ``installers/custom_mods_manifest.py``).
 
 Files are browsed by category (derived from robot family) so that a Go2
 user sees all quadruped motions, with their own model's files pinned first.
@@ -103,9 +103,10 @@ def _custom_motions_dirs() -> List[Path]:
 def _project_archive_root() -> Path:
     """Project-shipped AMP archive root (read-only at runtime).
 
-    Consolidated with the motions root: ``custom_mods/installs.txt`` clones
-    every hot-plug pack under ``custom_mods/motions/<package>/``, and the
-    legacy ``custom_mods/archives/`` tree was removed. SB3 ``.npy`` library
+    Consolidated with the motions root: the reference-motion catalog
+    (``installers/custom_mods_manifest.py``) clones every hot-plug pack
+    under ``custom_mods/motions/<package>/``, and the legacy
+    ``custom_mods/archives/`` tree was removed. SB3 ``.npy`` library
     and community AMP packs co-exist here — the scanners disambiguate by
     subtree shape (``<category>/<model>/*.npy`` vs
     ``<package>/datasets/<subdir>/*.{txt,json}``), so reusing one root is

@@ -20,6 +20,9 @@ delete = Delete
 add_node = Add Node
 paste_here = Paste Here (Ctrl+V)
 
+[minimenu]
+placeholder = (coming soon)
+
 [btn]
 node_lib.tip = Node Library
 
@@ -125,8 +128,8 @@ col_name = Name
 col_param = Value
 col_scale = Scale
 col_threshold = Threshold
-col_value = Value
 col_weight = Weight
+col_value = Value
 
 [reward_pager]
 global = Global (all joints)
@@ -134,4 +137,13 @@ summary = {n} Groups
 col_group = Joints Group
 col_count = Rewards Count
 col_ops = Ops
+
+[training_motion]
+weight_set.button = Weight Set
+weight_set.title = Sampling Weights
+weight_set.hint = Drag a boundary between two slices to shift weight between them; or click a percentage to type it (only that item changes). Apply is enabled once the total is exactly 100%%.
+weight_set.total = Total
+weight_set.reset = Reset to uniform
+weight_set.ok = Apply
+weight_set.cancel = Cancel
 

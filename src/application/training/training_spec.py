@@ -49,7 +49,7 @@ class PolicyNetConfig:
     actor_hidden_dims: List[int] = field(default_factory=lambda: [128, 64, 32])
     critic_hidden_dims: List[int] = field(default_factory=lambda: [128, 64, 32])
     activation: str = "elu"
-    init_noise_std: float = -1.0  # -1 = auto
+    init_noise_std: float = 1.0  # direct action std (legged_gym: 1.0 = std 1.0); never exp()'d
     rnn_type: str = "none"        # "none" | "gru" | "lstm"
     rnn_hidden_size: int = 256
     rnn_num_layers: int = 1
@@ -294,9 +294,9 @@ class ObsActionContract:
     action_type: str = "joint_position"  # joint_position | torque
     action_scale: float = 1.0
     action_clip: float = 1.0
-    # IL-style (il_observation)
+    # IL-style (il_observation). il_terms = POLICY obs (the deployed obs). The
+    # critic's privileged terms are training-only and never enter this contract.
     il_terms: Dict[str, Any] = field(default_factory=dict)
-    group_name: str = "policy"
     enable_corruption: bool = True
     corruption_noise_std: float = 0.05
     corruption_curriculum_enabled: bool = False
@@ -702,9 +702,31 @@ class MotionConfig:
     runtime_clip: bool = True
     gait: GaitConfig = field(default_factory=GaitConfig)
     resampling_time_range: Tuple[float, float] = (4.0, 12.0)
-    zero_command_probability: float = 0.1
+    # Superseded by the explicit 'stand' training item — no longer a node param.
+    # Kept as an inert field (default 0.0 = off) so deploy/SB3 readers that still
+    # getattr() it don't break; nothing in the canvas can set it non-zero now.
+    zero_command_probability: float = 0.0
     cmd_step_change_prob: float = 0.01
     command_curriculum: CommandCurriculumConfig = field(default_factory=CommandCurriculumConfig)
+    # Adaptive item sampling (Phase C, IsaacLab-only). Items start at equal
+    # weight; when enabled the env-side command term re-biases sampling toward
+    # under-performing items every ``adaptive_update_interval`` iterations,
+    # bounded by [floor, ceil]. Carried here for SB3 fail-loud gating + record;
+    # the IsaacLab compiler reads the training_motion node params directly.
+    adaptive_motion_enabled: bool = False
+    adaptive_update_interval: int = 50
+    adaptive_weight_floor: float = 0.03
+    adaptive_weight_ceil: float = 0.30
+    # Heading-command mode (legged_gym parity). When True, the yaw channel
+    # (ang_vel_z) is NOT sampled directly: each resample draws a target
+    # heading (world yaw, rad) in ``heading_range``, and every control step
+    # the env recomputes ang_vel_z = clip(heading_control_stiffness *
+    # wrap_to_pi(target - current_yaw), <item ang_vel_z range>). This is the
+    # closed-loop heading tracking legged_gym uses (commands[:,2] derived
+    # from heading error). Default off = byte-identical open-loop yaw sampling.
+    heading_command: bool = False
+    heading_control_stiffness: float = 0.5
+    heading_range: Tuple[float, float] = (-3.141592653589793, 3.141592653589793)
 
 
 @dataclass
@@ -733,6 +755,20 @@ class MotionRefConfig:
     phase_mode: str = "loop"                      # loop | once | clamp
     motion_fps: float = 50.0
     random_start_phase: bool = True
+    # AMP Reference-State Initialization (training_motion node). When
+    # ``reference_state_init_enabled``, each episode is seeded from a random
+    # expert clip frame (pose + joint state + velocity) with probability
+    # ``rsi_prob`` plus ``rsi_joint_noise`` jitter — AMP converges far faster
+    # than fixed-pose + uniform-noise resets. BOTH halves of the feature read
+    # these SAME canvas fields: the launcher pool population (via
+    # isaac_lab/config.py → --unitport_amp_rsi_prob) builds + registers the
+    # "default" RSI pool, and env_cfg_compiler emits the
+    # reset_from_reference_motion EventTerm (pool_id="default") that consumes
+    # it. The spec must transport them so the launcher half is not silently
+    # left disabled (pool never registered → EventTerm WARNs + skips RSI).
+    reference_state_init_enabled: bool = False
+    rsi_prob: float = 0.0
+    rsi_joint_noise: float = 0.02
     # task_item_id -> clip_path (resolved from training_items)
     clip_paths: Dict[str, str] = field(default_factory=dict)
 
@@ -765,7 +801,12 @@ class DiscriminatorConfig:
     disc_grad_penalty: float = 10.0
     disc_label_smoothing: float = 0.9
     amp_replay_buffer_size: int = 1_000_000
-    num_preload_transitions: int = 200_000
+    # Unified with AMPConfig.num_preload_transitions (was 200_000 — a
+    # divergent default that meant the consumer saw a different preload
+    # count depending on which dataclass it read. The two are now the
+    # same value so the authority single-sourcing (spec_compiler reads the
+    # discriminator node into il.amp.*) cannot smuggle in a stale default.
+    num_preload_transitions: int = 2_000_000
     amp_obs_fields: str = ""
     auto_inject_ref_obs: bool = True
     # Stability circuit-breakers (P2)

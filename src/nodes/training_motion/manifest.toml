@@ -63,8 +63,25 @@ key = "training_items"
 type = "json"
 default = "{\"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": \"pack:unitport_builtin:mocap_motions/stand.txt\", \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.2, 1.0], \"clip\": null, \"advanced\": {}}, \"turn\": {\"enabled\": true, \"speed\": [0.3, 0.8], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": false, \"speed\": [0.5, 1.2], \"clip\": null, \"advanced\": {}}}"
 widget = "training_items"
-description = "训练项字典（item_id → {enabled, speed, clip, advanced}）"
+description = "训练项字典（item_id → {enabled, speed, clip, advanced, weight?}）；可选 weight 为该项的初始采样权重（缺省=均匀），由 Weight Set 饼图编辑器写入"
 meta = { pin_on_collapse = true }
+
+# ---------------------------------------------------------------------------
+# Parameters — §1.5 Initial sampling weights (pie editor)
+# ---------------------------------------------------------------------------
+
+# Action-only button row: opens a modal pie-chart editor for the per-item
+# initial sampling weight (stored back into each enabled training_items[id]
+# ["weight"]). This param itself holds no value (throwaway, like
+# `review_launch`); the editor reads/writes the sibling `training_items`.
+# Always visible — the weight is the initial sampling distribution whether
+# adaptive item sampling is on (start point) or off (permanent).
+[[parameters]]
+key = "weight_set"
+type = "string"
+default = ""
+widget = "weight_pie_editor"
+description = "命令项初始采样权重（饼图编辑器；写入各启用 item 的 weight，缺省=均匀）"
 
 # ---------------------------------------------------------------------------
 # Parameters — §2 Global stick-shaping
@@ -199,13 +216,11 @@ widget = "range_list"
 description = "命令重采样时间范围（s）"
 meta = { min = 0.0, max = 30.0, step = 0.1 }
 
-[[parameters]]
-key = "zero_command_probability"
-type = "float"
-default = 0.1
-widget = "range"
-description = "零命令概率"
-meta = { min = 0.0, max = 1.0, step = 0.01 }
+# NOTE: `zero_command_probability` (the legged_gym rel_standing_envs knob) was
+# REMOVED as a node parameter — standing is now provided solely by an explicit
+# `stand` training item (zero-velocity ranges). Adding a separate zero-command
+# probability double-counted standing. The runtime command term keeps an inert
+# rel_standing_envs=0.0 for API compatibility; nothing drives it from the node.
 
 [[parameters]]
 key = "cmd_step_change_prob"
@@ -214,6 +229,83 @@ default = 0.01
 widget = "range"
 description = "每步命令切换概率"
 meta = { min = 0.0, max = 1.0, step = 0.001 }
+
+# ---------------------------------------------------------------------------
+# Parameters — §4.5 Heading command (legged_gym parity)
+# ---------------------------------------------------------------------------
+# Closed-loop yaw: when on, ang_vel_z is NOT sampled directly — each resample
+# draws a target world-heading in heading_range, and every control step the
+# env recomputes ang_vel_z = clip(heading_control_stiffness *
+# wrap_to_pi(target - yaw), <item ang_vel_z range>). Mirrors legged_gym's
+# commands.heading_command. Implemented on BOTH engines (IsaacLab command
+# term + SB3 MuJoCo env) so it is not backend-gated. Off = open-loop yaw
+# sampling (legacy, byte-identical).
+
+[[parameters]]
+key = "heading_command"
+type = "bool"
+default = false
+description = "Heading 命令模式 / Heading command (closed-loop yaw from heading error)"
+
+[[parameters]]
+key = "heading_control_stiffness"
+type = "float"
+default = 0.5
+widget = "range"
+description = "Heading 比例增益 (heading误差 rad → yaw速率 rad/s); legged_gym=0.5"
+meta = { min = 0.0, max = 5.0, step = 0.05, conditional_on = { key = "heading_command", op = "==", value = true } }
+
+[[parameters]]
+key = "heading_range"
+type = "list"
+default = "[-3.141592653589793, 3.141592653589793]"
+widget = "range_list"
+description = "目标 heading 采样范围 (rad); legged_gym=[-π, π]"
+meta = { min = -3.141592653589793, max = 3.141592653589793, step = 0.01, conditional_on = { key = "heading_command", op = "==", value = true } }
+
+# ---------------------------------------------------------------------------
+# Parameters — §2 Adaptive item sampling (Phase C)
+# ---------------------------------------------------------------------------
+# Each enabled training_item starts at equal sampling weight (1/N). When
+# adaptive_motion_enabled, the env-side command term harvests per-item mean
+# step-reward and every `adaptive_update_interval` iterations re-biases the
+# sampling weights toward under-performing (low-reward) items — bounded by
+# [adaptive_weight_floor, adaptive_weight_ceil] (clamped + renormalised).
+# Env-side (inside the command term) so it works identically under plain-PPO
+# and AMP, neither of which exposes a per-iteration hook on the vanilla path.
+# IsaacLab-only: the SB3 MuJoCo env uses its own command sampler (validator
+# fail-louds if this is enabled on an SB3 canvas).
+
+[[parameters]]
+key = "adaptive_motion_enabled"
+type = "bool"
+default = false
+description = "自适应项采样 / Adaptive item sampling (boost under-performing items)"
+meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
+
+[[parameters]]
+key = "adaptive_update_interval"
+type = "int"
+default = 50
+widget = "range"
+description = "自适应权重更新间隔（迭代数） / Adaptive re-weight interval (iterations)"
+meta = { min = 1, max = 2000, step = 1, conditional_on = { key = "adaptive_motion_enabled", op = "==", value = true } }
+
+[[parameters]]
+key = "adaptive_weight_floor"
+type = "float"
+default = 0.03
+widget = "range"
+description = "每项最小采样权重(归一化前钳制,防饿死) / Per-item min weight (pre-renorm clamp; prevents starvation)"
+meta = { min = 0.0, max = 1.0, step = 0.01, conditional_on = { key = "adaptive_motion_enabled", op = "==", value = true } }
+
+[[parameters]]
+key = "adaptive_weight_ceil"
+type = "float"
+default = 0.30
+widget = "range"
+description = "每项最大采样权重(归一化前钳制,防独占) / Per-item max weight (pre-renorm clamp; caps dominance)"
+meta = { min = 0.0, max = 1.0, step = 0.01, conditional_on = { key = "adaptive_motion_enabled", op = "==", value = true } }
 
 # ---------------------------------------------------------------------------
 # Parameters — §5 Reference-motion consumption

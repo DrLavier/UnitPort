@@ -227,9 +227,9 @@
         {
           "key": "action_joint_names_expr",
           "type": "json",
-          "default": "[]",
+          "default": "[\".*\"]",
           "choices": null,
-          "description": "动作关节 IR 角色 / Action joint IR roles (multi-select; empty = all, deselect to suspend)",
+          "description": "动作关节 IR 角色 / Action joint IR roles (multi-select; \"All\" = every joint via the .* regex; pick specific IR roles to actuate only those)",
           "widget": "ir_joint_picker",
           "meta": {
             "source": "joint",
@@ -1478,7 +1478,7 @@
         {
           "key": "disc_hidden_dims",
           "type": "json",
-          "default": "[1024, 512]",
+          "default": "[512, 256]",
           "choices": null,
           "description": "判别器 MLP 隐藏维度 (JSON list) / Discriminator hidden dims",
           "widget": "code",
@@ -2142,11 +2142,15 @@
           }
         },
         {
-          "key": "mass_target_body",
-          "type": "string",
-          "default": "base",
-          "choices": null,
-          "description": "[IL] 质量随机化目标 body",
+          "key": "mass_target_scope",
+          "type": "enum",
+          "default": "root",
+          "choices": [
+            "root",
+            "all_bodies",
+            "custom"
+          ],
+          "description": "[IL] 质量随机化作用范围: root=根link(legged原样) / all_bodies=全身.* / custom=指定body",
           "widget": null,
           "meta": {
             "conditional_on": {
@@ -2154,6 +2158,28 @@
               "op": "==",
               "value": "isaac_lab"
             }
+          }
+        },
+        {
+          "key": "mass_target_body",
+          "type": "string",
+          "default": "torso",
+          "choices": null,
+          "description": "[IL] 自定义质量随机化目标 body（IR 角色名如 torso，或 USD link 名如 torso_link）",
+          "widget": null,
+          "meta": {
+            "conditional_on": [
+              {
+                "key": "backend",
+                "op": "==",
+                "value": "isaac_lab"
+              },
+              {
+                "key": "mass_target_scope",
+                "op": "==",
+                "value": "custom"
+              }
+            ]
           }
         },
         {
@@ -3024,23 +3050,21 @@
           "type": "json",
           "default": "{}",
           "choices": null,
-          "description": "观测项 dict / Observation terms (IL registry-backed)",
+          "description": "策略观测项 dict / Policy observation terms (the DEPLOYED obs; IL registry-backed)",
           "widget": "registry_module",
           "meta": {
             "registry_id": "il_obs"
           }
         },
         {
-          "key": "group_name",
-          "type": "enum",
-          "default": "policy",
-          "choices": [
-            "policy",
-            "critic"
-          ],
-          "description": "ObsGroup 名 / ObsGroup name. 'policy' = actor input; 'critic' = privileged critic-only group (asymmetric actor-critic). Place a second il_observation node with group_name='critic' carrying privileged terms (e.g. base_lin_vel) to enable asymmetric AC. (IsaacLab only.)",
-          "widget": null,
+          "key": "critic_privileged_terms",
+          "type": "json",
+          "default": "{\"base_lin_vel\": 2.0}",
+          "choices": null,
+          "description": "特权 critic 观测项 / Privileged critic-only obs (asymmetric AC; e.g. base_lin_vel). 空=对称 (critic=policy). IsaacLab only.",
+          "widget": "registry_module",
           "meta": {
+            "registry_id": "il_obs",
             "conditional_on": {
               "key": "backend",
               "op": "==",
@@ -3243,14 +3267,14 @@
         {
           "key": "init_noise_std",
           "type": "float",
-          "default": -1.0,
+          "default": 1.0,
           "choices": null,
-          "description": "初始噪声 std（-1=自动）",
+          "description": "初始动作噪声 std（直接值，legged_gym 约定：1.0=std 1.0）",
           "widget": "range",
           "meta": {
-            "min": -1.0,
-            "max": 2.0,
-            "step": 0.001
+            "min": 0.05,
+            "max": 3.0,
+            "step": 0.01
           }
         },
         {
@@ -5281,11 +5305,20 @@
           "type": "json",
           "default": "{\"stand\": {\"enabled\": true, \"speed\": [0.0, 0.0], \"clip\": \"pack:unitport_builtin:mocap_motions/stand.txt\", \"advanced\": {}}, \"walk\": {\"enabled\": true, \"speed\": [0.2, 1.0], \"clip\": null, \"advanced\": {}}, \"turn\": {\"enabled\": true, \"speed\": [0.3, 0.8], \"clip\": null, \"advanced\": {}}, \"pace\": {\"enabled\": false, \"speed\": [0.5, 1.2], \"clip\": null, \"advanced\": {}}}",
           "choices": null,
-          "description": "训练项字典（item_id → {enabled, speed, clip, advanced}）",
+          "description": "训练项字典（item_id → {enabled, speed, clip, advanced, weight?}）；可选 weight 为该项的初始采样权重（缺省=均匀），由 Weight Set 饼图编辑器写入",
           "widget": "training_items",
           "meta": {
             "pin_on_collapse": true
           }
+        },
+        {
+          "key": "weight_set",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "命令项初始采样权重（饼图编辑器；写入各启用 item 的 weight，缺省=均匀）",
+          "widget": "weight_pie_editor",
+          "meta": null
         },
         {
           "key": "mapping_mode",
@@ -5525,19 +5558,6 @@
           }
         },
         {
-          "key": "zero_command_probability",
-          "type": "float",
-          "default": 0.1,
-          "choices": null,
-          "description": "零命令概率",
-          "widget": "range",
-          "meta": {
-            "min": 0.0,
-            "max": 1.0,
-            "step": 0.01
-          }
-        },
-        {
           "key": "cmd_step_change_prob",
           "type": "float",
           "default": 0.01,
@@ -5548,6 +5568,120 @@
             "min": 0.0,
             "max": 1.0,
             "step": 0.001
+          }
+        },
+        {
+          "key": "heading_command",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "Heading 命令模式 / Heading command (closed-loop yaw from heading error)",
+          "widget": null,
+          "meta": null
+        },
+        {
+          "key": "heading_control_stiffness",
+          "type": "float",
+          "default": 0.5,
+          "choices": null,
+          "description": "Heading 比例增益 (heading误差 rad → yaw速率 rad/s); legged_gym=0.5",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 5.0,
+            "step": 0.05,
+            "conditional_on": {
+              "key": "heading_command",
+              "op": "==",
+              "value": true
+            }
+          }
+        },
+        {
+          "key": "heading_range",
+          "type": "list",
+          "default": "[-3.141592653589793, 3.141592653589793]",
+          "choices": null,
+          "description": "目标 heading 采样范围 (rad); legged_gym=[-π, π]",
+          "widget": "range_list",
+          "meta": {
+            "min": -3.141592653589793,
+            "max": 3.141592653589793,
+            "step": 0.01,
+            "conditional_on": {
+              "key": "heading_command",
+              "op": "==",
+              "value": true
+            }
+          }
+        },
+        {
+          "key": "adaptive_motion_enabled",
+          "type": "bool",
+          "default": false,
+          "choices": null,
+          "description": "自适应项采样 / Adaptive item sampling (boost under-performing items)",
+          "widget": null,
+          "meta": {
+            "conditional_on": {
+              "key": "backend",
+              "op": "==",
+              "value": "isaac_lab"
+            }
+          }
+        },
+        {
+          "key": "adaptive_update_interval",
+          "type": "int",
+          "default": 50,
+          "choices": null,
+          "description": "自适应权重更新间隔（迭代数） / Adaptive re-weight interval (iterations)",
+          "widget": "range",
+          "meta": {
+            "min": 1,
+            "max": 2000,
+            "step": 1,
+            "conditional_on": {
+              "key": "adaptive_motion_enabled",
+              "op": "==",
+              "value": true
+            }
+          }
+        },
+        {
+          "key": "adaptive_weight_floor",
+          "type": "float",
+          "default": 0.03,
+          "choices": null,
+          "description": "每项最小采样权重(归一化前钳制,防饿死) / Per-item min weight (pre-renorm clamp; prevents starvation)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "conditional_on": {
+              "key": "adaptive_motion_enabled",
+              "op": "==",
+              "value": true
+            }
+          }
+        },
+        {
+          "key": "adaptive_weight_ceil",
+          "type": "float",
+          "default": 0.3,
+          "choices": null,
+          "description": "每项最大采样权重(归一化前钳制,防独占) / Per-item max weight (pre-renorm clamp; caps dominance)",
+          "widget": "range",
+          "meta": {
+            "min": 0.0,
+            "max": 1.0,
+            "step": 0.01,
+            "conditional_on": {
+              "key": "adaptive_motion_enabled",
+              "op": "==",
+              "value": true
+            }
           }
         },
         {

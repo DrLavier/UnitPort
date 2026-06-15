@@ -37,7 +37,7 @@ verification. See :mod:`application.physics.physx_gain_solver`.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -62,17 +62,36 @@ _SUPPORTED_JOINT_TYPES = {_MJTJOINT_HINGE, _MJTJOINT_SLIDE}
 class EffectiveInertia:
     """Per-joint effective inertia ``M_diag`` evaluated at a nominal stance.
 
-    ``m_eff``, ``dof_index`` are aligned with the requested
+    ``m_eff``, ``armature``, ``dof_index`` are aligned with the requested
     ``joint_order_physical``. ``nominal_qpos_source`` records which
     configuration ``M`` was evaluated at, and ``qpos_ref`` is the FULL
     ``model.nq`` qpos array actually used (so both engine derivations can
     pin to a byte-identical stance — see :func:`qpos_sha256`).
+
+    ``armature`` is the per-joint ``model.dof_armature`` (the MJCF-authored
+    reflected-rotor inertia, CLAUDE.md §10). ``mj_fullM`` already folds it
+    into ``m_eff`` (so ``m_eff = m_eff_link + armature``); we surface it
+    separately so the cross-engine realized-inertia gate can decompose the
+    diagonal and the PhysX emit path can forward the SAME value to
+    ``ImplicitActuatorCfg.armature`` (PhysX's USD authors no armature, so
+    without this the two engines realize different joint-space inertia).
+    ``overlay_applied`` records whether a USD→MJCF inertia overlay was patched
+    onto the model before ``mj_fullM`` (so ``m_eff`` reflects the link inertia
+    the robot is actually simulated with, not the raw menagerie placeholder).
     """
 
     m_eff: List[float]
     dof_index: List[int]
     nominal_qpos_source: str
     qpos_ref: List[float]
+    armature: List[float] = field(default_factory=list)
+    overlay_applied: bool = False
+
+    @property
+    def m_eff_link(self) -> List[float]:
+        """``m_eff`` with the reflected-rotor armature removed (link-only
+        joint-space inertia diagonal). Parallel to ``m_eff`` / ``armature``."""
+        return [m - a for m, a in zip(self.m_eff, self.armature)]
 
     def qpos_sha256(self) -> str:
         return qpos_sha256(self.qpos_ref)
@@ -100,19 +119,36 @@ def effective_inertia_diag(
     mjcf_path: Path,
     joint_order_physical: List[str],
     nominal_qpos: Optional[np.ndarray],
+    inertia_overlay: Optional[Dict[str, Any]] = None,
 ) -> EffectiveInertia:
     """Compute the dense mass-matrix diagonal ``M[dof_j, dof_j]`` per joint.
 
-    Loads ``mjcf_path``, seeds qpos at the nominal stance (caller-supplied,
-    else MJCF keyframe-0, else ``model.qpos0``), runs ``mj_forward`` and
-    ``mj_fullM``, and returns the diagonal entry for each joint in
-    ``joint_order_physical``.
+    Loads ``mjcf_path``, optionally patches the USD→MJCF inertia overlay onto
+    the model, seeds qpos at the nominal stance (caller-supplied, else MJCF
+    keyframe-0, else ``model.qpos0``), runs ``mj_forward`` and ``mj_fullM``,
+    and returns the diagonal entry for each joint in ``joint_order_physical``.
 
     This is the single source of effective inertia for BOTH engine gain
     solvers — call it once per engine derivation and pass the result to
     :func:`solve` (MuJoCo) and
     :func:`application.physics.physx_gain_solver.solve` (PhysX) so the two
     engines mass-weight off identical numbers.
+
+    ``inertia_overlay`` (CLAUDE.md §10/§11): when given (the dict from
+    ``read_mjcf_inertia_overlay``), its body-inertia corrections are applied to
+    the model **before** ``mj_fullM`` via the SAME patcher the runtime
+    (``MjActor``) uses (:func:`application.physics.inertia_overlay_apply
+    .apply_inertia_overlay_to_model`). This makes ``m_eff`` reflect the link
+    inertia the robot is actually simulated with (USD-corrected) instead of the
+    raw menagerie placeholder, so ``kp`` is derived against the inertia it will
+    be *realized* on. ``None`` (the default) reproduces the legacy raw-MJCF
+    behavior — the SB3 MuJoCo path still uses it; the IsaacLab compiler /
+    bundle finalizer pass the resolved overlay.
+
+    The returned ``EffectiveInertia.armature`` carries each joint's
+    ``model.dof_armature`` (the MJCF-authored reflected-rotor inertia; the
+    overlay never touches it) so the PhysX emit path can forward the same value
+    and the calibration gate can decompose the realized diagonal.
 
     Raises
     ------
@@ -142,6 +178,19 @@ def effective_inertia_diag(
         )
 
     model = mujoco.MjModel.from_xml_path(str(path_obj))
+
+    # Apply the USD→MJCF inertia overlay (link inertia → the value the policy
+    # actually trained/deploys on) BEFORE building the mass matrix, via the one
+    # patcher the runtime shares. Armature (dof_armature) is intentionally left
+    # untouched by the overlay — it is read below as the MJCF-authoritative half
+    # of the diagonal.
+    overlay_applied = False
+    if inertia_overlay:
+        from .inertia_overlay_apply import apply_inertia_overlay_to_model
+
+        applied, _missing = apply_inertia_overlay_to_model(model, inertia_overlay)
+        overlay_applied = bool(applied)
+
     data = mujoco.MjData(model)
 
     # Seed qpos at the nominal stance.
@@ -183,6 +232,7 @@ def effective_inertia_diag(
 
     m_eff_list: List[float] = []
     dof_index_list: List[int] = []
+    armature_list: List[float] = []
     for physical_name in joint_order_physical:
         jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, physical_name)
         if jid < 0:
@@ -219,12 +269,15 @@ def effective_inertia_diag(
             )
         m_eff_list.append(m_eff)
         dof_index_list.append(dof_start)
+        armature_list.append(float(model.dof_armature[dof_start]))
 
     return EffectiveInertia(
         m_eff=m_eff_list,
         dof_index=dof_index_list,
         nominal_qpos_source=source,
         qpos_ref=qpos_ref,
+        armature=armature_list,
+        overlay_applied=overlay_applied,
     )
 
 
@@ -236,6 +289,7 @@ def solve(
     nominal_qpos: Optional[np.ndarray],
     pd_param: PDParam,
     precomputed_inertia: Optional[EffectiveInertia] = None,
+    inertia_overlay: Optional[Dict[str, Any]] = None,
 ) -> JointPDGains:
     """Derive MuJoCo-side ``(kp, kd)`` per joint via ``mj_fullM`` at ``nominal_qpos``.
 
@@ -307,6 +361,7 @@ def solve(
             mjcf_path=mjcf_path,
             joint_order_physical=list(joint_order_physical),
             nominal_qpos=nominal_qpos,
+            inertia_overlay=inertia_overlay,
         )
 
     kp: List[float] = []
@@ -330,6 +385,9 @@ def solve(
             "omega_n": omega_n,
             "zeta": zeta,
             "m_eff": m_eff,
+            "armature": (
+                inertia.armature[idx] if idx < len(inertia.armature) else 0.0
+            ),
             "dof_index": inertia.dof_index[idx],
         })
 
@@ -345,6 +403,7 @@ def solve(
             "formula_kd": "2 * zeta * sqrt(kp * m_eff)",
             "mjcf_path": str(Path(mjcf_path)),
             "nominal_qpos_source": inertia.nominal_qpos_source,
+            "overlay_applied": bool(inertia.overlay_applied),
             "per_joint": derivation_per_joint,
         },
     )

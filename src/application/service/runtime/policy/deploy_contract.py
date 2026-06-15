@@ -482,6 +482,42 @@ class DeployContract:
     # ``[cmd_norm, item weights]`` (tail_dim = 1 + n_items) so the deployed obs
     # matches the trained obs. Additive + orthogonal; schema_version stays 2.
     per_item_obs: Optional["PerItemObsSpec"] = None
+    # Stage 0 realized==designed audit (Layer 1). Records the two-engine realized
+    # CONSISTENCY verdicts + the friction single-source value (``scene_contract``)
+    # and the pose-invariant foot-collision-geometry hash (``foot_geometry``).
+    # The deploy side consumes two things from here: PolicyRunner applies
+    # ``scene_contract.friction_static`` to the MuJoCo geom_friction (method A —
+    # so deploy realizes the canvas μ), and re-hashes the deploy MJCF foot geoms
+    # against ``foot_geometry.aggregate`` (fail-loud on mismatch). None ⇒ bundle
+    # predates the audit (migration WARN; the runtime self-check is skipped).
+    # Additive + orthogonal; schema_version stays 2.
+    sim2sim_audit: Optional[Dict[str, Any]] = None
+    # Stage 2 (收窄版) cross-engine DR coverage provenance. Records that the
+    # measured cross-engine friction residual (block-slide campaign: box factor
+    # [0.56,1.02]) is COVERED by the existing ground-friction DR — no new DR
+    # channel was built. Present only on IsaacLab/PhysX-trained bundles (the
+    # only cross-engine case: PhysX train → MuJoCo deploy; an SB3 bundle trains
+    # and deploys in MuJoCo, same engine, no residual). The load-time check
+    # below WARNs when ``coverage.friction_dr_enabled`` is False — the
+    # "covered" guarantee is switch-dependent, so a bundle trained with
+    # friction DR OFF must fail loud, not silently inherit the guarantee (§8).
+    # Absent ⇒ no provenance (SB3 bundles, or pre-Stage-2 PhysX bundles) — NOT
+    # a defect, so no migration WARN. Additive + orthogonal; schema stays 2.
+    sim2sim_dr_provenance: Optional[Dict[str, Any]] = None
+    # sim2sim joint-order contract. The LIVE IsaacLab PhysX articulation joint
+    # order (in IR-role names) the policy's action vector is emitted in,
+    # CAPTURED at train time (``JointPositionAction`` resolves ``.*`` against the
+    # live articulation; action slot i == DOF i). This IS the bundle's per-joint
+    # array order — for a correctly-finalized bundle it equals
+    # ``joint_sdk_names``. The deploy stack treats it as the authoritative joint
+    # order. ABSENT on IsaacLab bundles exported before the capture landed: their
+    # order was taken from a possibly-stale USD prim dump that can disagree with
+    # the live order and silently scramble joints (the Go2 sim2sim-twitch bug) →
+    # load-time RE-EXPORT WARN below. ``joint_order_source`` records whether it
+    # came from the action term or the raw articulation. Additive + orthogonal;
+    # schema_version stays 2 (gated on presence, not version).
+    articulation_joint_order: Optional[List[str]] = None
+    joint_order_source: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -529,6 +565,60 @@ class DeployContract:
                 "will fall back to scalar gains; re-export through the "
                 "current pipeline to graduate onto the (omega_n, zeta) "
                 "mass-matrix-adaptive PD path."
+            )
+
+        # ----- Stage 2 (收窄版) cross-engine DR coverage fail-loud check.
+        # The bundle's "cross-engine friction residual is covered by the
+        # existing ground-friction DR" guarantee is SWITCH-DEPENDENT: it holds
+        # only while friction DR was enabled at training time. A PhysX-trained
+        # policy (this provenance is only written by the IsaacLab finalizer)
+        # deployed in MuJoCo with friction DR OFF has the [0.56,1.02] residual
+        # UNCOVERED. Warn loudly rather than let the guarantee silently lapse
+        # when the switch is off (§8 — illusion-of-success defense).
+        _dr_prov = raw.get("sim2sim_dr_provenance")
+        if isinstance(_dr_prov, dict):
+            _cov = _dr_prov.get("coverage")
+            if isinstance(_cov, dict) and _cov.get("friction_dr_enabled") is False:
+                _res = _dr_prov.get("friction_residual") or {}
+                _ext = _res.get("extreme_factor", 1.78)
+                log.warning(
+                    "deploy_contract: sim2sim_dr_provenance reports friction DR "
+                    "was DISABLED at training time (coverage.friction_dr_enabled "
+                    "= false). The 'cross-engine friction residual covered by the "
+                    "existing ground-friction DR' guarantee therefore does NOT "
+                    "hold: this PhysX-trained policy replayed in MuJoCo may show "
+                    "a sim2sim friction mismatch (realistic band ~0-12%%, extreme "
+                    "up to ~%.2fx at high mu). RE-TRAIN with friction DR enabled, "
+                    "or knowingly accept the uncovered residual. See the sim2sim "
+                    "Stage 2 (收窄版) provenance.", float(_ext)
+                )
+
+        # ----- Joint-order capture migration WARN (§8(c), CLAUDE.md §11).
+        # IsaacLab bundles exported before the live-articulation joint-order
+        # capture landed carry no ``articulation_joint_order``: their per-joint
+        # array order was taken from a (possibly stale) USD prim dump
+        # (``stage.Traverse()`` authoring order), which can disagree with the
+        # trained policy's true LIVE PhysX articulation order and silently
+        # SCRAMBLE joints at deploy — the Go2 sim2sim-convulsion bug. The true
+        # order is not recoverable from the bundle, so RE-EXPORT (re-train +
+        # re-finalize through the capture-enabled pipeline) is required. WARN,
+        # not raise, so existing bundles still load (they may deploy fine if
+        # their robot's USD dump order happened to equal the live order).
+        # Detected via ``pd_derivation`` — written ONLY by the IsaacLab
+        # finalizer, never by the SB3 exporter — so SB3/MuJoCo bundles (which
+        # are MJCF-ordered and need no capture) are never falsely flagged.
+        if raw.get("articulation_joint_order") is None and isinstance(
+            raw.get("pd_derivation"), dict
+        ):
+            log.warning(
+                "deploy_contract: this IsaacLab bundle has no "
+                "'articulation_joint_order' — it predates the live joint-order "
+                "capture. Its per-joint arrays were ordered from a USD prim "
+                "dump, which may disagree with the trained policy's live PhysX "
+                "articulation order and SCRAMBLE every joint at deploy (the "
+                "sim2sim convulsion bug). RE-EXPORT REQUIRED: re-train + "
+                "re-finalize through the current pipeline — the correct joint "
+                "order CANNOT be recovered from this bundle."
             )
 
         joint_sdk_names = _as_str_list(raw.get("joint_sdk_names"), "joint_sdk_names")
@@ -703,6 +793,103 @@ class DeployContract:
                         f"{type(pd_param_obj).__name__}"
                     )
                 pd_param_raw = dict(pd_param_obj)
+
+                # ----- Armature-parity migration WARN (§8(c), CLAUDE.md §10).
+                # Bundles exported before the armature-parity fix have no
+                # ``physx_armature_emitted`` in pd_derivation.m_eff_source: their
+                # PhysX TRAINING side ran with the USD-default armature (0) while
+                # the (ωn,ζ) gains baked in the MJCF armature (mj_fullM folds it
+                # in), so PhysX realized a stiffer-than-designed plant at
+                # low-inertia joints (ankles/wrists/elbows, where armature is the
+                # bulk of m_eff). The policy LEARNED to rely on that hard distal
+                # joint — a reliance FROZEN in the network weights.
+                #
+                # This is a RE-TRAIN directive, NOT re-export. Be explicit (§8 —
+                # an "either/or" that lets the user pick the non-working option
+                # manufactures an illusion of success):
+                #   * Re-export re-derives the deploy gains from the SAME frozen
+                #     checkpoint + same past training run. Those gains were
+                #     ALREADY armature-0.1-correct (mj_fullM always folded it in),
+                #     so re-export is byte-identical w.r.t. armature and cannot
+                #     change what PhysX realized while the policy was learning.
+                #   * Only re-training reaches the weights, letting the policy
+                #     learn on the corrected plant (current pipeline emits
+                #     ImplicitActuatorCfg.armature so PhysX realizes the MJCF
+                #     armature).
+                # WARN (not raise) so existing bundles still load; the export-time
+                # realized-inertia gate is the hard gate for new bundles.
+                _pd_deriv = raw.get("pd_derivation")
+                _m_eff_src = (
+                    _pd_deriv.get("m_eff_source", {})
+                    if isinstance(_pd_deriv, dict) else {}
+                )
+                if isinstance(_m_eff_src, dict) and (
+                    "physx_armature_emitted" not in _m_eff_src
+                ):
+                    log.warning(
+                        "deploy_contract: this bundle predates armature parity "
+                        "(no pd_derivation.m_eff_source.physx_armature_emitted). "
+                        "If the robot's MJCF authors a non-zero joint armature, "
+                        "its PhysX TRAINING side ran WITHOUT that armature, so "
+                        "the policy was trained against a stiffer-than-designed "
+                        "plant at low-inertia joints (ankles/wrists/elbows, where "
+                        "armature dominates the joint inertia). That reliance is "
+                        "FROZEN in the policy weights — the network learned to "
+                        "lean on a hard distal joint that exists in NEITHER the "
+                        "corrected training physics NOR the MuJoCo deploy "
+                        "physics. RE-EXPORT ALONE CANNOT FIX THIS: it only "
+                        "re-derives the deploy gains (already armature-correct via "
+                        "mj_fullM — byte-identical) from the same frozen "
+                        "checkpoint and cannot change what PhysX realized during "
+                        "the past training run. You MUST RE-TRAIN with the "
+                        "current pipeline (which emits ImplicitActuatorCfg."
+                        "armature so PhysX realizes the MJCF armature). See "
+                        "CLAUDE.md §10."
+                    )
+
+                # ----- Stage 0 sim2sim-audit migration WARN (§8(c)). Bundles
+                # exported before the realized==designed audit carry no
+                # ``sim2sim_audit`` block: they lack the recorded ground friction
+                # (so deploy realizes the MJCF-default μ, NOT the trained canvas
+                # value) and the foot-collision-geometry hash (so the deploy-side
+                # self-check cannot run). WARN, not raise — the bundle still
+                # loads; the export-time audit gate is the hard gate for new
+                # bundles. Unlike the armature gap, RE-EXPORT suffices here: the
+                # friction value + foot hash are deploy-time alignment metadata,
+                # independent of the trained weights (no re-train needed).
+                _audit = raw.get("sim2sim_audit")
+                if not isinstance(_audit, dict):
+                    log.warning(
+                        "deploy_contract: this bundle predates the sim2sim "
+                        "realized==designed audit (no 'sim2sim_audit' block). "
+                        "Deploy will NOT apply the canvas ground friction "
+                        "(it realizes the MJCF-default μ, not the trained "
+                        "value), and the foot-collision-geometry self-check is "
+                        "skipped. RE-EXPORT to attach the audit — the trained "
+                        "weights are unaffected (deploy-time alignment + a "
+                        "recorded hash), so re-export suffices; re-training is "
+                        "NOT required. See CLAUDE.md §10/§11."
+                    )
+                else:
+                    if _audit.get("scene_contract") is None:
+                        log.warning(
+                            "deploy_contract: sim2sim_audit carries no "
+                            "'scene_contract' — no canvas ground friction was "
+                            "recorded, so deploy keeps the MJCF-default μ. If "
+                            "the policy trained against a non-default ground "
+                            "friction, re-export with a play_ground_setting "
+                            "node so deploy realizes the same μ."
+                        )
+                    _fg = _audit.get("foot_geometry")
+                    _fg_status = _fg.get("status") if isinstance(_fg, dict) else None
+                    if _fg_status != "ok":
+                        log.warning(
+                            "deploy_contract: sim2sim_audit foot_geometry is "
+                            "absent or not 'ok' (status=%r) — the deploy-side "
+                            "foot-collision-geometry self-check will be skipped "
+                            "for this bundle (it engages only on status='ok').",
+                            _fg_status,
+                        )
             mj_gains_raw = raw.get("mujoco_pd_gains")
             mj_damp_raw = raw.get("mujoco_pd_damping")
             if pd_param_raw is not None and not mujoco_unsupported:
@@ -991,6 +1178,31 @@ class DeployContract:
                 PerItemObsSpec.from_dict(raw["per_item_obs"])
                 if raw.get("per_item_obs") is not None else None
             ),
+            # Stage 0 audit block (additive + version-orthogonal): parsed
+            # whenever present so PolicyRunner can apply the canvas friction +
+            # run the foot-geometry self-check. A non-dict value is ignored.
+            sim2sim_audit=(
+                dict(raw["sim2sim_audit"])
+                if isinstance(raw.get("sim2sim_audit"), dict) else None
+            ),
+            # Stage 2 (收窄版) cross-engine DR coverage provenance (additive +
+            # version-orthogonal). The fail-loud check fired above (or below)
+            # keys on coverage.friction_dr_enabled.
+            sim2sim_dr_provenance=(
+                dict(raw["sim2sim_dr_provenance"])
+                if isinstance(raw.get("sim2sim_dr_provenance"), dict) else None
+            ),
+            # sim2sim joint-order contract (additive + version-orthogonal):
+            # the captured LIVE articulation order. Parsed whenever present so
+            # the deploy stack trusts the policy's true action order.
+            articulation_joint_order=(
+                [str(x) for x in raw["articulation_joint_order"]]
+                if isinstance(raw.get("articulation_joint_order"), list) else None
+            ),
+            joint_order_source=(
+                str(raw["joint_order_source"])
+                if raw.get("joint_order_source") is not None else None
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -1048,6 +1260,14 @@ class DeployContract:
             out["recurrent"] = self.recurrent.to_dict()
         if self.per_item_obs is not None:
             out["per_item_obs"] = self.per_item_obs.to_dict()
+        if self.sim2sim_audit is not None:
+            out["sim2sim_audit"] = dict(self.sim2sim_audit)
+        if self.sim2sim_dr_provenance is not None:
+            out["sim2sim_dr_provenance"] = dict(self.sim2sim_dr_provenance)
+        if self.articulation_joint_order is not None:
+            out["articulation_joint_order"] = list(self.articulation_joint_order)
+        if self.joint_order_source is not None:
+            out["joint_order_source"] = str(self.joint_order_source)
         return out
 
     # ------------------------------------------------------------------

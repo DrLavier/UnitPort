@@ -605,6 +605,16 @@ def _dump_via_pxr(usd_ref: str) -> Dict[str, Any]:
         "bodies": bodies, "joints": joints,
         "body_inertials": body_inertials, "joint_frames": joint_frames,
         "joint_drives": joint_drives,
+        # The ``joints`` list above is in USD PRIM-TRAVERSAL (authoring) order,
+        # which is NOT guaranteed to equal the LIVE PhysX articulation DOF order
+        # the trained policy emits its action vector in. This lightweight pxr
+        # path has no physics context and cannot read the articulation DOF
+        # order. Tagged so the bundle pipeline treats this as a display/fallback
+        # order only — the authoritative bundle joint order is the train-time
+        # capture (``articulation_joint_order.json`` →
+        # deploy_contract.articulation_joint_order). bundle_finalizer LOUD-WARNs
+        # when the two disagree (Go2 thigh/calf scramble). §8/§11.
+        "joint_order_provenance": "prim_traverse",
     }
 
 
@@ -730,6 +740,12 @@ def _dump_via_kit(usd_ref: str, out_path: str) -> Dict[str, Any]:
             "bodies": bodies, "joints": joints,
             "body_inertials": body_inertials, "joint_frames": joint_frames,
             "joint_drives": joint_drives,
+            # USD prim-traversal order (see _dump_via_pxr): this kit-boot path
+            # still reads order via Usd.Stage.Traverse, NOT an instantiated
+            # articulation, so it is the authoring order — not guaranteed to
+            # equal the live PhysX DOF order. The authoritative bundle joint
+            # order is the train-time capture (articulation_joint_order.json).
+            "joint_order_provenance": "prim_traverse",
         }
         print(
             f"[discover_usd_bodies] kit traversal: "

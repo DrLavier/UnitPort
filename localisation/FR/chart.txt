@@ -1,6 +1,9 @@
 [empty]
 no_visible_series = Aucune série visible
 
+[series]
+cmd_reward = Récompense de commande
+
 [runs]
 clear = Effacer
 empty = Aucune exécution

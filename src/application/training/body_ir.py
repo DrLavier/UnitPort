@@ -1134,6 +1134,28 @@ class BodyIRMapper:
                 out.append(role.body)
         return out
 
+    def get_category_roles(self, category: str) -> List[str]:
+        """IR role_ids for ``category``, in the SAME order and with the SAME
+        family fallback as :meth:`get_category_bodies` — a parallel array:
+        ``get_category_roles(c)[i]`` is the IR role of the body
+        ``get_category_bodies(c)[i]``. Lets callers derive role-keyed per-body
+        data (e.g. the gait phase offset) STRICTLY from the IR role, so nothing
+        relies on positional list order (the IR layer is the single source of
+        truth for body identity)."""
+        direct = [r.role_id for r in self._roles
+                  if r.category == category and r.body is not None]
+        if direct:
+            return direct
+        fallback_role_ids = _CATEGORY_FAMILY_FALLBACK.get(
+            (self._family, category), ()
+        )
+        out: List[str] = []
+        for alt_role_id in fallback_role_ids:
+            role = self._by_id.get(alt_role_id)
+            if role is not None and role.body is not None:
+                out.append(role.role_id)
+        return out
+
     def all_resolved(self, required_only: bool = True) -> bool:
         for r in self._roles:
             if r.resolved:
@@ -1294,13 +1316,63 @@ def apply_user_overrides(mapper: BodyIRMapper,
 # Reward params helper
 # ═══════════════════════════════════════════════════════════════════════
 
+# Diagonal-trot (quadruped) / alternating (biped) gait phase, keyed STRICTLY
+# by each foot's IR-role position tag — NEVER by list position. The quadruped
+# trot swings the two diagonal pairs in anti-phase: {FL, RR} at phase 0.0 and
+# {FR, RL} at phase 0.5; a biped alternates {L} 0.0 / {R} 0.5. The tag is the
+# last underscore-delimited segment of the IR role id (foot_FL -> "FL",
+# ankle_roll_L -> "L"), so the phase follows the role wherever it is mapped.
+_GAIT_PHASE_BY_TAG: Dict[str, float] = {
+    "FL": 0.0, "RR": 0.0, "FR": 0.5, "RL": 0.5,   # quadruped diagonals
+    "L": 0.0, "R": 0.5,                            # biped / humanoid
+}
+
+
+def gait_phase_offsets_for_roles(role_ids: List[str]) -> List[float]:
+    """Per-foot gait phase offset derived from each foot's IR role.
+
+    STRICTLY role-keyed (CLAUDE.md IR design): the phase of foot ``i`` is a
+    function of ``role_ids[i]``'s position tag, not of ``i``. Returns a list
+    aligned 1:1 with ``role_ids`` (and therefore with the parallel
+    ``get_category_bodies`` list). Fail-loud (§8) on a foot role whose tag is
+    not a recognized leg position — never silently default to a positional
+    guess (which is how a trot offset could mis-pair into a bound).
+    """
+    out: List[float] = []
+    for rid in role_ids:
+        tag = str(rid).rsplit("_", 1)[-1].upper()
+        if tag not in _GAIT_PHASE_BY_TAG:
+            raise ValueError(
+                f"gait_phase_offsets_for_roles: foot IR role {rid!r} has an "
+                f"unrecognized leg-position tag {tag!r} (expected one of "
+                f"{sorted(_GAIT_PHASE_BY_TAG)}). The gait phase is keyed by IR "
+                f"role, not list order — fix the feet IR mapping for this robot."
+            )
+        out.append(_GAIT_PHASE_BY_TAG[tag])
+    return out
+
+
 def resolve_body_params(il_params_template: str,
                         mapper: BodyIRMapper) -> str:
-    """Substitute ``{ir:category}`` placeholders.
+    """Substitute ``{ir:category}`` and ``{ir_gait_phase:category}`` placeholders.
 
     ``{ir:feet}`` → list of all bodies in the "feet" category.
     ``{ir:thighs_hips_base}`` → merged list from thighs + hips + base.
+    ``{ir_gait_phase:feet}`` → per-foot gait phase offsets, derived from the IR
+    role of each foot and aligned 1:1 with ``{ir:feet}`` (same ordered roles),
+    so the gait reward's phase is keyed by IR role, never by list position.
     """
+    def _replace_gait_phase(match: re.Match) -> str:
+        expr = match.group(1)
+        categories = split_compound_categories(expr)
+        role_ids: List[str] = []
+        for cat in categories:
+            role_ids.extend(mapper.get_category_roles(cat))
+        if not role_ids:
+            return f'"(UNRESOLVED_GAIT_PHASE:{expr})"'
+        offsets = gait_phase_offsets_for_roles(role_ids)
+        return "[" + ", ".join(repr(float(o)) for o in offsets) + "]"
+
     def _replace(match: re.Match) -> str:
         expr = match.group(1)
         categories = split_compound_categories(expr)
@@ -1313,7 +1385,10 @@ def resolve_body_params(il_params_template: str,
             return f'"{bodies[0]}"'
         return "[" + ", ".join(f'"{b}"' for b in bodies) + "]"
 
-    return re.sub(r"\{ir:(\w+)\}", _replace, il_params_template)
+    # gait-phase placeholder FIRST (it is the more specific token); then the
+    # generic body-name placeholder. The two regexes are disjoint.
+    template = re.sub(r"\{ir_gait_phase:(\w+)\}", _replace_gait_phase, il_params_template)
+    return re.sub(r"\{ir:(\w+)\}", _replace, template)
 
 
 def split_compound_categories(expr: str) -> List[str]:

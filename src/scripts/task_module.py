@@ -110,16 +110,19 @@ class TaskModuleItem:
     il_value_unit: str = ""
 
     # ── Per-joint-subset partitioning (缺口③) ─────────────────────────
-    # When non-empty, this reward can be split into multiple per-joint-subset
-    # instances from ONE canvas term — the legged_gym hip/arm/waist_dof_deviation
-    # pattern. The value names the partition taxonomy the UI + compiler draw
-    # from; today the only source is ``"pd_groups"`` (the family-keyed PD joint
-    # groups: hip_x/hip_y/knee/shoulder_*/elbow/wrist_*/waist/...). The Rewards
-    # node then stores a ``partitions`` map ``{pd_group_id: weight}`` (see
-    # term_payload.parse_partitions); the compiler fans it out into one RewTerm
-    # per partition, each ``SceneEntityCfg("robot", joint_names=[...])`` resolved
-    # via JointIRResolver from that partition's IR-role regex. Empty ⇒ the term
-    # runs on all joints (legacy scalar-weight path, byte-identical).
+    # When non-empty, this reward MAY live on a joint-subset *page* of the
+    # Rewards node's paged ``reward_terms`` — the legged_gym
+    # hip/arm/waist_dof_deviation pattern. The value names the partition
+    # taxonomy the UI + compiler draw from; today the only source is
+    # ``"pd_groups"`` (the family-keyed PD joint groups:
+    # hip_x/hip_y/knee/shoulder_*/elbow/wrist_*/waist/...). ``reward_terms`` is
+    # a paged dict ``{page_id: {reward: payload}}`` (see
+    # term_payload.iter_reward_pages) where a non-``__global__`` page id IS the
+    # pd_group id; the compiler emits one RewTerm per page,
+    # ``SceneEntityCfg("robot", joint_names=[...])`` resolved via JointIRResolver
+    # from that partition's IR-role regex. A reward with this field empty may
+    # NOT sit on a joint page (compiler fails loud, §8); on the global page it
+    # runs on all joints (byte-identical legacy path).
     il_partition_source: str = ""
 
 

@@ -52,6 +52,7 @@ from .compatibility_checker import CompatibilityChecker, CompatReport, CompatSta
 from .inference_engine import InferenceEngine, JITEngine, ONNXEngine
 from .normalizer import NormalizationStats, Normalizer
 from .obs_builder import ObsBuilder
+from .command_mapping import CommandMapper, build_command_mapper
 from .sim_env_context import SimEnvContext
 
 log = logging.getLogger(__name__)
@@ -111,6 +112,10 @@ class PolicyRunner:
         self._obs_builder: Optional[ObsBuilder] = None
         self._action_applier: Optional[ActionApplier] = None
         self._env: Optional[SimEnvContext] = None
+        # Deploy-side stick→velocity mapper built from deploy_contract.commands
+        # at load(). None ⇒ legacy bundle with no mapping block ⇒ the command
+        # is passed through unchanged (identity, the pre-mapping behaviour).
+        self._cmd_mapper: Optional["CommandMapper"] = None
         self._loaded: bool = False
         self._policy_id: str = ""
         self._last_obs: Optional[np.ndarray] = None
@@ -288,6 +293,16 @@ class PolicyRunner:
                 contract.is_identity_joint_map(),
             )
 
+            # ── Stage 0 realized==designed deploy alignment ──────────────
+            # (a) apply the canvas ground friction recorded in the audit so the
+            #     deploy MuJoCo realizes the SAME μ the policy trained on (method
+            #     A — closes the deploy-side friction gap); (b) re-hash the
+            #     deploy MJCF foot geoms and fail loud if they diverge from what
+            #     training designed. Path separation (§8c, 确认一): absent audit /
+            #     non-'ok' foot_geometry → skip silently (old bundle; from_dict
+            #     already WARNed) — only a PRESENT-and-MISMATCHED hash fails.
+            self._apply_sim2sim_audit_alignment(contract, mj_model, effective_sku)
+
         if bundle_space is None:
             # bundle.joint_names is IR roles (Phase 5+). Translate to
             # physical names via the SKU plumbed in by the caller; the
@@ -439,6 +454,22 @@ class PolicyRunner:
         self._obs_builder = obs_builder
         self._action_applier = action_applier
         self._env = env
+
+        # Deploy-side stick → velocity mapping (mapping_mode / deadzone /
+        # curve_exponent + per-channel gain ranges) from the bundle's command
+        # contract. None ⇒ the bundle predates the mapping block: pass the
+        # command through as-is (identity), the historical behaviour, and warn
+        # loudly with a re-export directive (CLAUDE.md §8c).
+        _commands_block = getattr(getattr(bundle, "deploy_contract", None), "commands", None)
+        self._cmd_mapper = build_command_mapper(_commands_block)
+        if self._cmd_mapper is None:
+            log.warning(
+                "PolicyRunner: deploy_contract.commands is empty — controller "
+                "stick input is used as the RAW velocity command (no "
+                "mapping_mode / gain applied). A normalised [-1,1] stick will "
+                "only reach ±1 m/s. Re-export the bundle to embed the "
+                "stick→velocity mapping from the Training Motion node."
+            )
         self._loaded = True
 
         return report
@@ -469,10 +500,14 @@ class PolicyRunner:
         reader (JointSpace, ObsBuilder, ActionApplier, PDController) sees
         the corrected order.
 
-        Source of truth: ``spec.joint_ir_roles_for("USD")`` — the
-        registry's USD-table insertion order. The hand-authored
-        ``isaac_lab_joint_order`` field that used to back this was
-        removed in favour of trusting the dumped USD table directly.
+        Source of truth: ``contract.articulation_joint_order`` — the LIVE
+        IsaacLab articulation order captured at train time (the policy's true
+        action order). For a correctly-finalized bundle the per-joint arrays
+        already ship in that order, so this normalize is a verified no-op.
+        Legacy bundles without it fall back to the registry's
+        ``joint_ir_roles_for("USD")`` order, which can disagree with the live
+        order (the sim2sim joint-scramble bug); the load-time migration WARN in
+        ``DeployContract.from_dict`` directs re-export for those.
         """
         sku = str(getattr(contract, "robot_sku", "") or "")
         if not sku:
@@ -501,10 +536,15 @@ class PolicyRunner:
         spec = get_robot_spec(sku)
         if spec is None:
             return False
-        try:
-            expected = list(spec.joint_ir_roles_for("USD"))
-        except Exception:
-            expected = []
+        # Prefer the captured LIVE articulation order (new bundles); a correctly
+        # finalized bundle already ships in it → verified no-op. Legacy bundles
+        # without it fall back to the registry USD order.
+        expected = list(getattr(contract, "articulation_joint_order", None) or [])
+        if not expected:
+            try:
+                expected = list(spec.joint_ir_roles_for("USD"))
+            except Exception:
+                expected = []
         if not expected:
             return False
         current = list(contract.joint_sdk_names or [])
@@ -791,6 +831,95 @@ class PolicyRunner:
         )
 
     @staticmethod
+    def _apply_sim2sim_audit_alignment(
+        contract: Any, mj_model: Any, effective_sku: Optional[str]
+    ) -> None:
+        """Stage 0 realized==designed deploy alignment (Layer 1).
+
+        (a) Friction (method A): write the canvas ``friction_static`` into the
+        deploy MuJoCo ``geom_friction[:,0]`` (every geom's sliding column,
+        mirroring the SB3 env) so deploy realizes the trained μ instead of the
+        MJCF default — closing the deploy-side friction gap.
+
+        (b) Foot-collision-geometry self-check: re-hash the deploy MJCF foot
+        geoms and fail loud if the aggregate diverges from what training
+        designed. PATH SEPARATION (§8c, 确认一): an absent audit or a
+        non-``'ok'`` ``foot_geometry`` (manipulator / asset-gap / old bundle)
+        skips WITHOUT failing — only a PRESENT-and-MISMATCHED hash raises. A
+        recompute FAILURE (registry naming differs on this machine) WARNs, never
+        raises: inability to recompute is not proof of mismatch.
+        """
+        audit = getattr(contract, "sim2sim_audit", None)
+        if not isinstance(audit, dict):
+            return  # old bundle — from_dict already WARNed; nothing to align.
+
+        # (a) Ground friction — single source (method A).
+        sc = audit.get("scene_contract")
+        if isinstance(sc, dict):
+            mu_s = sc.get("friction_static")
+            try:
+                mu_s_f = float(mu_s) if mu_s is not None else None
+            except (TypeError, ValueError):
+                mu_s_f = None
+            if (mu_s_f is not None and np.isfinite(mu_s_f) and mu_s_f > 0.0
+                    and hasattr(mj_model, "geom_friction")):
+                mj_model.geom_friction[:, 0] = mu_s_f
+                log.info(
+                    "PolicyRunner.load: applied canvas ground friction μ=%.4f "
+                    "to deploy geom_friction[:,0] (sim2sim method A).", mu_s_f,
+                )
+
+        # (b) Foot-collision-geometry self-check — engages only on status='ok'.
+        fg = audit.get("foot_geometry")
+        if not isinstance(fg, dict) or fg.get("status") != "ok":
+            return
+        per_role = fg.get("per_role") or {}
+        designed_agg = str(fg.get("aggregate", ""))
+        if not per_role or not designed_agg:
+            return
+        try:
+            from application.physics.foot_geometry import hash_foot_geometry
+            from registers import robots as _robots_reg
+            entry = _robots_reg.get_robot(effective_sku) if effective_sku else None
+            bodies_mjcf = (
+                (entry or {}).get("bodies_per_format", {}).get("MJCF", {}) or {}
+            )
+            ir_to_body: Dict[str, str] = {}
+            for bspec in bodies_mjcf.values():
+                if isinstance(bspec, dict):
+                    nm = str(bspec.get("name", ""))
+                    ir = str(bspec.get("ir_role", ""))
+                    if nm and ir:
+                        ir_to_body[ir] = nm
+            realized = hash_foot_geometry(
+                mj_model, foot_roles=list(per_role.keys()),
+                ir_to_body_name=ir_to_body,
+            )
+        except Exception as exc:  # noqa: BLE001 — recompute failure ≠ mismatch
+            log.warning(
+                "PolicyRunner.load: foot-geometry self-check could not "
+                "recompute the deploy hash (%s); skipping (the export-time gate "
+                "already verified training-side identity). An inability to "
+                "RECOMPUTE is not proof of MISMATCH.", exc,
+            )
+            return
+        realized_agg = str(realized.get("aggregate", ""))
+        if realized_agg != designed_agg:
+            raise IncompatibleWeightError(
+                "Foot collision geometry MISMATCH: the deploy MJCF foot geoms "
+                f"hash differently ({realized_agg[:12]}…) than the bundle "
+                f"designed against ({designed_agg[:12]}…). The deployed robot's "
+                "foot contact surfaces are not the ones the policy trained on — "
+                "the contact dynamics differ. Re-Dump the MJCF / re-export "
+                "against the deploy robot, or deploy on the matching asset "
+                "(CLAUDE.md §10/§11 realized==designed)."
+            )
+        log.info(
+            "PolicyRunner.load: foot-geometry self-check OK (deploy MJCF foot "
+            "geoms match the bundle, %d roles).", len(per_role),
+        )
+
+    @staticmethod
     def _maybe_build_il_pd_controller(bundle: "CheckpointBundle"):
         """Construct a PDController for an IL bundle from deploy_contract.
 
@@ -917,6 +1046,14 @@ class PolicyRunner:
             raise RuntimeError(
                 "PolicyRunner._predict_policy called before load()."
             )
+
+        # Stick → velocity: the incoming command is a NORMALISED [-1,1] vector
+        # (gamepad / keyboard / UI). Map it to real velocity units via the
+        # bundle's command contract BEFORE it enters the observation, so the
+        # policy sees the same real m/s × obs-scale it was trained on. Legacy
+        # bundles (no mapper) pass through unchanged.
+        if self._cmd_mapper is not None and command is not None:
+            command = self._cmd_mapper.map(command)
 
         original_mj_data = self._env.mj_data
         self._env.mj_data = mj_data

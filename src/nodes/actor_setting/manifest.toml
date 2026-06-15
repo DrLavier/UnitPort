@@ -181,9 +181,9 @@ meta = { conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 [[parameters]]
 key = "action_joint_names_expr"
 type = "json"
-default = "[]"
+default = '[".*"]'
 widget = "ir_joint_picker"
-description = "动作关节 IR 角色 / Action joint IR roles (multi-select; empty = all, deselect to suspend)"
+description = "动作关节 IR 角色 / Action joint IR roles (multi-select; \"All\" = every joint via the .* regex; pick specific IR roles to actuate only those)"
 meta = { source = "joint", default_select_all = true, language = "json" }
 
 [[parameters]]

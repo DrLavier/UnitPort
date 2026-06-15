@@ -652,6 +652,74 @@ def _extract_discriminator_pt(
 # ---------------------------------------------------------------------------
 
 
+def _build_sim2sim_audit_block(
+    *,
+    matrix: Any,
+    scene_contract: Optional[Dict[str, Any]],
+    foot_geometry: Optional[Dict[str, Any]],
+    calibration_skipped: bool,
+) -> Dict[str, Any]:
+    """Assemble ``deploy_contract.sim2sim_audit`` from the calibration matrix.
+
+    BOUNDARY (decreed): this block records ONLY the two-engine realized
+    CONSISTENCY verdicts ("are the two ends consistent?"). The VALUES and their
+    derivation — armature, m_eff, how kp is derived — stay in ``pd_derivation``;
+    the audit references those quantities by joint name and never re-stores
+    them. Friction (``scene_contract``) and the foot-geometry hash have no
+    pd_derivation home (they are not PD inputs), so their reference values DO
+    live here — no overlap. ``foot_geometry.aggregate`` is what the runtime
+    PolicyRunner re-hashes the deploy MJCF against.
+    """
+    block: Dict[str, Any] = {
+        "schema_version": 1,
+        "calibration_skipped": bool(calibration_skipped),
+        "scene_contract": scene_contract,
+        "foot_geometry": foot_geometry,
+    }
+    if matrix is None:
+        block["overall_verdict"] = (
+            "skipped" if calibration_skipped else "unavailable"
+        )
+        return block
+    block["overall_verdict"] = matrix.verdict
+    block["dimensions"] = list(matrix.dimensions)
+    joint_rows: List[Dict[str, Any]] = []
+    engine_rows: Dict[str, Any] = {}
+    for row in matrix.rows:
+        if row.row_kind == "joint":
+            joint_rows.append({
+                "ir_role": row.row_id,
+                "physical_name": row.joint_physical_name,
+                "group": row.group,
+                # verdict + relative_diff + thresholds ONLY — never the armature
+                # / m_eff values (those live in pd_derivation; match by name).
+                "cells": {
+                    dim: {
+                        "applicable": c.applicable,
+                        "verdict": c.verdict,
+                        "relative_diff": c.relative_diff,
+                        "warn_threshold": c.warn_threshold,
+                        "fail_threshold": c.fail_threshold,
+                    }
+                    for dim, c in row.cells.items()
+                },
+            })
+        else:
+            c = next(iter(row.cells.values())) if row.cells else None
+            if c is not None:
+                engine_rows[row.row_id] = {
+                    "applicable": c.applicable,
+                    "verdict": c.verdict,
+                    "realized": c.realized,
+                    "designed": c.designed,
+                    "relative_diff": c.relative_diff,
+                    "notes": list(c.notes),
+                }
+    block["joint_rows"] = joint_rows
+    block["engine_rows"] = engine_rows
+    return block
+
+
 def _derive_mujoco_pd_gains_for_bundle(
     *,
     deploy_meta_path: Optional[Path],
@@ -815,12 +883,30 @@ def _derive_mujoco_pd_gains_for_bundle(
     # np.asarray and validates shape against model.nq.
     nominal_qpos = list(stored_qpos_ref) if stored_qpos_ref else None
 
+    # Resolve the SAME USD→MJCF inertia overlay the env compiler used, so the
+    # finalizer derives m_eff on the identical (USD-corrected) link inertia —
+    # the m_eff parity guard below (1e-6) then enforces that they match. Absent
+    # overlay = None = raw MJCF (unchanged). CLAUDE.md §10/§11.
+    inertia_overlay = None
+    try:
+        from application.service.robot_assets.runtime import (
+            read_mjcf_inertia_overlay,
+        )
+        inertia_overlay = read_mjcf_inertia_overlay(robot_sku) if robot_sku else None
+    except Exception as exc:
+        log_warning(
+            f"[bundle_finalizer] inertia overlay read failed for "
+            f"sku={robot_sku!r} ({exc}); deriving m_eff on raw MJCF."
+        )
+        inertia_overlay = None
+
     gains = _mj_solve(
         mjcf_path=Path(mjcf_path),
         joint_order_physical=physical_names,
         joint_ir_roles=list(joint_names_ir),
         nominal_qpos=nominal_qpos,
         pd_param=pd_param,
+        inertia_overlay=inertia_overlay,
     )
 
     # Cross-process parity guard: the finalizer's per-joint m_eff MUST equal
@@ -884,6 +970,30 @@ def _derive_mujoco_pd_gains_for_bundle(
             f"disagree on the trained joint set — re-train."
         ) from exc
 
+    # ----- Armature (CLAUDE.md §10), aligned to joint_names_ir by NAME.
+    #   * MuJoCo side: read from the finalizer's OWN solve derivation (already in
+    #     joint_names_ir order) — the MJCF-authoritative reflected-rotor inertia
+    #     folded into m_eff.
+    #   * PhysX side: what the compiler actually EMITTED to
+    #     ImplicitActuatorCfg.armature, re-keyed by IR role (same alignment as
+    #     physx_gains). A bundle trained before this fix has no
+    #     ``physx_armature_emitted`` in the stash → PhysX got the USD default
+    #     (0) → physx_armature defaults to 0.0 here, which the realized-inertia
+    #     gate below will flag as a divergence (that is the intended catch).
+    _deriv_pj = {
+        e.get("physical_name"): e
+        for e in gains.derivation.get("per_joint", [])
+    }
+    armature_mjcf_aligned = [
+        float((_deriv_pj.get(pn) or {}).get("armature", 0.0))
+        for pn in physical_names
+    ]
+    _px_arm_emitted = list(m_eff_src.get("physx_armature_emitted") or [])
+    _px_arm_by_role = dict(zip(_px_roles, _px_arm_emitted)) if _px_arm_emitted else {}
+    physx_armature_aligned = [
+        float(_px_arm_by_role.get(r, 0.0)) for r in joint_names_ir
+    ]
+
     # ----- Export-time STRICT calibration gate (CLAUDE.md §10). Runs BEFORE
     # any bundle bytes are written (the caller invokes this in step F, ahead
     # of BundleExporter.export_from_artifacts), so a fail aborts cleanly with
@@ -891,9 +1001,44 @@ def _derive_mujoco_pd_gains_for_bundle(
     # torque + (ωn,ζ) round-trip on hardcoded canary joints) of the looser
     # load-time guard in DeployContract.from_dict (1%). The thresholds are
     # intentionally NOT unified — see run_calibration's comment.
+    # ----- Stage 0 audit inputs (Layer-1 realized==designed). The compiler
+    # stashed the DESIGNED friction (scene_contract) + foot-geometry hash. The
+    # gate re-derives the realized foot hash from the SAME MJCF to confirm
+    # compiler↔finalizer agreement; foot_roles / ir_to_body_name (registry
+    # bodies map, by IR role) let it recompute.
+    _scene_contract = pd_block.get("scene_contract")
+    _stashed_foot_geometry = pd_block.get("foot_geometry")
+    _foot_roles: tuple = ()
+    _ir_to_body: Dict[str, str] = {}
+    try:
+        from application.training.validation.mjcf_base_calibration import (
+            resolve_foot_roles_for_sku as _resolve_foot_roles_for_sku,
+        )
+        _robot_entry = _registers_robots.get_robot(robot_sku) or {}
+        _bodies_mjcf = (
+            _robot_entry.get("bodies_per_format", {}).get("MJCF", {}) or {}
+        )
+        for _bspec in _bodies_mjcf.values():
+            if isinstance(_bspec, dict):
+                _nm = str(_bspec.get("name", ""))
+                _ir = str(_bspec.get("ir_role", ""))
+                if _nm and _ir:
+                    _ir_to_body[_ir] = _nm
+        # Same per-side feet fallback as the producer (foot_L → ankle_L) so the
+        # gate re-hash resolves H1's ankle feet identically (compiler↔finalizer
+        # foot-role parity).
+        _foot_roles = _resolve_foot_roles_for_sku(
+            str(pd_param.family), _ir_to_body.keys())
+    except Exception as exc:  # noqa: BLE001
+        log_warning(
+            f"[bundle_finalizer] foot-geometry audit inputs unavailable "
+            f"({exc}); foot-geom row will be informational only."
+        )
+
     skip_calibration = bool(pd_block.get("skip_calibration", False))
     calibration_blocking = bool(pd_block.get("calibration_blocking", True))
     calibration_verdict = "skipped" if skip_calibration else None
+    report = None
     if skip_calibration:
         log_warning(
             "[bundle_finalizer] skip_calibration=True on the ActuatorPDNode "
@@ -931,16 +1076,57 @@ def _derive_mujoco_pd_gains_for_bundle(
             physx_kp_array=_np.asarray(physx_kp_aligned, dtype=float),
             physx_kd_array=_np.asarray(physx_kd_aligned, dtype=float),
             remotized_tables=_remotized_tables,
+            # Realized joint-inertia probe (CLAUDE.md §10/§11, Task B): the gate
+            # independently re-derives MuJoCo's realized m_eff on the OVERLAID
+            # model (so a regression that reverts m_eff to raw link inertia is
+            # caught), then decomposes the diagonal with these armatures to check
+            # PhysX realizes the SAME inertia. physx_armature=0 (old/unfixed)
+            # makes the distal joints fail loud.
+            inertia_overlay=inertia_overlay,
+            armature_mjcf=_np.asarray(armature_mjcf_aligned, dtype=float),
+            physx_armature=_np.asarray(physx_armature_aligned, dtype=float),
+            # Stage 0 audit-matrix engine rows: friction single source +
+            # foot-geometry realized recompute (gate re-hashes its MJCF).
+            scene_contract=_scene_contract,
+            foot_geometry=_stashed_foot_geometry,
+            foot_roles=_foot_roles,
+            ir_to_body_name=_ir_to_body,
         )
         calibration_verdict = report.verdict
         if report.verdict == "fail":
             if calibration_blocking:
+                # Name the ACTUAL failing check(s) — the gate folds the PD
+                # numeric round-trip + cross-engine torque AND the engine-level
+                # realized==designed rows (friction / foot_geom / joint_order)
+                # into one verdict, so a generic "PD torque mismatch" message
+                # mis-attributes a foot-geometry / ordering break (§8 — the
+                # error must report the real cause, not a wrong diagnosis).
+                _PD_DIMS = {"omega_zeta_roundtrip", "cross_engine_torque"}
+                _fail_cells = []
+                _mtx = getattr(report, "matrix", None)
+                if _mtx is not None:
+                    try:
+                        _fail_cells = _mtx.cells_at_or_above("fail")
+                    except Exception:  # noqa: BLE001
+                        _fail_cells = []
+                _fail_dims = sorted({c.dimension for c in _fail_cells})
+                _is_pd = any(
+                    (d in _PD_DIMS or d.startswith("inertia")) for d in _fail_dims)
+                if _fail_dims:
+                    _summary = "; ".join(
+                        f"{c.dimension}: {' '.join(c.notes)}" for c in _fail_cells)
+                else:
+                    _summary = "see the report below"
+                _pd_hint = (
+                    " The PhysX training gains and the MuJoCo deploy gains do "
+                    "not produce matching torque, or the (omega_n, zeta) "
+                    "round-trip is off (Spot-knee-65x class of bug; the policy "
+                    "would not transfer)." if _is_pd else ""
+                )
                 raise RuntimeError(
-                    "[bundle_finalizer] PD calibration FAILED — aborting "
-                    "export (no bundle written). The PhysX training gains and "
-                    "the MuJoCo deploy gains do not produce matching torque, "
-                    "or the (omega_n, zeta) round-trip is off. This is the "
-                    "Spot-knee-65x class of bug; the policy would not transfer."
+                    "[bundle_finalizer] Bundle export ABORTED by the "
+                    "realized==designed calibration gate (verdict=fail; no "
+                    f"bundle written). Failing check(s): {_summary}.{_pd_hint}"
                     "\n\n" + report.markdown
                 )
             log_warning(
@@ -987,6 +1173,19 @@ def _derive_mujoco_pd_gains_for_bundle(
             "nominal_qpos_source": gains.derivation.get("nominal_qpos_source"),
             "qpos_sha256": stored_qpos_sha,
             "m_eff": finalizer_m_eff,
+            # Armature decomposition of the realized joint-inertia diagonal
+            # (CLAUDE.md §10), parallel to inputs.joint_ir_roles (match by name,
+            # never index). ``armature_mjcf`` is folded into ``m_eff``;
+            # ``physx_armature_emitted`` is what training actually applied via
+            # ImplicitActuatorCfg.armature. They are EQUAL for a correctly
+            # exported bundle (both = the MJCF reflected-rotor inertia); a bundle
+            # missing ``physx_armature_emitted`` was trained before this fix
+            # (PhysX armature 0) — load-time WARN directs re-export (§8c).
+            # ``overlay_applied`` records whether m_eff was derived on the
+            # USD-corrected link inertia (Q6: derive == realize).
+            "armature_mjcf": list(armature_mjcf_aligned),
+            "physx_armature_emitted": list(physx_armature_aligned),
+            "overlay_applied": bool(gains.derivation.get("overlay_applied", False)),
         },
         "inputs": {
             "joint_ir_roles": list(joint_names_ir),
@@ -1015,11 +1214,24 @@ def _derive_mujoco_pd_gains_for_bundle(
     if _remotized is not None:
         pd_derivation["remotized_joints"] = _remotized
 
+    # ----- deploy_contract.sim2sim_audit (Stage 0): the two-engine realized
+    # CONSISTENCY verdicts only (values + derivation stay in pd_derivation;
+    # friction + foot-geometry reference values live here — no overlap). Built
+    # even when calibration was skipped, so deploy still gets the designed
+    # friction (PolicyRunner applies it) + foot hash (PolicyRunner self-checks).
+    sim2sim_audit = _build_sim2sim_audit_block(
+        matrix=(report.matrix if report is not None else None),
+        scene_contract=_scene_contract,
+        foot_geometry=_stashed_foot_geometry,
+        calibration_skipped=skip_calibration,
+    )
+
     return {
         "pd_param": pd_param.to_dict(),
         "mujoco_pd_gains": [float(v) for v in gains.kp],
         "mujoco_pd_damping": [float(v) for v in gains.kd],
         "pd_derivation": pd_derivation,         # persisted into deploy_contract
+        "sim2sim_audit": sim2sim_audit,         # persisted into deploy_contract
         "_solver_derivation": gains.derivation,  # dropped before manifest write
     }
 
@@ -1179,36 +1391,124 @@ def finalize_isaac_lab_bundle(
             # length. Should not happen in Phase 5+ flows.
             joint_names = list(getattr(spec.robot, "joint_order", []) or [])
 
-    # Phase 5 IL deploy contract: Isaac Lab's ManagerBasedRLEnv uses the
-    # articulation's native USD prim joint order. Without reordering the
-    # bundle to that order, joint_sdk_names / default_joint_pos ship in
-    # the active format's order, ObsBuilder feeds joint_pos / joint_vel /
-    # last_action to the policy in wrong slots, and the deploy run
-    # twitches "like electric shock" (see plan: release-demo-sim2sim-
-    # policy-...md §1).
+    # sim2sim joint-order contract. The exported ONNX emits its action vector
+    # in IsaacLab's LIVE PhysX articulation order: ``JointPositionAction``
+    # resolves ``joint_names=[".*"]`` against the running articulation and
+    # preserves that order, so action slot ``i`` == articulation DOF ``i``. The
+    # bundle's per-joint arrays MUST be ordered by THAT order — captured at
+    # train time into ``articulation_joint_order.json`` by the launcher.
     #
-    # Source of truth: ``spec.robot.joints_per_format["USD"]`` insertion
-    # order. The hand-authored ``isaac_lab_joint_order`` registry field
-    # that used to mirror this was removed (it drifted from the dumped
-    # USD truth and silently shipped wrong bundles whenever both were
-    # present and disagreed). When ``active_format == "USD"``,
-    # ``joint_ir_roles`` IS that order; otherwise look up the USD-format
-    # IR roles directly from ``joints_per_format["USD"]``.
+    # Ordering by a separately-dumped USD prim order (``joints_per_format
+    # ["USD"]`` / ``stage.Traverse()`` authoring order) was the bug that
+    # silently scrambled Go2's thigh/calf slots: prim authoring order
+    # [hip×4,(thigh,calf)/leg] ≠ PhysX BFS [hip×4,thigh×4,calf×4]. The removed
+    # ``isaac_lab_joint_order`` field "drifted from the dumped USD truth" — but
+    # the live articulation order, not the dump, is ground truth.
+    #
+    # With the captured sidecar we build the permutation from it and LOUD-WARN
+    # if it disagrees with the registry USD order (stale dump). Without it
+    # (pre-capture runs / capture failed) we fall back to the legacy
+    # active_format behaviour and WARN that the order is UNVERIFIED.
     active_format = ""
     if spec is not None and getattr(spec, "robot", None) is not None:
         active_format = str(getattr(spec.robot, "active_format", "") or "").upper()
+
+    from application.training.isaac_lab.joint_order_capture import (
+        load_joint_order_sidecar,
+        resolve_bundle_joint_permutation,
+    )
+    _captured_sidecar = load_joint_order_sidecar(exported_dir)
+    captured_ir_order: Optional[List[str]] = None
+    joint_order_source: str = ""
 
     joint_permutation: Optional[List[int]] = None
     if not joint_names or not robot_sku:
         # No joint topology declared (e.g. minimal smoke spec) — nothing
         # to permute. Allowed to skip silently.
         pass
+    elif _captured_sidecar is not None:
+        # --- Captured LIVE articulation order = the policy's true action order.
+        captured_names = [
+            str(n) for n in (_captured_sidecar.get("joint_names") or [])
+        ]
+        joint_order_source = str(_captured_sidecar.get("source") or "articulation")
+        # Captured names are USD-prim joint names → map to IR roles. Prefer the
+        # USD table; fall back to MJCF if USD doesn't cover every captured name.
+        name_to_role: Dict[str, str] = {}
+        for _fmt in ("USD", "MJCF"):
+            try:
+                _m = spec.robot.joints_role_map_for(_fmt)
+            except Exception:
+                _m = {}
+            if _m and all(n in _m for n in captured_names):
+                name_to_role = _m
+                break
+            if _m and not name_to_role:
+                name_to_role = _m
+        try:
+            captured_ir_order, candidate = resolve_bundle_joint_permutation(
+                joint_names, captured_names, name_to_role
+            )
+        except ValueError as exc:
+            raise RuntimeError(
+                f"[bundle_finalizer] cannot reconcile the live articulation "
+                f"joint order (articulation_joint_order.json) with the registry "
+                f"for SKU {robot_sku!r}: {exc}. Re-Dump the asset so the joint "
+                f"tables cover the trained joint set (CLAUDE.md §1.8)."
+            ) from exc
+        # Cross-check vs the order the bundle WOULD have shipped without the
+        # capture (the legacy registry/USD order). LOUD WARN on mismatch — the
+        # exact diagnostic for the X≠live joint-scramble bug.
+        _legacy_order: List[str] = (
+            list(joint_names) if active_format == "USD" else []
+        )
+        if not _legacy_order:
+            try:
+                _legacy_order = list(spec.robot.joint_ir_roles_for("USD"))
+            except Exception:
+                _legacy_order = []
+        if _legacy_order and list(_legacy_order) != list(captured_ir_order):
+            try:
+                _li = {r: i for i, r in enumerate(_legacy_order)}
+                _perm_dbg = [_li.get(r) for r in captured_ir_order]
+            except Exception:
+                _perm_dbg = None
+            log_warning(
+                f"[bundle_finalizer] JOINT-ORDER MISMATCH for SKU {robot_sku!r}: "
+                f"the LIVE IsaacLab articulation order (the policy's true action "
+                f"order, source={joint_order_source!r}) differs from the registry "
+                f"USD order. The bundle is ordered (correctly) by the LIVE order — "
+                f"this WARN is INFORMATIONAL, no action needed. The registry USD "
+                f"order is the USD PRIM-AUTHORING order from Dump-USD "
+                f"(stage.Traverse), which is NOT the PhysX articulation DOF order; "
+                f"re-Dumping will NOT change it (the dump reads the USD file, not a "
+                f"live articulation), so the train-time capture is the only "
+                f"authoritative source.\n  live (used) : {list(captured_ir_order)}\n"
+                f"  registry USD: {list(_legacy_order)}\n"
+                f"  live->registry permutation: {_perm_dbg}"
+            )
+        joint_permutation = candidate
     elif active_format == "USD":
-        # joint_ir_roles is already in USD-articulation order; ship as-is.
-        pass
+        # No captured sidecar → UNVERIFIED. joint_ir_roles is ASSUMED to be in
+        # USD-articulation order; ship as-is but WARN loudly that the order was
+        # not verified against the trained policy.
+        log_warning(
+            f"[bundle_finalizer] no articulation_joint_order.json sidecar under "
+            f"{exported_dir} for SKU {robot_sku!r}; shipping joint_ir_roles in "
+            f"the registry order UNVERIFIED against the trained policy's live "
+            f"articulation order (the Go2 sim2sim-twitch class of bug). Re-train "
+            f"with the capture-enabled launcher to ship a verified bundle."
+        )
     else:
-        # Non-USD active format: derive USD-articulation order from
-        # ``joints_per_format["USD"]`` and permute joint_names onto it.
+        # No captured sidecar + non-USD active format: derive USD-articulation
+        # order from ``joints_per_format["USD"]`` (legacy path), UNVERIFIED.
+        log_warning(
+            f"[bundle_finalizer] no articulation_joint_order.json sidecar under "
+            f"{exported_dir} for SKU {robot_sku!r}; deriving the joint order from "
+            f"the registry USD table (UNVERIFIED against the trained policy's "
+            f"live articulation order). Re-train with the capture-enabled "
+            f"launcher to ship a verified bundle."
+        )
         usd_order: List[str] = []
         try:
             usd_order = list(spec.robot.joint_ir_roles_for("USD"))
@@ -1288,6 +1588,27 @@ def finalize_isaac_lab_bundle(
         deploy_contract_dict = dict(sm.deploy_contract)
         deploy_contract_dict.pop("robot_sku", None)
 
+        # Deploy-side stick→velocity mapping (producer half of the runtime
+        # CommandMapper): the velocity-channel ranges + mapping_mode / deadzone
+        # / curve_exponent from the Training Motion node, so a normalised
+        # [-1,1] controller stick maps to the real m/s envelope the policy was
+        # trained on (the per-item union). Best-effort — a build failure must
+        # never abort finalize; the load-time mapper then passes the stick
+        # through as a raw command and warns.
+        try:
+            from application.training.command_schema import deploy_command_block
+            _canvas_dict = (getattr(spec, "meta", None) or {}).get("__canvas_dict__")
+            _cmd_family = str(getattr(sm, "target_robot_family", "") or "quadruped")
+            _cmd_block = deploy_command_block(_canvas_dict, family=_cmd_family)
+            if _cmd_block:
+                deploy_contract_dict["commands"] = _cmd_block
+        except Exception as exc:  # noqa: BLE001 — never block finalize over telemetry
+            log_warning(
+                f"[bundle_finalizer] could not build deploy stick→velocity "
+                f"mapping block ({type(exc).__name__}: {exc}); bundle ships "
+                f"without it (controller stick used as a raw command at deploy)."
+            )
+
         # 缺口① — recurrent policy contract. Source of truth = the export
         # metadata (inferred from the actual exported ONNX tensors); fall back
         # to the canvas spec's policy_net when the bundle shipped a pre-built
@@ -1356,6 +1677,48 @@ def finalize_isaac_lab_bundle(
                     f"mjcf_base_height_offset to deploy_contract: {exc}"
                 )
 
+        # Stage 2 (收窄版) cross-engine DR coverage provenance. This is the
+        # IsaacLab finalizer → the bundle is PhysX-trained → MuJoCo-deployed =
+        # the only cross-engine case. Record that the measured friction residual
+        # ([0.56,1.02], block-slide 2026-06-04) is COVERED by the existing
+        # ground-friction DR (no new channel built); the load-time check in
+        # DeployContract.from_dict fail-louds when friction DR was disabled.
+        _dr = getattr(spec, "domain_rand", None)
+        _il = getattr(_dr, "il", None) if _dr is not None else None
+        if _il is not None:
+            from application.training.validation.sim2sim_measurement.range_table import (
+                build_dr_coverage_provenance,
+            )
+            _fr = getattr(_il, "static_friction_range", (0.5, 1.25))
+            _measured = None
+            if robot_sku:
+                try:
+                    from registers import sim2sim_ranges
+                    if sim2sim_ranges.has(robot_sku):
+                        _tbl = sim2sim_ranges.get_ranges(robot_sku)
+                        for _d in (_tbl.get("dimensions") or []):
+                            if _d.get("dimension") == "friction_cone" and \
+                                    _d.get("factor_low") is not None:
+                                _measured = [_d["factor_low"], _d["factor_high"]]
+                                break
+                except Exception as exc:  # noqa: BLE001
+                    # WHY KEPT (§8(c)): a measured-table read glitch must not
+                    # fail finalize; provenance falls back to the campaign
+                    # reference constants (recorded measured_for_this_sku=False).
+                    log_warning(
+                        f"[bundle_finalizer] sim2sim_ranges lookup failed for "
+                        f"{robot_sku}: {exc}; using campaign reference residual"
+                    )
+            deploy_contract_dict["sim2sim_dr_provenance"] = (
+                build_dr_coverage_provenance(
+                    training_backend="isaac_lab",
+                    friction_dr_enabled=bool(getattr(_il, "friction_enabled", True)),
+                    friction_dr_range=_fr,
+                    sku=robot_sku or "",
+                    measured_factor=_measured,
+                )
+            )
+
         # Stage F: derive MuJoCo PD gains from deploy_meta.json's
         # unitport_pd_param block (written by env_cfg_compiler when an
         # ActuatorPDNode is wired). Done BEFORE joint_permutation so
@@ -1404,6 +1767,10 @@ def finalize_isaac_lab_bundle(
                 # payloads (mujoco arrays None).
                 if pd_payload.get("pd_derivation") is not None:
                     deploy_contract_dict["pd_derivation"] = pd_payload["pd_derivation"]
+                # Stage 0 realized==designed audit (friction / foot-geometry /
+                # joint-order / control-period + realized-consistency verdicts).
+                if pd_payload.get("sim2sim_audit") is not None:
+                    deploy_contract_dict["sim2sim_audit"] = pd_payload["sim2sim_audit"]
                     # Step 4.2: build the MuJoCo runtime lookup map. Re-key
                     # the provenance block from physical joint name → IR role
                     # (the name space joint_sdk_names / PDController use), and
@@ -1442,6 +1809,16 @@ def finalize_isaac_lab_bundle(
             CURRENT_SCHEMA_VERSION as _PD_SCHEMA_VERSION,
         )
         deploy_contract_dict["schema_version"] = int(_PD_SCHEMA_VERSION)
+
+        # Stamp the provenance of the joint order. ``articulation_joint_order``
+        # is the captured LIVE PhysX articulation order (= the final bundle
+        # order after the permutation below); the deploy stack reads it to
+        # confirm/normalize against the policy's true action order, and its
+        # ABSENCE on an IsaacLab bundle triggers the load-time re-export WARN.
+        if captured_ir_order is not None:
+            deploy_contract_dict["articulation_joint_order"] = list(captured_ir_order)
+            if joint_order_source:
+                deploy_contract_dict["joint_order_source"] = joint_order_source
 
         # Apply the same Isaac-Lab-order permutation to every parallel
         # per-joint array in the deploy_contract so they line up with

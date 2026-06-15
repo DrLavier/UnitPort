@@ -30,6 +30,7 @@ Severity routing (CLAUDE.md §1.8):
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -43,6 +44,7 @@ from unitport_sdk import (
     read_data,
 )
 
+from application.service.robot_init_poses import InitPoseOverride
 from application.service.runtime.simulation.isaac_sim._log_utils import (
     classify_severity,
 )
@@ -95,12 +97,18 @@ class IsaacSimReviewTask(Task):
         scene_id: str,
         *,
         max_play_steps: int = 3000,
+        init_pose_override: Optional[InitPoseOverride] = None,
     ) -> None:
         super().__init__(name=f"IsaacSimReview {Path(bundle_path).name}")
         self._bundle_path: Path = Path(bundle_path).resolve()
         self._caller_sku: str = str(sku or "").strip()
         self._scene_id: str = str(scene_id or "flat_ground").strip()
         self._max_play_steps: int = int(max_play_steps)
+        # UI-supplied init pose override (None = no override → the launcher
+        # spawns at the bundle's frozen default_joint_pos). The override
+        # changes only the spawn pose; the policy's action neutral offset
+        # stays the contract's default_joint_pos (parity w/ MujocoReviewTask).
+        self._override: Optional[InitPoseOverride] = init_pose_override
         self._proc: Optional[subprocess.Popen] = None
 
     # ------------------------------------------------------------------
@@ -152,7 +160,9 @@ class IsaacSimReviewTask(Task):
 
         # The il_review_launcher.py lives next to il_train_launcher.py
         # under <RELEASE>/src/application/training/isaac_lab/launcher/.
-        launcher_root = Path(__file__).resolve().parents[5] / \
+        # parents: [0]=isaac_sim [1]=simulation [2]=runtime [3]=service
+        # [4]=application — so the training/ tree hangs off parents[4].
+        launcher_root = Path(__file__).resolve().parents[4] / \
             "training" / "isaac_lab" / "launcher"
         review_launcher = launcher_root / "il_review_launcher.py"
         if not review_launcher.is_file():
@@ -169,6 +179,27 @@ class IsaacSimReviewTask(Task):
             "--scene", self._scene_id,
             "--max_play_steps", str(self._max_play_steps),
         ]
+        # UI init pose override → pass spawn pose to the launcher (parity
+        # with MujocoReviewTask). Serialised exactly like the pose-review
+        # task: base_pos clamped to a 3-tuple, joint_pos_by_ir JSON-encoded.
+        # The launcher converts the IR-keyed dict into the bundle's joint
+        # order via InitPoseOverride.to_bundle_order. Absent override → omit
+        # both args so the launcher spawns at the bundle default.
+        if self._override is not None:
+            bp = self._override.base_pos or (0.0, 0.0, 0.4)
+            base_pos = (float(bp[0]), float(bp[1]), float(bp[2]))
+            cleaned: Dict[str, float] = {}
+            for k, v in (self._override.joint_pos_by_ir or {}).items():
+                try:
+                    cleaned[str(k)] = float(v)
+                except (TypeError, ValueError):
+                    continue
+            review_args += [
+                "--init_base_pos",
+                f"{base_pos[0]},{base_pos[1]},{base_pos[2]}",
+                "--init_joint_pos_by_ir",
+                json.dumps(cleaned, separators=(",", ":")),
+            ]
         # Headed replay → minimal viewport-only experience (avoids the full
         # Kit GUI omni.kit.menu.utils crash; see headed_experience.py). Hand
         # the launcher the install root so it generates/selects it.

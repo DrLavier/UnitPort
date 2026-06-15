@@ -155,6 +155,35 @@ def normalize_term_value(v: Any) -> Tuple[str, Any]:
     return _normalize_term_value(v)
 
 
+def flatten_paged_terms(terms: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten paged ``reward_terms`` to ``{emit_key: payload}``.
+
+    缺口③ — the conflict identity of a reward term MUST match the term the
+    compiler actually emits (``env_cfg_compiler._resolve_reward_emit_terms``):
+    the global page emits ``func``; a pd_group page emits ``f"{func}_{page}"``
+    (one ``RewTerm`` restricted to that partition's joints). So the SAME reward
+    func on two DIFFERENT joint pages is two distinct runtime terms and must
+    NOT be reported as a cross-rewards conflict — keying by bare ``func`` would
+    false-positive (e.g. leg ``joint_deviation_l1`` on ``hip_x`` vs arm
+    ``joint_deviation_l1`` on ``shoulder_pitch``). Legacy flat dicts (no
+    ``__global__``) pass through unchanged — every key is a global term.
+
+    Shared by the authoritative validator (``_read_reward_terms``) and the UI
+    row-tinter (``param_rows``) so both compare the same identities (§11).
+    """
+    from application.compiler.term_payload import (
+        is_paged_reward_terms, iter_reward_pages, PAGE_GLOBAL,
+    )
+    if not is_paged_reward_terms(terms):
+        return dict(terms)
+    out: Dict[str, Any] = {}
+    for pid, page_terms in iter_reward_pages(terms):
+        for func, payload in page_terms.items():
+            emit_key = func if pid == PAGE_GLOBAL else f"{func}_{pid}"
+            out[emit_key] = payload
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -172,20 +201,11 @@ def _read_reward_terms(node: "IRNode") -> Dict[str, Any]:
     but not yet configured; that's a different rule the topology check
     handles).
     """
-    # 缺口③ — reward_terms is paged ({page: {func: payload}}); flatten across
-    # pages so conflict detection compares actual term values (the global page
-    # wins on key collision). Legacy flat dicts pass through unchanged.
-    def _flat(d: Dict[str, Any]) -> Dict[str, Any]:
-        from application.compiler.term_payload import (
-            is_paged_reward_terms, iter_reward_pages,
-        )
-        if not is_paged_reward_terms(d):
-            return dict(d)
-        out: Dict[str, Any] = {}
-        for _pid, page_terms in iter_reward_pages(d):
-            for func, payload in page_terms.items():
-                out.setdefault(func, payload)
-        return out
+    # 缺口③ — reward_terms is paged ({page: {func: payload}}); flatten to the
+    # compiler's emit identity ({func | func_page: payload}) so conflict
+    # detection compares the actual runtime terms (same func on different joint
+    # pages = distinct terms, no conflict). Legacy flat dicts pass through.
+    _flat = flatten_paged_terms
 
     p = node.params.get("reward_terms")
     if p is None:

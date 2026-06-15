@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: 2026 SU CHANG
+# SPDX-License-Identifier: Apache-2.0
+# -----------------------------------------------------------------------------
+# Unitree G1 - recommended PD/actuator preset (brand DATA).
+#
+# DATA ONLY. No brand-specific logic (CLAUDE.md §1); the mechanism (a
+# recommended (omega_n, zeta) preset consumed by the RobotNode pd_param_table
+# AUTO button) is generic — this file contributes only the numbers. Mirrors
+# registers/brands/unitree/go2/manifest.yaml and boston_dynamics/spot.
+#
+# WHY THIS FILE EXISTS (the bug it fixes):
+# G1's asset USD is NVIDIA's Nucleus `Robots/Unitree/G1/g1.usd`, whose joint
+# DriveAPI ships PLACEHOLDER gains rather than tuned PD — the real G1 gains live
+# in IsaacLab's Python actuator config, applied at runtime, NOT baked into the
+# USD. With NO brand manifest, the AUTO button's USD-drive reverse-derive
+# produced per-joint omega_n with a uniformly floored zeta=0.1, yielding
+# ankle_roll kp=2.30/kd=0.031 (near-free, 17x/64x too soft), hip_pitch kp=24.8
+# (4x too soft) and damping 2-64x below tuned values. The biped then physically
+# cannot stand: training collapses (mean_std rises, value->0, episode_len->~13
+# steps, time_out->0, early roll falls matching the free ankle_roll). Same class
+# as the documented Go2 Nucleus-placeholder bug. A brand manifest is AUTO's
+# HIGHEST-priority PD source (above USD and family), the layer meant to carry a
+# robot's real gains when its USD does not.
+#
+# Robot identity is the (brand, model) pair → canonical SKU at consume-time via
+# registers.robots; no SKU hash or free-form display name here (CLAUDE.md §7).
+# -----------------------------------------------------------------------------
+manifest_version: 1
+
+robot:
+  brand: unitree
+  model: g1
+
+# Official recommended PD preset, stored as the canonical (omega_n, zeta)
+# parameterization (CLAUDE.md §10) — NOT raw kp/kd.
+#
+# Derivation: community-validated legged_gym G1Cfg.control publishes per-group
+# stiffness/damping (N·m/rad, N·m·s/rad):
+#   hip(roll/yaw/pitch)=100/2, knee=150/4, ankle(roll/pitch)=40/2,
+#   waist_yaw=100/2, shoulder(pitch/roll/yaw)=50/2, elbow=50/2, wrist=30/2.
+# Back-solving the canonical params from kp=m_eff·ωn² / kd=2ζ·√(kp·m_eff) at
+# the G1 menagerie `scene_with_hands.xml` nominal-stance effective inertia (the
+# same m_eff the gain solver uses at export) reproduces those kp/kd
+# element-by-element. Per-group omega_n differs because each group's effective
+# inertia differs (identical methodology to go2/spot). The panel re-derives
+# exact per-joint kp/kd from the live MJCF, so these are a faithful starting
+# preset, not hardcoded gains. All values within the solver bounds
+# (omega_n[0.5,200], zeta[0.1,2.0]).
+#
+# The single "waist" group spans waist_yaw/roll/pitch (2.7x spread in m_eff);
+# legged_gym only specifies waist_yaw=100 (and locks roll/pitch). The geometric
+# mean across the three sub-joints (omega_n 13.11, zeta 0.131) is used so no axis
+# is starved — waist is posture-held by deviation rewards, not load-bearing.
+#
+# effort_limit / velocity_limit are intentionally OMITTED: G1's USD authors real
+# per-joint max_force (hip 88, hip_roll/knee 139, ankle 50 N·m) and max_velocity,
+# which the AUTO caps path consumes independently of the (placeholder) drive
+# gains — a scalar here would replace those richer per-joint caps.
+recommended_actuators:
+  source: "legged_gym G1Cfg (kp hip100/knee150/ankle40/waist100/shoulder50/elbow50/wrist30; kd hip2/knee4/others2); back-solved at G1 menagerie scene_with_hands.xml m_eff"
+  pd_groups:
+    hip_y:          { omega_n: 10.40, zeta: 0.104 }
+    hip_x:          { omega_n: 11.30, zeta: 0.113 }
+    hip_z:          { omega_n: 45.49, zeta: 0.455 }
+    knee:           { omega_n: 34.56, zeta: 0.461 }
+    ankle_pitch:    { omega_n: 55.95, zeta: 1.399 }
+    ankle_roll:     { omega_n: 62.06, zeta: 1.551 }
+    waist:          { omega_n: 13.11, zeta: 0.131 }
+    shoulder_pitch: { omega_n: 12.14, zeta: 0.243 }
+    shoulder_roll:  { omega_n: 12.76, zeta: 0.255 }
+    shoulder_yaw:   { omega_n: 50.42, zeta: 1.008 }
+    elbow:          { omega_n: 23.10, zeta: 0.462 }
+    wrist_roll:     { omega_n: 52.58, zeta: 1.753 }
+    wrist_pitch:    { omega_n: 31.57, zeta: 1.052 }
+    wrist_yaw:      { omega_n: 38.52, zeta: 1.284 }

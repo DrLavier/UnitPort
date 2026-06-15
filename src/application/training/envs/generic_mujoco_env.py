@@ -448,6 +448,21 @@ class GenericMujocoEnv(_GymEnvBase):
             self._model = mujoco.MjModel.from_xml_string(DEFAULT_QUADRUPED_MJCF)
             self._asset_source = "DEFAULT_QUADRUPED_MJCF"
 
+        # Strip the MJCF's passive joint dissipation (dof_damping /
+        # dof_frictionloss) so the Python PD law applied in step() is the SOLE
+        # source of joint damping. The PhysX/IsaacLab side the deploy bundle
+        # matches has no passive joint damping, and the deploy MuJoCo runtime
+        # (mj_actor) strips it too — so SB3 MUST strip it here or it would
+        # train at an over-damped zeta and diverge from its own deploy
+        # (train != deploy, CLAUDE.md §10). Same shared impl as deploy +
+        # calibration (§11). armature is kept (it lives in m_eff).
+        from application.physics.mjcf_pd_prep import (
+            neutralize_mjcf_passive_dissipation,
+        )
+        neutralize_mjcf_passive_dissipation(
+            self._model, mjcf_label=str(self._asset_source)
+        )
+
         self._model.opt.timestep = float(d.sim_dt)
         if scene_config is not None and getattr(scene_config, "gravity_z", None) is not None:
             self._model.opt.gravity[:] = (0.0, 0.0, float(scene_config.gravity_z))
@@ -637,15 +652,39 @@ class GenericMujocoEnv(_GymEnvBase):
         # 0 / None = no envelope.
         n_act = int(self._action_dim)
         _eff = getattr(actor_config, "effort_limit", None) if actor_config is not None else None
-        self._effort_limit_arr = (
-            np.full(n_act, float(_eff), dtype=np.float64)
-            if _eff is not None and float(_eff) > 0.0 else None
-        )
         _vel = getattr(actor_config, "velocity_limit", None) if actor_config is not None else None
-        self._velocity_limit_arr = (
-            np.full(n_act, float(_vel), dtype=np.float64)
-            if _vel is not None and float(_vel) > 0.0 else None
-        )
+        # Per-joint caps (legged_gym parity, CLAUDE.md §10/§11): clip EACH joint
+        # to its own real motor limit from the registry's USD DriveAPI capture
+        # (max_force / max_velocity), keyed by IR role — the SAME source the
+        # IsaacLab env_cfg compiler uses, so both engines clamp identically. A
+        # joint absent from the capture (or no capture at all) falls back to the
+        # RobotNode scalar. A flat scalar (manifest default 30 N·m) torque-
+        # starves a humanoid's hip/knee — the IsaacLab-side collapse bug.
+        _caps_by_role: Dict[str, Dict[str, Optional[float]]] = {}
+        _sku = str(getattr(robot_spec, "sku", "") or "")
+        if _sku and self._joint_ir_roles and len(self._joint_ir_roles) == n_act:
+            try:
+                from application.physics.actuator_caps import resolve_per_joint_caps
+                _caps_by_role = resolve_per_joint_caps(_sku, fmt="USD")
+            except Exception:  # noqa: BLE001
+                _caps_by_role = {}
+
+        def _per_joint_cap(field: str, scalar) -> Optional[np.ndarray]:
+            s = float(scalar) if scalar is not None else None
+            vals: List[float] = []
+            for i in range(n_act):
+                role = self._joint_ir_roles[i] if i < len(self._joint_ir_roles) else ""
+                cap = _caps_by_role.get(role) or {}
+                v = cap.get(field)
+                if v is None:
+                    v = s
+                if v is None or float(v) <= 0.0:
+                    return None  # incomplete → no clamp (legacy behavior)
+                vals.append(float(v))
+            return np.asarray(vals, dtype=np.float64) if vals else None
+
+        self._effort_limit_arr = _per_joint_cap("effort", _eff)
+        self._velocity_limit_arr = _per_joint_cap("velocity", _vel)
         # saturation_effort for the DCMotor envelope = effort_limit (the same
         # value the SB3 deploy contract carries; see bundle_exporter). Only used
         # when a velocity_limit is set, matching pd_controller.compute's gate.
@@ -1005,6 +1044,13 @@ class GenericMujocoEnv(_GymEnvBase):
                 self._command = self._sample_command()
                 self._schedule_next_resample()
 
+        # Heading-command (legged_gym parity): drive the yaw channel
+        # closed-loop every step from the heading error. Runs after any
+        # resample above so a freshly-sampled target takes effect this step;
+        # skipped for standing (zero-command) envs.
+        if self._cmd_heading and not self._cmd_is_standing:
+            self._command[2] = self._heading_yaw_command()
+
         terminated = bool(self._termination_fn(self))
         truncated = self._step_count >= self._d.max_episode_steps
         reward, reward_breakdown, item_breakdown, active_item = self._compute_reward()
@@ -1020,6 +1066,14 @@ class GenericMujocoEnv(_GymEnvBase):
             info[f"reward/item/{item_id}"] = item_total
         if active_item:
             info["reward/active_item"] = active_item
+            # Raw (pre-VecNormalize) total step reward, hard-attributed to the
+            # dominant command. The SB3 progress callback buckets this by
+            # active_item and emits the cmd_reward_<id> Mission Control series —
+            # the SAME series keys the IsaacLab command term emits (which
+            # buckets raw reward_buf by _current_item_id). Documented engine
+            # difference: IsaacLab keys on the SAMPLED item id, SB3 on the
+            # argmax-membership item (soft resolver has no single sampled id).
+            info["reward/active_item_reward"] = float(reward)
         # Locomotion convention: episode is a "success" iff it ended by the
         # time-limit (truncated) without the termination predicate firing
         # (fall / non-finite state). Emitting on every step keeps Monitor's
@@ -1180,12 +1234,34 @@ class GenericMujocoEnv(_GymEnvBase):
         self._cmd_step_change_prob = 0.0
         self._cmd_resample_steps: Tuple[int, int] = (0, 0)
         self._cmd_item_ranges: List[Dict[int, Tuple[float, float]]] = []
+        # Per-item initial sampling weights (Weight Set pie editor), aligned to
+        # _cmd_item_ranges. None = sample items uniformly (legacy behaviour).
+        self._cmd_item_weights: Optional["np.ndarray"] = None
         # Launcher-injected curriculum magnitude scale (1.0 = full command).
         self._command_curriculum_scale: float = 1.0
         self._cmd_next_resample: int = 0
+        # Heading-command mode (legged_gym parity). Closed-loop yaw: the
+        # ang_vel_z channel is recomputed every step from the heading error
+        # toward a per-resample target heading. Defaults keep the legacy
+        # open-loop yaw-sampling path (heading off).
+        self._cmd_heading: bool = False
+        self._cmd_heading_stiffness: float = 0.5
+        self._cmd_heading_range: Tuple[float, float] = (
+            -3.141592653589793, 3.141592653589793)
+        self._cmd_heading_target: float = 0.0
+        self._cmd_angz_clip: Tuple[float, float] = (-1.0e9, 1.0e9)
+        self._cmd_is_standing: bool = False
 
         if motion_config is None:
             return
+
+        self._cmd_heading = bool(getattr(motion_config, "heading_command", False))
+        self._cmd_heading_stiffness = float(
+            getattr(motion_config, "heading_control_stiffness", 0.5) or 0.5
+        )
+        hr = getattr(motion_config, "heading_range", None)
+        if isinstance(hr, (list, tuple)) and len(hr) == 2:
+            self._cmd_heading_range = (float(hr[0]), float(hr[1]))
 
         zero_prob = float(getattr(motion_config, "zero_command_probability", 0.0) or 0.0)
         self._cmd_zero_prob = min(max(zero_prob, 0.0), 1.0)
@@ -1198,14 +1274,57 @@ class GenericMujocoEnv(_GymEnvBase):
             lo = max(0, int(round(float(rs[0]) / control_dt)))
             hi = max(lo, int(round(float(rs[1]) / control_dt)))
             self._cmd_resample_steps = (lo, hi)
-        # Per-item command_ranges → uniform sampling envelope (used when
-        # command_mode == "random" or any resampling is configured).
+        # Per-item command_ranges → weighted sampling envelope (used when
+        # command_mode == "random" or any resampling is configured). Only
+        # ENABLED items contribute (matching the IsaacLab item list built by
+        # env_cfg_compiler._build_training_items_list), so the two engines
+        # sample the same item set. Each item may carry an optional ``weight``
+        # (Weight Set pie editor); collected in lockstep with the ranges and
+        # normalised into _cmd_item_weights. A missing weight → uniform share.
         items = getattr(motion_config, "training_items", None) or {}
+        raw_item_weights: List[Optional[float]] = []
         if isinstance(items, dict):
             for payload in items.values():
-                chan = _channel_range(payload or {})
-                if chan:
-                    self._cmd_item_ranges.append(chan)
+                if not isinstance(payload, dict):
+                    continue
+                # Exclude disabled items. A canvas item always carries
+                # ``enabled`` (so this matches the Isaac-Lab item list); a
+                # hand-built / minimal spec that omits the key defaults to
+                # enabled, preserving the pre-weight SB3 sampling contract.
+                # Mirrors the truthiness used by nodes.training_motion.node.
+                if not bool(payload.get("enabled", True)):
+                    continue
+                chan = _channel_range(payload)
+                if not chan:
+                    continue
+                self._cmd_item_ranges.append(chan)
+                wv = payload.get("weight")
+                raw_item_weights.append(None if wv is None else float(wv))
+        self._cmd_item_weights = self._normalize_item_weights(raw_item_weights)
+
+    @staticmethod
+    def _normalize_item_weights(
+        weights: List[Optional[float]],
+    ) -> Optional["np.ndarray"]:
+        """Normalise a per-item weight list (aligned to _cmd_item_ranges).
+
+        ``None`` entries (item with no ``weight`` set) take the uniform share
+        ``1/N`` so an untouched canvas samples uniformly. Returns a probability
+        vector summing to 1, or ``None`` when there are no items (caller then
+        falls back to uniform integer sampling). Non-positive totals fall back
+        to uniform. Negative / NaN weights are rejected upstream by
+        spec_validator._check_item_weights (CLAUDE.md §8).
+        """
+        n = len(weights)
+        if n == 0:
+            return None
+        uniform = 1.0 / n
+        vals = [uniform if w is None else float(w) for w in weights]
+        total = float(sum(vals))
+        if total <= 0.0:
+            vals = [uniform] * n
+            total = 1.0
+        return np.asarray([v / total for v in vals], dtype=np.float64)
 
     def _command_sampling_active(self) -> bool:
         """True when the env should (re)sample the command rather than freeze
@@ -1216,6 +1335,7 @@ class GenericMujocoEnv(_GymEnvBase):
             or self._cmd_resample_steps[1] > 0
             or self._cmd_step_change_prob > 0.0
             or self._cmd_zero_prob > 0.0
+            or self._cmd_heading
         )
 
     def _sample_command(self) -> np.ndarray:
@@ -1227,17 +1347,59 @@ class GenericMujocoEnv(_GymEnvBase):
         launcher-injected curriculum factor.
         """
         cmd = self._cmd_fixed.copy()
+        self._cmd_is_standing = False
         if self._cmd_zero_prob > 0.0 and float(self.np_random.random()) < self._cmd_zero_prob:
+            self._cmd_is_standing = True
+            self._cmd_angz_clip = (-1.0e9, 1.0e9)
             return np.zeros(3, dtype=np.float32)
+        angz_clip = (-1.0e9, 1.0e9)
         if self._cmd_item_ranges:
-            ranges = self._cmd_item_ranges[
-                int(self.np_random.integers(0, len(self._cmd_item_ranges)))
-            ]
+            n_items = len(self._cmd_item_ranges)
+            if (
+                self._cmd_item_weights is not None
+                and len(self._cmd_item_weights) == n_items
+            ):
+                item_idx = int(
+                    self.np_random.choice(n_items, p=self._cmd_item_weights)
+                )
+            else:
+                item_idx = int(self.np_random.integers(0, n_items))
+            ranges = self._cmd_item_ranges[item_idx]
             cmd = np.zeros(3, dtype=np.float32)
             for idx, (lo, hi) in ranges.items():
                 cmd[idx] = np.float32(self.np_random.uniform(lo, hi))
+            if 2 in ranges:
+                angz_clip = (float(ranges[2][0]), float(ranges[2][1]))
         scale = float(getattr(self, "_command_curriculum_scale", 1.0) or 1.0)
+        if self._cmd_heading:
+            # Latch a fresh target heading + the picked item's yaw-rate clip
+            # bounds; ang_vel_z is then driven closed-loop each step (see
+            # _heading_yaw_command). The open-loop cmd[2] sampled above is
+            # discarded — heading mode owns the yaw channel.
+            lo, hi = self._cmd_heading_range
+            self._cmd_heading_target = float(self.np_random.uniform(lo, hi))
+            self._cmd_angz_clip = angz_clip
+            cmd[2] = 0.0
         return (cmd * np.float32(scale)).astype(np.float32)
+
+    def _heading_yaw_command(self) -> np.float32:
+        """Closed-loop yaw command from heading error (legged_gym parity).
+
+        ``ang_vel_z = clip(stiffness * wrap_to_pi(target − yaw), item range)``.
+        Reads the base world yaw from the cached free-joint quaternion
+        (wxyz). Mirrors the IsaacLab side's ``_recompute_heading_yaw`` so
+        both engines drive the yaw channel identically.
+        """
+        q = self._base_quat  # wxyz
+        w, x, y, z = float(q[0]), float(q[1]), float(q[2]), float(q[3])
+        yaw = np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+        err = self._cmd_heading_target - yaw
+        # wrap_to_pi — legged_gym convention (π maps to +π, not −π).
+        err = err % (2.0 * np.pi)
+        if err > np.pi:
+            err -= 2.0 * np.pi
+        lo, hi = self._cmd_angz_clip
+        return np.float32(min(max(self._cmd_heading_stiffness * err, lo), hi))
 
     def _schedule_next_resample(self) -> None:
         lo, hi = self._cmd_resample_steps

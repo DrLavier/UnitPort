@@ -493,6 +493,22 @@ class IsaacLabConfig:
             cfg.amp_random_start_phase = bool(
                 getattr(motion_ref, "random_start_phase", True)
             )
+            # AMP RSI — thread training_motion's reference-state-init config so
+            # the launcher builds + registers the "default" RSI pool
+            # (--unitport_amp_rsi_prob > 0 is the gate at _build_launcher_cmd).
+            # CLAUDE.md §1.11: env_cfg_compiler already emits the
+            # reset_from_reference_motion EventTerm (pool_id="default") from the
+            # SAME canvas fields; without threading the launcher half the pool
+            # is never populated → "pool 'default' not registered" WARN and RSI
+            # is silently skipped every reset (the §1.8 illusion-of-success the
+            # user hit). Both halves now read the one canvas source via the spec.
+            cfg.amp_rsi_enabled = bool(
+                getattr(motion_ref, "reference_state_init_enabled", False)
+            )
+            cfg.amp_rsi_prob = float(getattr(motion_ref, "rsi_prob", 0.0) or 0.0)
+            cfg.amp_rsi_joint_noise = float(
+                getattr(motion_ref, "rsi_joint_noise", 0.02) or 0.02
+            )
             if amp is None:
                 raise ValueError(
                     "[IsaacLabConfig.from_training_spec] AMP_PPO requires "
@@ -840,10 +856,30 @@ class IsaacLabConfig:
                         "--unitport_amp_motion_files",
                         ",".join(str(p) for p in self.amp_motion_files),
                     ])
-                if self.amp_obs_fields:
-                    args.extend([
-                        "--unitport_amp_obs_fields", self.amp_obs_fields,
-                    ])
+                # AMP obs term list is resolved HERE (app-side: this builder
+                # runs in .venv311, which has registers + PyQt6) and ALWAYS
+                # threaded to the launcher. The Isaac Kit venv has NO PyQt6, so
+                # the launcher MUST NOT import registers.amp_obs_templates to
+                # derive a family default — registers/__init__ pulls
+                # unitport_sdk → logger → PyQt6 and the worker dies with
+                # ModuleNotFoundError before training (CLAUDE.md §1.11: resolve
+                # at the boundary that owns the dependency, not the Kit side).
+                # Canvas discriminator override wins; empty → family default.
+                _amp_obs_fields = str(self.amp_obs_fields or "").strip()
+                if not _amp_obs_fields:
+                    if not self.robot_family:
+                        raise ValueError(
+                            "[isaac_lab/config] cannot resolve the AMP obs "
+                            "template: discriminator.amp_obs_fields is empty "
+                            "AND robot_family is unset. Fix the canvas Robot "
+                            "node (family must resolve) or set the "
+                            "discriminator node's amp_obs_fields explicitly."
+                        )
+                    from registers.amp_obs_templates import get_obs_template
+                    _amp_obs_fields = ",".join(
+                        get_obs_template(self.robot_family).template_terms
+                    )
+                args.extend(["--unitport_amp_obs_fields", _amp_obs_fields])
                 # auto_inject_ref_obs is a bool — emit a single --flag when
                 # disabled (launcher treats its absence as default True).
                 if not self.amp_auto_inject_ref_obs:

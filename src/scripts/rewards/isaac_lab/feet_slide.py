@@ -16,20 +16,29 @@ from scripts.task_module import (
 
 INLINE_SOURCE = '''
 def _unitport_feet_slide(env, sensor_cfg=None, asset_cfg=SceneEntityCfg("robot")):
-    """Penalize feet sliding on the ground while in contact."""
+    """Penalize feet sliding on the ground while in contact.
+
+    "Slide" is GROUND SLIP: the WORLD-frame horizontal speed of a foot that
+    is currently loaded. A correctly planted foot is the body's pivot -- its
+    world velocity is ~0 -- so it is NOT penalized even while the base
+    translates over it; only a foot that actually skates along the ground
+    (non-zero world velocity while in contact) is penalized.
+
+    NOTE: an earlier version measured foot velocity RELATIVE TO THE ROOT
+    (``body_lin_vel_w - root_lin_vel_w``). That is wrong for this term: a
+    planted foot necessarily moves backward relative to a forward-moving
+    body, so the relative-velocity form charged every normal stance foot at
+    the base speed -- a hidden locomotion penalty mislabeled as "slide".
+    The reward now matches its name (and IsaacLab stock ``feet_slide``):
+    world-frame foot velocity, gated by contact.
+    """
     import torch
-    import isaaclab.utils.math as math_utils
     contact_sensor = env.scene.sensors[sensor_cfg.name]
     contacts = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(
         dim=-1).max(dim=1)[0] > 1.0
     asset = env.scene[asset_cfg.name]
-    cur_footvel = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :] - asset.data.root_lin_vel_w[:, :].unsqueeze(1)
-    footvel_body = torch.zeros(env.num_envs, len(asset_cfg.body_ids), 3, device=env.device)
-    for i in range(len(asset_cfg.body_ids)):
-        footvel_body[:, i, :] = math_utils.quat_apply_inverse(
-            asset.data.root_quat_w, cur_footvel[:, i, :])
-    lateral_vel = torch.sqrt(torch.sum(torch.square(footvel_body[:, :, :2]), dim=2)).view(env.num_envs, -1)
-    return torch.sum(lateral_vel * contacts, dim=1)
+    foot_vel_xy = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]
+    return torch.sum(foot_vel_xy.norm(dim=-1) * contacts, dim=1)
 '''
 
 

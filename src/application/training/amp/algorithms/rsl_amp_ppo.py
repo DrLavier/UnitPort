@@ -345,8 +345,15 @@ class AMPPPO:
                     elif kl_mean < self.desired_kl / 2.0 and kl_mean > 0.0:
                         self.learning_rate = min(1e-2, self.learning_rate * 1.5)
 
+                    # Only the policy (actor_critic) group tracks the
+                    # KL-adaptive LR. The discriminator groups
+                    # (amp_trunk / amp_head) must keep their fixed
+                    # ``disc_lr`` — clobbering them here let the disc LR
+                    # ride the policy's adaptive schedule (up to 1e-2),
+                    # accelerating discriminator over-fitting / saturation.
                     for param_group in self.optimizer.param_groups:
-                        param_group["lr"] = self.learning_rate
+                        if param_group.get("name", "actor_critic") == "actor_critic":
+                            param_group["lr"] = self.learning_rate
 
             # Surrogate loss
             ratio = torch.exp(

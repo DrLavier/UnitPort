@@ -473,6 +473,75 @@ def derive_command_ranges(
     return out
 
 
+def find_command_by_name(name: str) -> Optional[TrainingItem]:
+    """Case-insensitive lookup of a registered command by ``id`` OR
+    ``display_name``. User overlay wins over builtin on a tie.
+
+    Used by :func:`register_named_command` so a freshly named training item
+    (e.g. "Turn") can inherit the velocity template of the matching builtin
+    (``turn``). Returns ``None`` when nothing matches.
+    """
+    if not _state["loaded"]:
+        load()
+    needle = str(name or "").strip().casefold()
+    if not needle:
+        return None
+    # user overlay first (wins on id clash), then builtin
+    for bucket in (_state["user"], _state["builtin"]):
+        for item in bucket.values():
+            if item.id.casefold() == needle or item.display_name.casefold() == needle:
+                return item
+    return None
+
+
+def register_named_command(name: str) -> str:
+    """Ensure a user command whose ``id`` IS ``name`` exists; return that id.
+
+    The Training Motion Editor contract is "the item id IS its name": the
+    typed name becomes the command id verbatim (stripped). The velocity
+    template is inherited from a registered command whose ``id`` /
+    ``display_name`` matches the name (case-insensitive — e.g. "Turn" inherits
+    the builtin ``turn`` template); when nothing matches it falls back to the
+    canonical ``walk`` locomotion template so the item still produces motion
+    and the IsaacLab compiler never fails loud on a missing template.
+
+    Idempotent: if ``name`` is already a registered id it is returned
+    unchanged (no overwrite). Raises (CLAUDE.md §8) only when the registry is
+    empty — i.e. there is no template at all to inherit.
+    """
+    if not _state["loaded"]:
+        load()
+    item_id = str(name or "").strip()
+    if not item_id:
+        raise ValueError("register_named_command: name must be non-empty")
+    if get_item(item_id) is not None:
+        return item_id
+    src = find_command_by_name(item_id) or get_item("walk")
+    if src is None:
+        items = list_items()
+        src = items[0] if items else None
+    if src is None:
+        raise RuntimeError(
+            "register_named_command: registers.commands is empty; cannot "
+            "inherit a velocity template for the custom command "
+            f"{item_id!r} (commands_defaults.json missing?)"
+        )
+    save_user_item(
+        TrainingItem(
+            id=item_id,
+            display_name=item_id,
+            default_motion_tag=src.default_motion_tag,
+            command_template=dict(src.command_template),
+            speed_channel=src.speed_channel,
+            zero_channels=list(src.zero_channels),
+            gait_hint=dict(src.gait_hint) if src.gait_hint else None,
+            description=src.description,
+            builtin=False,
+        )
+    )
+    return item_id
+
+
 def enrich_user_item(item_id: str, user_value: Any) -> Dict[str, Any]:
     """Enrich a user-authored ``training_items[item_id]`` value with registry
     metadata. The returned dict is always node-shape; missing fields are
@@ -506,8 +575,13 @@ def enrich_user_item(item_id: str, user_value: Any) -> Dict[str, Any]:
         return base
     skeleton = to_node_entry(reg)
     out = dict(skeleton)
-    # User overrides win for the top-level node fields.
-    for key in ("enabled", "speed", "clip"):
+    # User overrides win for the top-level node fields. ``weight`` is the
+    # optional per-item initial sampling weight (Weight Set pie editor); it is
+    # carried through here so the SB3 path (which reads spec.motion.
+    # training_items, enriched via this function) sees it just like the
+    # Isaac-Lab path (which reads the raw canvas node). Dropping it would make
+    # the two engines sample with different distributions (CLAUDE.md §11).
+    for key in ("enabled", "speed", "clip", "weight"):
         if key in base:
             out[key] = base[key]
     user_advanced = base.get("advanced") if isinstance(base.get("advanced"), dict) else {}
@@ -542,4 +616,6 @@ __all__ = [
     "default_items_for_families",
     "enrich_user_item",
     "derive_command_ranges",
+    "find_command_by_name",
+    "register_named_command",
 ]

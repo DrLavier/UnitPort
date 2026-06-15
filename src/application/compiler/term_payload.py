@@ -135,42 +135,6 @@ def iter_reward_pages(value):
         yield pid, dict(terms) if isinstance(terms, dict) else {}
 
 
-def parse_partitions(value: PayloadValue) -> dict:
-    """Decode a reward's per-joint-subset ``partitions`` map from a payload.
-
-    A partitionable reward (``TaskModuleItem.il_partition_source`` set, e.g.
-    ``joint_deviation_l1``) may carry a ``partitions`` dict instead of a
-    single scalar weight::
-
-        {"joint_deviation_l1": {"partitions": {"hip_y": -0.1, "knee": -0.05}}}
-
-    Keys are pd-group ids (the family's joint partitions); values are the
-    per-partition reward weight. The compiler fans this one canvas term out
-    into one ``RewTerm`` per partition, each restricted to that partition's
-    physical joints (legged_gym's ``hip_dof_deviation`` / ``arm_dof_deviation``
-    / ``waist_dof_deviation`` split). Absent / empty → ``{}`` (term runs on
-    all joints, the legacy scalar-weight path). Non-numeric weights are
-    dropped here (UI-side read); the compiler re-validates strictly at emit.
-    """
-    if not isinstance(value, dict):
-        return {}
-    raw = value.get("partitions")
-    if not isinstance(raw, dict):
-        return {}
-    out: dict = {}
-    for gid, w in raw.items():
-        if not isinstance(gid, str) or not gid:
-            continue
-        if isinstance(w, (int, float)) and not isinstance(w, bool):
-            out[gid] = float(w)
-        elif isinstance(w, str):
-            try:
-                out[gid] = float(w.strip())
-            except ValueError:
-                continue
-    return out
-
-
 def parse_grace_period(value: PayloadValue) -> float:
     """Decode the per-condition ``grace_period_s`` (seconds) from a payload.
 
@@ -218,33 +182,30 @@ def serialize_term_payload(
     applies_to: Optional[List[str]] = None,
     grace_period_s: float = 0.0,
     value: Optional[float] = None,
-    partitions: Optional[dict] = None,
 ) -> PayloadValue:
     """Encode the parts back into the smallest payload shape.
 
     Emits a bare scalar (legacy form) when ``variant`` is missing /
     ``"preset"`` AND ``applies_to`` is empty AND ``grace_period_s`` is 0
-    AND ``value`` is None AND ``partitions`` is empty. Otherwise emits the
-    structured dict. This minimises canvas-JSON diff churn for users who
-    don't yet use variants / grace / per-item values / partitions.
+    AND ``value`` is None. Otherwise emits the structured dict. This
+    minimises canvas-JSON diff churn for users who don't yet use variants /
+    grace / per-item values.
 
     ``value`` is the reward's function-internal param (see
     :func:`parse_item_value`); pass ``None`` to omit it (the caller decides
     "unset" by comparing against the reward's registry default).
 
-    ``partitions`` is the per-joint-subset weight map (see
-    :func:`parse_partitions`). When present (non-empty) the structured form
-    carries it and the top-level ``weight`` becomes a placeholder (the
-    compiler fans the term out per partition and never reads it) — but it is
-    still written for shape uniformity.
+    Joint-subset partitioning is NOT carried in the payload — it is the
+    paged ``reward_terms`` shape (``{page_id: {reward: payload}}``, see
+    :func:`iter_reward_pages`), where the page id IS the pd_group id. The
+    compiler resolves the partition's physical joints from the page id.
     """
     has_variant = bool(variant) and variant != "preset"
     has_scope = bool(applies_to)
     has_grace = float(grace_period_s) > 0.0
     has_value = value is not None
-    has_parts = bool(partitions)
     if (not has_variant and not has_scope and not has_grace
-            and not has_value and not has_parts):
+            and not has_value):
         return float(weight)
     out: dict = {"weight": float(weight)}
     if has_variant:
@@ -255,8 +216,6 @@ def serialize_term_payload(
         out["grace_period_s"] = float(grace_period_s)
     if has_value:
         out["value"] = float(value)
-    if has_parts:
-        out["partitions"] = {str(k): float(v) for k, v in partitions.items()}
     return out
 
 
@@ -266,7 +225,6 @@ __all__ = [
     "parse_term_payload",
     "parse_grace_period",
     "parse_item_value",
-    "parse_partitions",
     "serialize_term_payload",
     "PAGE_GLOBAL",
     "is_paged_reward_terms",

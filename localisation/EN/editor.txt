@@ -1,0 +1,8 @@
+[dtype]
+both = Scalar/List
+list = List
+scalar = Scalar
+
+[err]
+dup_item = An item named '{name}' already exists.
+

@@ -1,6 +1,9 @@
 [empty]
 no_visible_series = 没有可见的数据序列
 
+[series]
+cmd_reward = 指令回报
+
 [runs]
 clear = 清除
 empty = 没有运行记录

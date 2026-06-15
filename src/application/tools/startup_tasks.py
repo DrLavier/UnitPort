@@ -695,39 +695,41 @@ class PostSetupTask(Task):
         self.log_success("loco-mujoco cloned")
 
     def _step_custom_mods(self, report: dict) -> None:
-        """Shallow-clone the user-picked entries from ``custom_mods/installs.txt``.
+        """Shallow-clone reference-motion packs from the built-in catalog.
 
-        Selection comes from ``selections.backend.custom_mods`` (list of
-        entry keys). On the skipped-wizard path nothing is cloned -- these
-        are explicit opt-in extras, not part of any default. Each entry
-        is cloned into ``Paths.CUSTOM_MODS_DIR / <relative_path>`` (the
-        manifest ships every line under ``motions/``).
+        The catalog is code-defined in ``custom_mods_manifest.py`` (there
+        is no ``installs.txt`` to read). Selection comes from
+        ``selections.backend.custom_mods`` (list of entry keys) on the
+        normal path; on the wizard-skipped ("legacy default") path the
+        ``default_install`` subset is cloned -- this keeps shipped canvas
+        templates (e.g. ``Go2_AMP``, which hard-refs ``pack:amp_go2:``
+        clips) working out of the box. Each entry is cloned into
+        ``Paths.CUSTOM_MODS_DIR / <relative_path>`` (every entry under
+        ``motions/``).
         """
         from application.service.installers.custom_mods_manifest import (
             entry_already_installed,
             load_manifest_entries,
         )
 
-        if self._sel.get("skipped"):
-            self.log_info("custom_mods skipped (wizard skipped)")
-            report["steps"].append({"custom_mods": "skipped"})
-            return
+        entries = load_manifest_entries()
+        by_key = {e.key: e for e in entries}
 
-        backend = self._sel.get("backend") or {}
-        selected_keys = list(backend.get("custom_mods") or [])
+        if self._sel.get("skipped"):
+            selected_keys = [e.key for e in entries if e.default_install]
+            self.log_info(
+                f"custom_mods: wizard skipped -> default set "
+                f"({len(selected_keys)} entr{'y' if len(selected_keys) == 1 else 'ies'})"
+            )
+        else:
+            backend = self._sel.get("backend") or {}
+            selected_keys = list(backend.get("custom_mods") or [])
+
         if not selected_keys:
             self.log_info("custom_mods: no entries selected")
             report["steps"].append({"custom_mods": "none_selected"})
             return
 
-        try:
-            entries = load_manifest_entries()
-        except Exception as exc:  # noqa: BLE001
-            self.log_warning(f"custom_mods manifest unreadable: {exc}")
-            report["steps"].append({"custom_mods": "manifest_unreadable"})
-            return
-
-        by_key = {e.key: e for e in entries}
         results: list[dict] = []
 
         if shutil.which("git") is None:
@@ -742,8 +744,8 @@ class PostSetupTask(Task):
             entry = by_key.get(key)
             if entry is None:
                 self.log_warning(
-                    f"custom_mods: selection {key!r} is not in installs.txt; "
-                    f"skipping"
+                    f"custom_mods: selection {key!r} is not in the "
+                    f"reference-motion catalog; skipping"
                 )
                 results.append({"key": key, "status": "missing_manifest_entry"})
                 continue

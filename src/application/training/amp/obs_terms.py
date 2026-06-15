@@ -47,6 +47,15 @@ class AmpObsTerm:
     motion_slice_fn: MotionSliceFn
     env_fn: Optional[EnvReadFn] = None
     doc: str = ""
+    #: Reference frame BOTH producers (motion slice + env reader) must
+    #: emit this term in. The expert (clip) and policy (env) sides have to
+    #: agree on the frame or the discriminator separates the two
+    #: distributions on the frame artifact alone (pinning disc_acc at
+    #: ~1.0). Values: "base" (rotated into the root/body frame),
+    #: "world_z" (absolute world height), "joint" (joint space, frame
+    #: irrelevant). Consumed by the launch-time numerical equivalence
+    #: harness (joint_alignment) for documentation + cross-checks.
+    frame: str = "unspecified"
 
 
 _REGISTRY: Dict[str, AmpObsTerm] = {}
@@ -496,17 +505,45 @@ def _joint_vel_env(wrapper: Any):
     return _robot_data(wrapper).joint_vel[:, perm]
 
 
+def _quat_rotate_inverse(q: Any, v: Any) -> Any:
+    """Rotate world-frame vectors *v* into the body frame defined by
+    quaternion *q* (``wxyz``, Isaac Lab convention).
+
+    ``q``: ``(..., 4)``  ``v``: ``(..., 3)`` (broadcasting over leading
+    dims). Bit-equivalent to ``isaaclab.utils.math.quat_rotate_inverse``,
+    reimplemented with plain torch so this module carries NO isaaclab
+    import (keeps it app-venv importable/testable; the AMP env runs it
+    under the rsl_rl/torch stack at train time).
+    """
+    q_w = q[..., 0:1]
+    q_vec = q[..., 1:4]
+    import torch as _torch
+    a = v * (2.0 * q_w * q_w - 1.0)
+    b = _torch.cross(q_vec, v, dim=-1) * q_w * 2.0
+    c = q_vec * (q_vec * v).sum(dim=-1, keepdim=True) * 2.0
+    return a - b + c
+
+
 def _toe_pos_local_env(wrapper: Any):
     data = _robot_data(wrapper)
     foot_ids = _resolve_foot_ids(wrapper)
     foot_pos_w = data.body_pos_w[:, foot_ids, :]           # (N, num_feet, 3)
     root_pos_w = data.root_pos_w                           # (N, 3)
-    # Translation-only body-frame convention — matches the
-    # AMP_for_hardware mocap files where toe positions are stored the
-    # same way. A rotated body frame would desync from the recorded
-    # distribution and silently destroy training.
-    foot_pos_local = foot_pos_w - root_pos_w.unsqueeze(1)
-    return foot_pos_local.reshape(foot_pos_local.shape[0], -1)
+    root_quat_w = data.root_quat_w                         # (N, 4) wxyz
+    # BODY-frame toe convention. The amp_legged_gym / AMP_for_hardware
+    # clips store toe positions rotated into the base frame (empirically
+    # verified yaw-invariant: a clip whose base yaws a full 360° keeps a
+    # near-constant stored toe cluster). The env therefore MUST de-rotate
+    # the world foot displacement by the inverse root orientation — a
+    # translation-only world-axis offset would swing with the policy's
+    # heading and desync from the (heading-invariant) expert distribution,
+    # pinning disc_acc at ~1.0. Matches the body frame already used by the
+    # base_lin_vel_local / base_ang_vel_local env readers (root_*_vel_b).
+    offset_w = foot_pos_w - root_pos_w.unsqueeze(1)        # (N, F, 3), world axes
+    n_envs, n_feet = offset_w.shape[0], offset_w.shape[1]
+    q = root_quat_w.unsqueeze(1).expand(n_envs, n_feet, 4)  # (N, F, 4)
+    foot_pos_b = _quat_rotate_inverse(q, offset_w)          # (N, F, 3), base frame
+    return foot_pos_b.reshape(n_envs, -1)
 
 
 def _lin_vel_env(wrapper: Any):
@@ -586,6 +623,7 @@ register(AmpObsTerm(
     motion_slice_fn=_joint_pos_slice,
     env_fn=_joint_pos_env,
     doc="Per-DoF joint positions in the canonical joint order.",
+    frame="joint",
 ))
 
 register(AmpObsTerm(
@@ -594,6 +632,7 @@ register(AmpObsTerm(
     motion_slice_fn=_joint_vel_slice,
     env_fn=_joint_vel_env,
     doc="Per-DoF joint velocities in the canonical joint order.",
+    frame="joint",
 ))
 
 register(AmpObsTerm(
@@ -601,7 +640,8 @@ register(AmpObsTerm(
     dim_fn=lambda ctx: 3 * _required_ctx(ctx, "num_feet", "toe_pos_local"),
     motion_slice_fn=_toe_pos_local_slice,
     env_fn=_toe_pos_local_env,
-    doc="Per-foot toe position in body frame (N feet × 3 axes).",
+    doc="Per-foot toe position in the base/body frame (N feet × 3 axes).",
+    frame="base",
 ))
 
 register(AmpObsTerm(
@@ -610,6 +650,7 @@ register(AmpObsTerm(
     motion_slice_fn=_lin_vel_slice,
     env_fn=_lin_vel_env,
     doc="Root linear velocity in base/body frame (xyz).",
+    frame="base",
 ))
 
 register(AmpObsTerm(
@@ -618,6 +659,7 @@ register(AmpObsTerm(
     motion_slice_fn=_ang_vel_slice,
     env_fn=_ang_vel_env,
     doc="Root angular velocity in base/body frame (xyz).",
+    frame="base",
 ))
 
 register(AmpObsTerm(
@@ -626,6 +668,7 @@ register(AmpObsTerm(
     motion_slice_fn=_root_height_slice,
     env_fn=_root_height_env,
     doc="Root body height above world z=0.",
+    frame="world_z",
 ))
 
 

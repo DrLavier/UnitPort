@@ -1,6 +1,9 @@
 [empty]
 no_visible_series = No visible series
 
+[series]
+cmd_reward = Command reward
+
 [runs]
 clear = Clear
 empty = No runs

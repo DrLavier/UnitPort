@@ -317,7 +317,28 @@ def _build_sb3_deploy_contract(
     # gains.kp / gains.kd are aligned with joint_ir_roles order by construction.
     stiffness_arr = [float(v) for v in gains.kp]
     damping_arr = [float(v) for v in gains.kd]
-    effort_arr = [effort_val] * n
+    # Per-joint effort/velocity caps (legged_gym parity, CLAUDE.md §10/§11):
+    # clip EACH joint to its own real motor limit from the registry's USD
+    # DriveAPI capture (max_force / max_velocity), keyed by IR role — the SAME
+    # source the IsaacLab env_cfg compiler + the SB3 MuJoCo env use, so train ==
+    # deploy across both engines. A joint absent from the capture falls back to
+    # the RobotNode scalar (effort_val / velocity_val). A flat scalar (manifest
+    # default 30 N·m) torque-starves a humanoid's hip/knee.
+    from application.physics.actuator_caps import resolve_per_joint_caps
+    _caps_by_role = resolve_per_joint_caps(sku, fmt="USD")
+    _eff_fallback = [
+        r for r in joint_ir_roles if (_caps_by_role.get(r) or {}).get("effort") is None
+    ]
+    if _eff_fallback and _caps_by_role:
+        log_warning(
+            f"[bundle_exporter] roles {_eff_fallback} have no per-joint USD "
+            f"effort capture; using RobotNode scalar effort_limit={effort_val} "
+            f"for them (sku={sku!r})."
+        )
+    effort_arr = [
+        float((_caps_by_role.get(r) or {}).get("effort") or effort_val)
+        for r in joint_ir_roles
+    ]
 
     # default_joint_pos in IR-role order. spec.actor.joint_init is an
     # IR-keyed dict; missing roles fall to zero so the deploy spawn
@@ -362,6 +383,25 @@ def _build_sb3_deploy_contract(
         "clip": None,
         "offset_mode": "default_joint_pos" if use_default_offset else "zero",
     }
+
+    # Deploy-side stick→velocity mapping (producer half of the runtime
+    # CommandMapper): the velocity channel ranges + mapping_mode/deadzone/
+    # curve_exponent from the Training Motion node. Best-effort — a build
+    # failure must NOT abort a trained bundle; fall back to {} (the load-time
+    # mapper then passes the stick through as a raw command and warns).
+    _commands_block: Dict[str, Any] = {}
+    try:
+        from application.training.command_schema import deploy_command_block
+        _canvas_dict = (getattr(spec, "meta", None) or {}).get("__canvas_dict__")
+        _commands_block = deploy_command_block(
+            _canvas_dict, family=str(getattr(pd_param, "family", "quadruped"))
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetry mapping, never block export
+        log_warning(
+            f"[bundle_exporter] could not build deploy stick→velocity mapping "
+            f"block ({type(exc).__name__}: {exc}); bundle ships without it "
+            f"(controller stick will be used as a raw command at deploy)."
+        )
 
     # Observations — built from the SAME ``il_terms`` layout the training env
     # assembled, through the shared obs_term_engine. This is the SSOT that
@@ -435,7 +475,7 @@ def _build_sb3_deploy_contract(
         "decimation": decimation,
         "observations": observations,
         "action": action_block,
-        "commands": {},
+        "commands": _commands_block,
         "base_body_name": "",
     }
     # Per-item obs tail: deploy ObsBuilder reconstructs [cmd_norm, item weights]
@@ -448,8 +488,15 @@ def _build_sb3_deploy_contract(
             "command_ranges": per_item_obs["command_ranges"],
             "blend_width": float(per_item_obs["blend_width"]),
         }
-    if velocity_val > 0.0:
-        contract["velocity_limit"] = [velocity_val] * n
+    # Per-joint velocity caps (USD max_velocity by role, scalar fallback) — same
+    # source as effort_arr so train (SB3 env) == deploy. Envelope engages when
+    # any joint has a positive limit.
+    velocity_arr = [
+        float((_caps_by_role.get(r) or {}).get("velocity") or velocity_val)
+        for r in joint_ir_roles
+    ]
+    if any(v > 0.0 for v in velocity_arr):
+        contract["velocity_limit"] = velocity_arr
         # saturation_effort is REQUIRED alongside velocity_limit for the deploy
         # DCMotor torque-speed envelope to engage (pd_controller.compute gates
         # on BOTH). Without it the deploy stack silently ignored velocity_limit

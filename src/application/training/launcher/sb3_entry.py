@@ -89,8 +89,30 @@ def _make_progress_callback(total_timesteps: int):
         def __init__(inner_self) -> None:
             super().__init__(verbose=0)
             inner_self._last_emit = 0
+            # Per-command raw-reward accumulators for the current rollout,
+            # keyed by active_item. Reset every rollout so the emitted means
+            # align with the rollout/iteration X the progress line uses.
+            inner_self._cmd_sum: Dict[str, float] = {}
+            inner_self._cmd_cnt: Dict[str, int] = {}
 
         def _on_step(inner_self) -> bool:
+            # Hard-attribute each env's raw step reward to its dominant command
+            # (active_item), mirroring the IsaacLab command term's per-item
+            # bucketing. The env exposes both keys in its info dict.
+            infos = inner_self.locals.get("infos") or []
+            for info in infos:
+                if not isinstance(info, dict):
+                    continue
+                iid = info.get("reward/active_item")
+                if not isinstance(iid, str) or not iid:
+                    continue
+                r = info.get("reward/active_item_reward")
+                try:
+                    r = float(r)
+                except (TypeError, ValueError):
+                    continue
+                inner_self._cmd_sum[iid] = inner_self._cmd_sum.get(iid, 0.0) + r
+                inner_self._cmd_cnt[iid] = inner_self._cmd_cnt.get(iid, 0) + 1
             return True
 
         def _on_rollout_end(inner_self) -> None:
@@ -130,21 +152,31 @@ def _make_progress_callback(total_timesteps: int):
             except Exception:
                 pass
             emit_progress(count, count_total, reward, unit)
+            # The metrics sample MUST share the progress X unit: the chart keys
+            # its X-axis on "step", and emitting a different scale here (raw
+            # num_timesteps while progress reports iterations) puts two wildly
+            # different X scales on the same axis → the curve appears to jump
+            # back and forth (worsened by large n_envs, which grows
+            # num_timesteps n_envs× faster per rollout). So "step" = the same
+            # ``count`` (iter for PPO / env-steps for off-policy) emit_progress
+            # used. Raw env-step count is kept under "total_steps" (a
+            # non-series metadata key) for any consumer that wants it.
+            payload: Dict[str, Any] = {"step": count, "total_steps": num_ts}
             if ep_len_mean is not None:
-                # The metrics sample MUST share the progress X unit: the chart
-                # keys its X-axis on "step", and emitting a different scale here
-                # (raw num_timesteps while progress reports iterations) puts two
-                # wildly different X scales on the same axis → the curve appears
-                # to jump back and forth (worsened by large n_envs, which grows
-                # num_timesteps n_envs× faster per rollout). So "step" = the same
-                # ``count`` (iter for PPO / env-steps for off-policy) emit_progress
-                # used. Raw env-step count is kept under "total_steps" (a
-                # non-series metadata key) for any consumer that wants it.
-                emit_metrics({
-                    "step": count,
-                    "total_steps": num_ts,
-                    "ep_len_mean": ep_len_mean,
-                })
+                payload["ep_len_mean"] = ep_len_mean
+            # Per-command mean reward this rollout → cmd_reward_<id>, the SAME
+            # Mission Control series the IsaacLab backend parses. Commands not
+            # seen this rollout are absent (no fake zero — CLAUDE.md §8).
+            for iid, total_r in inner_self._cmd_sum.items():
+                cnt = inner_self._cmd_cnt.get(iid, 0)
+                if cnt > 0:
+                    payload[f"cmd_reward_{iid}"] = total_r / cnt
+            inner_self._cmd_sum.clear()
+            inner_self._cmd_cnt.clear()
+            # Emit only when at least one series (beyond the two metadata keys)
+            # rode along, so empty early rollouts don't spam blank samples.
+            if len(payload) > 2:
+                emit_metrics(payload)
 
     return _Inner()
 

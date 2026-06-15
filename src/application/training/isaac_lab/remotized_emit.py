@@ -119,6 +119,19 @@ def _fmt_gain_dict(names: Sequence[str], gains: Dict[str, float]) -> str:
     return "{" + ", ".join(items) + "}"
 
 
+def _fmt_cap(names: Sequence[str], value: "float | Dict[str, float]") -> str:
+    """Render an effort/velocity cap as either a per-joint ``{name: v}`` dict
+    (mirrors stiffness/damping) or a bare scalar (legacy / uniform).
+
+    A per-joint dict is the real, per-motor limit (legged_gym parity, from the
+    robot's captured USD DriveAPI); a scalar is the uniform fallback used when
+    the robot has no captured physics. Per-joint rendering reuses
+    ``_fmt_gain_dict`` so a missing name fails loud (§8)."""
+    if isinstance(value, dict):
+        return _fmt_gain_dict(names, value)
+    return f"{value}"
+
+
 def _fmt_lookup_array(table: Any) -> str:
     """Render the 3-column ``[[angle, 1.0, max_torque], ...]`` literal that
     ``RemotizedPDActuatorCfg.joint_parameter_lookup`` consumes."""
@@ -134,9 +147,10 @@ def build_actuator_lines(
     physical: Sequence[str],
     kp: Dict[str, float],
     kd: Dict[str, float],
-    effort_limit: float,
-    velocity_limit: float,
+    effort_limit: "float | Dict[str, float]",
+    velocity_limit: "float | Dict[str, float]",
     groups: Sequence[RemotizedGroup],
+    armature: Optional[Dict[str, float]] = None,
     indent: str = "            ",
     implicit_cls: str = "ImplicitActuatorCfg",
     remotized_cls: str = "RemotizedPDActuatorCfg",
@@ -150,14 +164,36 @@ def build_actuator_lines(
     an explicit name list, since a joint may belong to only one IsaacLab
     actuator group), and each remotized group emits a ``RemotizedPDActuatorCfg``
     with no effort_limit (lookup-driven ceiling).
+
+    ``armature`` (CLAUDE.md §10): per-joint reflected-rotor inertia keyed by the
+    SAME physical NAME as ``kp``/``kd`` (NOT index — IsaacLab resolves the
+    emitted ``armature={name: value}`` dict by joint name against the USD
+    articulation, so the MJCF→USD joint-order difference cannot mis-pair the
+    values; this is the World-B joint-order lesson). ``mj_fullM`` folds this
+    armature into the ``m_eff`` that derived ``kp``, but PhysX's USD authors no
+    armature — emitting it here makes PhysX realize the SAME joint-space inertia
+    diagonal MuJoCo does. ``None`` (legacy) omits the field; PhysX then uses the
+    USD prim value (typically 0) and the calibration gate flags the divergence.
     """
     lines: List[str] = []
+    arm = dict(armature or {})
+
+    def _arm_kw(names: Sequence[str]) -> str:
+        # Emit ``armature={...}`` ONLY when every name has a value (by-name,
+        # never default-to-0 — a missing armature is a contract gap, §8). When
+        # ``armature`` is absent entirely (legacy callers), emit nothing.
+        if not arm:
+            return ""
+        return f"armature={_fmt_gain_dict(names, arm)}, "
+
     if not groups:
         lines.append(
             f'{indent}"legs": {implicit_cls}(joint_names_expr=[".*"], '
             f"stiffness={_fmt_gain_dict(physical, kp)}, "
             f"damping={_fmt_gain_dict(physical, kd)}, "
-            f"effort_limit={effort_limit}, velocity_limit={velocity_limit}),"
+            f"{_arm_kw(physical)}"
+            f"effort_limit={_fmt_cap(physical, effort_limit)}, "
+            f"velocity_limit={_fmt_cap(physical, velocity_limit)}),"
         )
         return lines
 
@@ -169,7 +205,9 @@ def build_actuator_lines(
             f'{indent}"legs": {implicit_cls}(joint_names_expr={names_expr}, '
             f"stiffness={_fmt_gain_dict(non_rem, kp)}, "
             f"damping={_fmt_gain_dict(non_rem, kd)}, "
-            f"effort_limit={effort_limit}, velocity_limit={velocity_limit}),"
+            f"{_arm_kw(non_rem)}"
+            f"effort_limit={_fmt_cap(non_rem, effort_limit)}, "
+            f"velocity_limit={_fmt_cap(non_rem, velocity_limit)}),"
         )
     for g in groups:
         names_expr = "[" + ", ".join(f'"{n}"' for n in g.joint_names) + "]"
@@ -177,10 +215,11 @@ def build_actuator_lines(
             f'{indent}"{g.name}": {remotized_cls}(joint_names_expr={names_expr}, '
             f"stiffness={_fmt_gain_dict(g.joint_names, kp)}, "
             f"damping={_fmt_gain_dict(g.joint_names, kd)}, "
+            f"{_arm_kw(g.joint_names)}"
             # velocity_limit is a real actuator parameter, independent of the
             # torque ceiling — emit it like the non-remotized group (a missing
             # velocity_limit makes the deploy-contract parser reject the group).
-            f"velocity_limit={velocity_limit}, "
+            f"velocity_limit={_fmt_cap(g.joint_names, velocity_limit)}, "
             f"joint_parameter_lookup={_fmt_lookup_array(g.table)}, "
             # effort_limit=None: no box cap; the lookup table sets the
             # angle-dependent ceiling at runtime (matches reference SPOT_CFG).

@@ -59,6 +59,7 @@ if TYPE_CHECKING:
     from .update_latest_dialog import UpdateLatestDialog
     from .update_progress_dialog import UpdateProgressDialog
     from .version_notice_dialog import VersionNoticeDialog
+    from .weight_set_dialog import WeightSetDialog
 
 __all__ = [
     "Bar1RiskDialog",
@@ -78,6 +79,7 @@ __all__ = [
     "UpdateLatestDialog",
     "UpdateProgressDialog",
     "VersionNoticeDialog",
+    "WeightSetDialog",
     "issues_from_exception",
     "open_reward_function_editor",
     "open_training_motion_editor",
@@ -120,6 +122,7 @@ _LAZY: dict[str, tuple[str, str]] = {
     "UpdateLatestDialog": ("update_latest_dialog", "UpdateLatestDialog"),
     "UpdateProgressDialog": ("update_progress_dialog", "UpdateProgressDialog"),
     "VersionNoticeDialog": ("version_notice_dialog", "VersionNoticeDialog"),
+    "WeightSetDialog": ("weight_set_dialog", "WeightSetDialog"),
 }
 
 

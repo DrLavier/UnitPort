@@ -14,8 +14,9 @@
   - Backend 列表：``registers.backends.list_installed()``，过滤仿真后端白名单
     `{mujoco, sb3_mujoco, isaac_lab}` 且 ``available=True``
   - SKU：``robot_assets.selected_robot_sku()``
-  - Run：``MujocoReviewTask(asset.path, sku, scene_id)`` →
-    ``get_tasks_manager().submit(...)``（仅 mujoco 系；isaac_lab 占位 warning）
+  - Run：``MujocoReviewTask(asset.path, sku, scene_id)``（mujoco）或
+    ``IsaacSimReviewTask(...)``（isaac_lab）→ ``get_tasks_manager().submit(...)``。
+    两套仿真后端均已接线；init pose override 在两端同样生效。
 
 持久化：选中项写 ``user.ini[SimConfig]``，重启后还原。
 
@@ -757,10 +758,34 @@ class PolicySimulationCard(QFrame):
                 f"init_pose_override={'yes' if override is not None else 'no'}"
             )
             self.sim_run_requested.emit(asset, scene_id, engine_id)
+        elif engine_id == "isaac_lab":
+            # Bundle-only IsaacSim replay (CLAUDE.md §1.9): the subprocess
+            # loads policy + deploy_contract from the bundle dir and builds
+            # a minimal Kit scene from the SKU registry. Same shape as the
+            # mujoco branch; init_pose_override is threaded through to the
+            # launcher (parity with MujocoReviewTask).
+            override = self._sec_sim.current_init_pose_override()
+            try:
+                from application.service.runtime.simulation.isaac_sim import (
+                    IsaacSimReviewTask,
+                )
+            except Exception as exc:  # pragma: no cover - import guard
+                log_warning(
+                    f"[mission.sim] IsaacSimReviewTask import failed: {exc}"
+                )
+                return
+            task = IsaacSimReviewTask(
+                asset.path, sku, scene_id,
+                init_pose_override=override,
+            )
+            tid = get_tasks_manager().submit(task)
+            log_info(
+                f"[mission.sim] IsaacSimReviewTask submitted id={tid} "
+                f"policy={asset.policy_id} scene={scene_id} sku={sku} "
+                f"init_pose_override={'yes' if override is not None else 'no'}"
+            )
+            self.sim_run_requested.emit(asset, scene_id, engine_id)
         else:
-            # isaac_lab review: simulation/ runtime has no isaac_sim subpkg
-            # yet (Stage 3+). Surface the gap clearly instead of failing
-            # silently.
             log_warning(
                 f"[mission.sim] backend {engine_id} review not wired yet"
             )
@@ -817,6 +842,35 @@ class PolicySimulationCard(QFrame):
             log_info(
                 f"[mission.sim] RobotReviewTask submitted id={tid} "
                 f"sku={sku} scene={scene_id} live_physics={live_physics} "
+                f"init_pose_override={'yes' if override is not None else 'no'}"
+            )
+            self.sim_review_requested.emit(
+                asset, scene_id, engine_id, live_physics,
+            )
+        elif engine_id == "isaac_lab":
+            # Pose-only IsaacSim viewer (no policy). ``live_physics`` is a
+            # MuJoCo-only distinction (frozen viewer vs gravity step); the
+            # IsaacSim pose review always holds the override pose under
+            # implicit-PD with gravity on (≈ live_physics=True), so the flag
+            # is intentionally not forwarded — not silently dropped.
+            override = self._sec_sim.current_init_pose_override()
+            try:
+                from application.service.runtime.simulation.isaac_sim import (
+                    IsaacSimPoseReviewTask,
+                )
+            except Exception as exc:  # pragma: no cover - import guard
+                log_warning(
+                    f"[mission.sim] IsaacSimPoseReviewTask import failed: {exc}"
+                )
+                return
+            task = IsaacSimPoseReviewTask(
+                sku, scene_id,
+                init_pose_override=override,
+            )
+            tid = get_tasks_manager().submit(task)
+            log_info(
+                f"[mission.sim] IsaacSimPoseReviewTask submitted id={tid} "
+                f"sku={sku} scene={scene_id} "
                 f"init_pose_override={'yes' if override is not None else 'no'}"
             )
             self.sim_review_requested.emit(

@@ -390,6 +390,24 @@ class CommandSchema:
     (curriculum scaling applied via the standard sampler path). 0.0
     disables. 0.01 ≈ one step-change per 100 steps on average."""
 
+    # --- Heading-command mode (legged_gym parity) ---
+    heading_command: bool = False
+    """When True the yaw channel (``ang_vel_z``) is closed-loop: each
+    resample draws a target world-heading in :attr:`heading_range`, and
+    every control step the env recomputes ``ang_vel_z = clip(
+    heading_control_stiffness * wrap_to_pi(target − current_yaw),
+    <item ang_vel_z range>)``. Mirrors legged_gym's
+    ``commands.heading_command`` (ang vel command from heading error).
+    Default False = open-loop yaw sampling (byte-identical legacy)."""
+
+    heading_control_stiffness: float = 0.5
+    """Proportional gain mapping heading error (rad) → yaw rate (rad/s).
+    legged_gym uses 0.5. Only consumed when :attr:`heading_command`."""
+
+    heading_range: Tuple[float, float] = (-3.141592653589793, 3.141592653589793)
+    """``(lo, hi)`` world-heading target sample range (rad). legged_gym
+    uses ``[-π, π]``. Only consumed when :attr:`heading_command`."""
+
     # --- Deployment-side stick → velocity mapping ---
     mapping_mode: str = MAPPING_LINEAR
     """``linear`` | ``deadzone`` | ``exponential``. Runtime CommandBus
@@ -453,6 +471,12 @@ class CommandSchema:
             ],
             "zero_command_probability": float(self.zero_command_probability),
             "cmd_step_change_prob": float(self.cmd_step_change_prob),
+            "heading_command": bool(self.heading_command),
+            "heading_control_stiffness": float(self.heading_control_stiffness),
+            "heading_range": [
+                float(self.heading_range[0]),
+                float(self.heading_range[1]),
+            ],
             "mapping_mode": str(self.mapping_mode),
             "deadzone": float(self.deadzone),
             "curve_exponent": float(self.curve_exponent),
@@ -525,6 +549,9 @@ class CommandSchema:
             resampling_time_range=resample,
             zero_command_probability=float(d.get("zero_command_probability", 0.0) or 0.0),
             cmd_step_change_prob=float(d.get("cmd_step_change_prob", 0.01) or 0.0),
+            heading_command=bool(d.get("heading_command", False)),
+            heading_control_stiffness=float(d.get("heading_control_stiffness", 0.5) or 0.5),
+            heading_range=_r("heading_range", (-3.141592653589793, 3.141592653589793)),
             mapping_mode=mode,
             deadzone=float(d.get("deadzone", 0.0) or 0.0),
             curve_exponent=float(d.get("curve_exponent", 1.0) or 1.0),
@@ -804,6 +831,11 @@ class CommandSchema:
                     resampling_time_range=_range("resampling_time_range", 10.0, 10.0),
                     zero_command_probability=_f("zero_command_probability", 0.0),
                     cmd_step_change_prob=_f("cmd_step_change_prob", 0.01),
+                    heading_command=_b("heading_command", False),
+                    heading_control_stiffness=_f("heading_control_stiffness", 0.5),
+                    heading_range=_range(
+                        "heading_range", -3.141592653589793, 3.141592653589793
+                    ),
                     mapping_mode=raw_mode_ti,
                     deadzone=_f("deadzone", 0.0),
                     curve_exponent=_f("curve_exponent", 1.0),
@@ -922,6 +954,11 @@ class CommandSchema:
             resampling_time_range=_range("resampling_time_range", 10.0, 10.0),
             zero_command_probability=_f("zero_command_probability", 0.0),
             cmd_step_change_prob=_f("cmd_step_change_prob", 0.01),
+            heading_command=_b("heading_command", False),
+            heading_control_stiffness=_f("heading_control_stiffness", 0.5),
+            heading_range=_range(
+                "heading_range", -3.141592653589793, 3.141592653589793
+            ),
             mapping_mode=raw_mode,
             deadzone=_f("deadzone", 0.0),
             curve_exponent=_f("curve_exponent", 1.0),
@@ -931,6 +968,116 @@ class CommandSchema:
             step_height_range=(sh_lo, sh_hi),
             gait_presets=presets_list,
         )
+
+
+def deploy_command_block(
+    canvas_dict: Dict[str, Any], *, family: str = "quadruped"
+) -> Dict[str, Any]:
+    """Producer half of the deploy stick→velocity mapping contract.
+
+    Extracts the ``training_motion`` node from *canvas_dict* and returns the
+    subset that ``deploy_contract.commands`` needs for the runtime
+    stick→velocity mapper (``service/runtime/policy/command_mapping.py``)::
+
+        {"channels": [{name, kind, low, high, unit, runtime_clip}, ...],
+         "mapping_mode": ..., "deadzone": ..., "curve_exponent": ...}
+
+    The channel ranges are the policy's REAL trained velocity envelope: the
+    per-channel UNION of the enabled training items' ranges, resolved through
+    the SAME ``registers.commands`` SSOT the IsaacLab env_cfg compiler
+    (``_build_training_item_dict``) and the SB3 sampler use — so a normalised
+    [-1,1] controller stick maps to exactly the m/s the policy saw (e.g. the
+    walk item's ±1.5 m/s), NOT the looser gain envelope. (``CommandSchema.
+    from_node_dict``'s per-item path is intentionally NOT used here: it gates
+    on a non-existent ``training_item_registry`` import and silently falls back
+    to the gain envelope, which over-shoots the trained range.)
+
+    ``family`` is accepted for call-site stability / future gait channels; the
+    velocity union does not depend on it.
+
+    Returns ``{}`` when the canvas has no ``training_motion`` node or no enabled
+    item resolves — the load-time mapper then treats the controller stick as an
+    already-real command (identity), the documented pre-mapping behaviour.
+    """
+    _ = family  # reserved
+    if not isinstance(canvas_dict, dict):
+        return {}
+    node = next(
+        (
+            n for n in (canvas_dict.get("nodes") or [])
+            if isinstance(n, dict) and n.get("schema_id") == "training_motion"
+        ),
+        None,
+    )
+    if node is None:
+        return {}
+    raw = node.get("params") or {}
+
+    def _val(key: str, default: Any = None) -> Any:
+        v = raw.get(key)
+        if v is None:
+            return default
+        return v.get("value") if isinstance(v, dict) else v
+
+    items = _val("training_items") or {}
+    if not isinstance(items, dict):
+        return {}
+
+    from registers.commands import get_item as _get_item
+    from registers.commands import derive_command_ranges as _derive
+
+    union: Dict[str, Tuple[float, float]] = {}
+    for item_id, entry in items.items():
+        if not isinstance(entry, dict) or not bool(entry.get("enabled", False)):
+            continue
+        reg_item = _get_item(str(item_id))
+        if reg_item is None:
+            continue
+        overrides = (entry.get("advanced") or {}).get("command_overrides")
+        eff = _derive(reg_item, entry.get("speed"), overrides)
+        for ch_name, rng in eff.items():
+            lo, hi = float(rng[0]), float(rng[1])
+            if ch_name in union:
+                p_lo, p_hi = union[ch_name]
+                union[ch_name] = (min(p_lo, lo), max(p_hi, hi))
+            else:
+                union[ch_name] = (lo, hi)
+
+    if not union:
+        return {}
+
+    preferred = ["lin_vel_x", "lin_vel_y", "ang_vel_z"]
+    ordered = [c for c in preferred if c in union]
+    ordered += sorted(c for c in union if c not in preferred)
+    runtime_clip = str(_val("runtime_clip", "true")).strip().lower() != "false"
+
+    def _unit(ch: str) -> str:
+        if ch.startswith("lin_vel"):
+            return "m/s"
+        if ch.startswith("ang_vel"):
+            return "rad/s"
+        return ""
+
+    channels = [
+        {
+            "name": ch,
+            "kind": CHANNEL_CONTINUOUS,
+            "low": float(union[ch][0]),
+            "high": float(union[ch][1]),
+            "unit": _unit(ch),
+            "runtime_clip": runtime_clip,
+        }
+        for ch in ordered
+    ]
+    mode = str(_val("mapping_mode", MAPPING_LINEAR) or MAPPING_LINEAR).strip().lower()
+    if mode not in SUPPORTED_MAPPING_MODES:
+        mode = MAPPING_LINEAR
+    return {
+        "channels": channels,
+        "mapping_mode": mode,
+        "deadzone": float(_val("deadzone", 0.0) or 0.0),
+        "curve_exponent": float(_val("curve_exponent", 1.0) or 1.0),
+    }
 
 
 __all__ = [
@@ -944,4 +1091,5 @@ __all__ = [
     "CommandChannel",
     "TaskItem",
     "CommandSchema",
+    "deploy_command_block",
 ]

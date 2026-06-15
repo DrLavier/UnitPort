@@ -90,6 +90,23 @@ def _r_yaw_tracking(env) -> float:
     return float(np.exp(-err / sigma))
 
 
+def _r_track_fail_penalty(env) -> float:
+    """UNBOUNDED penalty on the velocity-command tracking ERROR (failure to follow).
+
+    Mirror of IsaacLab ``_unitport_track_fail_penalty``: the raw command-relative
+    squared error ``||v_xy - cmd_xy||² + (w_z - cmd_z)²``, summed over the
+    linear-XY and yaw errors. 0 when tracking perfectly, grows quadratically
+    (with a gradient EVERYWHERE, including from a dead standstill) as the robot
+    drifts off command. Canvas weight is negative. Penalizes COMMAND-RELATIVE
+    error (so a zero/stand command is ~free), never absolute speed. The earlier
+    1-exp bounded form saturated at large error → no gradient pulling a
+    stationary robot toward moving; the unbounded form fixes that.
+    """
+    lin_err = (env._lin_vel[0] - env._command[0]) ** 2 + (env._lin_vel[1] - env._command[1]) ** 2
+    ang_err = (env._ang_vel[2] - env._command[2]) ** 2
+    return float(lin_err + ang_err)
+
+
 def _r_alive(env) -> float:
     return 1.0
 
@@ -174,6 +191,7 @@ def _r_dof_pos_limits(env) -> float:
 _REWARD_FNS: Dict[str, EnvRewardFn] = {
     "velocity_tracking": _r_velocity_tracking,
     "yaw_tracking": _r_yaw_tracking,
+    "track_fail_penalty": _r_track_fail_penalty,
     "alive": _r_alive,
     "upright": _r_upright,
     "lateral_penalty": _r_lateral_penalty,
@@ -199,11 +217,31 @@ def _t_min_height(env, threshold: float) -> bool:
 
 
 def _t_fall_tilt(env, threshold: float) -> bool:
-    # We don't separate roll vs pitch on this env — both terms collapse to a
-    # single "tilt magnitude" check (sqrt(g_x^2 + g_y^2) of projected gravity).
+    # Symmetric cone tilt — used by the IsaacLab-mirror ``bad_orientation`` key.
+    # Single "tilt magnitude" check (sqrt(g_x^2 + g_y^2) of projected gravity).
     # When upright, proj_gravity == [0, 0, -1]; tilt grows with body lean.
     tilt = float(np.sqrt(env._proj_gravity[0] ** 2 + env._proj_gravity[1] ** 2))
     return tilt > float(threshold)
+
+
+def _t_fall_roll(env, threshold: float) -> bool:
+    # Per-axis ROLL tilt (about body-x; y=left). Body-frame projected gravity
+    # ``g`` is [0,0,-1] upright; roll = atan2(g_y, -g_z) in radians, magnitude
+    # compared so the limit applies to both left/right lean. Genuinely axis-
+    # specific (the old shared ``_t_fall_tilt`` collapsed roll+pitch into one
+    # magnitude — fall_threshold_roll then silently also fired on pitch).
+    g = env._proj_gravity
+    roll = float(np.arctan2(g[1], -g[2]))
+    return abs(roll) > float(threshold)
+
+
+def _t_fall_pitch(env, threshold: float) -> bool:
+    # Per-axis PITCH tilt (about body-y; x=forward). pitch = atan2(g_x, -g_z),
+    # magnitude compared so the limit applies to both fore/aft lean. See
+    # ``_t_fall_roll`` for why this is now distinct from ``_t_fall_tilt``.
+    g = env._proj_gravity
+    pitch = float(np.arctan2(g[0], -g[2]))
+    return abs(pitch) > float(threshold)
 
 
 def _t_joint_limit_violation(env, threshold: float) -> bool:
@@ -225,6 +263,25 @@ def _t_time_out(env, threshold: float) -> bool:
     # flag), so this is a recognised no-op — present only so ``time_out`` in
     # the conditions dict is not warned as an unknown kind.
     return False
+
+
+def _t_command_follow_timeout(env, threshold: float) -> bool:
+    # Mirror of the IsaacLab ``command_follow_timeout`` DoneTerm. Past the
+    # HALFWAY point of the episode, if a non-trivial velocity command is given
+    # but the command-relative velocity error (lin XY + yaw) is still above
+    # ``threshold``, terminate. Self-gates on command magnitude so a near-zero
+    # (stand) command is exempt. SB3 horizon = env._d.max_episode_steps.
+    max_steps = int(getattr(getattr(env, "_d", None), "max_episode_steps", 0) or 0)
+    if max_steps <= 0:
+        return False
+    if int(getattr(env, "_step_count", 0) or 0) < max_steps * 0.5:
+        return False
+    cmd = env._command
+    if float(np.linalg.norm(cmd)) <= 0.15:
+        return False
+    lin_err = (env._lin_vel[0] - cmd[0]) ** 2 + (env._lin_vel[1] - cmd[1]) ** 2
+    ang_err = (env._ang_vel[2] - cmd[2]) ** 2
+    return float(np.sqrt(lin_err + ang_err)) > float(threshold)
 
 
 def _illegal_contact_body_ids(env) -> frozenset:
@@ -321,14 +378,15 @@ def _t_illegal_contact(env, threshold: float) -> bool:
 _DONE_FNS: Dict[str, Callable[[Any, float], bool]] = {
     # SB3 termination keys
     "min_height": _t_min_height,
-    "fall_threshold_roll": _t_fall_tilt,
-    "fall_threshold_pitch": _t_fall_tilt,
+    "fall_threshold_roll": _t_fall_roll,    # per-axis (was _t_fall_tilt collapse)
+    "fall_threshold_pitch": _t_fall_pitch,  # per-axis (was _t_fall_tilt collapse)
     "joint_limit_violation": _t_joint_limit_violation,
     # Mirror of the IL keys — same semantics on this env.
     "base_height": _t_min_height,        # base z below threshold
     "bad_orientation": _t_fall_tilt,     # roll/pitch tilt magnitude
     "illegal_contact": _t_illegal_contact,
     "time_out": _t_time_out,             # no-op (truncation handles the horizon)
+    "command_follow_timeout": _t_command_follow_timeout,
 }
 
 

@@ -54,7 +54,10 @@ meta = { language = "json" }
 [[parameters]]
 key = "disc_hidden_dims"
 type = "json"
-default = "[1024, 512]"
+# Default sized at/under the actor trunk ([512,256,128]). An over-capacity
+# discriminator (the old [1024,512] ≈ 0.6M params vs actor ≈ 0.19M) wins the
+# adversarial game faster and deeper, amplifying saturation. Keep it ≤ actor.
+default = "[512, 256]"
 widget = "code"
 description = "判别器 MLP 隐藏维度 (JSON list) / Discriminator hidden dims"
 meta = { language = "json" }

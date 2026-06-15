@@ -872,11 +872,6 @@
           ],
           "param_type": "list"
         },
-        "zero_command_probability": {
-          "name": "zero_command_probability",
-          "value": "0.10",
-          "param_type": "float"
-        },
         "cmd_step_change_prob": {
           "name": "cmd_step_change_prob",
           "value": "0.15",

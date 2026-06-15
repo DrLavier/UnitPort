@@ -112,7 +112,9 @@ class IsaacSimPoseReviewTask(Task):
 
         # The pose-review launcher lives next to il_review_launcher.py
         # under <RELEASE>/src/application/training/isaac_lab/launcher/.
-        launcher_root = Path(__file__).resolve().parents[5] / \
+        # parents: [0]=isaac_sim [1]=simulation [2]=runtime [3]=service
+        # [4]=application — so the training/ tree hangs off parents[4].
+        launcher_root = Path(__file__).resolve().parents[4] / \
             "training" / "isaac_lab" / "launcher"
         pose_launcher = launcher_root / "il_pose_review_launcher.py"
         if not pose_launcher.is_file():

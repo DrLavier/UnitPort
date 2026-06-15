@@ -15,22 +15,31 @@ from scripts.task_module import (
 
 
 INLINE_SOURCE = '''
-def _unitport_feet_air_time(env, threshold=0.5, command_name="base_velocity",
-                             sensor_cfg=None, asset_cfg=SceneEntityCfg("robot")):
-    """Reward feet air time when the robot is moving (velocity command above threshold).
+def _unitport_feet_air_time(env, threshold=0.5, sensor_cfg=None):
+    """Reward long feet air time at touchdown -- PURE stride-duration shaping.
 
-    Mirrors velocity_mdp.feet_air_time: gives a bonus proportional to
-    how long each foot was in the air at touchdown, gated by whether the
-    velocity command magnitude exceeds a minimum.
+    Bonus proportional to how long each foot was airborne when it touches
+    down (``last_air_time - threshold`` summed over feet at first contact).
+    This rewards deliberate, long swings over rapid high-frequency shuffling
+    -- it shapes STRIDE DURATION and nothing else, to match its name.
+
+    By design it makes NO check on base velocity, displacement, or command
+    magnitude: whether the robot is following the commanded velocity vector
+    is the velocity-tracking rewards' job, kept as a separate concern so the
+    terms compose freely. A robot that never lifts a foot scores zero here
+    naturally (no touchdown fires first_contact), so a still stance needs no
+    gate. Route this reward only to items where stepping is wanted (per-item
+    wiring); the stand item, with no air-time edge, is left untouched. Pair
+    it with the gait reward on the same item for the all-legs coordination
+    guarantee -- air time shapes duration, gait shapes phasing, and the two
+    stack without either policing velocity.
     """
     import torch
     contact_sensor = env.scene.sensors[sensor_cfg.name]
     first_contact = contact_sensor.compute_first_contact(env.step_dt)[:, sensor_cfg.body_ids]
     last_air_time = contact_sensor.data.last_air_time[:, sensor_cfg.body_ids]
     reward = torch.sum((last_air_time - threshold) * first_contact, dim=1)
-    cmd = env.command_manager.get_command(command_name)
-    is_moving = torch.norm(cmd[:, :2], dim=1) > 0.1
-    return reward * is_moving
+    return reward
 '''
 
 
@@ -48,6 +57,6 @@ ENTRY = reward_item(
     algorithms=frozenset({ALG_ALL}),
     il_func='_unitport_feet_air_time',
     il_module=IL_MOD_INLINE,
-    il_params='"threshold": {node_threshold}, "command_name": "base_velocity", "sensor_cfg": SceneEntityCfg("contact_forces", body_names={ir:feet})',
+    il_params='"threshold": {node_threshold}, "sensor_cfg": SceneEntityCfg("contact_forces", body_names={ir:feet})',
     il_inline=INLINE_SOURCE,
 )

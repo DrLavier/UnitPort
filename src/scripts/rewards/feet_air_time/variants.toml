@@ -3,7 +3,7 @@
 
 [variant.biped]
 families = ["biped", "humanoid"]
-description = "IL stock feet_air_time_positive_biped — per-foot clamp + command gate; 2-foot summed signal that doesn't spike negative on touchdown."
+description = "IL stock feet_air_time_positive_biped — per-foot positive clamp so a 2-foot summed signal doesn't spike negative on touchdown. Pure stride-duration shaping (no velocity/command gate), same as the preset."
 based_on = "preset"
 created_at = "2026-05-19T05:50:00Z"
 last_modified_at = "2026-05-19T05:50:00Z"

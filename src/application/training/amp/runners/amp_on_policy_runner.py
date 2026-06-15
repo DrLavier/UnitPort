@@ -1412,6 +1412,29 @@ class AMPOnPolicyRunner:
                 f"termination conditions, and reward weights.",
                 flush=True,
             )
+        # Separability alarm (§8): a large, persistent discriminator LOGIT
+        # MARGIN (expert_pred − policy_pred) is the fingerprint of a
+        # structurally-separable expert/policy AMP obs distribution (RC-1
+        # leg swap / RC-2 toe frame / normalization), NOT a hyperparameter
+        # problem. Keyed on the margin (NOT Disc acc, which saturates at
+        # ~1.00 even on a healthy run). Fire once, loudly.
+        if "mean_policy_pred" in locs and "mean_expert_pred" in locs:
+            try:
+                from application.training.amp.joint_alignment import (
+                    amp_separability_warning,
+                )
+                _sep = amp_separability_warning(
+                    int(locs["it"]),
+                    float(locs["mean_policy_pred"]),
+                    float(locs["mean_expert_pred"]),
+                )
+                if _sep is not None and not getattr(
+                    self, "_separability_warned", False
+                ):
+                    print(_sep, flush=True)
+                    self._separability_warned = True
+            except Exception:
+                pass
         _ct = float(locs.get("collection_time", 0.0))
         _lt = float(locs.get("learn_time", 0.0))
         _fps = int(self.num_steps_per_env * self._num_envs / max(_ct + _lt, 1e-9))

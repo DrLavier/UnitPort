@@ -30,7 +30,9 @@
     widget="picker_export_bundle"    → ExportBundleRow      → Node_ExportBundlePicker
     widget="picker_motion_library"   → MotionLibraryRow     → Node_MotionLibraryPicker
     widget="picker_obs_components"   → ObsComponentsRow     → Node_ObsComponentsPicker (multi)
-    widget="registry_module"         → RegistryItemListRow  → Node_RegistryModuleEditor
+    widget="registry_module"         → RegistryModuleInlineRow (inline rows; click a
+                                       value → Node_DataInput; obs scale is per-channel
+                                       for multi-axis terms)
     widget="training_items"          → TrainingItemsRow     → Node_TrainingItemEditor
     widget="stage_editor"            → StageEditorRow       → Node_StageSwitchEditorWidget
     widget="curve"                   → CurveRow             → Node_ModuleCurveSlider
@@ -92,6 +94,7 @@ from application.compiler.nodes import ParamSpec
 from .popups import (
     open_choice_popup,
     open_code_popup,
+    open_number_array_popup,
     open_number_popup,
     open_path_dialog,
     open_text_popup,
@@ -1191,7 +1194,12 @@ class RangeListRow(RangeRow):
         return (lo, hi)
 
     def _serialize_pair_raw(self, lo: float, hi: float) -> Any:
-        """序列化但不吸附 step —— 拖拽路径专用，保证顺滑."""
+        """序列化 [lo, hi]，原样保留用户值（不吸附 step）.
+
+        拖拽与 popup 键入共用同一路径。早先 popup 路径会按 ``meta.step`` 做
+        ``round(v/step)*step`` 吸附（拖拽路径反而不吸附），结果只把键入值篡改
+        （键入 0.01、step=0.05 → 0.0），属 §8 静默改输入。step 仅是滑块视觉
+        粒度，不应改写用户键入的数值。"""
         if lo > hi:
             lo, hi = hi, lo
         t = (self.spec.type or "").lower()
@@ -1201,17 +1209,6 @@ class RangeListRow(RangeRow):
             return json.dumps([lo, hi], ensure_ascii=False)
         except Exception:
             return [lo, hi]
-
-    def _serialize_pair(self, lo: float, hi: float) -> Any:
-        """序列化并按 meta.step 吸附 —— popup 输入 / 键盘微调用."""
-        if self._step:
-            try:
-                step = float(self._step)
-                lo = round(lo / step) * step
-                hi = round(hi / step) * step
-            except (TypeError, ValueError):
-                pass
-        return self._serialize_pair_raw(lo, hi)
 
     # ---- 几何 ----
 
@@ -1337,7 +1334,7 @@ class RangeListRow(RangeRow):
                 lo = min(v, hi)
             else:
                 hi = max(v, lo)
-            self.set_value(self._serialize_pair(lo, hi))
+            self.set_value(self._serialize_pair_raw(lo, hi))
 
         open_number_popup(
             view=_view_of(event),
@@ -2424,301 +2421,103 @@ class _GearedPickerRowMixin(_PickerRowMixin):
         return False
 
 
-class _ObsTermsTableEditor(QWidget):
-    """Observation-aware table editor for ``il_observation`` obs_terms.
-
-    Composes the SDK ``Node_NodeTableRowsWidget`` with strict scale-form
-    columns (``name``: string, ``scale``: float). Initial rows are seeded
-    from the upstream dict; ``items()`` returns the current state as
-    ``{name: float}`` so the popup's value_getter can persist it back to
-    the canvas.
-    """
-
-    def __init__(
-        self,
-        items: Dict[str, Any],
-        *,
-        parent: Optional[QWidget] = None,
-        widget_id: str = "node.obs_terms_editor",
-    ) -> None:
-        super().__init__(parent)
-        from PyQt6.QtWidgets import QVBoxLayout
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        layout.addWidget(setText(
-            f"{widget_id}.title",
-            default=tr(f"{widget_id}.title", "Observation Terms (scale)"),
-            kind="title",
-        ))
-
-        rows: List[Dict[str, Any]] = []
-        for term_key, value in (items or {}).items():
-            try:
-                scale_val: Any
-                if isinstance(value, dict):
-                    s = value.get("scale")
-                    scale_val = float(s) if isinstance(s, (int, float)) else 1.0
-                elif isinstance(value, (int, float)) and not isinstance(value, bool):
-                    scale_val = float(value)
-                else:
-                    scale_val = 1.0
-            except (TypeError, ValueError):
-                scale_val = 1.0
-            rows.append({"name": str(term_key), "scale": scale_val})
-
-        self._table = Node_NodeTableRowsWidget(
-            (("name", "string"), ("scale", "float")),
-            rows=rows,
-            widget_id=widget_id,
-            parent=self,
-        )
-        layout.addWidget(self._table, 1)
-
-    def items(self) -> Dict[str, float]:
-        out: Dict[str, float] = {}
-        for row in self._table.rows():
-            name = str(row.get("name", "")).strip()
-            if not name:
-                continue
-            raw = row.get("scale", 0.0)
-            try:
-                out[name] = float(raw)
-            except (TypeError, ValueError):
-                continue
-        return out
+# Per-channel labels for fixed-dimension obs terms — drives the per-channel
+# scale editor (one labeled spinbox per channel). The DIMENSION authority is
+# ``application.training.envs.obs_term_engine._TERM_DIM``; this map adds the
+# human channel names for the small fixed-dim terms where per-channel scaling is
+# meaningful (legged_gym scales the velocity command by [2, 2, 0.25]). Terms not
+# listed here (joint_pos / joint_vel / last_action = num_joints / action_dim,
+# and any unknown term) fall back to a single scalar spinbox — per-joint obs
+# scaling is impractical and effectively never wanted.
+_OBS_TERM_CHANNELS: Dict[str, tuple] = {
+    "velocity_command": ("vx", "vy", "yaw"),
+    "command": ("vx", "vy", "yaw", "head"),
+    "base_ang_vel": ("wx", "wy", "wz"),
+    "base_lin_vel": ("vx", "vy", "vz"),
+    "projected_gravity": ("gx", "gy", "gz"),
+    "imu": ("ax", "ay", "az", "wx", "wy", "wz"),
+}
 
 
-class RegistryItemListRow(_GearedPickerRowMixin, ParamRow):
-    """``widget="registry_module"`` → inline popup + ⚙ modal editor.
+def obs_term_channel_labels(term: str) -> Optional[tuple]:
+    """Channel labels for a fixed-dim obs term, or ``None`` (→ scalar field)."""
+    return _OBS_TERM_CHANNELS.get(str(term))
 
-    用于 reward_terms / termination_conditions / obs_terms 这类 ``{key: value}``
-    字典字段。
-        - 主按钮（picker chrome）：双击弹锚定 popup
-        - ⚙ 按钮：打开 modal ``RegistryModuleEditorPanel`` (Reward / Termination /
-          Observation Function Editor)，DEMO ``RewardEditorPanel`` 的等价入口。
 
-    ``il_obs`` registry 走 ``_ObsTermsTableEditor`` (strict scale form)；
-    其余 registry 走 SDK ``Node_RegistryModuleEditor`` 的默认双列编辑器。
+def obs_scale_to_channels(value: Any, n: int) -> List[float]:
+    """Expand a stored scale (scalar / list / ``{"scale": ...}``) to ``n`` floats.
 
-    Multi-rewards conflict surfacing: when this row hosts ``reward_terms`` on
-    a ``rewards`` node, it walks the canvas connection graph to find peer
-    rewards nodes sharing any downstream training_motion item. Same-key-
-    different-value collisions tint the modal editor's term rows
-    ``danger_zone`` and paint a ``danger_zone`` border on the summary button
-    so the user sees the conflict without opening the editor. See
-    :mod:`application.compiler.reward_conflicts` for the canonical (IR-side)
-    detection used by the spec validator.
-    """
-
-    def _summary_text(self) -> str:
-        d = _parse_dict_value(self._value)
-        return f"{len(d)} items" if d or self._value is None else "—"
-
-    def _is_rewards_host(self) -> bool:
-        """True iff this row is the ``reward_terms`` field on a ``rewards``
-        node — the only case where multi-rewards conflict detection applies.
-        ``NodeItem.manifest.id`` is a contract attribute (always present on
-        a constructed NodeItem); no defensive guard.
-        """
-        return (
-            self.spec.key == "reward_terms"
-            and self._owner.manifest.id == "rewards"
-        )
-
-    def _compute_conflicting_keys(self) -> set:
-        """Return the set of term keys on this rewards node that collide
-        with a peer rewards node connected to the same training_motion item.
-
-        Walks ``ConnectionItem`` graph directly from ``self._owner``'s output
-        ``reward_pipe`` port — cheap (single port + a couple of hops), no
-        IR conversion. Returns ``set()`` when this row is not on a rewards
-        node, or when the rewards-output port is absent (e.g. ``rewards``
-        node manifest was edited and lost its output — that's a manifest
-        bug and the topology validator will flag it; this UI helper just
-        reports no conflicts in that case).
-
-        Attributes accessed (``_out_ports``, ``PortItem.port_name`` /
-        ``parent_node()`` / ``_connections``, ``NodeItem.manifest.id``) are
-        contract members of NodeItem / PortItem / ConnectionItem — no
-        defensive ``getattr``/``hasattr`` guards: if those go missing,
-        that's a real bug to surface, not a silent skip.
-        """
-        if not self._is_rewards_host():
-            return set()
-        owner = self._owner
-
-        out_port = None
-        for p in owner._out_ports:
-            if p.port_name == "reward_pipe":
-                out_port = p
-                break
-        if out_port is None:
-            return set()
-
-        from application.compiler.reward_conflicts import (
-            REWARD_PORT_PREFIX,
-            normalize_term_value,
-        )
-        # Lazy local import — items.py already imports from this module, so
-        # a top-level import would be circular. The runtime ``isinstance``
-        # is needed to skip ``PlaceholderNodeItem`` peers (canvas-load
-        # placeholders for un-registered schemas, which carry no manifest
-        # / params); those are NOT silently caught by getattr-with-default
-        # — they're a distinct semantic case and the topology validator
-        # surfaces them via MISSING_REQUIRED_NODE.
-        from .items import NodeItem
-
-        my_terms = _parse_dict_value(self._value)
-        if not my_terms:
-            return set()
-
-        peers_by_item: Dict[str, List[Any]] = {}
-        for conn in list(out_port._connections):
-            dst_port = conn.dst_port
-            dst_name = dst_port.port_name
-            if not dst_name.startswith(REWARD_PORT_PREFIX):
-                continue
-            item_id = dst_name[len(REWARD_PORT_PREFIX):]
-            if not item_id:
-                continue
-            tm_node = dst_port.parent_node()
-            if tm_node is None:
-                # parent_node may legitimately be None during teardown — that
-                # connection is being removed; skip without swallowing other
-                # errors.
-                continue
-            for peer_conn in list(dst_port._connections):
-                peer_node = peer_conn.src_port.parent_node()
-                if peer_node is None or peer_node is owner:
-                    continue
-                if not isinstance(peer_node, NodeItem):
-                    continue
-                if peer_node.manifest.id != "rewards":
-                    continue
-                peers_by_item.setdefault(item_id, []).append(peer_node)
-
-        if not peers_by_item:
-            return set()
-
-        my_norm = {k: normalize_term_value(v) for k, v in my_terms.items()}
-        conflicting: set = set()
-        for peers in peers_by_item.values():
-            for peer in peers:
-                peer_raw = peer.params.get("reward_terms")
-                peer_terms = _parse_dict_value(peer_raw)
-                if not peer_terms:
-                    continue
-                for k, peer_v in peer_terms.items():
-                    if k not in my_norm:
-                        continue
-                    if normalize_term_value(peer_v) != my_norm[k]:
-                        conflicting.add(k)
-        return conflicting
-
-    def _is_obs_terms_registry(self) -> bool:
-        meta = self.spec.meta or {}
-        rid = str(meta.get("registry_id", self.spec.key) or "")
-        return rid == "il_obs"
-
-    def _handle_double_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
-        meta = self.spec.meta or {}
-        items = _parse_dict_value(self._value)
-        view = _view_of(event)
-
-        if self._is_obs_terms_registry():
-            body: QWidget = _ObsTermsTableEditor(items, parent=view)
-        else:
-            try:
-                body = Node_RegistryModuleEditor(
-                    registry_id=str(meta.get("registry_id", self.spec.key)),
-                    items=items,
-                    parent=view,
-                )
-            except TypeError:
-                try:
-                    body = Node_RegistryModuleEditor(parent=view)
-                except Exception:
-                    return False
-
-        def _getter(picker: QWidget) -> Any:
-            for attr in ("items", "value", "currentItems", "to_dict"):
-                fn = getattr(picker, attr, None)
-                if callable(fn):
-                    try:
-                        out = fn()
-                        if isinstance(out, dict):
-                            return _serialize_for_spec(self.spec, out)
-                    except Exception:
-                        continue
-            return None
-
-        open_widget_popup(
-            view=view,
-            row=self,
-            body=body,
-            value_getter=_getter,
-            on_commit=self.set_value,
-            min_width=420, min_height=320,
-        )
-        return True
-
-    def _open_modal_editor(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
-        from application.ui.dialogs import open_reward_function_editor
-
-        meta = self.spec.meta or {}
-        # Pick registry id from the canvas-bound backend (params['backend']
-        # is injected by CanvasPage). Falls back to the registry_id meta hint.
-        backend = str(self._owner.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
-        if backend == "isaac_lab":
-            registry_id = str(meta.get("registry_id_il") or meta.get("registry_id") or self.spec.key)
-        else:
-            registry_id = str(meta.get("registry_id") or self.spec.key)
-        # Map registry_id → editor kind so the dialog picks the right stub
-        # template + window title.
-        if "termination" in registry_id:
-            kind = "termination"
-        elif "obs" in registry_id:
-            kind = "observation"
-        elif "discriminator" in registry_id:
-            kind = "discriminator"
-        else:
-            kind = "reward"
-        items = _parse_dict_value(self._value)
-        view = _view_of(event)
-        # 缺口③ — supply the canvas robot SKU so the per-joint-subset
-        # partition picker can list the family's PD joint groups. Soft: None
-        # when no Robot node is wired (picker shows a bind-robot hint).
+    A scalar broadcasts to every channel; a length-``n`` list maps 1:1; a length
+    mismatch is padded/truncated to ``n`` with 1.0 (the editor surfaces the real
+    value, never silently drops a per-channel list the way the old float cell
+    did). Missing / unparseable → all 1.0."""
+    s: Any = value.get("scale") if isinstance(value, dict) else value
+    if isinstance(s, (list, tuple)) and s:
         try:
-            robot_sku = _scene_robot_sku(self._owner)
-        except Exception:                                         # noqa: BLE001
-            robot_sku = None
-        result = open_reward_function_editor(
-            view, dict(items),
-            registry_id=registry_id,
-            kind=kind,
-            canvas_backend=backend,
-            conflicting_keys=self._compute_conflicting_keys(),
-            robot_sku=robot_sku,
-        )
-        if result is None:
-            return True
-        self.set_value(_serialize_for_spec(self.spec, result))
-        return True
+            vals = [float(x) for x in s]
+        except (TypeError, ValueError):
+            return [1.0] * n
+        if len(vals) == n:
+            return vals
+        if len(vals) == 1:
+            return [vals[0]] * n
+        return (vals + [1.0] * n)[:n]
+    if isinstance(s, (int, float)) and not isinstance(s, bool):
+        return [float(s)] * n
+    return [1.0] * n
 
-    def _paint_value(self, painter: QPainter, tier: int) -> None:  # type: ignore[override]
-        super()._paint_value(painter, tier)
-        if not self._is_rewards_host():
-            return
-        if not self._compute_conflicting_keys():
-            return
-        btn = self._picker_btn_rect()
-        pen = QPen(QColor(Config.get_color("danger_zone")), 1.5)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(btn, 3, 3)
+
+def channels_to_obs_scale(vals: List[float]) -> Any:
+    """Collapse per-channel floats to a scalar (all equal) or a list.
+
+    All-equal channels round-trip to a bare scalar (minimal canvas diff); any
+    difference keeps the per-channel list the compiler emits as
+    ``scale=(v0, v1, …)`` (legged_gym ``commands_scale``)."""
+    if not vals:
+        return 1.0
+    first = float(vals[0])
+    if all(abs(float(v) - first) < 1e-12 for v in vals):
+        return first
+    return [float(v) for v in vals]
+
+
+# Per-obs-item "Data Type" (set in the gear editor's panel): which scale input
+# shape the inline row offers. ``scalar`` = one number; ``list`` = a vector
+# (per-channel boxes for a small fixed-dim term, JSON for a variable-dim one);
+# ``both`` = the row's ⬤ checkbox toggles between the two. Stored in the obs term
+# payload as ``{"scale": <number|list>, "data_type": ...}``; the compiler reads
+# ``scale`` only (see env_cfg_compiler._OBS_UI_META_FIELDS).
+_OBS_DATA_TYPES = ("scalar", "list", "both")
+
+
+def parse_obs_term_value(value: Any) -> tuple:
+    """Decode a stored obs term value into ``(scale_value, data_type)``.
+
+    Accepts the canonical ``{"scale":…, "data_type":…}`` dict, or a bare
+    scalar / list (legacy + un-typed) whose ``data_type`` is inferred from the
+    shape (scalar→``"scalar"``, list→``"list"``). There is "no default" — an
+    item's type is exactly what the panel stored, or the shape it already has.
+    """
+    if isinstance(value, dict):
+        scale = value.get("scale")
+        dt = value.get("data_type")
+        if dt not in _OBS_DATA_TYPES:
+            dt = "list" if isinstance(scale, (list, tuple)) else "scalar"
+        scale_v = [float(x) for x in scale] if isinstance(scale, (list, tuple)) else scale
+        return scale_v, dt
+    if isinstance(value, (list, tuple)):
+        return [float(x) for x in value], "list"
+    return value, "scalar"
+
+
+def serialize_obs_term_value(scale_value: Any, data_type: str) -> dict:
+    """Encode ``(scale_value, data_type)`` into the canonical obs payload dict."""
+    dt = data_type if data_type in _OBS_DATA_TYPES else (
+        "list" if isinstance(scale_value, (list, tuple)) else "scalar"
+    )
+    if isinstance(scale_value, (list, tuple)):
+        scale_value = [float(x) for x in scale_value]
+    return {"scale": scale_value, "data_type": dt}
 
 
 class TrainingItemsRow(_GearedPickerRowMixin, ParamRow):
@@ -4344,6 +4143,7 @@ _INL_FRAME_PAD = 4
 _INL_BADGE_W = 18
 _INL_NAME_W = 110
 _INL_VAL_W = 56
+_INL_WEIGHT_W = 46     # TrainingItemsInlineRow "Weight" column (far right of Max Spd)
 _INL_GAP = 4
 _INL_KEY_GAP = 8       # gap between header "key:" text and the selector picker
 _INL_HDR_TOP_PAD = 2   # top breathing space above header
@@ -4865,10 +4665,21 @@ class _InlineTableRow(ParamRow):
     def _row_max(self, idx: int, payload: dict) -> float:
         return 1.0
 
-    def _row_step(self, idx: int, payload: dict):
+    def _row_set_value(self, idx: int, payload: dict, v: float) -> None:
+        pass
+
+    # ---- per-channel (array) value hooks ----
+    # A row whose value is a vector (e.g. an obs term scaled per channel —
+    # legged_gym ``commands_scale = [2, 2, 0.25]``) overrides these so clicking
+    # the value cell opens N labeled number fields instead of one. Default None
+    # ⇒ scalar value (current behavior, every non-array row).
+    def _row_array_labels(self, idx: int) -> Optional[Sequence[str]]:
         return None
 
-    def _row_set_value(self, idx: int, payload: dict, v: float) -> None:
+    def _row_array_values(self, idx: int, payload: dict, n: int) -> List[float]:
+        return [float(self._row_value(idx, payload))] * n
+
+    def _row_set_array_value(self, idx: int, payload: dict, values: Sequence[float]) -> None:
         pass
 
     def _on_selector_clicked(self, event: QGraphicsSceneMouseEvent) -> bool:
@@ -4932,10 +4743,25 @@ class _InlineTableRow(ParamRow):
 
     def _open_value_popup(self, idx: int, event: QGraphicsSceneMouseEvent) -> None:
         payload = self._row_payloads[idx]
-        cur = self._row_value(idx, payload)
-        # 锚定到单条 row 的 value cell —— 让 DataInput 高度 = 行高，而不是
-        # 整张表的高度。
+        # 锚定到单条 row 的 value cell —— 让 popup 高度 = 行高，而不是整张表的高度。
         sub = self._row_value_rect(idx)
+        labels = self._row_array_labels(idx)
+        if labels:
+            # Per-channel vector value (e.g. obs velocity_command scale) → N
+            # labeled number fields instead of a single DataInput.
+            n = len(labels)
+            open_number_array_popup(
+                view=_view_of(event), row=self,
+                values=self._row_array_values(idx, payload, n), labels=labels,
+                minimum=self._row_min(idx, payload),
+                maximum=self._row_max(idx, payload),
+                on_commit=lambda vals, _i=idx, _p=payload: (
+                    self._row_set_array_value(_i, _p, vals), self.update(),
+                ),
+                sub_rect=sub,
+            )
+            return
+        cur = self._row_value(idx, payload)
         open_number_popup(
             view=_view_of(event), row=self,
             value=float(cur), is_int=False,
@@ -5088,24 +4914,52 @@ class RegistryModuleInlineRow(_InlineTableRow):
     def _refresh_payloads(self) -> None:
         d = self._current_terms()
         payloads = []
+        kind = self._kind()
         applies_to_key = str((self.spec.meta or {}).get("applies_to_key", "applies_to"))
         for key, val in d.items():
-            if isinstance(val, dict):
-                weight = val.get("weight")
-                applies_raw = val.get(applies_to_key, []) or []
-            else:
-                weight = val
-                applies_raw = []
-            try:
-                weight = float(weight if weight is not None else 0.0)
-            except (TypeError, ValueError):
-                weight = 0.0
-            if isinstance(applies_raw, str):
-                applies = [s.strip() for s in applies_raw.split(",") if s.strip()]
-            elif isinstance(applies_raw, (list, tuple)):
-                applies = [str(s).strip() for s in applies_raw if str(s).strip()]
-            else:
+            data_type = "scalar"
+            scale_value: Any = None
+            if kind == "observation":
+                # obs term value = scale (scalar or vector), optionally wrapped
+                # as {"scale", "data_type"}. ``scale_list`` drives the value
+                # cell's vector display/editor; ``weight`` keeps a scalar fallback
+                # for any shared math. ``data_type`` (scalar/list/both) governs
+                # whether the row's ⬤ checkbox can toggle the shape.
+                scale_value, data_type = parse_obs_term_value(val)
+                scale_list = scale_value if isinstance(scale_value, list) else None
+                if isinstance(scale_value, list):
+                    weight = float(scale_value[0]) if scale_value else 0.0
+                else:
+                    try:
+                        weight = float(scale_value if scale_value is not None else 0.0)
+                    except (TypeError, ValueError):
+                        weight = 0.0
                 applies = []
+            else:
+                if isinstance(val, dict):
+                    weight = val.get("weight")
+                    applies_raw = val.get(applies_to_key, []) or []
+                else:
+                    weight = val
+                    applies_raw = []
+                scale_list = None
+                if isinstance(weight, (list, tuple)):
+                    try:
+                        scale_list = [float(x) for x in weight]
+                    except (TypeError, ValueError):
+                        scale_list = None
+                    weight = float(scale_list[0]) if scale_list else 0.0
+                else:
+                    try:
+                        weight = float(weight if weight is not None else 0.0)
+                    except (TypeError, ValueError):
+                        weight = 0.0
+                if isinstance(applies_raw, str):
+                    applies = [s.strip() for s in applies_raw.split(",") if s.strip()]
+                elif isinstance(applies_raw, (list, tuple)):
+                    applies = [str(s).strip() for s in applies_raw if str(s).strip()]
+                else:
+                    applies = []
             # Per-condition grace_period_s (termination grace window). 0 / absent
             # for the legacy scalar form and non-grace kinds.
             try:
@@ -5123,6 +4977,9 @@ class RegistryModuleInlineRow(_InlineTableRow):
             payloads.append({
                 "key": key,
                 "weight": weight,
+                "scale_list": scale_list,
+                "scale_value": scale_value,
+                "data_type": data_type,
                 "item": self._lookup_item(key),
                 "meta": val if isinstance(val, dict) else {},
                 "applies_to": applies,
@@ -5866,6 +5723,12 @@ class RegistryModuleInlineRow(_InlineTableRow):
 
     def _interactive_regions(self) -> List[QRectF]:  # type: ignore[override]
         regions = super()._interactive_regions()
+        # observation: the leftmost ⬤ is a clickable dimension checkbox — it must
+        # be a hit region or mousePressEvent never routes the click to
+        # _handle_click → _toggle_obs_dimension (the "can't toggle" bug).
+        if self._kind() == "observation":
+            for i in range(len(self._row_payloads)):
+                regions.append(self._row_badge_rect(i))
         if self._is_phase_aware():
             for i in range(len(self._row_payloads)):
                 regions.append(self._row_phase_btn_rect(i))
@@ -5997,29 +5860,34 @@ class RegistryModuleInlineRow(_InlineTableRow):
         return float(payload.get("weight", 0.0))
 
     def _row_min(self, idx, payload):
+        # Observation terms: the value cell is a SCALE, not a weight — the
+        # registry item's [min_value, max_value] (default [0, 1]) is the weight
+        # slider range and would wrongly clamp/reject a scale like 2.0 or 0.25
+        # (legged_gym commands_scale). Use a wide bound so the input/validator
+        # accepts any realistic scale (this was the "can't confirm / input
+        # intercepted" bug). reward/termination keep their declared ranges.
+        if self._kind() == "observation":
+            return -1.0e6
         item = payload.get("item")
         if item is not None:
             return float(getattr(item, "min_value", 0.0))
         return -10.0
 
     def _row_max(self, idx, payload):
+        if self._kind() == "observation":
+            return 1.0e6
         item = payload.get("item")
         if item is not None:
             return float(getattr(item, "max_value", 1.0))
         return 10.0
 
-    def _row_step(self, idx, payload):
-        item = payload.get("item")
-        if item is not None:
-            s = float(getattr(item, "step", 0.0) or 0.0)
-            return s if s > 0 else None
-        return None
-
     def _row_set_value(self, idx, payload, v):
+        # Store the typed value verbatim. The old round(v/step)*step snapping
+        # was a slider affordance; per-row sliders were removed in v2
+        # (_row_slider_rect → empty rect), so snapping a popup-typed weight only
+        # ever corrupts it — e.g. 0.01 against a registry step≥0.02 collapses to
+        # 0.0, silently discarding the user's input (§8 "illusion of success").
         v = float(v)
-        step = self._row_step(idx, payload)
-        if step is not None and step > 0:
-            v = round(v / step) * step
         payload["weight"] = v
         d = self._current_terms()
         cur = d.get(payload["key"])
@@ -6028,6 +5896,126 @@ class RegistryModuleInlineRow(_InlineTableRow):
         else:
             d[payload["key"]] = v
         self.set_value(_serialize_for_spec(self.spec, d))
+
+    # ---- obs scale: scalar / per-channel array / JSON (variable-dim) ----
+
+    def _obs_mode(self, payload: dict) -> str:
+        """Current editor mode for an obs row: 'scalar' | 'array' | 'json'.
+
+        Driven by the CURRENT value shape (not data_type — that gates toggling):
+        a list value on a small fixed-dim term (velocity_command etc.) edits as
+        per-channel boxes; a list on a variable-dim term (joint_pos ≈ 29) edits
+        as JSON; anything scalar edits as one number."""
+        if self._kind() != "observation":
+            return "scalar"
+        if not isinstance(payload.get("scale_value"), list):
+            return "scalar"
+        return "array" if obs_term_channel_labels(str(payload.get("key", ""))) else "json"
+
+    def _row_array_labels(self, idx):  # type: ignore[override]
+        """Channel labels — only when the row is CURRENTLY a fixed-dim vector
+        (so a scalar obs term opens the single-number popup, not array boxes)."""
+        try:
+            payload = self._row_payloads[idx]
+        except (IndexError, TypeError):
+            return None
+        if self._obs_mode(payload) != "array":
+            return None
+        return obs_term_channel_labels(str(payload.get("key", "")))
+
+    def _row_array_values(self, idx, payload, n):  # type: ignore[override]
+        sl = payload.get("scale_list")
+        if sl is not None:
+            return obs_scale_to_channels(sl, n)
+        return obs_scale_to_channels(payload.get("weight", 1.0), n)
+
+    def _row_set_array_value(self, idx, payload, values):  # type: ignore[override]
+        # Keep the LIST shape (data_type governs shape now, not value equality —
+        # collapsing an all-equal vector to a scalar would silently flip the
+        # row's ⬤ checkbox). Preserve the term's data_type.
+        vals = [float(v) for v in values]
+        payload["scale_list"] = vals
+        payload["scale_value"] = vals
+        payload["weight"] = vals[0] if vals else 0.0
+        d = self._current_terms()
+        d[payload["key"]] = serialize_obs_term_value(vals, payload.get("data_type", "both"))
+        self.set_value(_serialize_for_spec(self.spec, d))
+
+    def _open_value_popup(self, idx, event):  # type: ignore[override]
+        """obs JSON-mode value → anchored code popup (like il_policy_network's
+        actor_hidden); scalar/array fall through to the base dispatch."""
+        if self._kind() == "observation":
+            payload = self._row_payloads[idx]
+            if self._obs_mode(payload) == "json":
+                self._open_obs_json_popup(idx, payload, event)
+                return
+        super()._open_value_popup(idx, event)
+
+    def _open_obs_json_popup(self, idx, payload, event) -> None:
+        import json as _json
+        cur = payload.get("scale_value")
+        if not isinstance(cur, list):
+            cur = [float(payload.get("weight", 1.0) or 0.0)]
+        text = _json.dumps([float(x) for x in cur])
+
+        def _commit(s: str, _i=idx, _p=payload) -> None:
+            try:
+                parsed = _json.loads(s)
+            except Exception:  # noqa: BLE001 — invalid JSON: keep prior value
+                return
+            if isinstance(parsed, (int, float)):
+                vals = [float(parsed)]
+            elif isinstance(parsed, list):
+                try:
+                    vals = [float(x) for x in parsed]
+                except (TypeError, ValueError):
+                    return
+            else:
+                return
+            _p["scale_list"] = vals
+            _p["scale_value"] = vals
+            _p["weight"] = vals[0] if vals else 0.0
+            d = self._current_terms()
+            d[_p["key"]] = serialize_obs_term_value(vals, _p.get("data_type", "both"))
+            self.set_value(_serialize_for_spec(self.spec, d))
+            self.update()
+
+        open_code_popup(
+            view=_view_of(event), row=self,
+            text=text, language="json", validate_json=True, on_commit=_commit,
+        )
+
+    # ---- ⬤ checkbox: toggle scalar <-> dimension (data_type == "both") ----
+
+    def _toggle_obs_dimension(self, idx: int) -> None:
+        try:
+            payload = self._row_payloads[idx]
+        except (IndexError, TypeError):
+            return
+        if payload.get("data_type") != "both":
+            return  # locked — only "both" rows are user-togglable (req3)
+        cur = payload.get("scale_value")
+        if isinstance(cur, list):
+            new: Any = float(cur[0]) if cur else 1.0       # vector → scalar
+        else:
+            base = float(cur) if isinstance(cur, (int, float)) else 1.0
+            labels = obs_term_channel_labels(str(payload.get("key", "")))
+            n = len(labels) if labels else 1               # json term → length 1
+            new = [base] * n                                # scalar → vector
+        d = self._current_terms()
+        d[payload["key"]] = serialize_obs_term_value(new, "both")
+        self.set_value(_serialize_for_spec(self.spec, d))   # → _refresh_payloads → repaint (req2)
+        self.update()
+
+    def _handle_click(self, event):  # type: ignore[override]
+        # obs: clicking the leftmost ⬤ checkbox toggles dimension (req1/req2).
+        if self._kind() == "observation":
+            pos = event.pos()
+            for idx in range(len(self._row_payloads)):
+                if self._row_badge_rect(idx).contains(pos):
+                    self._toggle_obs_dimension(idx)
+                    return True
+        return super()._handle_click(event)
 
     # ---- column header labels + hover tooltip ----
 
@@ -6074,27 +6062,53 @@ class RegistryModuleInlineRow(_InlineTableRow):
             )
         return "\n".join(lines)
 
+    def _paint_obs_dim_checkbox(self, painter, rect, payload) -> None:
+        """⬤ checkbox: filled green = dimension/list scale, hollow = scalar.
+
+        A row locked to one type (data_type != 'both') is dimmed to hint it is
+        not togglable here (change it in the gear editor's Data Type)."""
+        is_list = isinstance(payload.get("scale_value"), list)
+        togglable = payload.get("data_type") == "both"
+        on = QColor(Config.get_color("safe_zone", "#3fae6a"))
+        off = QColor(Config.get_color("border_1", "#444444"))
+        if not togglable:
+            on.setAlpha(150)
+            off.setAlpha(150)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if is_list:
+            painter.setBrush(QBrush(on))
+            painter.setPen(QPen(on, 1.0))
+        else:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(off, 1.4))
+        painter.drawEllipse(rect)
+        painter.restore()
+
     def _paint_row(self, painter, idx, payload):
         kind = self._kind()
         item = payload.get("item")
 
-        # Badge — 永远画极性圆点：reward kind 默认绿；termination 用 penalty 橙；
-        # 其它 kind 用 neutral。即便 scripts.lookup 没拿到 TaskModuleItem
-        # 也保持视觉一致，不再退化为序号。
+        # Badge. observation: a ⬤ CHECKBOX (green filled = dimension/list scale,
+        # hollow = scalar) — click toggles when data_type=="both" (req1/req2).
+        # reward/termination keep the polarity dot.
         badge_rect = self._row_badge_rect(idx)
-        if kind == "reward":
-            polarity = str(getattr(item, "polarity", "reward") or "reward")
-            badge_kind = polarity if polarity in (
-                "reward", "penalty", "bidirectional", "neutral"
-            ) else "reward"
-        elif kind == "termination":
-            badge_kind = "penalty"
+        if kind == "observation":
+            self._paint_obs_dim_checkbox(painter, badge_rect, payload)
         else:
-            badge_kind = "neutral"
-        try:
-            draw_polarity_badge(painter, badge_rect, kind=badge_kind)
-        except Exception:
-            pass
+            if kind == "reward":
+                polarity = str(getattr(item, "polarity", "reward") or "reward")
+                badge_kind = polarity if polarity in (
+                    "reward", "penalty", "bidirectional", "neutral"
+                ) else "reward"
+            elif kind == "termination":
+                badge_kind = "penalty"
+            else:
+                badge_kind = "neutral"
+            try:
+                draw_polarity_badge(painter, badge_rect, kind=badge_kind)
+            except Exception:
+                pass
 
         # Name —— 解析顺序：items dict 覆写 title > 注册表 title > dict key。
         # 这保证 Canvas 行、外部 picker、Editor 三处显示同一个 human-readable
@@ -6122,13 +6136,26 @@ class RegistryModuleInlineRow(_InlineTableRow):
         # v2: per-row slider removed (tight node width). Weight is edited via
         # the value button (click → number popup). Value 按钮 —— 与 RangeRow
         # 端点按钮同款。Trim trailing zeros so "-2.000" reads "-2", "0.500" → "0.5".
-        weight = payload["weight"]
-        if abs(weight) >= 1000 or (weight != 0 and abs(weight) < 0.01):
-            text = f"{weight:.2e}"
+        scale_list = payload.get("scale_list")
+        if scale_list is not None and self._obs_mode(payload) == "json":
+            # Variable-dim obs vector (joint_pos ≈ 29) — DON'T render the whole
+            # list (would blow the column). Show a compact "[n] first…" summary;
+            # the value cell click opens the anchored JSON editor.
+            n = len(scale_list)
+            head = f"{float(scale_list[0]):g}" if scale_list else ""
+            text = f"[{n}] {head}…" if n > 1 else f"[{head}]"
+        elif scale_list is not None:
+            # Per-channel obs scale (velocity_command = [2, 2, 0.25]) — show the
+            # vector; the value cell click opens N labeled number fields.
+            text = "[" + ", ".join(f"{float(v):g}" for v in scale_list) + "]"
         else:
-            text = f"{weight:.3f}".rstrip("0").rstrip(".")
-            if text in ("", "-", "-0"):
-                text = "0"
+            weight = payload["weight"]
+            if abs(weight) >= 1000 or (weight != 0 and abs(weight) < 0.01):
+                text = f"{weight:.2e}"
+            else:
+                text = f"{weight:.3f}".rstrip("0").rstrip(".")
+                if text in ("", "-", "-0"):
+                    text = "0"
         self._paint_value_button(painter, idx, text, accent=True)
 
         # Value-param chip (reward rows whose item declares a tunable param).
@@ -6163,9 +6190,9 @@ class RegistryModuleInlineRow(_InlineTableRow):
         ``RangeSliderHitTest`` over [vmin, vmax]. Here we hit-test against
         the normalized [0, 1] slider space (matching what we drew), then
         un-warp the resulting position into the true value via
-        :func:`_slider_pos_to_value`. Step quantisation still runs in
-        :meth:`_row_set_value` so coarse-step rows (``joint_limit_violation``
-        step=1, etc.) snap as before.
+        :func:`_slider_pos_to_value`. (Per-row sliders were removed in v2, so
+        this drag path is dead — _row_slider_rect returns an empty rect; the
+        value is edited via the typed number popup, which stores verbatim.)
         """
         payload = self._row_payloads[idx]
         vmin = self._row_min(idx, payload)
@@ -6304,15 +6331,47 @@ class TrainingItemsInlineRow(_InlineTableRow):
             except (TypeError, ValueError):
                 smax = 1.0
             smax = max(0.0, min(1.5, smax))
+            # Display label: the user-typed ``title`` wins; when blank we fall
+            # back to the item id (matches the modal editor's ``_display_label``
+            # semantics). ``key`` remains the authoritative id used for the
+            # ``reward_in__<id>`` ports and sampling — only the rendered label
+            # changes.
             payloads.append({
                 "key": item_id,
+                "label": str(entry.get("title") or "").strip() or item_id,
                 "smax": smax,
                 "has_clip": bool(entry.get("clip")),
                 "enabled": True,
                 "entry": entry,
             })
         self._row_payloads = payloads
+        self._eff_weights = self._compute_effective_weights()
         self._set_height(self._compute_height())
+
+    def _compute_effective_weights(self) -> list:
+        """Per-row normalised sampling weight, aligned to ``_row_payloads``.
+
+        Mirrors ``env_cfg_compiler._resolve_initial_item_weights``: each enabled
+        item's optional ``weight`` (missing → the uniform share ``1/N``),
+        normalised to sum 1. This is exactly what the env samples with, so the
+        Weight column shows the effective distribution even before the user has
+        opened the pie editor (when all items are still uniform)."""
+        n = len(self._row_payloads)
+        if n == 0:
+            return []
+        uniform = 1.0 / n
+        raw = []
+        for p in self._row_payloads:
+            entry = p.get("entry") or {}
+            w = entry.get("weight")
+            try:
+                raw.append(uniform if w is None else max(0.0, float(w)))
+            except (TypeError, ValueError):
+                raw.append(uniform)
+        total = sum(raw)
+        if total <= 0.0:
+            return [uniform] * n
+        return [w / total for w in raw]
 
     def _header_summary_text(self) -> str:
         n = len(self._row_payloads)
@@ -6372,12 +6431,12 @@ class TrainingItemsInlineRow(_InlineTableRow):
     def _row_max(self, idx, payload):
         return 1.5
 
-    def _row_step(self, idx, payload):
-        return 0.05
-
     def _row_set_value(self, idx, payload, v):
+        # Clamp to the valid speed domain [0, 1.5] m/s (a real bound), but store
+        # the typed value verbatim otherwise. The old round(v/0.05)*0.05
+        # snapping was a slider affordance and the per-row slider was removed in
+        # v2 — silently rewriting 0.62 → 0.60 is the same §8 input-mutation bug.
         v = max(0.0, min(1.5, float(v)))
-        v = round(v / 0.05) * 0.05
         payload["smax"] = v
         d = self._current_terms()
         cur = d.get(payload["key"])
@@ -6402,7 +6461,7 @@ class TrainingItemsInlineRow(_InlineTableRow):
             p = self._row_payloads[idx]
         except (IndexError, TypeError):
             return ""
-        return f"{p.get('key', '')}\n{self._col_value_label()}: {float(p.get('smax', 0.0)):.2f}"
+        return f"{p.get('label') or p.get('key', '')}\n{self._col_value_label()}: {float(p.get('smax', 0.0)):.2f}"
 
     def _paint_row(self, painter, idx, payload):
         # v2: the legacy circular clip indicator was removed to free up the
@@ -6426,7 +6485,7 @@ class TrainingItemsInlineRow(_InlineTableRow):
         font.setPixelSize(int(Config.get_font_size("size_small", 11)))
         painter.setFont(font)
         fm = QFontMetricsF(font)
-        elided = fm.elidedText(str(payload["key"]), Qt.TextElideMode.ElideRight, name_rect.width())
+        elided = fm.elidedText(str(payload.get("label") or payload["key"]), Qt.TextElideMode.ElideRight, name_rect.width())
         painter.drawText(
             name_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), elided,
         )
@@ -6436,6 +6495,87 @@ class TrainingItemsInlineRow(_InlineTableRow):
         # 端点按钮同款。
         smax = payload["smax"]
         self._paint_value_button(painter, idx, f"{smax:.2f}", accent=True)
+
+        # Weight column (far right of Max Spd). Shows the effective sampling
+        # weight %; clicking it opens the Weight Set pie editor (= the node's
+        # Weight Set button). Drawn as an accent-coloured number so it reads as
+        # interactive; a subtle hover background reinforces it.
+        self._paint_weight_cell(painter, idx)
+
+    # ---- Weight column ----------------------------------------------------
+    # A "Weight" column is appended to the RIGHT of the Max-Spd value cell. The
+    # reserved width shifts the value cell left and (via _row_name_right) shrinks
+    # the item-name column — the row's total width is unchanged.
+
+    def _row_right_reserved(self, idx: int) -> float:
+        return float(_INL_WEIGHT_W + _INL_GAP)
+
+    def _row_weight_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        return QRectF(
+            r.right() - _INL_WEIGHT_W, r.top(), float(_INL_WEIGHT_W), r.height(),
+        )
+
+    def _col_weight_label(self) -> str:
+        return tr("canvas.inline.col_weight", "Weight")
+
+    def _row_weight_pct_text(self, idx: int) -> str:
+        eff = getattr(self, "_eff_weights", None) or []
+        if idx < 0 or idx >= len(eff):
+            return "—"
+        return f"{eff[idx] * 100.0:.0f}%"
+
+    def _paint_weight_cell(self, painter: QPainter, idx: int) -> None:
+        rect = self._row_weight_rect(idx)
+        if self._is_hovering(rect):
+            bg = QColor(Config.get_color("btn_1", "#343636")).lighter(110)
+            painter.setBrush(QBrush(bg))
+            painter.setPen(QPen(QColor(Config.get_color("border_1", "#444444")), 1.0))
+            painter.drawRoundedRect(rect.adjusted(1, 4, -1, -4), 3, 3)
+        painter.setPen(QPen(QColor(Config.get_color("theme_2", "#F6D393"))))
+        painter.setFont(self._val_btn_font())
+        painter.drawText(
+            rect.adjusted(0, 0, -4, 0),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+            self._row_weight_pct_text(idx),
+        )
+
+    def _paint_col_header(self, painter: QPainter) -> None:
+        super()._paint_col_header(painter)
+        if not self._row_payloads:
+            return
+        hdr = self._col_header_rect()
+        w_r = self._row_weight_rect(0)
+        color = QColor(Config.get_color("main_c2", "#888888"))
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(color))
+        fm = QFontMetricsF(font)
+        wx = QRectF(w_r.left(), hdr.top(), w_r.width(), hdr.height())
+        painter.drawText(
+            wx, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+            fm.elidedText(self._col_weight_label(), Qt.TextElideMode.ElideRight,
+                          max(0.0, wx.width())),
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        regions = super()._interactive_regions()
+        for i in range(len(self._row_payloads)):
+            regions.append(self._row_weight_rect(i))
+        return regions
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        pos = event.pos()
+        for idx in range(len(self._row_payloads)):
+            if self._row_weight_rect(idx).contains(pos):
+                items_raw = _parse_dict_value(self._value) or {}
+                updated = _run_weight_set_dialog(_view_of(event), items_raw)
+                if updated is not None:
+                    self.set_value(_serialize_for_spec(self.spec, updated))
+                return True
+        return super()._handle_click(event)
 
     def _on_selector_clicked(self, event) -> bool:
         # Multi-toggle the existing item_ids on/off (DEMO selector for training items
@@ -7655,70 +7795,112 @@ _ACTUATOR_PARAM_KEYS: tuple = (
 )
 
 
+def _pd_group_registry_config(sku: str) -> Optional[Dict[str, Any]]:
+    """Force-load the model-bound PD-Group config for ``sku`` from the registry.
+
+    The SAME resolver the AUTO button uses
+    (``pd_preview.resolve_recommended_actuators``): per-group (omega_n, zeta)
+    + actuator caps, sourced from the brand manifest / captured USD drive /
+    MJCF. Returns a dict of canvas RobotNode keys, or ``None`` when nothing is
+    resolvable (the training-time compiler then fails loud, CLAUDE.md §8).
+    """
+    try:
+        from application.physics.pd_preview import resolve_recommended_actuators
+    except Exception:  # noqa: BLE001
+        return None
+    rec = resolve_recommended_actuators(sku)
+    if rec is None:
+        return None
+    out: Dict[str, Any] = {"pd_param_mode": "natural_freq"}
+    groups = getattr(rec, "groups", None) or {}
+    if groups:
+        out["pd_groups"] = {
+            str(gid): {"omega_n": float(wn), "zeta": float(z)}
+            for gid, (wn, z) in groups.items()
+        }
+    if rec.effort_limit is not None:
+        out["effort_limit"] = float(rec.effort_limit)
+    if rec.velocity_limit is not None:
+        out["velocity_limit"] = float(rec.velocity_limit)
+    return out if (len(out) > 1) else None
+
+
 def _reconcile_robot_actuator_params(robot_node: "NodeItem") -> bool:
-    """Reconcile the RobotNode's effort_limit / velocity_limit against its SKU.
+    """Reconcile the RobotNode's PD-Group config against its bound SKU.
 
-    Canvas-derived-keys rule: the actuator caps belong to the bound robot — a
-    42 kg Spot and a 15 kg Go2 want different ceilings, and forcing the user to
-    re-enter them per SKU is the same bug class as init_joint_angles drift.
-    Called when the RobotNode's ``asset_id`` changes. Returns True iff mutated.
+    The PD-Group config (``pd_param_mode`` / ``pd_groups`` (omega_n, zeta) /
+    ``effort_limit`` / ``velocity_limit``) is MODEL-BOUND: a 42 kg Spot and a
+    15 kg G1 want different ceilings/gains. It is force-loaded from the registry
+    when a model is first selected, but a per-SKU in-memory cache slot preserves
+    the user's hand edits when they flip the robot model and back
+    (user-approved: "每个机型对应一个缓存槽位，切换机型切换对应缓存，画布落盘只
+    保存选中的那个机型"). The cache lives on the node instance (NOT in params), so
+    only the active SKU's config is serialized to the canvas.
 
-    Source = the SAME resolver the AUTO button uses
-    (``pd_preview.resolve_recommended_actuators``): brand manifest official
-    caps → else MJCF authored force limit → else nothing. This deliberately
-    REPLACES the old ``registry default_actuator_params`` read, which held
-    Go2-residual values for some SKUs (e.g. Spot's stale 80/20) and was the
-    source of the wrong on-canvas defaults.
+    Called when ``asset_id`` changes (UI edit, undo/redo, programmatic load).
+    The previous behaviour force-OVERWROTE effort/velocity from the registry on
+    every call — which CLOBBERED a user's saved caps on canvas LOAD (the reported
+    data loss) and never preserved per-SKU edits. Returns True iff mutated.
 
-    effort_limit / velocity_limit are HIDDEN params (no ParamRow — edited via
-    the pd_param_table panel), so they are written directly to
-    ``robot_node.params`` + ``on_param_changed`` (the hidden-param write path).
-    Each write is independent; an unresolved cap (None) leaves the existing
-    value untouched.
+    These are HIDDEN params (edited via the pd_param_table panel), so updates are
+    written directly to ``robot_node.params`` + ``on_param_changed`` (the
+    hidden-param write path).
     """
     raw_id = str((robot_node.params or {}).get("asset_id", "") or "").strip()
     if not raw_id:
         return False
     try:
         from registers.robots import resolve_to_sku
-        from application.physics.pd_preview import resolve_recommended_actuators
+        from application.physics.actuator_caps import plan_pd_group_transition
         sku = resolve_to_sku(raw_id)
     except Exception:  # noqa: BLE001
         return False
     if not sku:
         return False
-    rec = resolve_recommended_actuators(sku)
-    if rec is None:
-        return False
 
-    caps = {"effort_limit": rec.effort_limit, "velocity_limit": rec.velocity_limit}
+    cache = getattr(robot_node, "_pd_group_cache", None)
+    if not isinstance(cache, dict):
+        cache = {}
+    prev_sku = getattr(robot_node, "_pd_group_prev_sku", None)
+
+    # The target family's valid PD-group ids — lets the transition drop a
+    # cross-morphology contamination (e.g. a 'finger' override on a quadruped)
+    # before it reaches the canvas / PD panel. None = couldn't resolve → no-op.
+    valid_group_ids: Optional[set] = None
+    try:
+        from registers.robots import get_robot
+        from registers import pd_groups as _pd_groups
+        entry = get_robot(sku) or {}
+        fams = list(entry.get("families", []) or [])
+        if fams:
+            valid_group_ids = set(_pd_groups.list_group_ids(str(fams[0])))
+    except Exception:  # noqa: BLE001 — registry hiccup → skip sanitize, not fail
+        valid_group_ids = None
+
+    updates, new_cache = plan_pd_group_transition(
+        params=robot_node.params or {},
+        cache=cache,
+        prev_sku=prev_sku,
+        new_sku=sku,
+        resolve=_pd_group_registry_config,
+        valid_group_ids=valid_group_ids,
+    )
+    # Stash the session-only cache + the SKU the params now describe.
+    robot_node._pd_group_cache = new_cache
+    robot_node._pd_group_prev_sku = sku
+
     notify = getattr(robot_node, "on_param_changed", None)
-    mutated = False
-    applied: Dict[str, float] = {}
-    for key in _ACTUATOR_PARAM_KEYS:
-        new_val = caps.get(key)
-        if new_val is None:
-            continue
-        new_val = float(new_val)
-        current = (robot_node.params or {}).get(key)
-        try:
-            current_f = float(current) if current is not None else None
-        except (TypeError, ValueError):
-            current_f = None
-        if current_f is not None and abs(current_f - new_val) < 1e-9:
-            continue
-        robot_node.params[key] = new_val
+    for key, val in updates.items():
+        robot_node.params[key] = val
         if callable(notify):
-            notify(key, new_val)
-        applied[key] = new_val
-        mutated = True
+            notify(key, val)
 
-    if mutated:
+    if updates:
         log_info(
-            f"[robot] reconciled actuator caps from SKU={sku!r} "
-            f"(source={rec.source_caps}): {applied}"
+            f"[robot] reconciled PD-Group config for SKU={sku!r} "
+            f"(prev={prev_sku!r}): keys={sorted(updates)}"
         )
-    return mutated
+    return bool(updates)
 
 
 def _resolve_active_format_joint_ranges(sku: str):
@@ -8017,13 +8199,24 @@ class IRRolePickerRow(_PickerRowMixin, ParamRow):
           (``[]``) renders as "全选 (N)" and the popup pre-checks every
           role; the user deselects to exclude. Default: False.
 
-    Persistence: stores a JSON list of selected IR roles. Empty list
-    means "all" when ``default_select_all=True``, "none" otherwise —
-    matching ``spec_validator._check_action_joints`` which skips
-    validation when ``action_joint_names_expr`` is empty.
+    Persistence: stores a JSON list of selected IR roles. When
+    ``default_select_all=True`` the popup carries an explicit ``"All"`` menu
+    item whose id is the backend ``.*`` regex, so "every joint" is a VISIBLE,
+    SELECTABLE choice and the stored value (``[".*"]``) always corresponds to
+    a menu entry the user can see and pick — never an invisible sentinel
+    (frontend⇄backend consistency). A legacy empty list ``[]`` is still read as
+    "All" for backward compatibility and auto-migrates to ``[".*"]`` on the
+    next edit. ``.*`` and ``[]`` are both passed through by the env_cfg compiler
+    as "all joints", and ``spec_validator._check_action_joints`` treats ``.*``
+    as a regex (no IR-membership check).
     """
 
     _OPEN_ON_RELEASE = True
+
+    # Backend "all joints" form: the Isaac Lab JointPositionActionCfg regex.
+    # Surfaced in the popup as an explicit "All" item (id == this string) so
+    # the stored value is always a displayable, selectable menu choice.
+    _ALL_SENTINEL = ".*"
 
     def _source(self) -> str:
         meta = self.spec.meta or {}
@@ -8048,11 +8241,11 @@ class IRRolePickerRow(_PickerRowMixin, ParamRow):
 
     def _summary_text(self) -> str:  # type: ignore[override]
         cur = self._current_list()
-        if not cur and self._default_select_all():
-            # We don't fetch upstream just to count — empty + default-all
-            # always means "all". Show a stable label until the user
-            # interacts.
-            return tr("canvas.row.ir_picker_all", "All (default)")
+        if self._default_select_all() and (not cur or self._ALL_SENTINEL in cur):
+            # Explicit "All" (the .* regex) — or a legacy empty value the
+            # backend treats as all. Both render as the single "All" menu item
+            # so the inline summary matches what the picker shows.
+            return tr("canvas.row.ir_picker_all", "All")
         if not cur:
             return tr("canvas.row.empty", "—")
         return tr("canvas.row.selected", "{n} selected").replace("{n}", str(len(cur)))
@@ -8079,19 +8272,38 @@ class IRRolePickerRow(_PickerRowMixin, ParamRow):
             )
             return True
 
-        cur = self._current_list()
-        # default_select_all + empty stored value → pre-check everything.
-        # Also drop any stale entries no longer in the upstream catalog so
-        # the popup doesn't show ghost checkmarks (canvas-derived-keys
-        # rule: keys auto-reconcile against upstream).
+        supports_all = self._default_select_all()
+        if supports_all:
+            # Prepend an explicit "All" menu item whose id IS the backend ".*"
+            # regex, so "every joint" is a visible, checkable choice and the
+            # stored value (".*") is always a selectable menu entry — no
+            # invisible sentinel (frontend⇄backend consistency).
+            choices = [self._ALL_SENTINEL] + [c for c in choices if c != self._ALL_SENTINEL]
         choices_set = set(choices)
-        if not cur and self._default_select_all():
-            initial = list(choices)
+
+        cur = self._current_list()
+        # Map the stored value onto the menu. ".*" (or a legacy empty value the
+        # backend treats as all) → the "All" item is checked. Otherwise check
+        # exactly the specific roles, dropping any stale entries no longer in
+        # the upstream catalog (keys auto-reconcile against upstream).
+        if supports_all and (not cur or self._ALL_SENTINEL in cur):
+            initial = [self._ALL_SENTINEL]
         else:
             initial = [c for c in cur if c in choices_set]
 
+        def _label(c: Any) -> str:
+            if supports_all and str(c) == self._ALL_SENTINEL:
+                return tr("canvas.row.ir_picker_all", "All")
+            return str(c)
+
         def _commit(sel: list) -> None:
-            cleaned = [str(c) for c in sel if str(c) in choices_set]
+            sel = [str(c) for c in sel]
+            # "All" is exclusive and canonical: selecting it stores the explicit
+            # ".*" (every joint), ignoring any individually-checked roles.
+            if supports_all and self._ALL_SENTINEL in sel:
+                self.set_value([self._ALL_SENTINEL])
+                return
+            cleaned = [c for c in sel if c in choices_set and c != self._ALL_SENTINEL]
             self.set_value(cleaned)
 
         open_choice_popup(
@@ -8102,6 +8314,7 @@ class IRRolePickerRow(_PickerRowMixin, ParamRow):
             multi=True,
             leading_mode="checkbox",
             on_commit=_commit,
+            label_resolver=_label,
         )
         return True
 
@@ -8928,13 +9141,66 @@ class RewardJointPagerRow(_InlineTableRow):
         except Exception:                                         # noqa: BLE001
             return None
 
+    def _robot_joint_ir_roles(self) -> List[str]:
+        """The upstream RobotNode's ACTUAL joint IR roles (not the family's).
+
+        Source of truth for which joint groups this specific robot has. Tries
+        the resolved RobotSpec first, then falls back to the registry
+        ``joints_per_format`` table (USD with MJCF legacy fallback — the same
+        source the action-joints picker uses).
+        """
+        try:
+            sku = _scene_robot_sku(self._owner)
+        except Exception:                                         # noqa: BLE001
+            sku = None
+        if not sku:
+            return []
+        try:
+            from registers.robots import get_robot_spec
+            rs = get_robot_spec(sku)
+            roles = list(getattr(rs, "joint_ir_roles", []) or [])
+            if roles:
+                return roles
+        except Exception:                                         # noqa: BLE001
+            pass
+        try:
+            from registers.robots import get_robot
+            entry = get_robot(sku) or {}
+            jpf = entry.get("joints_per_format") or {}
+            blk = jpf.get("USD") or jpf.get("MJCF") or {}
+            out: List[str] = []
+            seen: set = set()
+            for spec in (blk or {}).values():
+                ir = str((spec or {}).get("ir_role", "") or "")
+                if ir and ir not in seen:
+                    seen.add(ir)
+                    out.append(ir)
+            return out
+        except Exception:                                         # noqa: BLE001
+            return []
+
     def _partition_choices(self) -> List[str]:
+        """Joint groups the CURRENT robot actually has — never the whole family.
+
+        The pager must only offer pages for groups the upstream RobotNode owns:
+        a humanoid H1 has a single-DOF ankle (ankle_pitch, NO ankle_roll), so
+        offering ankle_roll would let the user page rewards onto a joint group
+        the robot lacks — a frontend⇄backend mismatch (the compiler would have
+        no joints for that page). We resolve the robot's actual IR roles to
+        their pd_group via ``find_group_for_role`` and keep only those groups,
+        preserving the family's declaration order.
+        """
         fam = self._robot_family()
         if not fam:
             return []
+        roles = self._robot_joint_ir_roles()
+        if not roles:
+            # Robot unresolved: do NOT fall back to the full family list (that
+            # is exactly the bug — offering groups the robot may not have).
+            return []
         try:
             from registers import pd_groups
-            return list(pd_groups.list_group_ids(fam))
+            return pd_groups.groups_for_roles(fam, roles)
         except Exception:                                         # noqa: BLE001
             return []
 
@@ -9025,6 +9291,122 @@ class RewardJointPagerRow(_InlineTableRow):
         self.update()
 
 
+_WPE_FRAME_PAD = 2  # outer pad inside the row's full-width value rect
+
+
+def _run_weight_set_dialog(view, items_raw: dict):
+    """Open the Weight Set pie editor for the enabled items of a ``training_items``
+    dict and return the dict with the edited per-item ``weight`` written back
+    (disabled items untouched), or ``None`` if there are no enabled items or the
+    user cancelled. Shared by :class:`WeightPieEditorRow` (the node's Weight Set
+    button) and :class:`TrainingItemsInlineRow` (clicking a Weight cell) so both
+    entry points behave identically. The caller persists the returned dict via
+    its own seam (sibling-write vs. ``set_value``)."""
+    items_raw = items_raw or {}
+    enabled = [
+        (iid, cfg)
+        for iid, cfg in items_raw.items()
+        if isinstance(cfg, dict) and cfg.get("enabled")
+    ]
+    if not enabled:
+        return None
+    # Legend label: user-typed ``title`` wins, blank → fall back to the id
+    # (matches the inline row + modal editor display semantics). ``iid`` stays
+    # the authoritative sampling key threaded back into ``weight``.
+    item_pairs = [(iid, str(cfg.get("title") or "").strip() or iid) for iid, cfg in enabled]
+    current: dict = {}
+    for iid, cfg in enabled:
+        w = cfg.get("weight")
+        if w is None:
+            continue
+        try:
+            current[iid] = float(w)
+        except (TypeError, ValueError):
+            pass  # malformed → treated as unset (uniform share) in dialog
+    parent_widget = view.window() if view else None
+    from application.ui.dialogs import WeightSetDialog
+
+    dlg = WeightSetDialog(item_pairs, current, parent=parent_widget)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    result = dlg.result_weights or {}
+    updated = dict(items_raw)
+    for iid, cfg in enabled:
+        new_cfg = dict(cfg)
+        if iid in result:
+            new_cfg["weight"] = float(result[iid])
+        updated[iid] = new_cfg
+    return updated
+
+
+class WeightPieEditorRow(ParamRow):
+    """``widget="weight_pie_editor"`` — full-width button opening the Weight Set
+    pie editor for per-item initial sampling weights.
+
+    Action-only: its own ``weight_set`` param holds no value (like
+    :class:`ReviewLaunchButtonRow`). On click it reads the **sibling**
+    ``training_items`` param, opens :class:`WeightSetDialog` for the enabled
+    items + their current ``weight``, and on accept writes the edited weights
+    back into each enabled item's ``weight`` via :func:`_write_sibling_param`
+    (so ``training_items`` stays the single data of record). Disabled items are
+    left untouched. Shares the review-button theme slots.
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _btn_rect(self) -> QRectF:
+        x = SEP_X + _WPE_FRAME_PAD
+        return QRectF(
+            x,
+            _WPE_FRAME_PAD,
+            max(0.0, self._width - x - _WPE_FRAME_PAD - VALUE_PAD_RIGHT + 4),
+            self._height - _WPE_FRAME_PAD * 2,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        btn = self._btn_rect()
+        idle = QColor(Config.get_color("canvas_node_review_launch_bg", "#00695C"))
+        hover = QColor(
+            Config.get_color("canvas_node_review_launch_hover_bg", "#00897B")
+        )
+        text_color = QColor(Config.get_color("main_t2", "#FFFFFF"))
+        bg = hover if self._is_hovering(btn) else idle
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(btn, 4, 4)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(text_color))
+        painter.drawText(
+            btn,
+            int(Qt.AlignmentFlag.AlignCenter),
+            "⚖  " + tr("canvas.training_motion.weight_set.button", "Weight Set"),
+        )
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        from unitport_sdk import log_warning
+
+        items_raw = _parse_dict_value(self._owner.params.get("training_items"))
+        if not any(
+            isinstance(cfg, dict) and cfg.get("enabled")
+            for cfg in (items_raw or {}).values()
+        ):
+            log_warning(
+                "[weight_set] no enabled training items to weight — open the "
+                "items editor and enable at least one item first."
+            )
+            return True
+        updated = _run_weight_set_dialog(_view_of(event), items_raw)
+        if updated is not None:
+            _write_sibling_param(self._owner, "training_items", updated)
+        return True
+
+
 # =============================================================================
 # Factory / dispatcher —— 节点脚本 → 图形的「自动转换」入口
 # =============================================================================
@@ -9064,6 +9446,8 @@ WIDGET_DISPATCH = {
     "review_backend_picker":      ReviewBackendPickerRow,
     "review_scene_picker":        ReviewScenePickerRow,
     "review_launch_button":       ReviewLaunchButtonRow,
+    # TrainingMotionNode — initial sampling-weight pie editor button
+    "weight_pie_editor":          WeightPieEditorRow,
     # ActorSettingNode — joint pose slider table + Review Pose button
     "joint_pose_table":           JointPoseTableRow,
     "actor_review_pose_button":   ActorReviewPoseButtonRow,
@@ -9202,7 +9586,6 @@ __all__ = [
     "ExportBundleRow",
     "MotionLibraryRow",
     "ObsComponentsRow",
-    "RegistryItemListRow",
     "TrainingItemsRow",
     "StageEditorRow",
     "CurveRow",

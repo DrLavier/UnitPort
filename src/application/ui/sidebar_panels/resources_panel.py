@@ -53,7 +53,6 @@ from unitport_sdk import (
     log_debug,
     log_error,
     setButton,
-    setText,
     tr,
 )
 
@@ -387,11 +386,10 @@ class ResourcesPanel(QWidget):
         layout.setSpacing(6)
 
         # ----- header -----
+        # No section title: the "Resources" sidebar tab already names the
+        # panel, so a second "Third-party resources" label is redundant. The
+        # download button is the only header control (plus the re-scan icon).
         header = QHBoxLayout()
-        header.addWidget(setText(
-            "resources.section", default="Third-party resources",
-            kind="title", size=_ss(),
-        ), 1)
 
         self._btn_add = setButton(
             "resources.add", 0, 24,
@@ -400,6 +398,16 @@ class ResourcesPanel(QWidget):
         )
         i18n_bind(self._btn_add, "setToolTip", "resources.add_tip",
                   "Download a motion dataset or policy bundle")
+        # kind="save" ⇒ the QSS renders the label bold, but QPushButton.sizeHint
+        # measures with the widget's *own* font (non-bold), so bold text gets
+        # clipped. Mirror the QSS font (family + size_small + bold) onto the
+        # widget font so sizeHint matches what's painted — width then auto-fits
+        # the bold label and re-fits on language switch.
+        add_font = self._btn_add.font()
+        add_font.setBold(True)
+        add_font.setPixelSize(_ss())
+        add_font.setFamily(Config.get_value("Font", "family", "Microsoft YaHei"))
+        self._btn_add.setFont(add_font)
         self._btn_add.clicked.connect(self._on_add_clicked)
         header.addWidget(self._btn_add)
 
@@ -412,6 +420,7 @@ class ResourcesPanel(QWidget):
                   "Re-scan custom_mods/")
         self._btn_refresh.clicked.connect(self._on_refresh_clicked)
         header.addWidget(self._btn_refresh)
+        header.addStretch(1)
 
         layout.addLayout(header)
 
