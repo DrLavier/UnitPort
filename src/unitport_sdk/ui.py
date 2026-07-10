@@ -1743,6 +1743,13 @@ class WheelSelector(QWidget):
 
     信号 ``currentIndexChanged(int, str)`` / ``item_activated(int, str)`` 的
     第二个参数固定为「raw key（i18n 时）」或「默认显示文本（非 i18n 时）」。
+
+    落定语义：``currentIndexChanged`` 只在转轮「完全静止」``settle_ms``
+    毫秒后发射 —— 任何用户输入（包括不足一格的高精度滚轮 delta）和每次
+    步进动画提交都会重置这个 idle 计时窗；动画进行中 / 步进队列未清空时
+    绝不发射。消费方据此可以安全地把该信号当作「用户转完了」的提交点。
+    滚轮输入按标准 120 单位刻度累积成整格步进（触控板的微量 delta 不会
+    每个事件各走一格）。
     """
 
     currentIndexChanged = pyqtSignal(int, str)
@@ -1756,6 +1763,7 @@ class WheelSelector(QWidget):
         radius: int = 100,
         font_size: Optional[int] = None,
         i18n: bool = False,
+        settle_ms: int = 200,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -1766,6 +1774,7 @@ class WheelSelector(QWidget):
         self._current_index: int = 0
         self._offset: float = 0.0
         self._hover_index: int = -1
+        self._wheel_accum: int = 0
 
         self.visible_count = visible_count
         self.radius        = radius
@@ -1786,7 +1795,7 @@ class WheelSelector(QWidget):
 
         self._emit_timer = QTimer(self)
         self._emit_timer.setSingleShot(True)
-        self._emit_timer.setInterval(200)
+        self._emit_timer.setInterval(max(0, int(settle_ms)))
         self._emit_timer.timeout.connect(self._emit_current_index)
 
         self._slip_effect = None
@@ -1907,9 +1916,17 @@ class WheelSelector(QWidget):
     offset = pyqtProperty(float, _get_offset, _set_offset)
 
     # ── Internal animation ──────────────────────────────────────────────────
+    def _defer_settle(self) -> None:
+        """重启落定计时窗：任何交互 / 步进提交都表示转轮尚未静止。
+        ``currentIndexChanged`` 只在此窗完整走完（且队列已清空）后发射。"""
+        self._emit_timer.start()
+
     def _enqueue_step(self, step: int) -> None:
         if not self._norm_items:
             return
+        # 即使 step 被边界钳到 0（转到头继续拨），也算一次交互 —— 落定
+        # 必须从「最后一次输入」而不是「最后一次动画提交」起算。
+        self._defer_settle()
         self._pending_steps += step
         self._pending_steps = max(
             -self._current_index,
@@ -1940,10 +1957,13 @@ class WheelSelector(QWidget):
         self._offset = 0.0
         self._current_index = index
         self.update()
-        self._emit_timer.start()
+        self._defer_settle()
         self._dequeue_and_animate()
 
     def _emit_current_index(self) -> None:
+        if self._anim_running or self._pending_steps:
+            # 仍在滚动：下一次步进提交会重新拉起落定计时窗。
+            return
         if self._norm_items:
             self.currentIndexChanged.emit(self._current_index, self.currentText())
 
@@ -1981,7 +2001,18 @@ class WheelSelector(QWidget):
     def wheelEvent(self, event):
         delta = event.angleDelta().y()
         if delta:
-            self._enqueue_step(-1 if delta > 0 else 1)
+            # 高精度滚轮 / 触控板一次手势会发出很多小 delta 事件；按标准
+            # 120 单位刻度累积，攒满一格才步进一格 —— 否则轻滑就跳多位。
+            if (self._wheel_accum > 0) != (delta > 0):
+                self._wheel_accum = 0  # 换向时丢掉反方向的残余量
+            self._wheel_accum += delta
+            steps = int(self._wheel_accum / 120)
+            if steps:
+                self._wheel_accum -= steps * 120
+                self._enqueue_step(-steps)
+            else:
+                # 不足一格也算交互：推迟落定，避免用户还在滚就 settle。
+                self._defer_settle()
         event.accept()
 
     def mouseMoveEvent(self, event):
@@ -2196,6 +2227,7 @@ def setWheelSelector(
     radius: int = 100,
     font_size: Optional[int] = None,
     i18n: bool = False,
+    settle_ms: int = 200,
     parent: Optional[QWidget] = None,
 ) -> WheelSelector:
     """工厂函数：返回挂好主题的 ``WheelSelector``。
@@ -2205,6 +2237,9 @@ def setWheelSelector(
         visible_count / radius: 视觉参数。
         font_size: 字号 override；不传读 ``[Font].size_normal``。
         i18n: ``True`` 时把所有显示字串当成 i18n key（``I18n.tr(s, s)``）。
+        settle_ms: 落定 idle 窗（毫秒）。转轮完全静止这么久之后才发射
+            ``currentIndexChanged``；把该信号当「提交动作」的消费方
+            （如语言切换）应传更长的窗。
     """
     return WheelSelector(
         items,
@@ -2212,6 +2247,7 @@ def setWheelSelector(
         radius=radius,
         font_size=font_size,
         i18n=i18n,
+        settle_ms=settle_ms,
         parent=parent,
     )
 

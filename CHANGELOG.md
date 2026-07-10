@@ -26,3 +26,12 @@ AI Build is not a single free-running model — it is a **deterministic harness*
 - **Checkpoint, Retry and config versions.** Every run snapshots the canvas first — Reset reverts it, Retry re-runs the last prompt from that point, and each run that changed the canvas is saved as a selectable configuration version (with *Origin* always available).
 - **Per-canvas conversation threads** with persistent history, pause/resume mid-run, live per-phase token metering, and node highlighting that follows the agents around the canvas.
 - **Bring your own model.** AI Build speaks to any OpenAI-compatible endpoint; configure base URL, model and key in the panel settings — the key can be read from an environment variable and never written to disk.
+
+### Training Motion node — clip editing & segment marking, built in
+
+The **Clip Motion Editor** now lives directly inside the Training Motion node, so choosing and trimming a reference motion no longer means a detour to the Resources panel. Pick a clip from the dropdown and it previews immediately on your canvas robot in an embedded viewer — scrub the timeline, orbit and zoom the render, and read the exact frame you are on.
+
+- **Mark segments without a second tool.** Set an in/out range on the timeline (or type Start/End frames), then **Crop** for a one-click quick-cut or **Mark Segment** to name and tag it. Each clip and its saved segments appear in the same Clip dropdown, so a trimmed sub-motion is trainable without producing a new file.
+- **Pick what trains, right in the table.** The segment list has a checkbox column — tick a segment to train on just that sub-range, or leave every box clear to train on the whole clip. The active choice is highlighted so the item's reference is always obvious.
+- **Robot-aware.** The preview always uses the robot wired on your canvas; a clip whose joints that robot mostly lacks is flagged in red in the dropdown *before* you commit to it, so a mismatched motion can't slip through.
+- **Never blocks the UI.** Clips are scanned and joint-matched on a background thread — the editor opens right away with a small loading indicator and fills in when ready.

@@ -670,7 +670,7 @@ ui:
 
   WheelSelector / setWheelSelector: |
     WheelSelector(items, *, visible_count=5, radius=100,
-                  font_size=None, i18n=False, parent=None)
+                  font_size=None, i18n=False, settle_ms=200, parent=None)
 
     items shapes:
       str                     Single line
@@ -678,7 +678,14 @@ ui:
       [main_spec, sub_spec]   Explicit two lines (avoids ambiguity in i18n mode)
     signals:
       currentIndexChanged(idx: int, raw: str)   # raw=key (i18n) / default (non-i18n)
+        Emitted only after the wheel has been FULLY idle for settle_ms:
+        every user input (incl. sub-notch high-res wheel deltas) and every
+        step-animation commit restarts the idle window; never emitted while
+        animating or with steps queued. Consumers that treat this signal as
+        a commit action (e.g. language switch) should pass a longer settle_ms.
       item_activated(idx: int, raw: str)        # Fired when clicking the current item
+    input: scroll deltas accumulate per standard 120-unit notch (touchpad
+      micro-deltas do not each cause a full step)
     api:
       setItems / currentIndex / currentText / currentDisplay
       setCurrentIndex / selectNext / selectPrev

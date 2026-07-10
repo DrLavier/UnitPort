@@ -69,10 +69,10 @@ from PyQt6.QtWidgets import (
 from unitport_sdk import (
     Assets,
     Config,
-    I18n,
     LaviButton,
     LaviComboBox,
     SliderSwitch,
+    i18n_bind,
     log_warning,
     tr,
 )
@@ -375,8 +375,9 @@ class HomepageCreateCanvas(HomepageCard):
         # Stretch sentinel so the rows hug the top instead of spreading.
         self._left_layout.addStretch(1)
 
-        # Reactions
-        I18n.instance().language_changed.connect(self._retranslate)
+        # Reactions. NOTE: the base ``HomepageCard.__init__`` already wired
+        # ``language_changed -> self._retranslate`` (resolves to the override
+        # below), so we must NOT connect it again here or it would fire twice.
         self._store.snapshot_changed.connect(self._on_snapshot_changed)
         # Engine availability can flip mid-session (Isaac Lab self-install,
         # manual register-local in the user panel, ...). When it does the
@@ -459,10 +460,10 @@ class HomepageCreateCanvas(HomepageCard):
         self._name_edit = QLineEdit(self._project_stack)
         self._name_edit.setObjectName("homepageCreateNameEdit")
         self._name_edit.setFixedHeight(35)
-        self._name_edit.setPlaceholderText(tr(
-            "homepage.create.placeholder_name",
-            "New Project Name",
-        ))
+        i18n_bind(
+            self._name_edit, "setPlaceholderText",
+            "homepage.create.placeholder_name", "New Project Name",
+        )
         self._name_edit.textEdited.connect(self._on_name_edited)
         self._project_stack.addWidget(self._name_edit)
 
@@ -494,15 +495,17 @@ class HomepageCreateCanvas(HomepageCard):
         canvas_layout = QVBoxLayout(canvas_block)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
         canvas_layout.setSpacing(8)
-        canvas_lbl = QLabel(tr("homepage.create.label_canvas_name", "Canvas Name"))
+        canvas_lbl = QLabel(canvas_block)
+        i18n_bind(canvas_lbl, "setText", "homepage.create.label_canvas_name", "Canvas Name")
         canvas_lbl.setObjectName("homepageCreateLabel")
         canvas_layout.addWidget(canvas_lbl)
         self._canvas_name_edit = QLineEdit(canvas_block)
         self._canvas_name_edit.setObjectName("homepageCreateCanvasNameEdit")
         self._canvas_name_edit.setFixedHeight(35)
-        self._canvas_name_edit.setPlaceholderText(tr(
-            "homepage.create.placeholder_canvas", "e.g. main"
-        ))
+        i18n_bind(
+            self._canvas_name_edit, "setPlaceholderText",
+            "homepage.create.placeholder_canvas", "e.g. main",
+        )
         self._canvas_name_edit.setText("main")
         self._canvas_name_edit.textEdited.connect(self._on_name_edited)
         canvas_layout.addWidget(self._canvas_name_edit)
@@ -513,7 +516,8 @@ class HomepageCreateCanvas(HomepageCard):
         backend_layout = QVBoxLayout(backend_block)
         backend_layout.setContentsMargins(0, 0, 0, 0)
         backend_layout.setSpacing(8)
-        backend_lbl = QLabel(tr("homepage.create.label_backend", "Backend"))
+        backend_lbl = QLabel(backend_block)
+        i18n_bind(backend_lbl, "setText", "homepage.create.label_backend", "Backend")
         backend_lbl.setObjectName("homepageCreateLabel")
         backend_layout.addWidget(backend_lbl)
 
@@ -642,7 +646,8 @@ class HomepageCreateCanvas(HomepageCard):
         block_layout.setContentsMargins(0, 0, 0, 0)
         block_layout.setSpacing(8)
 
-        tpl_lbl = QLabel(tr("homepage.create.label_template", "Choose a template"))
+        tpl_lbl = QLabel(block)
+        i18n_bind(tpl_lbl, "setText", "homepage.create.label_template", "Choose a template")
         tpl_lbl.setObjectName("homepageCreateLabel")
         block_layout.addWidget(tpl_lbl)
 
@@ -689,10 +694,11 @@ class HomepageCreateCanvas(HomepageCard):
 
         templates = list_templates_for_backend(backend_id)
         if not templates:
-            empty = QLabel(tr(
-                "homepage.create.no_templates",
+            empty = QLabel(self._grid_host)
+            i18n_bind(
+                empty, "setText", "homepage.create.no_templates",
                 "No templates available for this backend.",
-            ))
+            )
             empty.setObjectName("homepageCreateEmpty")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setWordWrap(True)
@@ -933,16 +939,14 @@ class HomepageCreateCanvas(HomepageCard):
     # ------------------------------------------------------------------
 
     def _retranslate(self) -> None:
-        self._name_edit.setPlaceholderText(tr(
-            "homepage.create.placeholder_name",
-            "New Project Name",
-        ))
-        self._canvas_name_edit.setPlaceholderText(tr(
-            "homepage.create.placeholder_canvas", "e.g. main"
-        ))
-        # The adaptive project label depends on the current mode, so it
-        # has to be re-resolved on language switch (the SliderSwitch
-        # auto-retranslates its own segments).
+        # Card title (owned by the base class — MUST chain up, otherwise the
+        # override shadows it and "Create New Project" stays stuck at the
+        # startup language). Static labels / placeholders self-retranslate
+        # via ``i18n_bind`` and the SliderSwitch retranslates its own
+        # segments, so only the *dynamic* strings are handled here.
+        super()._retranslate()
+        # The adaptive project label's key flips with the mode, so it can't
+        # use a static i18n_bind — re-resolve it for the current mode.
         if self._mode == _MODE_NEW:
             self._project_label.setText(
                 tr("homepage.create.label_project_name", "Project Name")
@@ -951,8 +955,10 @@ class HomepageCreateCanvas(HomepageCard):
             self._project_label.setText(
                 tr("homepage.create.label_pick_project", "Pick a project")
             )
-        self._populate_existing_projects()
-        self._populate_templates(self._current_backend())
+        # Backend segment labels embed a translated "(unavailable)" suffix;
+        # rebuild them so the suffix follows the language (this preserves the
+        # current selection by key and does not touch the template pick).
+        self._on_engine_availability_changed("")
 
     def _show_error(self, msg: str) -> None:
         self._error_label.setText(msg)

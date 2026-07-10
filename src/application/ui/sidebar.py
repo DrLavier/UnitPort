@@ -89,9 +89,12 @@ class _LanguagePopup(QFrame):
     """Frameless popup hosting a WheelSelector of available languages.
 
     UX: 打开时 wheel 直接停在「当前语种」位置（无入场动画，避免 hit-test
-    抖动）。用户拨/点其他语种 → wheel 落定后 ``currentIndexChanged``
-    携带新 index → 与初始 index 不同则视为有效选择，emit
-    ``language_picked(code)`` 并关闭。点 popup 外部关闭不提交。
+    抖动）。用户拨/点其他语种 → wheel 完全静止 ``_SETTLE_MS`` 毫秒后
+    ``currentIndexChanged`` 携带新 index → 与初始 index 不同则视为有效
+    选择，emit ``language_picked(code)`` 并关闭。落定窗从「最后一次用户
+    输入」起算（WheelSelector 保证），所以只要还在滚动就绝不会提交。
+    点击已居中的语种 = 显式确认，跳过落定等待立即提交。点 popup 外部
+    关闭不提交。
     """
 
     language_picked = pyqtSignal(str)
@@ -99,6 +102,11 @@ class _LanguagePopup(QFrame):
     _PAD = 8
     _RADIUS = 70
     _VISIBLE = 5
+    # Idle window before a wheel stop counts as "the user finished
+    # spinning". Applying a language closes the popup and retranslates
+    # the whole app, so err on the deliberate side (SDK default 200ms is
+    # tuned for non-committal display-sync consumers, not for commits).
+    _SETTLE_MS = 800
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
@@ -117,6 +125,7 @@ class _LanguagePopup(QFrame):
             items,
             visible_count=self._VISIBLE,
             radius=self._RADIUS,
+            settle_ms=self._SETTLE_MS,
             parent=self,
         )
         layout.addWidget(self._wheel)
@@ -132,12 +141,15 @@ class _LanguagePopup(QFrame):
         self._wheel._pending_steps = 0
         self._wheel.update()
 
-        # 连接 currentIndexChanged：wheel 落定后才 emit（有 200ms debounce
-        # 在 _emit_timer 里），所以中间的滚动过程不会乱触发。WheelSelector
-        # 构造时 schedule 了一次 QTimer.singleShot(0, _emit_current_index)，
-        # 那次 emit 的 idx 就是我们设过的 _initial_idx，会被下面 handler
-        # 自动忽略。
+        # 连接 currentIndexChanged：wheel 完全静止 _SETTLE_MS 后才 emit
+        # （任何输入——包括触控板不足一格的微量 delta——都会重置这个窗，
+        # 见 WheelSelector 落定语义），所以用户还在滚动时绝不会提交。
+        # WheelSelector 构造时 schedule 了一次
+        # QTimer.singleShot(0, _emit_current_index)，那次 emit 的 idx 就是
+        # 我们设过的 _initial_idx，会被下面 handler 自动忽略。
         self._wheel.currentIndexChanged.connect(self._on_settled)
+        # 点击已居中的语种 = 显式确认：不必等落定窗，立即提交。
+        self._wheel.item_activated.connect(self._on_activated)
         self.apply_theme()
 
     def apply_theme(self) -> None:
@@ -155,6 +167,14 @@ class _LanguagePopup(QFrame):
         if idx == self._initial_idx:
             return
         if 0 <= idx < len(self._codes):
+            self.language_picked.emit(self._codes[idx])
+        self.close()
+
+    def _on_activated(self, idx: int, _key: str) -> None:
+        # Explicit click on the centered item: commit immediately. Clicking
+        # the language that is already active just closes the popup
+        # (sidebar's _on_lang_picked is a no-op for the current code anyway).
+        if idx != self._initial_idx and 0 <= idx < len(self._codes):
             self.language_picked.emit(self._codes[idx])
         self.close()
 

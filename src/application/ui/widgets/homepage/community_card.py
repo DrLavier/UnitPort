@@ -786,7 +786,9 @@ class HomepageCommunityCard(HomepageCard):
 
         self._build_body()
         get_task_signal().task_finished.connect(self._on_task_finished)
-        I18n.instance().language_changed.connect(self._retranslate)
+        # NOTE: base ``HomepageCard.__init__`` already wired
+        # ``language_changed -> self._retranslate`` (resolves to the override
+        # above); do NOT connect again or it fires twice.
         self._apply_community_theme()
         self._kick_fetch()
 
@@ -954,6 +956,9 @@ class HomepageCommunityCard(HomepageCard):
     # i18n
     # ------------------------------------------------------------------
     def _retranslate(self) -> None:
+        # Card title + "Support Us" action link are owned by the base class;
+        # MUST chain up or they stay stuck at the startup language.
+        super()._retranslate()
         if self._loading_label is not None:
             # Cheapest correctness: derive the key suffix from the live
             # English default the label was constructed with — but since
