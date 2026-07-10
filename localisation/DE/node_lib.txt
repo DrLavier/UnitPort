@@ -1,0 +1,12 @@
+[default]
+empty = Keine Knoten registriert
+
+[layer]
+a = Konfiguration
+b = Umgebung
+c = Training
+d = Export
+il = Imitationslernen
+custom = Benutzerdefiniert
+tools = Werkzeuge
+

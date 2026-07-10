@@ -1,0 +1,30 @@
+[default]
+add_role = + دور
+alias_none = (لا شيء)
+cancel = إلغاء
+cascade_title = لا يمكن الحذف
+col_category = الفئة
+col_id = معرّف الدور
+col_label = التسمية
+col_position = الموضع
+col_required = مطلوب
+confirm_delete_body = إزالة عائلة التراكب الخاصة بالمستخدم {fid!r}? العائلات الأساسية لن تتأثر. الروبوتات التي تشير إلى هذه العائلة ستمنع الحذف.
+confirm_delete_title = حذف العائلة
+del_role = − دور
+delete = حذف
+error_duplicate = معرّف العائلة {fid!r} مسجّل بالفعل (أساسي أو على طبقة المستخدم).
+error_role_duplicate = معرّف الدور {rid!r} يظهر أكثر من مرة.
+error_role_slug = معرّف الدور {rid!r} يجب أن يتطابق مع [a-z][a-z0-9_]*.
+error_slug = يجب أن يتكون معرّف العائلة من حروف ASCII الصغيرة / أرقام / شرطات سفلية وأن يبدأ بحرف (مثال: 'quadruped_with_tail').
+error_title = إدخال غير صالح
+id_ph = مثال: quadruped_with_tail
+label_ph = اسم العرض
+save = حفظ
+title_edit = تعديل العائلة
+title_new = تسجيل عائلة جديدة
+intro = سجّل عائلة IR مخصصة. اختر عائلة أساسية لوراثة أدوارها، أو أضف أدوارًا إضافية أدناه — سيتم دمجهما في قائمة أدوار واحدة للتعيين المشترك.
+id_label = معرّف العائلة
+label_label = التسمية
+alias_of_label = العائلة الأساسية (alias_of)
+roles_section = أدوار إضافية
+

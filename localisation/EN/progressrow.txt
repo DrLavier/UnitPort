@@ -1,5 +1,8 @@
 [btn]
 new = New
+history = History
+policies = Policies
+templates = Templates
 
 [menu]
 empty = (empty)

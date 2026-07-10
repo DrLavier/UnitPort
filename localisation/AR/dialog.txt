@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = تعذر فتح قائمة أدوار IR
+joint_pose_editor_unavailable = تعذر فتح محرر زوايا المفاصل
+pd_table_no_sku = عقدة الروبوت لا تحتوي على روبوت مرتبط صالح (asset_id). اختر روبوتًا في بطاقة أصول الروبوت أولًا.
+pd_table_unavailable = تعذر فتح لوحة PD
+registry_preset_apply_failed = فشل تطبيق Preset
+registry_preset_picker_empty = لا توجد preset متاحة لهذه العائلة
+registry_preset_picker_empty_detail = family={family} في registry={registry} لم تُعلن أي preset.
+registry_preset_picker_unavailable = تعذر فتح قائمة Preset
+registry_preset_picker_unknown = registry={key!r} غير معروف؛ registry المدعومة: {keys}
+replace_canvas_text = تحميل القالب '{tpl}' سيستبدل جميع العقد والحواف في '{name}'. المتابعة؟
+replace_canvas_title = استبدال محتوى اللوحة
+review_pose_unavailable = تعذر بدء Review Pose
+unsaved_text = {name} يحتوي على تغييرات غير محفوظة. هل تريد الحفظ قبل المتابعة؟
+unsaved_title = تغييرات غير محفوظة
+review_motion_no_clip = لم يتم تحديد مقطع مرجعي لهذه المهمة التدريبية — اختر مقطعًا من قائمة Clip المنسدلة قبل المراجعة.
+review_motion_no_robot = لا توجد عقدة Robot مرتبطة بهذه اللوحة. يتطلب Review Motion ملف robot MJCF لإعادة تشغيل الحركة المرجعية — قم بربط عقدة Robot أولاً.
+review_motion_unavailable = لا يمكن بدء Review Motion
+

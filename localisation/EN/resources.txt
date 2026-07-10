@@ -10,11 +10,17 @@ open_folder_tip = Reveal the asset folder in your file manager
 retry = Retry
 empty_motion = No motion datasets yet — click "Add resource…" to download one
 empty_policy = No policy bundles yet — click "Add resource…" to download one
+empty_model = No robot models registered
+empty_canvas = No canvas templates found
 unindexed = imported
+classify = Classify…
+remove_confirm = Remove this resource and its files?
 
 [kind]
 motion = Motion
 policy = Policy
+model = Model
+canvas = Canvas
 
 [transport]
 github_clone = GitHub
@@ -33,6 +39,15 @@ revision = Revision
 subpath = Subpath
 downloaded_at = Downloaded
 size = Size
+package = Package
+subdir = Subdir
+clips = Clips
+sku = SKU
+brand = Brand
+model = Model
+families = Families
+backend = Backend
+path = Path
 
 [dialog]
 title = Add resource

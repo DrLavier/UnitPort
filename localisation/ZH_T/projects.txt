@@ -1,0 +1,5 @@
+[default]
+empty = 未找到專案
+open_folder_tip = 在作業系統的檔案瀏覽器中開啟專案資料夾
+refresh_tip = 重新掃描專案資料夾
+

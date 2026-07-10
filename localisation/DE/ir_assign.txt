@@ -1,0 +1,16 @@
+[default]
+banner = Einige Gelenke/Körper des Roboters konnten nicht automatisch klassifiziert werden. Weisen Sie unten ihre IR-Rollen zu, um die Einrichtung abzuschließen.
+cancel = Abbrechen
+col_joint = Gelenk / Körper
+col_kind = Typ
+col_role = IR-Rolle
+confirm = Alle bestätigen
+dialog_title = IR-Rollen für neue Roboter zuweisen
+kind_body = Körper
+kind_joint = Gelenk
+pending_robots = Ausstehende Roboter
+right_title = Gelenkzuordnung — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} zugewiesen
+status_ready = Alle {n} Einträge zugewiesen — bereit zur Bestätigung.
+

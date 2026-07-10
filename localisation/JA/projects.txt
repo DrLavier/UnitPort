@@ -1,0 +1,5 @@
+[default]
+empty = プロジェクトが見つかりません
+open_folder_tip = OSのファイルブラウザでプロジェクトフォルダを開く
+refresh_tip = プロジェクトフォルダを再スキャン
+

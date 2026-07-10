@@ -1,0 +1,7 @@
+[default]
+headline = As renderizações do treinamento em modo 'headed' são feitas através da abertura GPU BAR1, que parece pequena/saturada para esta execução. O processo pode travar com um erro de GPU 'device-lost'.
+title_block = Treinamento com probabilidade de travar (GPU BAR1)
+title_warn = Aviso de memória da GPU (BAR1)
+btn_continue = Continuar mesmo assim
+btn_abort = Abortar
+

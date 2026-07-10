@@ -1,0 +1,16 @@
+[default]
+banner = Algunas articulaciones/cuerpos del robot no pudieron clasificarse automáticamente. Asigna sus roles IR a continuación para finalizar la configuración.
+cancel = Cancelar
+col_joint = Articulación / Cuerpo
+col_kind = Tipo
+col_role = Rol IR
+confirm = Confirmar todo
+dialog_title = Asignar roles IR para nuevos robots
+kind_body = Cuerpo
+kind_joint = Articulación
+pending_robots = Robots pendientes
+right_title = Mapeo de articulaciones — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} asignados
+status_ready = Todas las {n} entradas asignadas — listas para confirmar.
+

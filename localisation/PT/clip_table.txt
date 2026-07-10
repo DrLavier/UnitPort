@@ -1,0 +1,11 @@
+[default]
+edit_tip = Clique para recortar / rotular este clipe
+segment_tip = Abrir este segmento
+col_name = Clipe
+col_tag = Etiqueta
+col_frames = Quadros
+col_duration = Duração
+col_segments = Segmentos
+col_action = 
+crop = Recortar / Rotular
+

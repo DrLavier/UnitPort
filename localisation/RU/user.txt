@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (эл. адрес недоступен)
+email_identity_security_hint = Нажмите ссылку в своей почте, чтобы установить или обновить пароль для входа. В целях безопасности смена пароля невозможна в приложении — все изменения подтверждаются по электронной почте.
+email_identity_send_button = Отправить ссылку
+email_identity_send_to = Мы отправим ссылку для подтверждения на:
+email_identity_title = Вход по электронной почте
+engines_cloud_settings = Настроить облачные серверы
+engines_local_settings = Настроить локальную установку
+linked_account_status_linked = привязано
+linked_account_unlink_button = Отвязать {provider}
+linked_account_unlink_confirm_title = Отвязать {provider}?
+linked_account_unlink_current_body = После отвязки вы будете автоматически выведены из системы, потому что это ваш текущий способ входа.
+linked_account_unlink_normal_body = Вы больше не сможете входить с помощью {provider}.
+linked_account_unlink_only_body = Это ваш единственный способ входа. Вы не можете его отвязать.
+open_workspace_tip = Открыть каталог пользовательских данных UnitPort
+open_workspace = Открыть рабочее пространство пользователя
+linked_accounts_label = Способы входа:
+linked_account_btn_signedout_email = Эл. почта: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = Эл. почта: (нет)
+linked_account_btn_unlinked_google = Google: (не привязан)
+linked_account_btn_unlinked_github = GitHub: (не привязан)
+workspace_email_label = Рабочее пространство:
+workspace_email_confirm_title = Сменить адрес электронной почты для хранилища рабочего пространства?
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = Хранилище рабочего пространства перемещено в {path}.
+workspace_email_failed = Не удалось переключить хранилище рабочего пространства: {error}
+

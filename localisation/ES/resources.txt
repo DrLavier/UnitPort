@@ -1,0 +1,68 @@
+[default]
+add = Descargar en línea
+add_tip = Descargar un conjunto de datos de movimiento o un paquete de políticas
+open_folder = Abrir carpeta
+refresh_tip = Volver a escanear custom_mods/
+remove = Eliminar
+remove_confirm = ¿Eliminar este recurso y sus archivos?
+section = Recursos de terceros
+remove_tip = Eliminar esta entrada (y el árbol en disco)
+open_folder_tip = Mostrar la carpeta de recursos en tu gestor de archivos
+retry = Reintentar
+empty_motion = Aún no hay conjuntos de datos de movimiento — haz clic en "Agregar recurso…" para descargar uno
+empty_policy = Aún no hay paquetes de políticas — haz clic en "Agregar recurso…" para descargar uno
+empty_model = No hay modelos de robot registrados
+empty_canvas = No se encontraron plantillas de lienzo
+unindexed = importado
+classify = Clasificar…
+
+[dialog]
+cancel = Cancelar
+name_label = Nombre para mostrar (opcional)
+ok = Descargar
+revision_placeholder = rama / etiqueta / commit / revisión HF
+subpath_placeholder_github = p. ej. datasets/mocap_motions
+subpath_placeholder_huggingface = permitir patrones, p. ej. *.json,*.txt
+title = Agregar recurso
+url_label = Se requiere URL o id del repositorio.
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name  (o URL completa de HF)
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = Tipo de recurso
+transport_label = Origen
+revision_label = Revisión (opcional)
+subpath_label = Subruta (opcional)
+
+[kind]
+canvas = Lienzo
+model = Modelo
+motion = Movimiento
+policy = Política
+
+[status]
+missing = faltante
+local = local
+downloading = descargando
+error = error
+
+[card]
+source = Origen
+revision = Revisión
+subpath = Subruta
+downloaded_at = Descargado
+size = Tamaño
+package = Paquete
+subdir = Subdirectorio
+clips = Clips
+sku = SKU
+brand = Marca
+model = Modelo
+families = Familias
+backend = Backend
+path = Ruta
+
+[transport]
+github_clone = GitHub
+github_release = Release
+huggingface = HuggingFace
+

@@ -1,0 +1,25 @@
+[default]
+canvas_saved = 畫布已儲存：{path}
+feature_pending = 
+history_cleared = 訓練歷史已清除
+history_delete_failed = 無法刪除執行紀錄 {}
+history_deleted = 已刪除執行紀錄 {}
+history_loaded = 畫布已從執行紀錄 {} 還原 — 按 Ctrl+S 以儲存
+history_missing = 執行紀錄 [{}] {} 已不再存在於磁碟上
+history_snapshot_missing = 執行紀錄 [{}] {} 的畫布快照在磁碟上遺失
+no_project = 尚未載入專案
+policy_missing = 已選擇策略 [{}] {}，但 bundle 路徑在磁碟上不存在
+policy_no_project = 尚未載入專案
+policy_selected = 已選擇策略： [{}] {}
+ready = UnitPort 已就緒
+template_apply_failed = 套用範本內容失敗
+template_backend_mismatch = 範本的後端 '{tb}' 與目前畫布的後端 '{cb}' 不相符
+template_loaded = 範本 '{name}' 已載入至目前畫布 — 按 Ctrl+S 以儲存
+template_missing = 在磁碟上找不到範本
+template_no_backend = 範本缺少後端欄位
+template_no_canvas = 在載入範本前請先開啟畫布
+template_no_project = 在載入範本前請先開啟專案與畫布
+template_read_failed = 讀取範本失敗
+history_no_chart = 已選取的執行： {} (圖表尚未就緒)
+history_selected = 已選取的執行：
+

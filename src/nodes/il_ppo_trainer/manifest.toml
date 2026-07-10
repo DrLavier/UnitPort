@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "il_ppo_trainer"
+backends = ["isaac_lab"]  # IsaacLab RSL-RL trainer; SB3 uses algorithm_config + train
 kind = "CUSTOM"
 version = "1.0.0"
 category = "training"

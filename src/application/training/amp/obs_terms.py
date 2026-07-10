@@ -334,6 +334,64 @@ def set_canonical_joint_perm_override(
         _JOINT_NAMES_BY_IR_OVERRIDE = None
 
 
+# Launcher-set AMP family + (for humanoids) the canonical IR-role ORDER the
+# clip's joint_pos / joint_vel columns follow. These select which joint
+# permutation the env-side AMP obs readers (and the RSI reset event) build:
+# quadruped → 12-joint FL/FR/RL/RR; humanoid/biped → N-joint IR-role order.
+# Before 2026-06 the env path hardcoded the quadruped perm AND the humanoid
+# IR order hardcoded H1's 19 roles, so any non-Go2 AMP run either crashed at
+# step 0 or fed the discriminator a dimension-mismatched / mis-ordered expert
+# vector. Now the launcher injects both once via :func:`set_amp_obs_family`.
+_AMP_OBS_FAMILY: Optional[str] = None
+
+
+def set_amp_obs_family(
+    family: str,
+    humanoid_ir_role_order: Optional[Sequence[str]] = None,
+) -> None:
+    """Pin the AMP obs family (and humanoid IR-role order) for this run.
+
+    Called once at launcher startup. ``family`` selects the joint-perm
+    resolver used by every env-side AMP obs reader and the RSI reset
+    (:func:`resolve_amp_joint_perm`). For ``humanoid`` / ``biped`` the
+    ``humanoid_ir_role_order`` is the ordered IR-role list the clip's
+    joint columns follow (from the loader's ``ir_roles`` metadata, e.g.
+    the 29-role G1 order); it overrides the legacy hardcoded H1 table so
+    the env-side joint permutation matches the expert clip column order.
+    Passing ``None`` for the order on a humanoid family keeps whatever
+    order was previously set (or the H1 fallback) — the launcher always
+    threads the real order, so ``None`` is the test/clear path.
+    """
+    global _AMP_OBS_FAMILY, _CANONICAL_HUMANOID_IR_ROLES
+    _AMP_OBS_FAMILY = str(family or "") or None
+    if humanoid_ir_role_order:
+        order = tuple(str(r) for r in humanoid_ir_role_order)
+        if not order:
+            raise ValueError(
+                "set_amp_obs_family: humanoid_ir_role_order is empty after "
+                "coercion; pass the loader's ir_roles metadata (non-empty)."
+            )
+        _CANONICAL_HUMANOID_IR_ROLES = order
+
+
+def resolve_amp_joint_perm(articulation: Any) -> List[int]:
+    """Family-keyed joint permutation: the single source consumed by both
+    the env-side AMP obs readers (:func:`_resolve_joint_perm`) and the RSI
+    reset event (``mdp_events._resolve_joint_perm_from_env``).
+
+    ``humanoid`` / ``biped`` → :func:`resolve_humanoid_joint_perm` (N IR
+    roles, order from :func:`set_amp_obs_family`); anything else (incl.
+    unset, preserving the legacy default) → the 12-joint quadruped
+    :func:`resolve_canonical_joint_perm`. Keeping one dispatcher means obs
+    and RSI can never disagree on which articulation joint each canonical
+    column maps to.
+    """
+    fam = (_AMP_OBS_FAMILY or "").lower()
+    if fam in ("humanoid", "biped"):
+        return resolve_humanoid_joint_perm(articulation)
+    return resolve_canonical_joint_perm(articulation)
+
+
 # Canonical IR role order, parallel to ``CANONICAL_QUAD_LEGS × CANONICAL_QUAD_JOINT_SLOTS``.
 _CANONICAL_QUAD_IR_ROLES: tuple = (
     "hip_FL",   "thigh_FL", "calf_FL",
@@ -435,15 +493,17 @@ def _resolve_joint_perm(wrapper: Any) -> Any:
         return cache["joint_perm"]
 
     robot = wrapper.env.unwrapped.scene["robot"]
-    perm = resolve_canonical_joint_perm(robot)
+    # Family-keyed: quadruped → 12-joint FL/FR/RL/RR; humanoid/biped →
+    # N-joint IR-role order. The launcher pins the family + (humanoid) the
+    # IR-role order via set_amp_obs_family() before training starts.
+    perm = resolve_amp_joint_perm(robot)
     device = _robot_data(wrapper).joint_pos.device
     perm_tensor = _torch.as_tensor(perm, dtype=_torch.long, device=device)
     cache["joint_perm"] = perm_tensor
     print(
-        f"[UnitPort][AMP] amp_obs_terms joint_perm: "
-        f"asset_order={list(robot.joint_names)} → "
-        f"canonical=[FL_hip, FL_thigh, FL_calf, FR_hip, ..., RR_calf] "
-        f"perm={perm}",
+        f"[UnitPort][AMP] amp_obs_terms joint_perm (family="
+        f"{_AMP_OBS_FAMILY or 'quadruped(default)'}): "
+        f"asset_order={list(robot.joint_names)} → canonical perm={perm}",
         flush=True,
     )
     return perm_tensor
@@ -864,5 +924,7 @@ __all__ = [
     "register",
     "resolve_canonical_joint_perm",
     "resolve_humanoid_joint_perm",
+    "resolve_amp_joint_perm",
     "set_canonical_joint_perm_override",
+    "set_amp_obs_family",
 ]

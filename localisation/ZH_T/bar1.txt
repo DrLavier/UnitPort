@@ -1,0 +1,7 @@
+[default]
+headline = 有畫面輸出的訓練通過 GPU BAR1 孔徑渲染，對此次執行而言看起來過小/已飽和。可能會因 GPU device-lost 錯誤而當機。
+title_block = 訓練可能會當機 (GPU BAR1)
+title_warn = GPU 記憶體警告 (BAR1)
+btn_continue = 仍要繼續
+btn_abort = 中止
+

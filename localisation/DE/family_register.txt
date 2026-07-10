@@ -1,0 +1,30 @@
+[default]
+add_role = + Rolle
+alias_none = (keine)
+cancel = Abbrechen
+cascade_title = Kann nicht gelöscht werden
+col_category = Kategorie
+col_id = Rollen-ID
+col_label = Bezeichnung
+col_position = Position
+col_required = Erforderlich
+confirm_delete_body = Benutzer-Overlay-Familie {fid!r} entfernen? Kanonische Familien sind nicht betroffen. Roboter, die auf diese Familie verweisen, verhindern die Löschung.
+confirm_delete_title = Familie löschen
+del_role = − Rolle
+delete = Löschen
+error_duplicate = Familien-ID {fid!r} ist bereits registriert (kanonisch oder in der Benutzerebene).
+error_role_duplicate = Rollen-ID {rid!r} kommt mehr als einmal vor.
+error_role_slug = Rollen-ID {rid!r} muss dem Muster [a-z][a-z0-9_]* entsprechen.
+error_slug = Die Familien-ID muss aus Kleinbuchstaben (ASCII), Ziffern und Unterstrichen bestehen und mit einem Buchstaben beginnen (z. B. 'quadruped_with_tail').
+error_title = Ungültige Eingabe
+id_ph = z. B. quadruped_with_tail
+label_ph = Anzeigename
+save = Speichern
+title_edit = Familie bearbeiten
+title_new = Neue Familie registrieren
+intro = Registrieren Sie eine benutzerdefinierte IR-Familie. Wählen Sie eine Basisfamilie, um deren Rollen zu übernehmen, oder fügen Sie unten zusätzliche Rollen hinzu — beides wird zu einer einzigen Rollenliste zusammengeführt.
+id_label = Familien-ID
+label_label = Bezeichnung
+alias_of_label = Basisfamilie (alias_of)
+roles_section = Zusätzliche Rollen
+

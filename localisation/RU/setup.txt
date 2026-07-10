@@ -1,0 +1,85 @@
+[backend]
+cb_isaac = Включить интеграцию Isaac Lab
+cb_isaac_tip = Isaac Lab обеспечивает GPU-ускоренную симуляцию через NVIDIA Isaac Sim. Вы можете установить его сейчас или указать существующую установку.
+cb_loco = Загрузить библиотеку эталонных движений loco-mujoco
+cb_loco_tip = Сообщественная библиотека эталонных движений для обучения локомоции. Клонирована из github.com/robfiras/loco-mujoco.
+cb_mujoco = Установить MuJoCo (пакет pip)
+cb_mujoco_tip = Требуется для симуляции и обучения на основе MuJoCo.
+cb_ros2 = Установить поддержку ROS2
+cb_ros2_tip = Включает поддержку устройств на базе ROS2 (Unitree Go2, Mangdang Mini Pupper, …). Если доступна нативная установка ROS2 Humble, она будет использована; в противном случае будет собран Docker bridge-образ.
+cloud_auth = Аутентификация:
+cloud_auth_key = SSH-ключ
+cloud_auth_pwd = Пароль
+cloud_hint = Введите данные SSH-подключения к удалённому GPU-серверу. Isaac Lab будет установлен через SSH + SFTP.
+cloud_host = Хост:
+cloud_key_file = Файл ключа:
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	Требуется: Ubuntu 22.04+, NVIDIA GPU, CUDA 12.x, ~30 GB дискового пространства
+cloud_password = Пароль:
+cloud_port = Порт:
+cloud_remote_path = Удалённый путь:
+cloud_server_name = Имя сервера:
+cloud_user = Имя пользователя:
+custom_mod_already_installed = (уже установлено)
+custom_mod_required_suffix = (требуется для {templates})
+custom_mod_required_tip = Требуется для шаблона(ов) canvas: {templates}. Снимайте отметку только если не планируете использовать перечисленные шаблоны — иначе шаблон не загрузится.
+custom_mods_hint = Репозитории сообщественных эталонных движений / AMP, каждый из которых клонируется неглубоко в custom_mods/motions/. Записи, помеченные как обязательные, поддерживают поставляемый шаблон canvas — оставьте их отмеченными, иначе шаблон не загрузится.
+group_custom_mods = Библиотеки эталонных движений
+group_isaac = Isaac Lab (NVIDIA)
+group_mujoco = MuJoCo
+group_ros2 = ROS2
+hint = Настройте симуляционные бэкенды для обучения и исполнения. Снимите отметки с ненужных пунктов, чтобы ускорить настройку.
+install_hint = Выберите каталог установки. Isaac Lab + Isaac Sim будут установлены с выделенным venv внутри этого каталога.
+install_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	Диск: ~30 GB | Требуется: NVIDIA GPU с драйвером CUDA 12.x
+isaac_install_dir_ph = Каталог установки ...
+isaac_invalid = Не удалось проверить Isaac Lab по этому пути — ожидались isaaclab.sh/bat или каталог source/
+isaac_locate_dir_ph = Корневой каталог Isaac Lab ...
+isaac_valid = Обнаружена корректная установка Isaac Lab
+rb_isaac_cloud = Развернуть Isaac Lab на удалённом Linux-сервере (SSH)
+rb_isaac_install = Установить Isaac Lab + Isaac Sim (с нуля)
+rb_isaac_locate = Найти существующую установку Isaac Lab
+ros2_note = Автообнаруживает нативную установку ROS2 (предпочтительна версия Humble). Если установка отсутствует, вместо этого будет собран Docker bridge-образ UnitPort — Docker Desktop / Docker Engine должны быть запущены.
+title = Окружение бэкенда
+
+[data_dir]
+btn_browse = Обзор ...
+hint = Выберите, где UnitPort будет хранить все данные каждого пользователя: проекты, экспортированные политики, токены входа, кэши телеметрии, скачанные движки и оверлей user.ini. Папка установки приложения никогда не изменяется во время выполнения, поэтому именно этот каталог сохраняется при повторных развертываниях / git pull. Вы должны указать абсолютный путь — встроенного значения по умолчанию нет.
+label_dir = Каталог UserConfig:
+note = Этот путь — корень WORKSPACE: подпапки для каждой учётной записи размещаются внутри него (по одной на каждого вошедшего пользователя, плюс _guest/). Выберите абсолютный путь с достаточным объёмом свободного места (скачивание движков может превысить 30 GB).
+placeholder = Выберите абсолютный путь (например D:\\UnitPort)
+status_custom_create = Расположение рабочей области — будет создано по пути {path}
+status_custom_exists = Расположение рабочей области — уже существует по пути {path}
+status_invalid = Неверный путь
+status_relative = Путь должен быть абсолютным (получено: {path}).
+status_required = Обязательно — выберите абсолютный путь к корню рабочей области.
+title = Каталог данных
+btn_reset = Сбросить к значениям по умолчанию
+status_default = Используется расположение по умолчанию.
+
+[language]
+hint = Выберите предпочитаемый язык для UnitPort. Вы сможете изменить его позже через боковую панель.
+ok = Продолжить
+title = Выбрать язык
+
+[menagerie]
+btn_deselect_all = Снять выделение со всех
+btn_refresh = Обновить с GitHub
+btn_select_all = Выбрать все
+hint = Выберите модели роботов из mujoco_menagerie, которые вам нужны. Модели, поддерживаемые UnitPort, предвыбраны. Остальные — необязательны.
+loading = Загрузка списка моделей с GitHub …
+title = Модели MuJoCo Menagerie
+
+[sdk]
+hint = Выберите пакеты SDK для роботов, которые нужно скачать. Будут клонированы только отмеченные элементы. Вы сможете установить дополнительные позже в Настройках.
+title = Пакеты SDK
+
+[wizard]
+btn_back = Назад
+btn_finish = Готово
+btn_next = Далее
+btn_skip = Пропустить настройку
+header_subtitle = Выберите компоненты для установки. Вы сможете изменить их позже в Настройках.
+header_title = Настройка UnitPort
+window_title = UnitPort — Пользовательская настройка
+

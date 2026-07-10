@@ -1,0 +1,30 @@
+[default]
+add_role = + 역할
+alias_none = (없음)
+cancel = 취소
+cascade_title = 삭제할 수 없습니다
+col_category = 카테고리
+col_id = 역할 id
+col_label = 레이블
+col_position = 위치
+col_required = 필수
+confirm_delete_body = 사용자 오버레이 패밀리 {fid!r}을 제거하시겠습니까? 표준(canonical) 패밀리는 영향을 받지 않습니다. 이 패밀리를 참조하는 로봇이 있으면 삭제가 차단됩니다.
+confirm_delete_title = 패밀리 삭제
+del_role = − 역할
+delete = 삭제
+error_duplicate = 패밀리 id {fid!r}은 이미 등록되어 있습니다(정식(canonical) 또는 사용자 레이어).
+error_role_duplicate = 역할 id {rid!r}이 여러 번 나타납니다.
+error_role_slug = 역할 id {rid!r}는 [a-z][a-z0-9_]*와 일치해야 합니다.
+error_slug = 패밀리 id는 소문자 ASCII 문자/숫자/밑줄만 허용되며 문자로 시작해야 합니다(예: 'quadruped_with_tail').
+error_title = 잘못된 입력
+id_ph = 예: quadruped_with_tail
+label_ph = 표시 이름
+save = 저장
+title_edit = 패밀리 편집
+title_new = 새 패밀리 등록
+intro = 사용자 정의 IR 패밀리를 등록하세요. 기본 패밀리를 선택하면 해당 역할을 상속받고, 아래에 추가 역할을 더할 수도 있습니다 — 둘 다 단일 역할 목록으로 레이어되어 관절 매핑에 사용됩니다.
+id_label = 패밀리 ID
+label_label = 레이블
+alias_of_label = 기본 패밀리 (alias_of)
+roles_section = 추가 역할
+

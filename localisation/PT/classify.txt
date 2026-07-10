@@ -1,0 +1,11 @@
+[default]
+cancel = Cancelar
+err_kind = Selecione um tipo de ativo.
+family_any = (qualquer)
+hint = Escolha o tipo de ativo e a família de robôs alvo. Sua escolha será registrada para que o back-end a aplique.
+ok = Registrar
+recorded = Classificação registrada. Ainda não foi aplicada — o processo de back-end irá encaminhar o ativo para o registro correto.
+title = Classificar ativo
+kind = Tipo de ativo
+family = Família do robô
+

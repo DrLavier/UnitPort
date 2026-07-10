@@ -1,0 +1,31 @@
+[default]
+adapter_none = (لا شيء)
+add_family_tip = سجّل عائلة جديدة في تراكب المستخدم
+add_joint = + مفصل
+brand_ph = مثال: unitree
+browse = ...
+browse_title = اختر ملف {kind}
+cancel = إلغاء
+col_joint = اسم المفصل
+col_role = دور IR
+confirm_delete_body = هل تريد إزالة هذا الروبوت من تراكب المستخدم؟ الإدخالات المعتمدة لن تتأثر.
+confirm_delete_title = حذف الروبوت
+del_joint = − مفصل
+delete = حذف
+error_required = العلامة والطراز مطلوبان.
+error_title = إدخال غير صالح
+error_variant_label = تسمية المتغير مطلوبة.
+family_placeholder = اختر العائلة…
+model_ph = مثال: go2
+name_ph = اسم العرض
+path_placeholder = مسار نسبي أو مطلق
+save = حفظ
+variant_label_ph = مثال: Air, Pro, X, Field-Test
+add_family_btn = +
+families = العائلات
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

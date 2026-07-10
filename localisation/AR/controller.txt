@@ -1,0 +1,58 @@
+[conflict]
+action = إجراء للنظام
+channel = قناة أوامر
+msg = {input} مرتبط بالفعل بـ {owner} ({cat}). مدخل مادي واحد يخدم ربطًا واحدًا — قم بفك الربط هناك أولاً، ثم حاول مرة أخرى.
+title = تعارض في الربط
+trigger = مشغل مهارة
+
+[default]
+axis_unbound = — (غير مربوط)
+button_unbound = — (غير مربوط)
+channel_not_bindable = — (غير قابل للربط بعد)
+invert_vy = عكس vy
+invert_vyaw = عكس vyaw
+reset = إعادة تعيين
+off_hint = الإدخال معطَّل. اختر لوحة المفاتيح أو وحدة التحكم أعلاه.
+policy_channels = قنوات أوامر السياسة
+system_actions = الأزرار → إجراءات النظام
+system_actions_keys = المفاتيح → إجراءات النظام
+stale_channels = التعيينات المحفوظة غير موجودة في هذا العقد
+no_policy_hint = لا توجد سياسة محملة. تصبح المهارة التي تؤلفها على Training Motion node قناة قابلة للربط هنا فقط بعد أن تقوم بتدريبها وتصدير السياسة واختيارها في Mission Control · Simulate — المشغِّل هو سلوك مُدرَّب، وليس مجرد تعيين مفتاح. الأزرار أدناه هي إجراءات نظامية (boost / estop / …): متاحة دائمًا ومنفصلة عن أي سياسة، ولهذا السبب فهي ليست على Training Motion node.
+no_contract_hint = هذه السياسة لا تحتوي على قنوات أوامر — أعد تصدير الحزمة بعد تأليف أوامر السرعة أو مهارة على Training Motion node.
+legacy_contract_hint = السياسة المحمَّلة تحتوي على كتلة أوامر قديمة — أعد تصدير الحزمة لربط قنوات الأوامر هنا.
+
+[latch]
+hold = اضغط مع الاستمرار (طالما مضغوط)
+pulse = نبضة (اضغط مرة واحدة)
+unsupported = (لم يوفر جانب التدريب)
+
+[pick]
+button = زر
+mode = الوضع
+
+[axis]
+left_stick_x = العصا اليسرى X
+left_stick_y = العصا اليسرى Y
+right_stick_x = العصا اليمنى X
+right_stick_y = العصا اليمنى Y
+
+[kb]
+forward = أمام
+backward = خلف
+strafe_left = تحرك إلى اليسار
+strafe_right = تحرك إلى اليمين
+yaw_left = التفاف لليسار
+yaw_right = التفاف لليمين
+estop = إيقاف طارئ
+boost = تعزيز
+
+[mode_btn]
+off = إيقاف
+keyboard = لوحة المفاتيح
+gamepad = وحدة التحكم
+
+[mode]
+off = إيقاف
+keyboard = لوحة المفاتيح
+gamepad = وحدة التحكم
+

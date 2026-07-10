@@ -1,0 +1,24 @@
+[btn]
+close = Schließen
+open_log = Log-Ordner öffnen
+retry = Erneut versuchen
+switch_locate = In Suchmodus wechseln
+
+[dialog]
+title = Isaac Lab wird installiert
+
+[heading]
+error = Installation von Isaac Lab fehlgeschlagen
+running = Isaac Lab wird installiert
+success = Isaac Lab installiert
+
+[phase]
+fallback_external = Wechsel zu externem venv (pip-Konflikte festgestellt)
+preflight = Vorbereitung...
+
+[status]
+error_hint = Weitere Details im Log. Sie können es erneut versuchen oder zum Auffinden einer vorhandenen Isaac Lab-Installation wechseln.
+idle = Warte darauf, dass der Installer startet...
+success = Erfolgreich installiert unter: {path}
+success_generic = Installation abgeschlossen
+

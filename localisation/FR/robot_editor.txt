@@ -1,6 +1,6 @@
 [default]
 adapter_none = (aucun)
-add_joint = + Joint
+add_joint = + Articulation
 brand_ph = ex. unitree
 browse = ...
 browse_title = Sélectionner le fichier {kind}
@@ -9,7 +9,7 @@ col_joint = Nom du joint
 col_role = Rôle IR
 confirm_delete_body = Supprimer ce robot de couche utilisateur ? Les entrées canoniques ne seront pas affectées.
 confirm_delete_title = Supprimer le robot
-del_joint = − Joint
+del_joint = − Articulation
 delete = Supprimer
 error_required = La marque et le modèle sont requis.
 error_title = Entrée invalide
@@ -23,4 +23,9 @@ path_placeholder = Chemin relatif ou absolu
 save = Enregistrer
 error_variant_label = L'étiquette de variante est requise.
 variant_label_ph = ex. Air, Pro, X, Field-Test
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
 

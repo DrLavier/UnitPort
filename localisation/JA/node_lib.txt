@@ -1,0 +1,12 @@
+[default]
+empty = ノードが登録されていません
+
+[layer]
+a = 設定
+b = 環境
+c = トレーニング
+d = エクスポート
+il = 模倣学習
+custom = カスタム
+tools = ツール
+

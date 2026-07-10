@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "amp_trainer"
+backends = ["isaac_lab"]  # IsaacLab AMP trainer (il_ppo_trainer alias); SB3 reads neither il_ppo nor il.amp
 kind = "CUSTOM"
 version = "1.0.0"
 category = "training"

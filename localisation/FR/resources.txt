@@ -10,15 +10,21 @@ open_folder_tip = Révéler le dossier de la ressource dans le gestionnaire de f
 retry = Réessayer
 empty_motion = Aucun jeu de données de mouvement pour le moment — cliquez sur « Ajouter une ressource… » pour en télécharger un
 empty_policy = Aucun bundle de politique pour le moment — cliquez sur « Ajouter une ressource… » pour en télécharger un
+empty_model = Aucun modèle de robot enregistré
+empty_canvas = Aucun modèle de canevas trouvé
 unindexed = importé
+classify = Classer…
+remove_confirm = Supprimer cette ressource et ses fichiers ?
 
 [kind]
 motion = Mouvement
 policy = Politique
+model = Modèle
+canvas = Canevas
 
 [transport]
 github_clone = GitHub
-github_release = Release
+github_release = Version
 huggingface = HuggingFace
 
 [status]
@@ -33,6 +39,15 @@ revision = Révision
 subpath = Sous-chemin
 downloaded_at = Date de téléchargement
 size = Taille
+package = Paquet
+subdir = Sous-dossier
+clips = Clips
+sku = SKU
+brand = Marque
+model = Modèle
+families = Familles
+backend = Moteur
+path = Chemin
 
 [dialog]
 title = Ajouter une ressource

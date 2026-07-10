@@ -1,0 +1,25 @@
+[default]
+canvas_saved = Lienzo guardado: {path}
+feature_pending = 
+history_cleared = Historial de entrenamiento borrado
+history_delete_failed = Error al eliminar la ejecución {}
+history_deleted = Ejecución {} eliminada
+history_loaded = Lienzo restaurado desde la ejecución {} — Ctrl+S para guardar
+history_missing = La ejecución [{}] {} ya no existe en el disco
+history_snapshot_missing = La instantánea del lienzo para la ejecución [{}] {} no se encuentra en el disco
+no_project = Ningún proyecto cargado
+policy_missing = Política [{}] {} seleccionada, pero la ruta del bundle no existe en el disco
+policy_no_project = Ningún proyecto cargado
+policy_selected = Política seleccionada: [{}] {}
+ready = UnitPort listo
+template_apply_failed = Error al aplicar el contenido de la plantilla
+template_backend_mismatch = El backend de la plantilla '{tb}' no coincide con el backend actual del lienzo '{cb}'
+template_loaded = Plantilla '{name}' cargada en el lienzo actual — Ctrl+S para guardar
+template_missing = Plantilla no encontrada en el disco
+template_no_backend = A la plantilla le falta el campo backend
+template_no_canvas = Abre un lienzo antes de cargar una plantilla
+template_no_project = Abre un proyecto y un lienzo antes de cargar una plantilla
+template_read_failed = Error al leer la plantilla
+history_no_chart = Ejecución seleccionada: {} (gráfico aún no listo)
+history_selected = Ejecución seleccionada:
+

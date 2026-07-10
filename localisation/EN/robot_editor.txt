@@ -23,4 +23,9 @@ path_placeholder = Relative or absolute path
 save = Save
 error_variant_label = Variant label is required.
 variant_label_ph = e.g. Air, Pro, X, Field-Test
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
 

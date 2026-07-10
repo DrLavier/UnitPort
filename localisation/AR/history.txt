@@ -1,0 +1,10 @@
+[confirm]
+clear_body = يحذف هذا كل مجلد run الموجود تحت <project>/training/runs/ وكل لقطة للوحة الموجودة في _runs_/. لا يمكن التراجع عن هذا.
+clear_title = مسح كل محفوظات التدريب؟
+
+[row]
+delete.tip = حذف هذا الـrun
+
+[default]
+clear_all = مسح الكل
+

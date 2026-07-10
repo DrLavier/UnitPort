@@ -69,29 +69,17 @@ class Postcondition:
 
 
 # ---------------------------------------------------------------------------
-# Command interface (v2 — reactive execution)
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class CommandField:
-    """Single controllable command dimension (e.g. vx, vy, vyaw)."""
-    name: str                           # "vx", "vy", "vyaw"
-    obs_index: int                      # position in observation vector
-    range: Tuple[float, float] = (-1.0, 1.0)
-    default: float = 0.0               # value when no input (= stop)
-
-
-@dataclass(frozen=True)
-class CommandInterface:
-    """Declares how a reactive skill receives real-time commands."""
-    type: str = "velocity_2d"           # "velocity_2d", "velocity_3d", "pose_target"
-    fields: Tuple[CommandField, ...] = ()
-    input_sources: Tuple[str, ...] = ("gamepad", "keyboard", "canvas_signal", "api")
-
-
-# ---------------------------------------------------------------------------
 # SkillManifest
 # ---------------------------------------------------------------------------
+#
+# RETIRED (2026-07): the ``command_interface`` sub-contract (CommandField /
+# CommandInterface, "v2 reactive execution"). It duplicated what
+# ``deploy_contract.commands`` now carries as the v1 CommandContract
+# (channels with name/kind/range/default/obs encodings, single emitter in
+# application/training/command_schema.py). Its only reader — the opt-in
+# ``review_session._resolve_review_command`` helper — reads the contract
+# defaults instead; old bundles that still carry the manifest key load
+# through that helper's §8(c) legacy branch.
 
 @dataclass(frozen=True)
 class SkillManifest:
@@ -133,9 +121,6 @@ class SkillManifest:
     model_path: str = "policy.onnx"
     normalize_obs: bool = False
     normalizer_path: Optional[str] = None
-
-    # --- command interface (v2 — reactive execution) ---
-    command_interface: Optional[CommandInterface] = None
 
     # --- deploy contract (sim2sim fidelity block) ---
     # Populated by manifest_parser.parse_isaac_lab_env_yaml from env.yaml +

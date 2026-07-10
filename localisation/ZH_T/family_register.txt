@@ -1,0 +1,30 @@
+[default]
+add_role = + 角色
+alias_none = (無)
+cancel = 取消
+cascade_title = 無法刪除
+col_category = 類別
+col_id = 角色 ID
+col_label = 標籤
+col_position = 位置
+col_required = 必填
+confirm_delete_body = 要移除使用者覆寫的族群 {fid!r} 嗎？正規族群不受影響。參考此族群的機器人會阻止刪除。
+confirm_delete_title = 刪除族群
+del_role = − 角色
+delete = 刪除
+error_duplicate = 族群 ID {fid!r} 已經註冊（正規或使用者層）。
+error_role_duplicate = 角色 ID {rid!r} 出現超過一次。
+error_role_slug = 角色 ID {rid!r} 必須匹配 [a-z][a-z0-9_]*。
+error_slug = 族群 ID 必須為小寫 ASCII 字母 / 數字 / 底線，且以字母開頭（例如 'quadruped_with_tail'）。
+error_title = 輸入無效
+id_ph = 例如 quadruped_with_tail
+label_ph = 顯示名稱
+save = 儲存
+title_edit = 編輯族群
+title_new = 註冊新族群
+intro = 註冊自訂 IR family。選擇一個 base family 以繼承其 roles，或在下方新增額外 roles — 兩者會疊加成單一 role 列表以進行 joint mapping。
+id_label = Family id
+label_label = 標籤
+alias_of_label = 基底 family (alias_of)
+roles_section = 額外 roles
+

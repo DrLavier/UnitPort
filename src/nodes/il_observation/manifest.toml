@@ -50,6 +50,18 @@ widget = "registry_module"
 description = "特权 critic 观测项 / Privileged critic-only obs (asymmetric AC; e.g. base_lin_vel). 空=对称 (critic=policy). IsaacLab only."
 meta = { registry_id = "il_obs", conditional_on = { key = "backend", op = "==", value = "isaac_lab" } }
 
+# Command Pipe injected obs — render-only READ-ONLY section. Appears only
+# while the command_pipe input is wired to a training_motion node; rows come
+# from the derived CommandContract (obs_encoding.groups — compiler-injected
+# gait obs terms), footer = user + injected dims. Holds NO value (§ frontend:
+# the UI never edits the derived contract); the compiler never reads this key.
+[[parameters]]
+key = "command_injected_obs"
+type = "string"
+default = ""
+widget = "command_injected_obs"
+description = "Command Pipe 注入观测（只读渲染；随 command_pipe 接线出现）"
+
 # obs corruption + the obs-noise curriculum are IsaacLab/rsl_rl-only — the SB3
 # MuJoCo env reads obs noise from domain_rand.obs_noise_std (not these), and has
 # no obs-noise curriculum. Hidden on SB3 canvases. conditional_on isaac_lab.

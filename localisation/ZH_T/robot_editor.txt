@@ -1,0 +1,31 @@
+[default]
+adapter_none = (無)
+add_family_tip = 在使用者覆蓋層註冊新家族
+add_joint = + 關節
+brand_ph = 例如 unitree
+browse = ...
+browse_title = 選擇 {kind} 檔案
+cancel = 取消
+col_joint = 關節名稱
+col_role = IR 角色
+confirm_delete_body = 要移除此使用者層的機器人嗎？標準條目不會受到影響。
+confirm_delete_title = 刪除機器人
+del_joint = − 關節
+delete = 刪除
+error_required = 品牌與型號為必填。
+error_title = 輸入無效
+error_variant_label = 變體標籤為必填。
+family_placeholder = 選擇家族…
+model_ph = 例如 go2
+name_ph = 顯示名稱
+path_placeholder = 相對或絕對路徑
+save = 儲存
+variant_label_ph = 例如 Air、Pro、X、Field-Test
+add_family_btn = +
+families = 系列
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

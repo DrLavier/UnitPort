@@ -213,7 +213,7 @@ class CompatibilityChecker:
             pass
 
         # ── deploy_contract checks ─────────────────────────────────────
-        self._check_deploy_contract(bundle, env, issues)
+        self._check_deploy_contract(bundle, env, issues, robot_sku=robot_sku)
 
         return CompatReport(
             status=_aggregate(issues),
@@ -233,6 +233,8 @@ class CompatibilityChecker:
         bundle: CheckpointBundle,
         env: SimEnvContext,
         issues: List[CompatIssue],
+        *,
+        robot_sku: str,
     ) -> None:
         """Validate the bundle's deploy_contract against bundle/env.
 
@@ -240,7 +242,14 @@ class CompatibilityChecker:
         DC2 (FAIL): len(contract.joint_sdk_names) != bundle.action_dim.
         DC3 (FAIL): sum(t.dim * t.history_length) != bundle.obs_dim.
         DC4 (FAIL): mj_model available AND any joint_sdk_name fails mj_name2id.
+                    (Translates IR roles → physical names via ``robot_sku``.)
         DC5 (WARN): any obs term has history_length > 1 (advisory).
+
+        ``robot_sku`` is the caller-supplied canonical SKU (= manifest.robot.sku);
+        DC4 needs it to translate the contract's IR-role joint names to physical
+        MJCF names. It was previously read as a free variable here — a latent
+        NameError that only the ``mj_model is not None`` path (real deploy /
+        sim2sim, not unit tests with mj_model=None) would hit.
         """
         try:
             contract = bundle.deploy_contract
@@ -366,4 +375,108 @@ class CompatibilityChecker:
                 ),
                 severity=CompatStatus.WARN,
                 field="deploy_contract.observations",
+            ))
+
+        # ── B1 policy contract (PC*) ────────────────────────────────────────
+        # Load-time half of the policy-contract two-gate (export-strict half is
+        # bundle_exporter.assert_policy_contract_consistent). DENYLIST → FAIL,
+        # WARNING → WARN; an absent snapshot (legacy bundle) → skip + WARN
+        # (UniLab "no snapshot → skip"; §8(c)). FAILs flow to CompatStatus.FAIL,
+        # which PolicyRunner.load already raises on — no new raise site.
+        pc = getattr(contract, "policy_contract", None)
+        if pc is None:
+            issues.append(CompatIssue(
+                code="policy_contract_absent",
+                message=(
+                    "deploy_contract carries no policy_contract snapshot (bundle "
+                    "predates B1). Load-checkable policy I/O enforcement is "
+                    "skipped; re-export through the current pipeline to enable it."
+                ),
+                severity=CompatStatus.WARN,
+                field="deploy_contract.policy_contract",
+            ))
+            return
+
+        # PC1 (FAIL): snapshot obs input dim != bundle.obs_dim.
+        if int(pc.policy_input_dim) != int(bundle.obs_dim):
+            issues.append(CompatIssue(
+                code="policy_contract_obs_dim_mismatch",
+                message=(
+                    f"policy_contract.policy_input_dim {pc.policy_input_dim} != "
+                    f"bundle.obs_dim {bundle.obs_dim} — re-export the bundle."
+                ),
+                severity=CompatStatus.FAIL,
+                field="deploy_contract.policy_contract.policy_input_dim",
+            ))
+
+        # PC2 (FAIL): snapshot action output dim != bundle.action_dim.
+        if int(pc.policy_output_dim) != int(bundle.action_dim):
+            issues.append(CompatIssue(
+                code="policy_contract_action_dim_mismatch",
+                message=(
+                    f"policy_contract.policy_output_dim {pc.policy_output_dim} != "
+                    f"bundle.action_dim {bundle.action_dim} — re-export the bundle."
+                ),
+                severity=CompatStatus.FAIL,
+                field="deploy_contract.policy_contract.policy_output_dim",
+            ))
+
+        # PC3 (FAIL): recurrent_shape mirror must agree with contract.recurrent
+        # (both present-and-equal, or both absent).
+        rec = getattr(contract, "recurrent", None)
+        mirror = pc.recurrent_shape
+        if (rec is not None) != (mirror is not None):
+            issues.append(CompatIssue(
+                code="policy_contract_recurrent_mismatch",
+                message=(
+                    f"policy_contract.recurrent_shape present={mirror is not None} "
+                    f"disagrees with deploy_contract.recurrent present="
+                    f"{rec is not None} — re-export the bundle."
+                ),
+                severity=CompatStatus.FAIL,
+                field="deploy_contract.policy_contract.recurrent_shape",
+            ))
+        elif rec is not None and mirror is not None:
+            if (
+                str(mirror.get("rnn_type", "")) != str(rec.rnn_type)
+                or int(mirror.get("hidden_size", 0)) != int(rec.hidden_size)
+                or int(mirror.get("num_layers", 0)) != int(rec.num_layers)
+            ):
+                issues.append(CompatIssue(
+                    code="policy_contract_recurrent_mismatch",
+                    message=(
+                        f"policy_contract.recurrent_shape {mirror} != "
+                        f"deploy_contract.recurrent (rnn_type={rec.rnn_type}, "
+                        f"hidden_size={rec.hidden_size}, num_layers={rec.num_layers}) "
+                        f"— re-export the bundle."
+                    ),
+                    severity=CompatStatus.FAIL,
+                    field="deploy_contract.policy_contract.recurrent_shape",
+                ))
+
+        # PCW3 (WARN): convention / joint-format mirrors disagree with the
+        # manifest top-level (a frozen graph can't be load-checked for these,
+        # so drift is advisory, not fatal).
+        raw_manifest = getattr(bundle, "raw_manifest", None) or {}
+        manifest_conv = str(raw_manifest.get("inference_convention", "") or "")
+        manifest_fmt = str(raw_manifest.get("joint_array_format", "") or "")
+        if pc.inference_convention and manifest_conv and pc.inference_convention != manifest_conv:
+            issues.append(CompatIssue(
+                code="policy_contract_convention_drift",
+                message=(
+                    f"policy_contract.inference_convention {pc.inference_convention!r} "
+                    f"!= manifest.inference_convention {manifest_conv!r}."
+                ),
+                severity=CompatStatus.WARN,
+                field="deploy_contract.policy_contract.inference_convention",
+            ))
+        if pc.joint_array_format and manifest_fmt and pc.joint_array_format != manifest_fmt:
+            issues.append(CompatIssue(
+                code="policy_contract_joint_format_drift",
+                message=(
+                    f"policy_contract.joint_array_format {pc.joint_array_format!r} "
+                    f"!= manifest.joint_array_format {manifest_fmt!r}."
+                ),
+                severity=CompatStatus.WARN,
+                field="deploy_contract.policy_contract.joint_array_format",
             ))

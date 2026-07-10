@@ -1,0 +1,137 @@
+[community]
+current = 現在
+days_ago = {n}日前
+latest = 最新
+releases_loading = リリースを読み込み中…
+today = 今日
+tutorial_coming_soon = 近日公開...
+tutorial_desc = 構築、トレーニング、デプロイのステップバイステップガイド。
+tutorial_title = 公式チュートリアル
+yesterday = 昨日
+title = コミュニティ
+support_us = サポートする
+tutorial_open = リンクを開く
+releases_unavailable = リリースを読み込めませんでした。ネットワークを確認してください。
+releases_empty = まだリリースが公開されていません。
+open_page = ページを開く
+download = ダウンロード
+day_one = 1日前
+
+[create]
+engine_unavailable = 利用不可
+error_create_failed = プロジェクト '{name}' を作成できませんでした（名前が既存のものと衝突している可能性があります — ログを確認してください）。
+error_existing_missing = そのプロジェクトはディスク上に存在しません — リストを更新してもう一度選択してください。
+error_invalid_canvas_name = キャンバス名には英字、数字、'_'、'-' のみ使用できます。
+error_invalid_name = プロジェクト名には英字、数字、'_'、'-' のみ使用できます。
+error_no_backend = 作成する前にバックエンドを選択してください。
+error_no_canvas_name = キャンバス名を入力してください（例: 'main'）。
+error_no_existing = リストから既存のプロジェクトを選択するか、'新規プロジェクト' に切り替えてください。
+error_no_name = まずプロジェクト名を入力してください。
+error_no_template = 作成する前にテンプレート（または 'フリービルド'）を選択してください。
+label_backend = バックエンド
+label_canvas_name = キャンバス名
+label_pick_project = プロジェクトを選択
+label_project_name = プロジェクト名
+label_template = テンプレートを選択
+no_templates = このバックエンドには利用可能なテンプレートがありません。
+placeholder_canvas = 例: main
+placeholder_name = 新規プロジェクト名
+title = 新しいプロジェクトを作成
+btn = キャンバスを作成
+section_project = プロジェクト
+section_canvas = キャンバス
+mode_new = 新規プロジェクト
+mode_existing = プロジェクトへ
+
+[projects]
+btn_open_workspace = ローカルワークスペースを開く →
+col_canvas = キャンバス
+col_project = プロジェクト
+col_robot = ロボット
+cross_user_audit_recorded = {owner} のレビューのためにログに記録されました
+cross_user_copy_failed_body = '{name}' をワークスペースにコピーできませんでした:
+	{err}
+cross_user_copy_failed_title = コピーに失敗しました
+cross_user_delete_warn_body = '{name}' は {owner} の所有です。現在それを削除するとログに記録され、{owner} は次回サインイン時に確認または復元できます。
+	
+	それでも削除しますか？
+cross_user_delete_warn_title = 他のユーザーのキャンバスを削除する
+cross_user_open_body = このキャンバスは {owner} に属しています。独立したバックアップとして自分のワークスペースにコピーするか、元のまま開いてください — 編集 / 削除はすべてログに記録され、{owner} が次回サインインしたときに確認できます。
+cross_user_open_title = 他のユーザーのキャンバスを開く
+delete_confirm_body = '{name}' を完全に削除しますか？
+	
+	これはキャンバスファイルのみを削除します — プロジェクト自体は保持されます。
+delete_confirm_title = キャンバスを削除
+delete_failed_body = '{name}' を削除できませんでした：
+	{err}
+delete_failed_title = 削除に失敗しました
+delete_tooltip = このキャンバスファイルを削除する
+empty = ローカルワークスペースはまだありません — 右側で最初のプロジェクトを作成してください。
+load_tooltip = このキャンバスを開く
+migrate_confirm_body = ワークスペースのルートを
+	{old}
+	から
+	{new}
+	に移動しますか？
+	
+	すべてのプロジェクト、キャンバス、およびユーザーごとのデータが移動されます。完了後にアプリはワークスペースの状態を再読み込みします。
+migrate_confirm_title = ワークスペースを移行する
+migrate_failed_body = ワークスペースを移行できませんでした：
+	{err}
+migrate_failed_title = 移行に失敗しました
+migrate_success_body = ワークスペースのルートは次のとおりです：
+	{path}
+migrate_success_title = 移行が完了しました
+migrate_title = 新しいワークスペースのルートを選択
+refresh_tooltip = ローカルファイルを更新
+reveal_tooltip = フォルダで表示
+robot_unset = —
+search_placeholder = キャンバスを検索…
+snapshot_label = スナップショット：
+time_day_n = {n}日前
+time_hr_n = {n}時間前
+title = Account
+view_all = すべてのワークスペースを表示
+refresh = 更新
+btn_migrate = 移行
+col_user = ユーザー
+col_engine = エンジン
+col_time = 最終更新日時
+col_action = 操作
+status_recent = 最近
+status_idle = 待機中
+engine_unset = —
+engine_mixed = 混合 ({n})
+time_min_one = 1分前
+time_hr_one = 1時間前
+btn_load = 読み込む
+cross_user_open_copy = 自分のワークスペースにコピーする (推奨)
+cross_user_open_inplace = そのまま開く
+cross_user_open_cancel = キャンセル
+time_just_now = たった今
+time_min_n = {n}分前
+time_unknown = —
+time_yesterday = 昨日
+user_guest = ゲスト
+
+[user]
+headline_signed_out = UnitPort Studioへようこそ
+methods_prompt = サインイン方法
+signin_prompt = サインイン / 登録
+sub_signed_out = アカウントにサインインしてプロジェクトを同期し、クラウド機能を利用可能にしてください。
+uuid_copied_toast = UUIDをクリップボードにコピーしました
+uuid_copy_tooltip = UUIDをコピー
+uuid_label = UUID: {uuid}
+welcome_back = お帰りなさい、{name}
+welcome_sub = アカウントを管理し、プロジェクトをデバイス間で同期します。
+title = アカウント
+welcome_back_title = お帰りなさい、
+btn_google = Googleで続行
+btn_github = GitHubで続行
+btn_email = メールで続行
+welcome_back_static = お帰りなさい、
+cloud_usage_label = クラウド使用量
+sign_out = サインアウト
+learn_more = 詳しくはこちら
+workspace_synced = 同期されたワークスペース · プロジェクトはあなたのアカウントにミラーされます
+

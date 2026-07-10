@@ -1,0 +1,23 @@
+[default]
+asset_path = Recurso: {path}
+col_ir = Rol IR
+col_joint = Articulación física
+coverage_gap = ⚠ Brecha entre formatos — No disponible: {affected}
+coverage_ok = ✓ MJCF y USD coinciden — ambos destinos de despliegue disponibles
+coverage_single = Solo se declaró un formato; se omitió la comprobación entre formatos
+height_na = Compensación de altura base: no aplicable (configuración de un solo formato)
+height_uncalibrated = Compensación de altura base: (no calibrada — ejecuta Calibrar desde la tarjeta Robot Asset)
+height_value = Compensación de altura base (USD↔MJCF): {offset}  ·  calibrada {ts}
+legend = Color de fila: <span style='color:#4caf50'>■ coincidente</span> · <span style='color:#ff9800'>■ huérfano (solo en este formato)</span> · <span style='color:#f44336'>■ sin asignar (rol IR vacío)</span> · <span style='color:#9e9e9e'>■ bucket (misceláneo / sensor / base)</span>
+mjcf = MJCF (despliegue MuJoCo)
+no_rows = (no se volcaron articulaciones — haz clic en Volcar en la tarjeta Robot Asset)
+row_summary = Total: {total}  ·  coincidentes: {m}  ·  huérfanos: {o}  ·  sin asignar: {u}  ·  bucket: {b}
+title = Mapeo de articulaciones — {name} (sku={sku})
+usd = USD (IsaacSim / despliegue en la nube)
+
+[tooltip]
+bucket = Rol bucket (misceláneo / sensor* / base) — legítimamente se repite o difiere entre formatos; ignorado por la comprobación de cobertura.
+matched = Rol IR presente en ambas tablas MJCF y USD — el bundle se despliega correctamente.
+orphan = Rol IR declarado solo en este formato — el OTRO destino de despliegue no respetará esta articulación.
+unmapped = Articulación física volcada pero sin rol IR asignado. Abre la tabla Robot Node Body Mapping para asignarlo antes del entrenamiento.
+

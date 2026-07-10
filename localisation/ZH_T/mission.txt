@@ -1,0 +1,186 @@
+[conn]
+btn.connect = 連線
+btn.connecting = 連線中…
+btn.disconnect = 斷開連線
+controller.arm_pending = 機械臂遙控功能將在第6階段推出。
+controller.no_teleop = 此適配器未宣告遙控功能。
+controller.pid_pending = PID 調整介面將在第6階段推出。
+controller.release_control = 釋放控制權
+controller.take_control = 取得控制權
+dialog.section.domain = ROS2 領域 ID
+dialog.section.ssh = SSH 憑證
+dialog.ssh.server = 伺服器: {server}
+dialog.title = 連線設定
+hw.battery = 電量
+hw.no_selection = 未選擇機器人
+hw.temperature = 溫度
+hw.uptime = 運行時長
+level.error = 異常
+level.idle = 待命
+level.ok = 正常
+level.warn = 警告
+middleware.auto_detected = ↳ 自動: {rmw}
+result.fix_tag.invasive = 侵入性
+result.fix_tag.safe = 安全
+result.head.fail = 連線無法完成。
+result.head.ok_clean = 連線已就緒。未發現問題。
+result.head.ok_fixed = 連線已就緒。已自動修復 {n} 個問題。
+result.head.partial = 連線已建立，但有 {n} 個問題需要注意。
+result.invasive.confirm = 將在機器人上執行 {n} 項侵入性修復。這些修復可能會安裝套件或修改永久性設定檔。
+	
+	操作:
+	{summary}
+	
+	要繼續嗎？
+result.invasive.confirm.title = 確認侵入性修復
+result.meta = 自動修復嘗試: {a}   已套用: {ap}   失敗: {fl}   耗時: {d:.1f}s
+result.section.applied = 已套用 (已自動修復)
+result.section.failed = 自動修復期間失敗
+result.section.unresolved_invasive = 未解決 (可使用侵入性修復 — 需您的同意)
+result.section.unresolved_manual = 未解決 (無自動修復 — 需手動處理)
+result.section.unresolved_safe = 未解決 (可安全修復；建議重試)
+result.title.fail = 連線失敗
+result.title.ok = 連線已就緒
+result.title.partial = 連線部分可用 — 建議採取措施
+robot.none = —
+section.controller = 控制器
+ssh.has_password = 密碼✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (無憑證)
+ssh.password = 密碼
+ssh.password.placeholder = (輸入密碼並按「儲存」)
+ssh.sudo = Sudo 密碼
+ssh.sudo.placeholder = (侵入式修復所需)
+ssh.user = SSH 使用者
+state.connected = 已連線
+state.connecting = 連線中…
+state.disconnected = 未連線
+state.error = 錯誤
+state.testing = 測試中…
+title = 實機連線設定
+section.ros2 = ROS2 連線
+section.hardware = 機器人硬體
+section.sensor = 感測器狀態
+field.domain_id = ROS2 網域 ID
+field.middleware = 中介軟體
+field.address = 地址
+field.port = 埠
+btn.test = 測試
+field.brand = 品牌
+field.model = 型號
+field.serial = 序號
+field.firmware = 韌體
+field.battery = 電池
+field.temperature = 溫度
+field.uptime = 運行時間
+sensor.imu = IMU
+sensor.joints = 關節
+sensor.lidar = Lidar
+sensor.camera = 相機
+sensor.torque = 扭矩
+sensor.battery = 電池
+field.state = 連線狀態
+
+[diag]
+repair_invasive = 侵入式修復
+repair_safe = 安全修復
+ssh.context = 伺服器: {server}
+	原因: {reason}
+ssh.err_empty_pw = 需要 SSH 密碼。
+ssh.err_save = 無法儲存認證: {err}
+ssh.headline = 自動修復需要對機器人的 SSH 存取權。
+ssh.pw = SSH 密碼
+ssh.pw_placeholder = 必填
+ssh.sudo = Sudo 密碼
+ssh.sudo_placeholder = 可選 — 若留空則預設為 SSH 密碼
+ssh.title = 需要 SSH 認證
+ssh.user = SSH 使用者
+summary.error = 偵測到錯誤。
+summary.pass = 所有檢查均通過。
+summary.warn = 偵測到警告。
+title = 連線診斷
+
+[sim]
+backend.empty = 沒有模擬後端
+dialog.save_pose.prompt = 預設名稱:
+dialog.save_pose.title = 儲存初始姿勢預設
+field.init_pose_base = 基座位置 [m]
+field.init_pose_enable = 覆寫初始姿勢
+field.init_pose_enable.tip = 以編輯後的數值生成機器人，而非套件的預設值
+field.init_pose_joints = 關節角度 [rad]
+field.init_pose_preset = 預設
+field.preview_physic = 預覽物理模擬
+field.preview_physic.tip = 在檢視機器人期間即時步進物理模擬（僅重力，無致動器）
+init_pose.editor.title = 初始姿勢編輯器
+init_pose.empty = 此 SKU 沒有可用的關節。
+policy.empty = 沒有匯出的策略
+title = 策略模擬
+section.simconfig = 模擬設定
+field.policy = 策略
+field.play_ground = 測試場地
+field.backend = 後端
+btn.run = 執行
+btn.review_robot = 檢視機器人
+section.init_pose = 覆蓋初始姿勢
+btn.edit_pose = 編輯…
+btn.save_pose = 另存為…
+btn.delete_pose = 刪除
+init_pose.custom = 自訂（未儲存）
+
+[train]
+body.col_robot = 機器人
+body.col_role = 角色
+body.menu_oos = 標記為範圍外
+body.menu_restore = 還原（未指派）
+body.menu_unassign = 取消指派
+body.out_of_scope = （範圍外）
+body.unassigned = （未指派）
+field.body_mapping = body_mapping
+placeholder.empty = —
+placeholder.no_canvas = 畫布未載入
+placeholder.no_robot = 沒有機器人節點
+state.failed = 失敗
+state.finished = 已結束
+state.idle = 未運行
+state.paused = 已暫停
+state.running = 運行中
+title = 訓練配置透視
+section.status = 訓練狀態
+section.task = 任務設定
+section.hyper = 超參數
+section.robot = 機器人設定
+field.elapsed = 已耗時間
+field.iterations = 迭代次數
+field.current_reward = 目前獎勵
+field.mean_reward = 平均獎勵
+field.best_reward = 最佳獎勵
+field.episode_length = 平均回合長度
+field.fps = FPS
+field.task_env = 任務後端
+field.task_name = 任務名稱
+field.link = 連結
+field.device = 訓練裝置
+btn.task_configure = 設定任務
+field.lr = 學習率
+field.batch_size = 批次大小
+field.gamma = Gamma
+field.total_timesteps = 總時間步數
+field.ent_coef = 熵係數
+field.seed = 隨機種子
+field.num_envs = 並行環境數
+field.max_iterations = 最大迭代次數
+btn.hyper_edit = 編輯超參數
+field.training_asset = 訓練資產
+field.active_files = 資產檔案
+btn.start = 開始
+btn.pause = 暫停
+btn.stop = 停止
+
+[link]
+local = 本地
+cloud = 雲端
+
+[robot]
+status.loaded = 已載入
+status.missing = 缺少
+

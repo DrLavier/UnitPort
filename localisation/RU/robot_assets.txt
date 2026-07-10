@@ -1,0 +1,61 @@
+[default]
+add_path = Добавить пользовательский путь
+add_robot = Новая модель
+add_tip = Зарегистрировать нового робота или вариант
+add_variant = Новый вариант …
+add_variant_empty = Базовые роботы ещё не зарегистрированы. Сначала добавьте модель.
+cascade_body = На этом роботе зависят пользовательские варианты. Сначала удалите или отсоедините эти варианты.
+	
+	{detail}
+cascade_title = Невозможно удалить
+coming_soon = Скоро будет
+delete = Удалить
+dump = Dump тел / суставов
+dump_disabled = Ни MJCF, ни USD-ассет не доступны (нет локального файла и не указан URL Nucleus)
+dump_done_title = Dump завершён
+dump_error_no_asset = Не удалось разрешить ассет робота для SKU {sku}
+dump_error_persist = Не удалось сохранить обнаруженные тела для {fmt}
+dump_error_validation = Проверка не прошла после записи отображения {fmt}:
+	
+	{exc}
+	
+	Откройте узел Robot на холсте и исправьте помеченные IR-роли суставов/тел, затем выполните re-Dump.
+dump_format_mismatch = 
+	⚠ У {larger_fmt} {larger_n} суставов, а у {smaller_fmt} — {smaller_n}. На обучение это не влияет, но {affected} не будет доступно для бандлов, обученных относительно набора суставов со стороны {larger_fmt}. Если вам нужны оба целевых варианта деплоя, укажите для ассета {smaller_fmt} подходящий вариант (например, для G1 используйте scene_with_hands.xml вместе с g1.usd) и выполните re-Dump.
+edit = Изменить
+edit_canonical_disabled = Канонические роботы доступны только для чтения. Вместо этого добавьте новую пользовательскую запись.
+ignore_package = Игнорировать
+ignore_package_tip = Пропустить этот каталог при последующих проходах Refresh
+inertia_calib_done = Наложение инерции {status}: записано {n} переопределений тел в {rel}.
+inertia_calib_done_title = Калибровка инерции завершена
+inertia_calib_error_title = Калибровка инерции не удалась
+inertia_calib_ignored = {n} тела ниже допуска — см. список ignored_bodies в аудите наложения.
+inertia_calib_offer_body = Сравнивает массу/инерцию каждого тела в тренировочном USD с MuJoCo MJCF и записывает недеструктивное наложение (оригинальный MJCF никогда не изменяется). Это устраняет разрыв IsaacLab→MuJoCo sim2sim для роботов, у которых в MJCF указана заглушечная инерция. Сбор USD может занять 5–30 s.
+inertia_calib_offer_title = Калибровать инерцию из USD?
+menagerie = Menagerie…
+menagerie_tip = Просмотреть и скачать пакеты MuJoCo Menagerie
+no_path = (нет)
+pick_file = Выберите файл {kind}
+pick_parent = Выберите базовую модель, от которой наследует этот вариант:
+refresh_tip = Пересканировать реестр ассетов
+tag_placeholder = Добавить тег...
+view_mapping = Просмотреть сопоставление суставов
+view_mapping_error_title = Сопоставление суставов недоступно
+add_robot_tip = Зарегистрировать нового робота
+dump_error_title = Не удалось создать дамп
+dump_mjcf = Выгрузить тела/суставы MJCF
+dump_mjcf_disabled = MJCF-ресурс недоступен локально
+dump_usd = Выгрузить тела/суставы USD
+dump_usd_disabled = USD-ресурс не объявлен (нет локального пути и нет URL Nucleus)
+
+[status]
+cloud = облако
+local = локально
+missing = отсутствует
+remote = удалённый
+
+[tag]
+canonical = канонический
+cloud = облако
+custom = пользовательский
+

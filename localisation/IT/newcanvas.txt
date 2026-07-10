@@ -1,0 +1,15 @@
+[engine]
+unavailable = non disponibile
+
+[error]
+create_failed = Impossibile creare il progetto '{name}' (vedi il log per i dettagli)
+exists = Il canvas esiste già: {path}
+invalid_name = Il nome del canvas non può essere vuoto (solo lettere, cifre, _ e -)
+invalid_project_name = Il nome del progetto non può essere vuoto (solo lettere, cifre, _ e -)
+no_engine = Scegli un motore di addestramento
+no_project_name = Digita un nome di progetto per selezionarlo o crearne uno
+
+[placeholder]
+canvas = es. main
+project = Digita per cercare progetti
+

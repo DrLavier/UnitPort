@@ -22,7 +22,7 @@ Default mapping (matches the DEMO controller panel rows 1:1):
 from __future__ import annotations
 
 import threading
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from PyQt6.QtCore import Qt
 
@@ -60,8 +60,17 @@ _ACTION_EFFECT = {
 class KeyboardInputSource:
     """Translate Qt key events into CommandBus axis values."""
 
-    def __init__(self, bus: CommandBus, key_map: Optional[Dict[str, int]] = None) -> None:
+    def __init__(
+        self,
+        bus: CommandBus,
+        key_map: Optional[Dict[str, int]] = None,
+        on_estop: Optional[Callable[[], None]] = None,
+    ) -> None:
         self._bus = bus
+        # SYSTEM-channel estop edge callback (Slice 0). Fired once on the
+        # rising edge of the ``estop`` key (Esc); never on the CommandBus. The
+        # bus ``__estop`` flag is kept for back-compat but is not the estop path.
+        self._estop_cb = on_estop
         self._lock = threading.Lock()
         self._bindings: Dict[str, int] = dict(_DEFAULT_BINDINGS)
         if key_map:
@@ -114,8 +123,16 @@ class KeyboardInputSource:
         if not action:
             return
         with self._lock:
+            # Rising edge of estop (ignore key auto-repeat, which re-adds a
+            # held action) → fire the system-channel callback once.
+            fire_estop = action == "estop" and action not in self._held
             self._held.add(action)
             self._publish()
+        if fire_estop and self._estop_cb is not None:
+            try:
+                self._estop_cb()
+            except Exception:  # noqa: BLE001 — estop must never be swallowed loudly here
+                pass
 
     def key_released(self, key: int) -> None:
         action = self._action_for_key(int(key))

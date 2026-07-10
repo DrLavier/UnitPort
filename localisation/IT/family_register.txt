@@ -1,0 +1,30 @@
+[default]
+add_role = + Ruolo
+alias_none = (nessuno)
+cancel = Annulla
+cascade_title = Impossibile eliminare
+col_category = Categoria
+col_id = ID ruolo
+col_label = Etichetta
+col_position = Posizione
+col_required = Obbligatorio
+confirm_delete_body = Rimuovere la famiglia user-overlay {fid!r}? Le famiglie canoniche non saranno interessate. I robot che fanno riferimento a questa famiglia bloccheranno l'eliminazione.
+confirm_delete_title = Elimina famiglia
+del_role = − Ruolo
+delete = Elimina
+error_duplicate = L'ID famiglia {fid!r} è già registrato (canonico o a livello utente).
+error_role_duplicate = L'ID ruolo {rid!r} compare più di una volta.
+error_role_slug = L'ID ruolo {rid!r} deve corrispondere a [a-z][a-z0-9_]*.
+error_slug = L'ID famiglia deve contenere lettere ASCII minuscole / cifre / underscore e iniziare con una lettera (es. 'quadruped_with_tail').
+error_title = Input non valido
+id_ph = es. quadruped_with_tail
+label_ph = Nome visualizzato
+save = Salva
+title_edit = Modifica famiglia
+title_new = Registra nuova famiglia
+intro = Registra una famiglia IR personalizzata. Scegli una famiglia base da cui ereditare i ruoli, oppure aggiungi ruoli aggiuntivi qui sotto — entrambi saranno stratificati in un'unica lista di ruoli per la mappatura congiunta.
+id_label = ID famiglia
+label_label = Etichetta
+alias_of_label = Famiglia base (alias_of)
+roles_section = Ruoli aggiuntivi
+

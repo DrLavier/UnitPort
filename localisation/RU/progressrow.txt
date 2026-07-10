@@ -1,0 +1,21 @@
+[btn]
+new = Создать
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (пусто)
+no_canvas = (нет холста)
+no_project = (нет проекта)
+
+[target]
+cloud = Облако
+local = Локально
+local_ver = Локально ({short})
+
+[tooltip]
+new = Открыть окно выбора нового холста
+start = Начать обучение
+stop = Остановить обучение
+

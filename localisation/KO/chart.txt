@@ -1,0 +1,16 @@
+[empty]
+no_visible_series = 표시된 시리즈가 없습니다
+
+[runs]
+clear = 지우기
+empty = 실행이 없습니다
+n_selected = 
+none_selected = 런 선택
+select_all = 전체 선택
+tag.failed = [실패]
+tag.finished = [완료]
+tag.running = [진행 중]
+
+[series]
+cmd_reward = 명령 보상
+

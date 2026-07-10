@@ -1,0 +1,17 @@
+[banner]
+hash_mismatch = 경고: 공급된 텍스트가 빌드 시 UnitPort가 검증한 SHA256과 다릅니다. 수락하기 전에 업스트림 소스를 검토하세요.
+
+[body]
+missing = (라이선스 텍스트를 찾을 수 없음 — 텍스트가 제공될 때까지 설치가 차단됩니다)
+
+[btn]
+accept = 수락하고 계속
+reject = 거부
+
+[checkbox]
+i_accept = 위의 약관을 읽었으며 동의합니다
+
+[dialog]
+intro = Isaac Lab을 설치하면 Isaac Sim 5.x를 다운로드하고 사용자를 대신해 공식 isaaclab installer를 실행합니다. 아래의 약관을 검토하세요. 계속하려면 각 탭을 모두 수락해야 합니다. 수동으로 설치하려면 취소하고 'Locate existing installation' 옵션을 사용하세요.
+title = Isaac Lab을 설치하기 전에 라이선스를 검토하고 수락하세요
+

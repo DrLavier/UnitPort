@@ -1,0 +1,31 @@
+[default]
+adapter_none = (nessuno)
+add_family_tip = Registra una nuova famiglia nell'overlay utente
+add_joint = + Giunto
+brand_ph = es. unitree
+browse = ...
+browse_title = Seleziona il file {kind}
+cancel = Annulla
+col_joint = Nome del giunto
+col_role = Ruolo IR
+confirm_delete_body = Rimuovere questo robot del layer utente? Le voci canoniche non verranno modificate.
+confirm_delete_title = Elimina robot
+del_joint = − Giunto
+delete = Elimina
+error_required = Marca e modello sono obbligatori.
+error_title = Input non valido
+error_variant_label = L'etichetta della variante è obbligatoria.
+family_placeholder = Seleziona famiglia…
+model_ph = es. go2
+name_ph = Nome visualizzato
+path_placeholder = Percorso relativo o assoluto
+save = Salva
+variant_label_ph = es. Air, Pro, X, Field-Test
+add_family_btn = +
+families = Famiglie
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

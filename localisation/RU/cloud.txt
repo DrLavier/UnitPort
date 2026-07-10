@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = Когда включено, UnitPort отправляет каждый изменённый файл рабочего пространства в облако вскоре после сохранения.
+busy_pull = Загрузка из облака…
+busy_push = Отправка в облако…
+manage_dialog_delete_confirm_body = Безвозвратно удалить '{name}' из облака?
+manage_dialog_delete_confirm_title = Удалить файл из облака
+manage_dialog_dl_conflict_body = Локальный файл уже существует:
+	{path}
+	
+	Что делать?
+manage_dialog_dl_conflict_title = Файл уже существует
+manage_dialog_dl_done_body = Скачано в:
+	{path}
+manage_dialog_dl_done_title = Загрузка завершена
+manage_dialog_dl_overwrite = Перезаписать
+manage_dialog_dl_save_as = Сохранить как…
+manage_dialog_dl_save_as_caption = Сохранить загруженный файл
+manage_dialog_dl_skip = Пропустить
+manage_dialog_empty = В облаке пока нет файлов — попробуйте нажать «Push» или перетащите файл сюда.
+manage_dialog_folder_del_body = Безвозвратно удалить '{name}' и все {n} файлов внутри из облака?
+manage_dialog_folder_del_title = Удалить папку
+manage_dialog_folder_dl_all_skipped = Все файлы уже существуют локально — ничего не было скачано.
+manage_dialog_folder_dl_body = Скачать {n} файлов из '{name}' в локальное рабочее пространство?
+manage_dialog_folder_dl_replace = Заменить существующие
+manage_dialog_folder_dl_skip_existing = Пропустить существующие
+manage_dialog_folder_dl_title = Скачать папку
+manage_dialog_folder_summary = {n} элементов · {size}
+manage_dialog_loading = Загрузка…
+manage_dialog_not_signed_in = Сначала войдите, чтобы управлять облачным хранилищем.
+manage_dialog_op_failed_body = {phase} завершился с ошибкой:
+	{err}
+manage_dialog_op_failed_title = Операция не выполнена
+manage_dialog_oversize_body = Файлы размером более 50 MB нельзя загрузить:
+	{names}
+manage_dialog_oversize_title = Файл слишком большой
+manage_dialog_quota = Использовано {used} / {total}
+manage_dialog_title = Управление облачным хранилищем
+manage_tooltip = Управление настройками синхронизации с облаком и хранимыми файлами
+never_synced = никогда
+pull_tooltip = Скачать файлы из облака в локальное рабочее пространство
+push_tooltip = Загрузить файлы локального рабочего пространства в облако
+status_error = Синхронизация не удалась: {msg}
+status_signed_out = Войдите, чтобы включить синхронизацию с облаком
+status_synced = Синхронизировано {n} файлов · последняя синхронизация {when}
+section_title = Синхронизация с облаком
+push_button = Отправить
+pull_button = Загрузить
+manage_button = Управление
+manage_coming_soon = Диалог управления облаком скоро появится.
+manage_dialog_refresh = Обновить
+manage_dialog_close = Закрыть
+manage_dialog_uploading = Загрузка {name}…
+manage_dialog_deleting = Удаление…
+manage_dialog_downloading = Скачивание…
+download_tooltip = Скачать в локальное рабочее пространство
+delete_tooltip = Удалить из облака
+folder_download_tooltip = Скачать все файлы в этой папке
+folder_delete_tooltip = Удалить эту папку и все файлы внутри
+auto_push_label = Авто-отправка
+status_idle = Ожидание
+status_pushing = Отправка... {done}/{total}
+status_pulling = Загрузка... {done}/{total}
+status_self_check = В облаке {n} объектов
+status_no_remote = Облако пусто
+status_size_skip = Пропущено {n} файл(ов) размером более 50 МБ
+busy_self_check = Проверка состояния облака...
+done_push = Отправлено {ok}/{total} файлов. Пропущено {skipped}.
+done_pull = Загружено {ok}/{total} файлов. Пропущено {skipped}.
+

@@ -1,0 +1,31 @@
+[default]
+adapter_none = (없음)
+add_family_tip = 사용자 오버레이에 새 제품군 등록
+add_joint = + 관절
+brand_ph = 예: unitree
+browse = ...
+browse_title = {kind} 파일 선택
+cancel = 취소
+col_joint = 관절 이름
+col_role = IR 역할
+confirm_delete_body = 이 사용자 오버레이 로봇을 제거하시겠습니까? 표준 항목은 영향을 받지 않습니다.
+confirm_delete_title = 로봇 삭제
+del_joint = − 관절
+delete = 삭제
+error_required = 브랜드와 모델은 필수입니다.
+error_title = 잘못된 입력
+error_variant_label = 변형 레이블은 필수입니다.
+family_placeholder = 제품군 선택…
+model_ph = 예: go2
+name_ph = 표시 이름
+path_placeholder = 상대 경로 또는 절대 경로
+save = 저장
+variant_label_ph = 예: Air, Pro, X, Field-Test
+add_family_btn = +
+families = 제품군
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

@@ -54,12 +54,12 @@ title = Rewards
 
 [terminations]
 tip = Termination preset modules
-short = Termins
+short = Terminations
 title = Terminations
 
 [observations]
 tip = Observation preset modules
-short = Observs
+short = Observations
 title = Observations
 
 [training]

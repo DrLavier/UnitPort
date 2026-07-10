@@ -1,0 +1,6 @@
+[default]
+cancel = Abbrechen
+current_canvas = aktuelle Leinwand
+empty = (keine)
+ok = OK
+

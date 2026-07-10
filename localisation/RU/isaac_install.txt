@@ -1,0 +1,24 @@
+[btn]
+close = Закрыть
+open_log = Открыть папку с логами
+retry = Повторить
+switch_locate = Переключиться в режим поиска
+
+[dialog]
+title = Установка Isaac Lab
+
+[heading]
+error = Установка Isaac Lab не удалась
+running = Установка Isaac Lab
+success = Isaac Lab установлен
+
+[phase]
+fallback_external = Переключение на внешний venv (обнаружены конфликты pip)
+preflight = Подготовка...
+
+[status]
+error_hint = См. лог для подробных сведений. Вы можете повторить попытку или переключиться в режим поиска существующей установки Isaac Lab.
+idle = Ожидание запуска установщика...
+success = Успешно установлено в: {path}
+success_generic = Установка завершена
+

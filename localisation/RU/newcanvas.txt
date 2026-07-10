@@ -1,0 +1,15 @@
+[engine]
+unavailable = недоступно
+
+[error]
+create_failed = Не удалось создать проект '{name}' (см. журнал для деталей)
+exists = Canvas уже существует: {path}
+invalid_name = Имя Canvas не должно быть пустым (только буквы, цифры, _ и -)
+invalid_project_name = Имя проекта не должно быть пустым (только буквы, цифры, _ и -)
+no_engine = Выберите движок обучения
+no_project_name = Введите имя проекта, чтобы выбрать или создать
+
+[placeholder]
+canvas = например main
+project = Введите для поиска проектов
+

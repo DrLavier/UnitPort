@@ -1,0 +1,11 @@
+[dtype]
+both = 标量/列表
+list = 列表
+scalar = 标量
+
+[err]
+dup_item = 名为 '{name}' 的项目已存在。
+
+[review_motion]
+submitted = Review Motion 已启动（MuJoCo 非物理回放）…
+

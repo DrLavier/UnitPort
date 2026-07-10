@@ -92,6 +92,20 @@ class CanvasScene(QGraphicsScene):
         """注入右键菜单回调；signature: (event) -> QMenu | None."""
         self._context_menu_provider = provider
 
+    def notify_edge_changed(self) -> None:
+        """ConnectionItem attach/disconnect 收口点 → 页面级边变更信号.
+
+        边的建立既可能走 CanvasPage._connect_raw（加载 / undo）也可能走
+        PortDragController.release（交互拖线），断开同样多入口 —— 统一由
+        ConnectionItem 本体在两端 port 列表变更后调本方法，保证任何路径
+        都触发 AppSignals.canvas_edge_changed。
+        """
+        page = getattr(self, "_page_ref", None)
+        if page is not None:
+            emit = getattr(page, "_emit_edge_changed", None)
+            if emit is not None:
+                emit()
+
     # ---- DEMO-aligned graph serialization ----
 
     def serialize_training_graph(self, *, for_compiler: bool = True) -> Optional[Dict[str, Any]]:
@@ -159,6 +173,10 @@ class CanvasScene(QGraphicsScene):
                     except Exception:
                         pass  # spawn 失败兜底 → 走默认 super
             if self._port_drag.try_press(event.scenePos()):
+                # Record press context for click-on-port detection at
+                # release time (press + ≤6px movement + no edge = click).
+                self._port_press_pos = event.scenePos()
+                self._port_press_port = self._port_drag.start_port
                 event.accept()
                 return
         super().mousePressEvent(event)
@@ -204,8 +222,46 @@ class CanvasScene(QGraphicsScene):
                         except Exception:
                             # undo bookkeeping 失败不该阻塞连线本身
                             pass
+            else:
+                self._maybe_open_port_inspector(event)
+            self._port_press_pos = None
+            self._port_press_port = None
             return
         super().mouseReleaseEvent(event)
+
+    def _maybe_open_port_inspector(self, event: QGraphicsSceneMouseEvent) -> None:
+        """Click（press + ≤6px 位移 release、未成边）在 training_motion 的
+        ``command_pipe`` 输出端口上 → 打开 Command Pipe Inspector 弹窗。"""
+        press_pos = getattr(self, "_port_press_pos", None)
+        port = getattr(self, "_port_press_port", None)
+        if press_pos is None or port is None:
+            return
+        delta = event.scenePos() - press_pos
+        if abs(delta.x()) + abs(delta.y()) > 6.0:
+            return
+        if getattr(port, "direction", "") != "out":
+            return
+        if str(getattr(port, "port_name", "") or "") != "command_pipe":
+            return
+        node = port.parent_node()
+        if node is None:
+            return
+        if str(getattr(getattr(node, "manifest", None), "id", "") or "") != "training_motion":
+            return
+        views = self.views()
+        if not views:
+            return
+        view = views[0]
+        try:
+            vp = view.mapFromScene(port.scenePos())
+            global_pos = view.viewport().mapToGlobal(vp)
+        except Exception:
+            return
+        from PyQt6.QtCore import QPoint
+        from .command_pipe_inspector import open_command_pipe_inspector
+        open_command_pipe_inspector(
+            self, node, QPoint(global_pos.x() + 12, global_pos.y() + 8)
+        )
 
     # ---- 右键菜单 ----
 

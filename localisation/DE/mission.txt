@@ -1,0 +1,186 @@
+[conn]
+btn.connect = Verbinden
+btn.connecting = Verbinden…
+btn.disconnect = Trennen
+controller.arm_pending = Arm-Teleop ist in Phase 6 verfügbar.
+controller.no_teleop = Dieser Adapter gibt keine Teleop-Fähigkeit an.
+controller.pid_pending = PID-Tuning-UI ist in Phase 6 verfügbar.
+controller.release_control = Steuerung freigeben
+controller.take_control = Steuerung übernehmen
+dialog.section.domain = ROS2-Domain-ID
+dialog.section.ssh = SSH-Zugangsdaten
+dialog.ssh.server = Server: {server}
+dialog.title = Verbindungseinstellungen
+hw.battery = Batteriestand
+hw.no_selection = Kein Roboter ausgewählt
+hw.temperature = Temperatur
+hw.uptime = Betriebsdauer
+level.error = Fehler
+level.idle = Standby
+level.ok = Normal
+level.warn = Warnung
+middleware.auto_detected = ↳ Automatisch: {rmw}
+result.fix_tag.invasive = invasiv
+result.fix_tag.safe = sicher
+result.head.fail = Verbindung konnte nicht hergestellt werden.
+result.head.ok_clean = Verbindung bereit. Keine Probleme festgestellt.
+result.head.ok_fixed = Verbindung bereit. {n} Problem(e) automatisch behoben.
+result.head.partial = Verbindung aktiv, aber {n} Problem(e) erfordern Aufmerksamkeit.
+result.invasive.confirm = Gleich werden {n} invasive Reparaturen am Roboter ausgeführt. Diese können Pakete installieren oder persistente Konfigurationsdateien ändern.
+	
+	Aktionen:
+	{summary}
+	
+	Fortfahren?
+result.invasive.confirm.title = Invasive Reparatur bestätigen
+result.meta = Auto-Reparaturversuche: {a}   Angewendet: {ap}   Fehlgeschlagen: {fl}   Dauer: {d:.1f}s
+result.section.applied = Angewendet (automatisch behoben)
+result.section.failed = Fehler während der Auto-Reparatur
+result.section.unresolved_invasive = Offen (invasive Reparatur verfügbar — benötigt Ihre Zustimmung)
+result.section.unresolved_manual = Offen (keine automatische Lösung — manuelle Maßnahmen erforderlich)
+result.section.unresolved_safe = Offen (sicher behebbar; erneuten Versuch erwägen)
+result.title.fail = Verbindung fehlgeschlagen
+result.title.ok = Verbindung bereit
+result.title.partial = Verbindung teilweise — Aktion empfohlen
+robot.none = —
+section.controller = Controller
+ssh.has_password = pw✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (keine Zugangsdaten)
+ssh.password = Passwort
+ssh.password.placeholder = (Passwort eingeben und auf „Speichern“ drücken)
+ssh.sudo = Sudo-Passwort
+ssh.sudo.placeholder = (wird für invasive Reparaturen benötigt)
+ssh.user = SSH-Benutzer
+state.connected = Verbunden
+state.connecting = Verbinden…
+state.disconnected = Nicht verbunden
+state.error = Fehler
+state.testing = Test läuft…
+title = Konfiguration der Echtgerätverbindung
+section.ros2 = ROS2-Verbindung
+section.hardware = Roboter-Hardware
+section.sensor = Sensorstatus
+field.domain_id = ROS2-Domain-ID
+field.middleware = Middleware
+field.address = Adresse
+field.port = Port
+btn.test = Test
+field.brand = Hersteller
+field.model = Modell
+field.serial = Seriennummer
+field.firmware = Firmware
+field.battery = Batterie
+field.temperature = Temperatur
+field.uptime = Betriebszeit
+sensor.imu = IMU
+sensor.joints = Gelenke
+sensor.lidar = Lidar
+sensor.camera = Kamera
+sensor.torque = Drehmoment
+sensor.battery = Batterie
+field.state = Verbindungsstatus
+
+[diag]
+repair_invasive = Invasive Reparatur
+repair_safe = Schonende Reparatur
+ssh.context = Server: {server}
+	Grund: {reason}
+ssh.err_empty_pw = SSH-Passwort ist erforderlich.
+ssh.err_save = Zugangsdaten konnten nicht gespeichert werden: {err}
+ssh.headline = Die automatische Reparatur benötigt SSH-Zugriff auf den Roboter.
+ssh.pw = SSH-Passwort
+ssh.pw_placeholder = erforderlich
+ssh.sudo = Sudo-Passwort
+ssh.sudo_placeholder = optional — standardmäßig SSH-Passwort, falls leer
+ssh.title = SSH-Zugangsdaten erforderlich
+ssh.user = SSH-Benutzer
+summary.error = Fehler festgestellt.
+summary.pass = Alle Prüfungen bestanden.
+summary.warn = Warnungen festgestellt.
+title = Verbindungsdiagnose
+
+[sim]
+backend.empty = Kein Simulations-Backend
+dialog.save_pose.prompt = Vorgabename:
+dialog.save_pose.title = Initialpose-Vorgabe speichern
+field.init_pose_base = Basisposition [m]
+field.init_pose_enable = Initialpose überschreiben
+field.init_pose_enable.tip = Roboter aus den bearbeiteten Werten erstellen statt aus den Bundle-Standardeinstellungen
+field.init_pose_joints = Gelenkwinkel [rad]
+field.init_pose_preset = Vorgabe
+field.preview_physic = Physikvorschau
+field.preview_physic.tip = Physik live während „Review Robot“ ausführen (nur Schwerkraft, keine Aktuatoren)
+init_pose.editor.title = Init-Pose-Editor
+init_pose.empty = Für dieses SKU sind keine Gelenke verfügbar.
+policy.empty = Keine exportierten Policies
+title = Policy-Simulation
+section.simconfig = Sim-Konfiguration
+field.policy = Policy
+field.play_ground = Testumgebung
+field.backend = Backend
+btn.run = Ausführen
+btn.review_robot = Roboter überprüfen
+section.init_pose = Init Pose überschreiben
+btn.edit_pose = Bearbeiten…
+btn.save_pose = Speichern unter…
+btn.delete_pose = Löschen
+init_pose.custom = Benutzerdefiniert (nicht gespeichert)
+
+[train]
+body.col_robot = Roboter
+body.col_role = Rolle
+body.menu_oos = Als außerhalb des Umfangs markieren
+body.menu_restore = Wiederherstellen (Unzugeordnet)
+body.menu_unassign = Zuweisung aufheben
+body.out_of_scope = (Außerhalb des Umfangs)
+body.unassigned = (Unzugeordnet)
+field.body_mapping = body_mapping
+placeholder.empty = —
+placeholder.no_canvas = Canvas nicht geladen
+placeholder.no_robot = Kein Roboterknoten
+state.failed = Fehlgeschlagen
+state.finished = Beendet
+state.idle = Nicht ausgeführt
+state.paused = Pausiert
+state.running = Läuft
+title = Trainingskonfigurationsansicht
+section.status = Trainingsstatus
+section.task = Task-Konfiguration
+section.hyper = Hyperparameter
+section.robot = Roboter-Konfiguration
+field.elapsed = Verstrichene Zeit
+field.iterations = Iterationen
+field.current_reward = Aktuelle Belohnung
+field.mean_reward = Durchschnittliche Belohnung
+field.best_reward = Beste Belohnung
+field.episode_length = Durchschnittliche Episodenlänge
+field.fps = FPS
+field.task_env = Task-Backend
+field.task_name = Task-Name
+field.link = Link
+field.device = Trainingsgerät
+btn.task_configure = Task konfigurieren
+field.lr = Lernrate
+field.batch_size = Batch-Größe
+field.gamma = Gamma
+field.total_timesteps = Gesamte Timesteps
+field.ent_coef = Entropie-Koeffizient
+field.seed = Zufalls-Seed
+field.num_envs = Parallele Umgebungen
+field.max_iterations = Maximale Iterationen
+btn.hyper_edit = Hyperparameter bearbeiten
+field.training_asset = Trainings-Asset
+field.active_files = Asset-Dateien
+btn.start = Start
+btn.pause = Pause
+btn.stop = Stopp
+
+[link]
+local = Lokal
+cloud = Cloud
+
+[robot]
+status.loaded = Geladen
+status.missing = Fehlt
+

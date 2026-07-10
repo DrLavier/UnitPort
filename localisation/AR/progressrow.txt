@@ -1,0 +1,21 @@
+[btn]
+new = جديد
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (فارغ)
+no_canvas = (لا توجد لوحة)
+no_project = (لا يوجد مشروع)
+
+[target]
+cloud = السحابة
+local = محلي
+local_ver = محلي ({short})
+
+[tooltip]
+new = افتح أداة اختيار اللوحة الجديدة
+start = ابدأ التدريب
+stop = أوقف التدريب
+

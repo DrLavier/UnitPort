@@ -3,6 +3,32 @@ invert_vy = Inverser vy
 invert_vyaw = Inverser vyaw
 reset = Réinitialiser
 off_hint = Entrée désactivée. Choisissez Clavier ou Manette ci-dessus.
+axis_unbound = — (non lié)
+button_unbound = — (non lié)
+channel_not_bindable = — (pas encore liable)
+policy_channels = Canaux de commande de la politique
+system_actions = Boutons → Actions système
+system_actions_keys = Touches → Actions système
+stale_channels = Liaisons enregistrées absentes de ce contrat
+no_policy_hint = Aucune politique chargée. Une compétence (skill) créée sur le nœud Training Motion ne devient un canal liable ICI qu'après avoir entraîné + exporté une politique et l'avoir sélectionnée dans Mission Control · Simulate — un déclencheur est un comportement entraîné, pas un simple mappage de touche. Les boutons ci-dessous sont des actions système (boost / estop / …) : toujours disponibles, indépendantes de toute politique — c'est pourquoi elles ne sont pas sur le nœud Training Motion.
+no_contract_hint = Cette politique n'a aucun canal de commande — réexportez le bundle après avoir créé des commandes de vitesse ou une compétence sur le nœud Training Motion.
+legacy_contract_hint = La politique chargée porte un bloc commands hérité — réexportez le bundle pour lier les canaux ici.
+
+[pick]
+button = Bouton
+mode = Mode
+
+[latch]
+pulse = Pulse (une pression)
+hold = Hold (maintenu)
+unsupported = (non fourni côté entraînement)
+
+[conflict]
+title = Conflit de liaison
+msg = {input} est déjà lié à {owner} ({cat}). Une entrée physique sert une seule liaison — déliez-la d'abord, puis réessayez.
+action = une action système
+trigger = un déclencheur de compétence
+channel = un canal de commande
 
 [mode]
 off = Désactivé
@@ -23,3 +49,10 @@ yaw_left = Lacet gauche
 yaw_right = Lacet droit
 estop = Arrêt d'urgence
 boost = Boost
+
+[axis]
+left_stick_x = Stick G X
+left_stick_y = Stick G Y
+right_stick_x = Joystick D X
+right_stick_y = Joystick D Y
+

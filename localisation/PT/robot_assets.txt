@@ -1,0 +1,61 @@
+[default]
+add_path = Adicionar um caminho personalizado
+add_robot = Novo modelo
+add_tip = Registar um novo robô ou variante
+add_variant = Nova variante de …
+add_variant_empty = Ainda não há robôs base registados. Adicione primeiro um modelo.
+cascade_body = Este robô tem variantes de utilizador que dependem dele. Apague ou desvincule primeiro as variantes.
+	
+	{detail}
+cascade_title = Não é possível eliminar
+coming_soon = Em breve
+delete = Eliminar
+dump = Exportar corpos / articulações
+dump_disabled = Nem o ativo MJCF nem o USD estão disponíveis (sem ficheiro local e sem URL do Nucleus declarada)
+dump_done_title = Exportação concluída
+dump_error_no_asset = Não é possível resolver o ativo do robô para o SKU {sku}
+dump_error_persist = Falha ao persistir corpos descobertos para {fmt}
+dump_error_validation = Validação falhou depois de escrever o mapeamento {fmt}:
+	
+	{exc}
+	
+	Abra o nó Robot no canvas e corrija os papéis IR assinalados de junta/corpo, depois volte a Exportar.
+dump_format_mismatch = 
+	⚠ {larger_fmt} tem {larger_n} juntas, mas {smaller_fmt} tem {smaller_n}. O treino não é afetado, mas {affected} não estará disponível para bundles treinados com base no conjunto de juntas do lado {larger_fmt}. Se precisar de ambos os alvos de implantação, aponte o ativo {smaller_fmt} para uma variante correspondente (por exemplo, para G1 use scene_with_hands.xml juntamente com g1.usd) e volte a Exportar.
+edit = Editar
+edit_canonical_disabled = Robôs canónicos são apenas leitura. Em vez disso, adicione uma nova entrada de utilizador.
+ignore_package = Ignorar
+ignore_package_tip = Ignorar este diretório nas próximas varreduras de atualização
+inertia_calib_done = Sobreposição de inércia {status}: {n} alteração(ões) de corpo(s) gravada(s) em {rel}.
+inertia_calib_done_title = Calibração de inércia concluída
+inertia_calib_error_title = Falha na calibração de inércia
+inertia_calib_ignored = {n} corpo(s) abaixo da tolerância — veja a lista de auditoria ignored_bodies da sobreposição.
+inertia_calib_offer_body = Compare a massa/inércia por corpo do USD de treino com o MJCF do MuJoCo e escreva uma sobreposição não destrutiva (o MJCF original nunca é alterado). Isto fecha a lacuna sim2sim IsaacLab→MuJoCo para robôs cujo MJCF contém inércia provisória. A extração do USD pode demorar 5–30 s.
+inertia_calib_offer_title = Calibrar a inércia a partir do USD?
+menagerie = Menagerie…
+menagerie_tip = Procurar e descarregar pacotes MuJoCo Menagerie
+no_path = (nenhum)
+pick_file = Escolha um ficheiro {kind}
+pick_parent = Escolha o modelo base do qual esta variante herda:
+refresh_tip = Reescanear o registo de ativos
+tag_placeholder = Adicionar etiqueta...
+view_mapping = Ver mapeamento de articulações
+view_mapping_error_title = Mapeamento de articulações indisponível
+add_robot_tip = Registrar um novo robô
+dump_error_title = Falha na exportação
+dump_mjcf = Exportar corpos / juntas MJCF
+dump_mjcf_disabled = Ativo MJCF não disponível localmente
+dump_usd = Exportar corpos / juntas USD
+dump_usd_disabled = Ativo USD não declarado (sem caminho local e sem URL do Nucleus)
+
+[status]
+cloud = nuvem
+local = local
+missing = em falta
+remote = remoto
+
+[tag]
+canonical = canónico
+cloud = nuvem
+custom = personalizado
+

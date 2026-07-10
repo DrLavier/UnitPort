@@ -1,0 +1,30 @@
+[default]
+add_role = + Rol
+alias_none = (ninguno)
+cancel = Cancelar
+cascade_title = No se puede eliminar
+col_category = Categoría
+col_id = ID de rol
+col_label = Etiqueta
+col_position = Posición
+col_required = Obligatorio
+confirm_delete_body = ¿Eliminar la familia user-overlay {fid!r}? Las familias canónicas no se verán afectadas. Los robots que hagan referencia a esta familia impedirán la eliminación.
+confirm_delete_title = Eliminar familia
+del_role = − Rol
+delete = Eliminar
+error_duplicate = El ID de la familia {fid!r} ya está registrado (canónica o en la capa de usuario).
+error_role_duplicate = El id de rol {rid!r} aparece más de una vez.
+error_role_slug = El id de rol {rid!r} debe coincidir con [a-z][a-z0-9_]*.
+error_slug = El id de la familia debe usar letras ASCII minúsculas / dígitos / guiones bajos y comenzar con una letra (p. ej. 'quadruped_with_tail').
+error_title = Entrada no válida
+id_ph = p. ej. quadruped_with_tail
+label_ph = Nombre para mostrar
+save = Guardar
+title_edit = Editar familia
+title_new = Registrar nueva familia
+intro = Registra una familia IR personalizada. Elige una familia base para heredar sus roles, o añade roles adicionales abajo — ambos se combinan en una única lista de roles para el mapeo conjunto.
+id_label = Id de familia
+label_label = Etiqueta
+alias_of_label = Familia base (alias_of)
+roles_section = Roles adicionales
+

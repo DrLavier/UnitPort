@@ -1,0 +1,7 @@
+[default]
+action = Iniciar servidor en la nube y ejecutar el volcado
+body = UnitPort necesita la topología del cuerpo en USD para cada robot estándar (Unitree Go2, Boston Dynamics Spot, Unitree H1, etc.) para que los sensores de contacto, la pre-realización del canvas y la validación de entrenamiento puedan conectarse de forma fiable. La ruta de volcado local requiere una instalación local de IsaacLab; solo tiene configurados servidores IsaacLab en la nube. Inicie su servidor en la nube y, a continuación, haga clic en el botón de abajo para ejecutar el volcado de forma remota.
+dismiss = Cerrar
+headline = Las tablas USD de cuerpos de robots estándar no se han volcado en esta instalación.
+window_title = IsaacLab en la nube — se requiere volcado de cuerpos USD
+

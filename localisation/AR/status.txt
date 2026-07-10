@@ -1,0 +1,25 @@
+[default]
+canvas_saved = تم حفظ اللوحة: {path}
+feature_pending = 
+history_cleared = تم مسح سجل التدريب
+history_delete_failed = فشل حذف التشغيل {}
+history_deleted = تم حذف التشغيل {}
+history_loaded = تم استعادة اللوحة من التشغيل {} — اضغط Ctrl+S لحفظها
+history_missing = التشغيل [{}] {} لم يعد موجودًا على القرص
+history_snapshot_missing = لقطة اللوحة للتشغيل [{}] {} مفقودة على القرص
+no_project = لا يوجد مشروع محمّل
+policy_missing = السياسة [{}] {} محددة، لكن مسار الحزمة مفقود على القرص
+policy_no_project = لا يوجد مشروع محمّل
+policy_selected = السياسة المحددة: [{}] {}
+ready = UnitPort جاهز
+template_apply_failed = فشل تطبيق محتوى القالب
+template_backend_mismatch = خلفية القالب '{tb}' لا تتطابق مع خلفية اللوحة الحالية '{cb}'
+template_loaded = تم تحميل القالب '{name}' إلى اللوحة الحالية — اضغط Ctrl+S للحفظ
+template_missing = القالب غير موجود على القرص
+template_no_backend = القالب يفتقد حقل الخلفية
+template_no_canvas = افتح لوحة قبل تحميل القالب
+template_no_project = افتح مشروعًا ولوحة قبل تحميل القالب
+template_read_failed = فشل في قراءة القالب
+history_no_chart = التشغيل المحدد: {} (المخطط غير جاهز)
+history_selected = التشغيل المحدد:
+

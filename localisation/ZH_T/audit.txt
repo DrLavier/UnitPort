@@ -1,0 +1,23 @@
+[review]
+actor_line = {actor}
+btn_accept = 接受
+btn_reject = 拒絕
+btn_reject_all = 全部拒絕
+dialog_intro = 在您登出期間，本機的其他使用者對您工作區中的檔案做了 {n} 項變更。請檢視每一項並選擇 接受（保留他們的變更）或 拒絕（從您的雲端副本還原）。
+dialog_title = 其他使用者的待處理變更
+file_line = {path}
+op_delete = 已刪除
+op_overwrite = 已編輯
+reject_confirm_body = 這會從您的雲端命名空間抓取 '{name}' 的先前版本並覆寫本機檔案。
+	
+	要繼續嗎？
+reject_confirm_title = 從雲端還原？
+reject_failed_network = 從雲端擷取失敗（網路或驗證錯誤）： {err}
+reject_failed_no_cloud = 沒有可用的雲端副本 — 無法拒絕。（此檔案曾經同步過嗎？）
+time_line = {time}
+btn_accept_all = 全部接受
+btn_later = 稍後決定
+reject_success_cloud = 已從雲端還原
+accept_confirm_body = 保留 {actor} 的 {op} 在「{name}」上？此條目將從審核清單中移除。
+empty_state = 沒有待審核的變更。
+

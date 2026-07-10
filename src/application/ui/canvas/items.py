@@ -92,7 +92,7 @@ class _TitleLineEdit(QLineEdit):
 
 from unitport_sdk import Assets, Config, draw_dot_port, get_port_color, make_port_visual, tr
 
-from application.compiler.nodes import NodeManifest, PortSpec
+from application.compiler.nodes import NODE_MIN_WIDTH, NodeManifest, PortSpec
 
 from .lod import (
     TIER_DETAIL,
@@ -119,9 +119,13 @@ ROLE_META = 20     # dict: {"channel": "data"|"flow", "data_type": str, ...}
 # =============================================================================
 
 TITLE_H = 30          # 标题栏高度（DEMO TrainingNodeItem.TITLE_H）
-NODE_W = 324          # 节点宽度 — 268 → 324（+21%），多出宽度全部给到 value 半边
-                      # （param_rows.KEY_WIDTH 不变 → 右侧控件区可用宽度
-                      # = NODE_W - SEP_X - VALUE_PAD_RIGHT 同步加宽）
+# 节点默认宽度 = 契约最小宽度 ``NODE_MIN_WIDTH``（268 → 324，+21%，多出宽度全部
+# 给到 value 半边；param_rows.KEY_WIDTH 不变 → 右侧控件区可用宽度 = width - SEP_X
+# - VALUE_PAD_RIGHT 随之加宽）。这个定值现在是**下限**：一个普通节点仍渲染成此宽度,
+# 但 manifest 可声明更大的 ``width`` 让特化节点更宽（``NodeItem._resolve_render_width``）,
+# 只能在此基础上加宽,不能更窄（below-floor 由 ``NodeManifest.from_dict`` fail-loud 拒绝）。
+NODE_MIN_W = NODE_MIN_WIDTH   # 契约下限（= 默认宽度），从 compiler.nodes 单一真源引入
+NODE_W = NODE_MIN_WIDTH       # 默认 spawn 宽度（历史名保留；值 = 下限 324.0）
 PORT_ROW_H = 26       # 端口行高（DEMO Training，比 Mission 高 4px）
 PARAM_ROW_H = 24      # 参数行高
 SEP_H = 8             # 分隔条高度
@@ -218,7 +222,10 @@ class NodeItem(QGraphicsItem):
         # 性能优化由 BspTreeIndex + 视口剔除（Phase 1b）+ LOD 共同承担。
         self.setCacheMode(QGraphicsItem.CacheMode.NoCache)
 
-        self._width = NODE_W
+        # 宽度从 manifest 解析（single source of truth）：普通节点 = 默认/下限
+        # NODE_W；特化节点可声明更宽的 ``manifest.width``。必须在 _build_param_rows
+        # 之前定妥 —— ParamRow 的 value 半边宽度按 self._width 计算，加宽后自动展开。
+        self._width = self._resolve_render_width()
         # Title override 必须在 _resolve_title 调用前初始化 —— _resolve_title 读
         # self._display_name_override。其它 rename widgets 留到 __init__ 末尾再建。
         self._display_name_override: str = ""
@@ -276,6 +283,11 @@ class NodeItem(QGraphicsItem):
         # strings drive ``paint`` to draw a danger-zone outline. Cleared
         # by ``mark_diagnostic(None)`` / next training submit.
         self._diag_state: Optional[str] = None
+        # AI Build agent-editing highlight — set by CanvasAgentBridge while the
+        # orchestration agent is editing this node / its block. Drives a
+        # ``highlight``-slot (golden) outline, distinct from selection (white
+        # dashed) and diagnostic (red). Cleared at run end / cancel.
+        self._agent_active: bool = False
         # 收纳态时由 _compute_layout 设置:展开按钮(chevron)的命中矩形(item-local)
         self._chevron_y: Optional[float] = None
         self._chevron_rect: Optional[QRectF] = None
@@ -445,6 +457,20 @@ class NodeItem(QGraphicsItem):
                 CORNER_R,
             )
 
+        # 7.5 AI Build agent-editing highlight — a solid golden (``highlight``
+        # slot) rounded outline so the user sees which node/block the agent is
+        # editing. Distinct from selection (white dashed) and diagnostic (red).
+        if self._agent_active:
+            active_color = QColor(Config.get_color("highlight", "#F6D393"))
+            active_pen = QPen(active_color, 2.4)
+            painter.setPen(active_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(
+                self._bounding.adjusted(-1.0, -1.0, 1.0, 1.0),
+                CORNER_R + 1,
+                CORNER_R + 1,
+            )
+
         # 8. 收纳态 chevron（▼，提示"点我展开"）
         if self._collapsed and self._chevron_rect is not None:
             painter.save()
@@ -495,6 +521,19 @@ class NodeItem(QGraphicsItem):
         if state == self._diag_state:
             return
         self._diag_state = state
+        self.update()
+
+    def set_agent_active(self, on: bool) -> None:
+        """Toggle the AI Build agent-editing highlight on this node (repaints).
+
+        Driven by :class:`~application.ui.canvas.agent_bridge.CanvasAgentBridge`
+        while the orchestration agent edits this node or its block; cleared at
+        run end. Independent of selection / diagnostic state.
+        """
+        on = bool(on)
+        if on == self._agent_active:
+            return
+        self._agent_active = on
         self.update()
 
     def _paint_icon(
@@ -1284,6 +1323,19 @@ class NodeItem(QGraphicsItem):
             except Exception:
                 pass
 
+    def _resolve_render_width(self) -> float:
+        """节点渲染宽度 = ``max(manifest.width or NODE_W, NODE_MIN_W)``.
+
+        普通节点(``manifest.width is None``)返回默认/下限 ``NODE_W``；特化节点声明
+        更宽的 ``manifest.width`` 时返回该值。``NodeManifest.from_dict`` 已 fail-loud
+        拒绝 below-floor 声明,此处的 ``max`` 是对**绕过 from_dict 直接构造**的
+        manifest 的兜底不变量(非静默容错——下限是设计契约,不是被掩盖的坏输入)。
+        """
+        declared = getattr(self.manifest, "width", None)
+        if declared is None:
+            return float(NODE_W)
+        return max(float(declared), float(NODE_MIN_W))
+
     def _compute_layout(self) -> None:
         """段落式布局：input 段 → 参数段 → output 段；段间填 SEP_H 分隔条.
 
@@ -1693,7 +1745,8 @@ class PlaceholderNodeItem(QGraphicsItem):
         }
 
         ui = self.original_dict.get("ui") or {}
-        self._width = float(ui.get("width") or NODE_W)
+        # 保留缺失节点原有几何(宽特化节点的序列化宽度可 > 下限),但绝不低于下限。
+        self._width = max(float(ui.get("width") or NODE_W), float(NODE_MIN_W))
         self._height = float(ui.get("height") or 56.0)
         self._title_text = f"Missing: {schema_id}"
 
@@ -1973,6 +2026,7 @@ class ConnectionItem(QGraphicsPathItem):
         dst_port.add_connection(self)
         self._refresh_pen()
         self.update_path()
+        self._notify_edge_changed()
 
     # ---- 公开 API ----
 
@@ -2039,6 +2093,22 @@ class ConnectionItem(QGraphicsPathItem):
             if getattr(sc, "_hovered_edge", None) is self:
                 sc._hovered_edge = None
             sc.removeItem(self)
+        self._notify_edge_changed()
+
+    def _notify_edge_changed(self) -> None:
+        """把边变更上报给 scene（→ AppSignals.canvas_edge_changed）.
+
+        边的建立/断开有多个入口（PortDragController.release、
+        CanvasPage._connect_raw、undo 命令、节点删除级联），统一在
+        ConnectionItem 本体收口。构造时 self 尚未 addItem 进 scene，
+        所以退而经 src_port 所在节点取 scene。
+        """
+        node = self.src_port.parent_node() if self.src_port is not None else None
+        sc = self.scene() or (node.scene() if node is not None else None)
+        if sc is not None:
+            notify = getattr(sc, "notify_edge_changed", None)
+            if notify is not None:
+                notify()
 
     # ---- LOD-aware paint（覆盖 QGraphicsPathItem 默认 paint）----
 
@@ -2161,6 +2231,8 @@ __all__ = [
     "ROLE_META",
     "TITLE_H",
     "NODE_W",
+    "NODE_MIN_W",
+    "NODE_MIN_WIDTH",
     "PORT_ROW_H",
     "PARAM_ROW_H",
     "SEP_H",

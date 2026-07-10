@@ -1,0 +1,20 @@
+[default]
+title = Découper et étiqueter le clip
+length_unknown = Longueur du clip inconnue (l'analyse des trames arrive dans la phase backend) — les marqueurs sont enregistrés en numéros de trame bruts.
+preview_robot = Robot d'aperçu
+preview = Aperçu dans MuJoCo
+preview_started = Aperçu lancé (clip entier — la lecture par intervalle arrive dans la phase backend).
+range = Début {a}  ·  Fin {b}  ·  {n} trames
+seg_name = Segment
+seg_name_ph = ex. walk_loop
+add = Ajouter depuis les marqueurs
+col_name = Nom
+col_tag = Étiquette
+col_in = Début
+col_out = Fin
+col_action = 
+close = Fermer
+delete = Supprimer
+no_robot = Choisissez d'abord un robot d'aperçu.
+err_name = Le nom du segment est requis.
+

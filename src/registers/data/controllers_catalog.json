@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "controllers": {
+    "keyboard": {
+      "name": "Keyboard",
+      "binding_mode": "capture",
+      "inputs": []
+    },
+    "gamepad": {
+      "name": "Gamepad",
+      "binding_mode": "pick",
+      "inputs": [
+        {"id": "dpad_up",      "label": "D-Pad Up",      "kind": "button"},
+        {"id": "dpad_down",    "label": "D-Pad Down",    "kind": "button"},
+        {"id": "dpad_left",    "label": "D-Pad Left",    "kind": "button"},
+        {"id": "dpad_right",   "label": "D-Pad Right",   "kind": "button"},
+        {"id": "a",            "label": "A",             "kind": "button"},
+        {"id": "b",            "label": "B",             "kind": "button"},
+        {"id": "x",            "label": "X",             "kind": "button"},
+        {"id": "y",            "label": "Y",             "kind": "button"},
+        {"id": "lb",           "label": "Left Bumper",   "kind": "button"},
+        {"id": "rb",           "label": "Right Bumper",  "kind": "button"},
+        {"id": "lt",           "label": "Left Trigger",  "kind": "button"},
+        {"id": "rt",           "label": "Right Trigger", "kind": "button"},
+        {"id": "ls",           "label": "Stick L Click", "kind": "button"},
+        {"id": "rs",           "label": "Stick R Click", "kind": "button"},
+        {"id": "start",        "label": "Start",         "kind": "button"},
+        {"id": "back",         "label": "Back",          "kind": "button"},
+        {"id": "guide",        "label": "Guide",         "kind": "button"},
+        {"id": "left_stick_x",  "label": "Stick L X", "kind": "axis"},
+        {"id": "left_stick_y",  "label": "Stick L Y", "kind": "axis"},
+        {"id": "right_stick_x", "label": "Stick R X", "kind": "axis"},
+        {"id": "right_stick_y", "label": "Stick R Y", "kind": "axis"}
+      ]
+    }
+  }
+}

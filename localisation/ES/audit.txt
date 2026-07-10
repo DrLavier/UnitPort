@@ -1,0 +1,23 @@
+[review]
+actor_line = {actor}
+btn_accept = Aceptar
+btn_reject = Rechazar
+btn_reject_all = Rechazar todo
+dialog_intro = Mientras no habías iniciado sesión, otros usuarios en esta máquina realizaron {n} cambio(s) en archivos de tu espacio de trabajo. Revisa cada uno y elige Aceptar (conservar su cambio) o Rechazar (restaurar desde tu copia en la nube).
+dialog_title = Cambios pendientes de otros usuarios
+file_line = {path}
+op_delete = eliminado
+op_overwrite = modificado
+reject_confirm_body = Esto recuperará la versión anterior de '{name}' desde tu espacio de nombres en la nube y sobrescribirá el archivo local.
+	
+	¿Continuar?
+reject_confirm_title = ¿Restaurar desde la nube?
+reject_failed_network = Error al obtener desde la nube (error de red o de autenticación): {err}
+reject_failed_no_cloud = No hay copia en la nube disponible — Rechazar no es posible. (¿Se sincronizó alguna vez este archivo?)
+time_line = {time}
+btn_accept_all = Aceptar todo
+btn_later = Decidir más tarde
+reject_success_cloud = Restaurado desde la nube
+accept_confirm_body = ¿Conservar la {op} de {actor} en '{name}'? Esta entrada se eliminará de la lista de revisión.
+empty_state = No hay cambios pendientes por revisar.
+

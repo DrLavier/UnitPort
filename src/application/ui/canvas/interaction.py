@@ -132,6 +132,16 @@ class PortDragController:
     def is_active(self) -> bool:
         return self._start_port is not None
 
+    @property
+    def start_port(self) -> Optional[PortItem]:
+        """当前拖拽的起点端口（未激活时 None）.
+
+        CanvasScene 在 press 时读取它实现"端口点击"语义（press +
+        无位移 release = click，如 Command Pipe Inspector），不干扰
+        拖线状态机本身。
+        """
+        return self._start_port
+
     def set_state_callback(self, cb: Callable[[bool], None]) -> None:
         """注册 active 状态回调；``cb(True)`` 开始拖拽，``cb(False)`` 结束.
 

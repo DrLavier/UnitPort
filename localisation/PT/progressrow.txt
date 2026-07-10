@@ -1,0 +1,21 @@
+[btn]
+new = Novo
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (vazio)
+no_canvas = (sem canvas)
+no_project = (sem projeto)
+
+[target]
+cloud = Nuvem
+local = Local
+local_ver = Local ({short})
+
+[tooltip]
+new = Abrir o seletor de novo canvas
+start = Iniciar Treinamento
+stop = Parar Treinamento
+

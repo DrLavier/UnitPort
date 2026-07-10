@@ -1,0 +1,30 @@
+[default]
+add_role = + Função
+alias_none = (nenhum)
+cancel = Cancelar
+cascade_title = Não é possível excluir
+col_category = Categoria
+col_id = ID da função
+col_label = Rótulo
+col_position = Posição
+col_required = Obrigatório
+confirm_delete_body = Remover a família user-overlay {fid!r}? Famílias canônicas não serão afetadas. Robôs que referenciam essa família impedirão a exclusão.
+confirm_delete_title = Excluir família
+del_role = − Função
+delete = Excluir
+error_duplicate = O ID da família {fid!r} já está registrado (canônica ou de camada do usuário).
+error_role_duplicate = O ID da função {rid!r} aparece mais de uma vez.
+error_role_slug = O ID da função {rid!r} deve corresponder a [a-z][a-z0-9_]*.
+error_slug = O ID da família deve conter letras ASCII minúsculas, dígitos e sublinhados e começar com uma letra (por exemplo 'quadruped_with_tail').
+error_title = Entrada inválida
+id_ph = p.ex. quadruped_with_tail
+label_ph = Nome de exibição
+save = Salvar
+title_edit = Editar família
+title_new = Registrar nova família
+intro = Registre uma família IR personalizada. Escolha uma família base para herdar suas funções, ou adicione funções extras abaixo — ambos são combinados em uma única lista de funções para mapeamento conjunto.
+id_label = ID da família
+label_label = Rótulo
+alias_of_label = Família base (alias_of)
+roles_section = Funções extras
+

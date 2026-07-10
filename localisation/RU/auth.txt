@@ -1,0 +1,58 @@
+[default]
+busy_linking = Привязка аккаунта {provider}...
+busy_oauth = Ожидание подтверждения в браузере...
+busy_sending_reset = Отправка письма для сброса пароля...
+busy_signing_in = Вход...
+busy_signing_up = Создание аккаунта...
+close_button = Закрыть
+confirm_password_label = Подтвердите пароль
+continue_github = Продолжить через GitHub
+continue_google = Продолжить через Google
+continue_with = или продолжить с помощью
+dialog_title = Аккаунт UnitPort
+email_label = Электронная почта
+email_placeholder = you@example.com
+error_email_rate_limited = Слишком много запросов. Подождите минуту и попробуйте снова.
+error_email_taken = Учетная запись с этим адресом электронной почты уже существует.
+error_empty_email = Требуется адрес электронной почты.
+error_empty_password = Требуется пароль.
+error_generic = Не удалось войти: {message}
+error_invalid_credentials = Неверный адрес электронной почты или пароль.
+error_network = Ошибка сети — проверьте подключение.
+error_password_mismatch = Пароли не совпадают.
+error_password_too_short = Пароль должен содержать не менее 6 символов.
+forgot_password = Забыли пароль?
+identity_conflict_body = Не удалось привязать {provider}.
+	
+	Этот аккаунт уже принадлежит другому пользователю UnitPort, и Supabase не может объединить два существующих аккаунта.
+	
+	Вы можете вместо этого войти напрямую с помощью {provider}, или попробовать другой аккаунт {provider}.
+	
+	Сообщение провайдера: {message}
+identity_conflict_switch = Войти с помощью {provider} вместо этого
+identity_conflict_title = Учётные данные уже используются
+info_email_confirmation = Аккаунт создан. Проверьте {email}, чтобы подтвердить адрес.
+password_label = Пароль
+password_placeholder = не менее 6 символов
+sidebar_sign_in_button = Войти
+sidebar_sign_out = Выйти
+sidebar_signed_out_hint = Войти в UnitPort
+sign_in_button = Войти
+sign_up_button = Создать аккаунт
+tab_sign_in = Войти
+tab_sign_up = Зарегистрироваться
+restart_body_signin = Выполнен вход как {email}. Перезапустить UnitPort сейчас, чтобы загрузить рабочую область этой учётной записи?
+restart_body_signout = Вы вышли из системы. Перезапустить UnitPort сейчас, чтобы вернуться в гостевую рабочую область?
+restart_button_later = Позже
+restart_button_now = Перезапустить сейчас
+restart_title = Требуется перезапуск
+busy_unlinking = Отвязывается...
+busy_setting_password = Обновление пароля...
+busy_changing_email = Отправка подтверждения...
+error_oauth_busy = Выполняется другая операция входа. Пожалуйста, подождите.
+error_single_identity_not_deletable = Невозможно отвязать единственный метод входа.
+error_identity_already_exists = Эта учётная запись уже привязана к другому пользователю.
+info_email_change_pending = Письмо с подтверждением отправлено. Нажмите ссылку, чтобы подтвердить изменение.
+info_password_updated = Пароль обновлён.
+info_unlink_current_provider = Вы отвязали текущий метод входа. Возможно, вы вскоре будете автоматически выведены из системы.
+

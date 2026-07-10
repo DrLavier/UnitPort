@@ -1,0 +1,16 @@
+[empty]
+no_visible_series = No hay series visibles
+
+[runs]
+clear = Borrar
+empty = No hay ejecuciones
+n_selected = 
+none_selected = Seleccionar ejecuciones
+select_all = Seleccionar todo
+tag.failed = [fallido]
+tag.finished = [finalizado]
+tag.running = [EN CURSO]
+
+[series]
+cmd_reward = Recompensa por comando
+

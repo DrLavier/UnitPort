@@ -1,0 +1,36 @@
+[btn]
+redo.tip = Ripeti (Ctrl+Shift+Z)
+save.tip = Salva tela
+undo.tip = Annulla (Ctrl+Z)
+node_lib.tip = Alterna pannello Libreria nodi
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = Scegli un colore
+
+[ros2_dev_notice]
+body = La connessione ROS2 è ancora in fase di sviluppo. Connessione e controllo di base sono disponibili; l'insieme completo delle funzionalità sarà introdotto in una versione successiva.
+title = Connessione ROS2 (Anteprima)
+
+[script]
+btn.redo.tip = Ripeti (Ctrl+Shift+Z)
+btn.save.tip = Salva script
+btn.undo.tip = Annulla (Ctrl+Z)
+
+[tooltip]
+chart_opacity = Opacità della sovrapposizione del grafico
+
+[mode]
+mission_control = Controllo Missione
+ai_coding = Programmazione AI
+training_canva = Canvas di Training
+scripts = Script
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

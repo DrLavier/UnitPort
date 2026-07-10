@@ -1,0 +1,72 @@
+[default]
+add_install = 新增
+add_server = 新增...
+already_registered_text = 此 Isaac Lab 根目錄已經註冊。
+already_registered_title = 已註冊
+cloud_none = 無伺服器
+cloud_submit_error_title = 雲端訓練
+cloud_summary = {n} 個伺服器；預設：{d}
+confirm_remove_text = 移除伺服器 {name}？
+confirm_remove_title = 移除伺服器
+confirm_uninstall_text = 這將永久從磁碟中刪除基礎的 Isaac Lab 安裝：
+	
+	{root}
+	
+	此操作無法還原。要繼續嗎？
+confirm_uninstall_title = 解除安裝 Isaac Lab
+edit_server = 編輯...
+error_title = 錯誤
+install_missing = (缺少)
+invalid_root_text = 所選資料夾不是有效的 Isaac Lab 安裝（缺少 isaaclab.sh/.bat 與 source/）。
+invalid_root_title = 不是 Isaac Lab 根目錄
+isaac_installs_empty = 未安裝 Isaac Lab — 新增一個現有的安裝根目錄。
+isaac_installs_hint = 已註冊的 Isaac Lab 安裝
+isaac_installs_title = Isaac Lab 版本
+local_base_label = [根目錄]{ver}
+local_builtin = 內建（pip），v{ver}
+local_ext_label = {drive} {ver}
+local_isaac_unregistered_short = 未註冊
+local_missing = 未安裝
+local_registered_no_module = {root}（模組無法匯入）
+local_unregistered = 未註冊
+no_local_cloud = 僅限雲端
+no_local_register = 註冊本機…
+no_local_text = 此機器上未註冊任何 Isaac Lab 安裝。要註冊本機安裝，還是僅使用雲端訓練？
+no_local_title = 無本機 Isaac Lab
+pick_generic = 選擇引擎安裝根目錄
+pick_isaac = 選擇 Isaac Lab 安裝根目錄
+remove_server = 移除
+set_default = 設為預設
+settings_hint = 針對 {engine} 的 SSH 式訓練伺服器。密碼儲存在作業系統金鑰串（keyring）；這裡不會以純文字儲存任何內容。
+settings_title = 雲端伺服器 — {engine}
+unbind_tooltip = 解除綁定（保留檔案）
+uninstall_failed_text = 無法刪除 Isaac Lab 安裝。請查看日誌。
+uninstall_failed_title = 解除安裝失敗
+uninstall_tooltip = 解除安裝（刪除檔案）
+local_isaac_unregistered = 未註冊 — 請透過齒輪選擇安裝根目錄
+local_registered_with_ver = {root} (v{ver})
+
+[server_editor]
+add = 新增伺服器
+auth = 驗證
+auth_key = SSH 金鑰
+auth_password = 密碼
+browse = 瀏覽...
+conda_env = Conda 環境
+conda_env_ph = isaaclab (可選)
+edit = 編輯伺服器
+host = 主機
+host_required = 必須提供主機。
+invalid_title = 無效
+key_file = 金鑰檔案
+key_required = 使用金鑰驗證時，必須提供私鑰路徑。
+name = 顯示名稱
+name_required = 必須提供顯示名稱。
+name_taken = 名為 {name} 的伺服器已存在。
+password_hint = 密碼絕不會儲存在此處 — 請於連線時提供（會儲存在作業系統的金鑰庫）。
+pick_key = 選擇 SSH 私鑰
+port = 連接埠
+remote_install_dir = 遠端安裝目錄
+remote_work_dir = 遠端工作目錄
+user = 使用者
+

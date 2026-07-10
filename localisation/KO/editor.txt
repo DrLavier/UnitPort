@@ -1,0 +1,11 @@
+[dtype]
+both = 스칼라/리스트
+list = 리스트
+scalar = 스칼라
+
+[err]
+dup_item = 이름이 '{name}'인 항목이 이미 존재합니다.
+
+[review_motion]
+submitted = 모션 검토가 시작되었습니다 (MuJoCo 비물리적 재생)…
+

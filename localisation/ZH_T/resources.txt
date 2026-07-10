@@ -1,0 +1,68 @@
+[default]
+add = 線上下載
+add_tip = 下載動作資料集或策略套件
+open_folder = 開啟資料夾
+refresh_tip = 重新掃描 custom_mods/
+remove = 移除
+remove_confirm = 移除此資源及其檔案？
+section = 第三方資源
+remove_tip = 刪除此項目（以及磁碟上的資料樹）
+open_folder_tip = 在檔案管理器中顯示該資產資料夾
+retry = 重試
+empty_motion = 尚無動作資料集 — 點擊 "Add resource…" 以下載一個
+empty_policy = 尚無策略套件 — 點擊 "Add resource…" 以下載一個
+empty_model = 尚未註冊任何機器人模型
+empty_canvas = 未找到任何畫布範本
+unindexed = 已匯入
+classify = 分類…
+
+[dialog]
+cancel = 取消
+name_label = 顯示名稱（選填）
+ok = 下載
+revision_placeholder = 分支 / 標籤 / 提交 / HF 修訂
+subpath_placeholder_github = 例如：datasets/mocap_motions
+subpath_placeholder_huggingface = 允許的模式，例如：*.json,*.txt
+title = 新增資源
+url_label = URL 或 repo id 為必填。
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name（或完整 HF URL）
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = 資產類型
+transport_label = 來源
+revision_label = 修訂 (可選)
+subpath_label = 子路徑 (可選)
+
+[kind]
+canvas = 畫布
+model = 模型
+motion = 動作
+policy = 策略
+
+[status]
+missing = 缺少
+local = 本機
+downloading = 下載中
+error = 錯誤
+
+[card]
+source = 來源
+revision = 修訂
+subpath = 子路徑
+downloaded_at = 已下載
+size = 大小
+package = 套件
+subdir = 子目錄
+clips = 剪輯
+sku = SKU
+brand = 品牌
+model = 型號
+families = 系列
+backend = 後端
+path = 路徑
+
+[transport]
+github_clone = GitHub
+github_release = 發佈
+huggingface = HuggingFace
+

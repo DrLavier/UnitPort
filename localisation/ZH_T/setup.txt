@@ -1,0 +1,85 @@
+[backend]
+cb_isaac = 啟用 Isaac Lab 整合
+cb_isaac_tip = Isaac Lab 提供透過 NVIDIA Isaac Sim 的 GPU 加速模擬。你可以現在安裝，或指定現有安裝位置。
+cb_loco = 下載 loco-mujoco 參考動作庫
+cb_loco_tip = 用於步態訓練的社群參考動作庫。從 github.com/robfiras/loco-mujoco 克隆。
+cb_mujoco = 安裝 MuJoCo（pip 套件）
+cb_mujoco_tip = MuJoCo 為基礎的模擬與訓練所需。
+cb_ros2 = 安裝 ROS2 支援
+cb_ros2_tip = 啟用基於 ROS2 的裝置品牌（Unitree Go2、Mangdang Mini Pupper、…）。若系統已有原生 ROS2 Humble 安裝，將重用該安裝；否則會建立 Docker bridge 映像。
+cloud_auth = 驗證：
+cloud_auth_key = SSH 金鑰
+cloud_auth_pwd = 密碼
+cloud_hint = 輸入遠端 GPU 伺服器的 SSH 連線資訊。Isaac Lab 將透過 SSH + SFTP 安裝。
+cloud_host = 主機：
+cloud_key_file = 金鑰檔案：
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	需求：Ubuntu 22.04+、NVIDIA GPU、CUDA 12.x、約 30 GB 磁碟空間
+cloud_password = 密碼：
+cloud_port = 連接埠：
+cloud_remote_path = 遠端路徑：
+cloud_server_name = 伺服器名稱：
+cloud_user = 使用者名稱：
+custom_mod_already_installed = (已安裝)
+custom_mod_required_suffix = (為 {templates} 所需)
+custom_mod_required_tip = 被畫布範本 {templates} 所需。只有當你不打算使用列出的範本時才取消勾選 — 否則該範本將無法載入。
+custom_mods_hint = 社群參考動作 / AMP 倉庫，會各自淺層克隆到 custom_mods/motions/。標註為 required 的項目是隨附畫布範本所依賴的 — 請保持勾選，否則該範本無法載入。
+group_custom_mods = 參考動作庫
+group_isaac = Isaac Lab（NVIDIA）
+group_mujoco = MuJoCo
+group_ros2 = ROS2
+hint = 為訓練與執行設定模擬後端。取消勾選不需要的項目可加速設定流程。
+install_hint = 選擇安裝目錄。Isaac Lab 與 Isaac Sim 將在此目錄內建立專用 venv 進行安裝。
+install_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	磁碟：~30 GB | 需求：具有 CUDA 12.x 驅動程式的 NVIDIA GPU
+isaac_install_dir_ph = 安裝目錄 ...
+isaac_invalid = 無法在此路徑驗證 Isaac Lab —— 期望找到 isaaclab.sh/bat 或 source/ 目錄
+isaac_locate_dir_ph = Isaac Lab 根目錄 ...
+isaac_valid = 已偵測到有效的 Isaac Lab 安裝
+rb_isaac_cloud = 將 Isaac Lab 部署到遠端 Linux 伺服器（SSH）
+rb_isaac_install = 從頭安裝 Isaac Lab + Isaac Sim
+rb_isaac_locate = 尋找現有的 Isaac Lab 安裝
+ros2_note = 會自動偵測原生 ROS2 安裝（優先 Humble）。若未發現，則改為建置 UnitPort 的 Docker bridge 映像 — 必須正在執行 Docker Desktop / Docker Engine。
+title = 後端環境
+
+[data_dir]
+btn_browse = 瀏覽 ...
+hint = 選擇 UnitPort 儲存所有每位使用者資料的位置：projects、exported policies、login tokens、telemetry caches、downloaded engines，以及 user.ini 覆寫檔。應用程式安裝資料夾在執行時不會被寫入，因此此目錄會在重新部署 / git pulls 後保留。您必須選擇一個絕對路徑 — 系統沒有內建預設值。
+label_dir = 使用者設定目錄：
+note = 此路徑為 WORKSPACE 根目錄：每個帳戶的資料夾會置於其下（每個登入使用者一個，外加 _guest/）。請選擇有足夠空間的絕對路徑（引擎下載可能超過 30 GB）。
+placeholder = 請選擇絕對路徑（例如 D:\UnitPort）
+status_custom_create = 工作區位置 — 將建立於 {path}
+status_custom_exists = 工作區位置 — 已存在於 {path}
+status_invalid = 無效的路徑
+status_relative = 路徑必須為絕對路徑（收到：{path}）。
+status_required = 必要 — 請為工作區根目錄選擇絕對路徑。
+title = 資料目錄
+btn_reset = 重設為預設值
+status_default = 使用預設位置。
+
+[language]
+hint = 選擇您偏好的 UnitPort 語言。您可以稍後從側邊欄更改。
+ok = 繼續
+title = 選擇語言
+
+[menagerie]
+btn_deselect_all = 取消全選
+btn_refresh = 從 GitHub 重新整理
+btn_select_all = 全選
+hint = 從 mujoco_menagerie 選擇您需要的機器人模型。UnitPort 支援的模型已預先勾選，其他則為選用。
+loading = 正在從 GitHub 載入模型清單 …
+title = MuJoCo Menagerie 模型
+
+[sdk]
+hint = 選擇要下載的機器人 SDK 套件。只有被勾選的項目會被複製（clone）。您可於稍後在設定中安裝更多。
+title = SDK 套件
+
+[wizard]
+btn_back = 返回
+btn_finish = 完成
+btn_next = 下一步
+btn_skip = 跳過設定
+header_subtitle = 選擇要安裝的元件。您可以稍後在設定中變更這些選項。
+header_title = UnitPort 設定
+window_title = UnitPort — 自訂設定
+

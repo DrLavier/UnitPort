@@ -165,8 +165,17 @@ def validate_clip_against_robot(
             ),
         )
 
-    # Joint count vs robot
-    if robot_spec.num_joints > 0 and clip.dof != robot_spec.num_joints:
+    # Joint count vs robot — ONLY for formats without an IR contract. When a
+    # format HAS an IR contract (amp_legged_gym, lafan_unitree_g1) the IR-role
+    # coverage gate below is the authoritative "no-retargeting" check: every
+    # clip role must map to a robot joint by IR role, but the robot is allowed
+    # to carry EXTRA joints that no reference clip covers. A humanoid AMP
+    # reference covers the locomotion joints (e.g. G1: 29) while the robot
+    # articulation also has non-IR joints (hands → G1 reports 44); requiring
+    # clip.dof == num_joints would falsely reject every such clip. "No
+    # retargeting" means roles align 1:1 by IR — NOT that the clip must
+    # actuate every robot joint.
+    if not expected and robot_spec.num_joints > 0 and clip.dof != robot_spec.num_joints:
         return IRMatchReport(
             ok=False,
             clip_name=clip.name,

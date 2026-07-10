@@ -187,6 +187,13 @@ parser.add_argument("--unitport_amp_motion_files", type=str, default="",
                     help="Comma-separated list of motion files (amp_legged_gym "
                          "format) loaded via application.training.motion. "
                          "Only consulted when --unitport_algorithm=AMP_PPO.")
+parser.add_argument("--unitport_amp_motion_ranges", type=str, default="",
+                    help="Comma-separated frame sub-ranges, positionally "
+                         "aligned to --unitport_amp_motion_files. Each token is "
+                         "'lo:hi' (inclusive → clip is sliced to that segment) "
+                         "or '-' (whole file). Absent = all whole-file. Plain "
+                         "data: the segment encoding is decoded app-side, this "
+                         "worker never imports registers.")
 parser.add_argument("--unitport_amp_reward_coef", type=float, default=2.0,
                     help="AMP reward coefficient forwarded to the vendored "
                          "AMPDiscriminator. Default 2.0 matches upstream.")
@@ -639,6 +646,18 @@ def _resolve_entry_point(entry_point):
     if callable(entry_point):
         return entry_point()
     return entry_point
+
+
+def _parse_motion_ranges(ranges_arg, n_files):
+    """Parse ``--unitport_amp_motion_ranges`` into a per-file range list.
+
+    Thin delegate to :func:`application.training.motion.segment_ref.
+    parse_motion_ranges_arg` — the pure, torch/registry-free implementation
+    (shared with the app-side tests; importable in the Kit venv). Returns a
+    list of length ``n_files`` of ``(lo, hi)`` inclusive ranges or ``None``.
+    """
+    from application.training.motion.segment_ref import parse_motion_ranges_arg
+    return parse_motion_ranges_arg(ranges_arg, n_files)
 
 
 def main():
@@ -1167,6 +1186,16 @@ def main():
                     target_family=str(args_cli.unitport_robot_family),
                 ).clip
 
+                # If the first clip is a segment, slice it so RSI "frame 0" is
+                # the segment's start, not the parent file's frame 0.
+                _rsi_ranges = _parse_motion_ranges(
+                    getattr(args_cli, "unitport_amp_motion_ranges", ""),
+                    len(_motion_paths),
+                )
+                if _first_clip is not None and _rsi_ranges[0] is not None:
+                    _lo, _hi = _rsi_ranges[0]
+                    _first_clip = _first_clip.subrange(_lo, _hi)
+
                 _jp = getattr(_first_clip, "joint_pos", None) if _first_clip else None
                 if _jp is None:
                     print("[UnitPort] RSI: clip has no joint_pos, skipped.")
@@ -1427,6 +1456,24 @@ def main():
             )
             sys.exit(4)
 
+        # Per-file frame sub-ranges (segments). Positionally aligned to
+        # motion_paths; None = whole file. Fail-loud on a malformed/misaligned
+        # arg rather than training on the wrong frames.
+        try:
+            motion_ranges = _parse_motion_ranges(
+                getattr(args_cli, "unitport_amp_motion_ranges", ""),
+                len(motion_paths),
+            )
+        except ValueError as _rng_exc:
+            print(f"[UnitPort][ABORT] {_rng_exc}", flush=True)
+            sys.exit(4)
+        if any(r is not None for r in motion_ranges):
+            print(
+                f"[UnitPort][AMP] motion segments (lo:hi inclusive, '-'=whole): "
+                f"{motion_ranges}",
+                flush=True,
+            )
+
         # Parse canvas-side label overrides
         _label_overrides = {}
         _raw_labels = str(getattr(args_cli, "unitport_amp_task_labels", "") or "")
@@ -1488,13 +1535,37 @@ def main():
             robot_family=str(args_cli.unitport_robot_family),
             term_names=amp_term_names,
             device=device,
-            format_id="amp_legged_gym",
+            # format_id omitted → per-file detection by extension
+            # (amp_legged_gym .txt for Go2, lafan_unitree_g1 .csv for G1, …).
+            ranges=motion_ranges,
             task_filter=str(getattr(args_cli, "unitport_amp_task_filter", "")),
             task_label_overrides=_label_overrides or None,
         )
         print(
             f"[UnitPort] Loaded {len(motion_paths)} AMP motion clip(s), "
             f"observation_dim={amp_data.observation_dim}",
+            flush=True,
+        )
+
+        # Pin the AMP obs family + (for humanoids) the canonical IR-role
+        # ORDER the clip joint columns follow, BEFORE the env wrapper / obs
+        # extractor / preflight run. This selects the family-keyed joint
+        # permutation (quadruped 12 / humanoid N) for both the env-side AMP
+        # obs readers and the RSI reset event — without it the env path
+        # would fall back to the 12-joint quadruped perm and crash (or
+        # mis-order) on a humanoid. The order is the loader-pinned
+        # clip.ir_roles (e.g. the 29-role G1 layout); only consulted for
+        # humanoid/biped families.
+        from application.training.amp.obs_terms import set_amp_obs_family
+        _clip_ir_roles = list(amp_data.clips[0].ir_roles) if amp_data.clips else []
+        set_amp_obs_family(
+            _family,
+            _clip_ir_roles if _family.lower() in ("humanoid", "biped") else None,
+        )
+        print(
+            f"[UnitPort][AMP] obs family pinned: {_family or 'quadruped(default)'}"
+            + (f" (IR-role order: {len(_clip_ir_roles)} joints)"
+               if _family.lower() in ("humanoid", "biped") else ""),
             flush=True,
         )
 
@@ -1942,6 +2013,23 @@ def main():
     if resume_path and os.path.isfile(resume_path):
         warm = bool(getattr(args_cli, "unitport_warm_start_actor", False))
         mode_label = "warm-start (actor only)" if warm else "full resume"
+        # A DEPLOYMENT artifact (exported policy.onnx / TorchScript) is NOT a
+        # training checkpoint: it carries only the traced actor graph — no
+        # critic / optimizer / state_dict to seed training, and torch.load on
+        # an ONNX file would otherwise abort with a cryptic unpickling error.
+        # Fail loud with the actionable fix (CLAUDE.md §8).
+        if resume_path.lower().endswith((".onnx", ".ts")):
+            print(
+                f"[UnitPort] ERROR: the selected Start Point {resume_path!r} is "
+                f"an exported DEPLOYMENT artifact (ONNX/TorchScript), not a "
+                f"training checkpoint. Warm-start / resume needs the previous "
+                f"run's PyTorch checkpoint — a model_*.pt under "
+                f"training/runs/isaac_lab/<run_id>/ (e.g. the latest "
+                f"model_<N>.pt). Re-pick the Start Point as that run (or its "
+                f"model_*.pt), or choose 'New'. Aborting.",
+                flush=True,
+            )
+            sys.exit(5)
         print(
             f"[UnitPort] Loading checkpoint ({mode_label}): {resume_path}",
             flush=True,

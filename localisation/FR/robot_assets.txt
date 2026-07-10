@@ -30,13 +30,13 @@ dump_mjcf = Dumper les bodies / joints MJCF
 dump_mjcf_disabled = Ressource MJCF indisponible localement
 dump_usd = Dumper les bodies / joints USD
 dump_usd_disabled = Ressource USD non déclarée (aucun chemin local et aucune URL Nucleus)
-menagerie = Menagerie…
+menagerie = Ménagerie…
 menagerie_tip = Parcourir et télécharger les paquets MuJoCo Menagerie
 pick_parent = Choisir le modèle de base dont cette variante hérite :
 dump = Dumper bodies / joints
 dump_disabled = Ni la ressource MJCF ni la ressource USD n'est disponible (aucun fichier local et aucune URL Nucleus déclarée)
 dump_format_mismatch = 
-	⚠ {larger_fmt} has {larger_n} joints but {smaller_fmt} has {smaller_n}. Training is unaffected, but {affected} won't be available for bundles trained against the {larger_fmt}-side joint set. If you need both deploy targets, repoint the {smaller_fmt} asset to a matching variant (e.g. for G1 use scene_with_hands.xml alongside g1.usd) and re-Dump.
+	⚠ {larger_fmt} has {larger_n} joints but {smaller_fmt} has {smaller_n}. L'entraînement n'est pas affecté, mais {affected} ne sera pas disponible pour les bundles entraînés avec l'ensemble d'articulations du côté {larger_fmt}. Si vous avez besoin des deux cibles de déploiement, pointez l'asset {smaller_fmt} vers une variante correspondante (par ex. pour G1 utilisez scene_with_hands.xml à côté de g1.usd) et relancez le dump.
 view_mapping = Voir le mappage des articulations
 view_mapping_error_title = Mappage des articulations indisponible
 ignore_package = Ignorer
@@ -49,13 +49,13 @@ inertia_calib_offer_body = Comparer la masse / inertie par body du USD d'entraî
 inertia_calib_offer_title = Calibrer l'inertie depuis l'USD ?
 
 [status]
-cloud = cloud
+cloud = Cloud
 local = local
 missing = manquant
 remote = distant
 
 [tag]
 canonical = canonique
-cloud = cloud
+cloud = Cloud
 custom = personnalisé
 

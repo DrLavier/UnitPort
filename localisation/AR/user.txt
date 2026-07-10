@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (لا يوجد بريد إلكتروني متاح)
+email_identity_security_hint = انقر على الرابط في صندوق الوارد لديك لتعيين أو تحديث كلمة مرور تسجيل الدخول. لأسباب أمنية، لا يمكن إجراء تغييرات كلمة المرور داخل التطبيق — تتم جميع التغييرات عبر التحقق بواسطة البريد الإلكتروني.
+email_identity_send_button = إرسال الرابط
+email_identity_send_to = سنرسل رابط تحقق إلى:
+email_identity_title = تسجيل الدخول عبر البريد الإلكتروني
+engines_cloud_settings = تكوين الخوادم السحابية
+engines_local_settings = تكوين التثبيت المحلي
+linked_account_status_linked = مرتبط
+linked_account_unlink_button = إلغاء ربط {provider}
+linked_account_unlink_confirm_title = إلغاء ربط {provider}؟
+linked_account_unlink_current_body = سيتم تسجيل خروجك بعد إلغاء الربط، لأن هذه هي وسيلة تسجيل الدخول الحالية لديك.
+linked_account_unlink_normal_body = لن تتمكن بعد الآن من تسجيل الدخول باستخدام {provider}.
+linked_account_unlink_only_body = هذه هي وسيلة تسجيل الدخول الوحيدة لديك. لا يمكنك إلغاء ربطها.
+open_workspace_tip = افتح مجلد بيانات مستخدم UnitPort
+open_workspace = فتح مساحة عمل المستخدم
+linked_accounts_label = طرق تسجيل الدخول:
+linked_account_btn_signedout_email = البريد الإلكتروني: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = البريد الإلكتروني: (لا يوجد)
+linked_account_btn_unlinked_google = Google: (غير مرتبط)
+linked_account_btn_unlinked_github = GitHub: (غير مرتبط)
+workspace_email_label = مساحة العمل:
+workspace_email_confirm_title = هل تريد تبديل البريد المستخدم لتخزين مساحة العمل؟
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = تم نقل تخزين مساحة العمل إلى {path}.
+workspace_email_failed = تعذر تبديل مساحة العمل: {error}
+

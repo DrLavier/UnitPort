@@ -1,0 +1,11 @@
+[default]
+edit_tip = Нажмите, чтобы обрезать / разметить этот клип
+segment_tip = Открыть этот сегмент
+col_name = Клип
+col_tag = Тег
+col_frames = Кадры
+col_duration = Длительность
+col_segments = Сегменты
+col_action = 
+crop = Обрезать / Разметка
+

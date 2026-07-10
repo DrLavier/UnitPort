@@ -8,10 +8,12 @@
   emit ``app_signals.nodes_changed`` 通知本面板刷新。
 - 归档 / grouping: 按 ``manifest.layer``（A/B/C/D/IL/CUSTOM）分组，与
   ``CanvasPage._populate_add_node_menu`` 已确立的层级语义一致。
-- 引擎感知 / engine-aware: 订阅 ``app_signals.current_backend_changed``。如果
-  ``backends.get_installed(engine_id)`` 含 ``"node_categories": [...]`` 字段，则按
-  ``manifest.category`` 过滤；否则不过滤（hook 已就位，等 backends_installed.json
-  声明该字段后自动生效）。
+- 引擎感知 / engine-aware: 订阅 ``app_signals.current_backend_changed``；刷新时按
+  ``list_nodes(backend=current_backend())`` 过滤。``manifest.backends`` 是唯一权威
+  （与 AI Build ``registry_projection`` 同一谓词）：isaac_lab 画布绝不显示
+  SB3-only 节点（task_config / obs_action_config / …），反之亦然；universal
+  （空 ``backends``）恒显示。未绑后端（``current_backend() == ""``，无画布
+  打开）时显示全量目录。
 - 交互 / interaction:
   - 双击叶节点 → emit ``node_requested(node_id)`` （上层调 ``CanvasPage.spawn_node``）
   - 拖动叶节点 → ``QDrag`` + MIME ``application/x-unitport-node`` payload = ``node_id``
@@ -304,16 +306,17 @@ class NodeLibraryPanel(QWidget):
             self._show_empty_placeholder()
             return
 
+        # 后端过滤：manifest.backends 是唯一权威（与 AI Build 的
+        # registry_projection 同一谓词）。engine_id == ""（无画布打开）→ 全量。
+        from application.service.signals import current_backend
+        engine_id = current_backend()
         try:
-            manifests = list(nodes_registry.list_nodes())
+            manifests = list(nodes_registry.list_nodes(backend=engine_id or None))
         except Exception as e:
             log_warning(f"[node_library] list_nodes() 失败: {e!r}")
             self._tree.clear()
             self._show_empty_placeholder()
             return
-
-        # 引擎过滤：仅当 backends_installed.json 声明 node_categories 时才过滤
-        manifests = self._apply_engine_filter(manifests)
 
         self._tree.clear()
         if not manifests:
@@ -344,27 +347,6 @@ class NodeLibraryPanel(QWidget):
                 group_item.addChild(leaf)
 
             group_item.setExpanded(True)
-
-    def _apply_engine_filter(self, manifests: List) -> List:
-        """根据当前后端过滤 manifests.
-
-        过滤条件：``backends.get_installed(engine_id)`` 含 ``node_categories: [str]``，
-        则保留 ``m.category in node_categories``；否则不过滤（hook 就位但宽松）。
-        """
-        from application.service.signals import current_backend
-        engine_id = current_backend()
-        if not engine_id:
-            return manifests
-        try:
-            from registers import backends as backends_registry
-            info = backends_registry.get_installed(engine_id) or {}
-        except Exception:
-            return manifests
-        cats = info.get("node_categories")
-        if not isinstance(cats, list) or not cats:
-            return manifests
-        cat_set = {str(c) for c in cats}
-        return [m for m in manifests if str(getattr(m, "category", "")) in cat_set]
 
     def _make_leaf_item(self, manifest) -> QTreeWidgetItem:
         node_id = str(manifest.id)

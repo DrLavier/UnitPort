@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "vis_check"
+backends = ["sb3_mujoco"]  # SB3/MuJoCo only; IL never reads spec.vis
 kind = "CUSTOM"
 version = "1.0.0"
 category = "config"

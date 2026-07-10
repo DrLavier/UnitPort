@@ -1,0 +1,12 @@
+[default]
+empty = Nenhum nó registado
+
+[layer]
+a = Configuração
+b = Ambiente
+c = Treinamento
+d = Exportação
+il = Aprendizagem por imitação
+custom = Personalizado
+tools = Ferramentas
+

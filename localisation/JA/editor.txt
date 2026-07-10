@@ -1,0 +1,11 @@
+[dtype]
+both = スカラー/リスト
+list = リスト
+scalar = スカラー
+
+[err]
+dup_item = 名前が '{name}' のアイテムは既に存在します。
+
+[review_motion]
+submitted = Review Motionを開始しました（MuJoCoの非物理再生）…
+

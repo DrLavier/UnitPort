@@ -1,0 +1,58 @@
+[default]
+busy_linking = Vinculando conta {provider}...
+busy_oauth = Aguardando confirmação no navegador...
+busy_sending_reset = Enviando e-mail de redefinição...
+busy_signing_in = Entrando...
+busy_signing_up = Criando conta...
+close_button = Fechar
+confirm_password_label = Confirmar senha
+continue_github = Continuar com GitHub
+continue_google = Continuar com Google
+continue_with = ou continue com
+dialog_title = Conta UnitPort
+email_label = E-mail
+email_placeholder = you@example.com
+error_email_rate_limited = Muitas solicitações. Aguarde um minuto e tente novamente.
+error_email_taken = Já existe uma conta com este e-mail.
+error_empty_email = E-mail é obrigatório.
+error_empty_password = Senha é obrigatória.
+error_generic = Falha ao entrar: {message}
+error_invalid_credentials = E-mail ou senha incorretos.
+error_network = Erro de rede — verifique sua conexão.
+error_password_mismatch = As senhas não coincidem.
+error_password_too_short = A senha deve ter pelo menos 6 caracteres.
+forgot_password = Esqueceu a senha?
+identity_conflict_body = Não foi possível vincular {provider}.
+	
+	Essa conta já pertence a outro usuário do UnitPort, e o Supabase não pode mesclar duas contas existentes.
+	
+	Você pode entrar diretamente com {provider}, ou tentar usar uma conta diferente do {provider}.
+	
+	Mensagem do provedor: {message}
+identity_conflict_switch = Entrar com {provider} em vez disso
+identity_conflict_title = Identidade já em uso
+info_email_confirmation = Conta criada. Verifique {email} para confirmar seu endereço.
+password_label = Senha
+password_placeholder = pelo menos 6 caracteres
+sidebar_sign_in_button = Entrar
+sidebar_sign_out = Sair
+sidebar_signed_out_hint = Entrar no UnitPort
+sign_in_button = Entrar
+sign_up_button = Criar conta
+tab_sign_in = Entrar
+tab_sign_up = Criar conta
+restart_body_signin = Conectado como {email}. Reiniciar UnitPort agora para carregar o workspace desta conta?
+restart_body_signout = Desconectado. Reiniciar UnitPort agora para voltar ao workspace de convidado?
+restart_button_later = Mais tarde
+restart_button_now = Reiniciar agora
+restart_title = Reinício necessário
+busy_unlinking = Desvinculando...
+busy_setting_password = Atualizando a senha...
+busy_changing_email = Enviando verificação...
+error_oauth_busy = Outra operação de login está pendente. Por favor, aguarde.
+error_single_identity_not_deletable = Não é possível desvincular o único método de login.
+error_identity_already_exists = Esta conta já está vinculada a outro usuário.
+info_email_change_pending = E-mail de verificação enviado. Clique no link para confirmar a alteração.
+info_password_updated = Senha atualizada.
+info_unlink_current_provider = Você desvinculou seu método atual de login. Você pode ser desconectado em breve.
+

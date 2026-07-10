@@ -1,0 +1,6 @@
+[default]
+cancel = Отмена
+current_canvas = текущий холст
+empty = (нет)
+ok = ОК
+

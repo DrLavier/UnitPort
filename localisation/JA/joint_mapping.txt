@@ -1,0 +1,23 @@
+[default]
+asset_path = アセット: {path}
+col_ir = IRロール
+col_joint = 物理ジョイント
+coverage_gap = ⚠ フォーマット間の差異 — 利用不可: {affected}
+coverage_ok = ✓ MJCF と USD が一致 — 両方のデプロイ対象が利用可能です
+coverage_single = フォーマットが1つのみ宣言されているため、フォーマット間チェックをスキップしました
+height_na = ベース高さオフセット: 該当なし (単一フォーマットの設定)
+height_uncalibrated = ベース高さオフセット: (未較正 — Robot Asset カードから Calibrate を実行してください)
+height_value = ベース高さオフセット (USD↔MJCF): {offset}  ·  較正済み {ts}
+legend = 行の色: <span style='color:#4caf50'>■ 一致</span> · <span style='color:#ff9800'>■ 孤立（このフォーマットのみ）</span> · <span style='color:#f44336'>■ 未割当（IRロールが空）</span> · <span style='color:#9e9e9e'>■ バケット（その他 / センサー / ベース）</span>
+mjcf = MJCF（MuJoCo デプロイ）
+no_rows = （ジョイントがダンプされていません — ロボットアセットカードのDumpをクリックしてください）
+row_summary = 合計: {total}  ·  一致: {m}  ·  孤立: {o}  ·  未割当: {u}  ·  バケット: {b}
+title = ジョイントマッピング — {name} (sku={sku})
+usd = USD（IsaacSim / クラウドデプロイ）
+
+[tooltip]
+bucket = バケットロール（その他 / センサー* / ベース） — フォーマット間で正当にも重複または差異が生じるため、カバレッジチェックの対象外です。
+matched = IRロールがMJCFとUSDの両方のテーブルに存在します — バンドルは問題なくデプロイされます。
+orphan = このフォーマットでのみIRロールが宣言されています — 他方のデプロイ対象ではこのジョイントは考慮されません。
+unmapped = 物理ジョイントはダンプされましたが、IRロールが割り当てられていません。トレーニング前にRobot Node Body Mappingテーブルを開いて割り当ててください。
+

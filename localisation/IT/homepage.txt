@@ -1,0 +1,136 @@
+[community]
+current = Corrente
+days_ago = {n} giorni fa
+latest = Più recente
+releases_loading = Caricamento release…
+today = oggi
+tutorial_coming_soon = Prossimamente...
+tutorial_desc = Guide passo passo per costruire, addestrare e distribuire.
+tutorial_title = Tutorial ufficiale
+yesterday = ieri
+title = Comunità
+support_us = Supportaci
+tutorial_open = Apri link
+releases_unavailable = Impossibile caricare le release. Verifica la tua connessione.
+releases_empty = Nessuna release pubblicata.
+open_page = Apri pagina
+download = Scarica
+day_one = 1 giorno fa
+
+[create]
+engine_unavailable = non disponibile
+error_create_failed = Impossibile creare il progetto '{name}' (il nome potrebbe essere in conflitto con uno esistente — controlla il log).
+error_existing_missing = Quel progetto non è più presente su disco — aggiorna l'elenco e selezionalo di nuovo.
+error_invalid_canvas_name = Il nome del canvas può contenere solo lettere, cifre, '_' e '-'.
+error_invalid_name = Il nome del progetto può contenere solo lettere, cifre, '_' e '-'.
+error_no_backend = Scegli un backend prima di creare.
+error_no_canvas_name = Inserisci un nome per il canvas (es. 'main').
+error_no_existing = Seleziona un progetto esistente dalla lista oppure passa a 'Nuovo progetto'.
+error_no_name = Inserisci prima un nome per il progetto.
+error_no_template = Seleziona un template (o 'Free Build') prima di creare.
+label_backend = Backend
+label_canvas_name = Nome del canvas
+label_pick_project = Scegli un progetto
+label_project_name = Nome del progetto
+label_template = Scegli un template
+no_templates = Nessun template disponibile per questo backend.
+placeholder_canvas = es. main
+placeholder_name = Nome del nuovo progetto
+title = Crea nuovo progetto
+btn = Crea Canvas
+section_project = Progetto
+section_canvas = Canvas
+mode_new = Nuovo progetto
+mode_existing = Vai al progetto
+
+[projects]
+btn_open_workspace = Apri workspace locale →
+col_canvas = Canvas
+col_project = Progetto
+col_robot = Robot
+cross_user_audit_recorded = Registrato per la revisione di {owner}
+cross_user_copy_failed_body = Impossibile copiare '{name}' nel tuo workspace:
+	{err}
+cross_user_copy_failed_title = Copia non riuscita
+cross_user_delete_warn_body = '{name}' appartiene a {owner}. La sua eliminazione verrà registrata, così {owner} potrà esaminarla o ripristinarla al prossimo accesso.
+	
+	Eliminare comunque?
+cross_user_delete_warn_title = Elimina il canvas di un altro utente
+cross_user_open_body = Questo canvas appartiene a {owner}. Copialo nel tuo workspace per una copia di backup isolata, oppure apri l'originale in loco — qualsiasi modifica/eliminazione verrà registrata affinché {owner} possa rivederla al prossimo accesso.
+cross_user_open_title = Apri il canvas di un altro utente
+delete_confirm_body = Eliminare definitivamente '{name}'?
+	
+	Questo rimuove solo il file del canvas — il progetto rimane.
+delete_confirm_title = Elimina canvas
+delete_failed_body = Impossibile eliminare '{name}':
+	{err}
+delete_failed_title = Eliminazione non riuscita
+delete_tooltip = Elimina questo file canvas
+empty = Ancora nessun workspace locale — crea il tuo primo progetto sulla destra.
+load_tooltip = Apri questo canvas
+migrate_confirm_body = Spostare la root del workspace da
+	{old}
+	a
+	{new}?
+	
+	Tutti i progetti, i canvas e i dati per utente saranno spostati. L'app ricaricherà lo stato del workspace al termine.
+migrate_confirm_title = Migra workspace
+migrate_failed_body = Impossibile migrare il workspace:
+	{err}
+migrate_failed_title = Migrazione non riuscita
+migrate_success_body = La root del workspace ora è:
+	{path}
+migrate_success_title = Migrazione completata
+migrate_title = Scegli la nuova root del workspace
+refresh_tooltip = Aggiorna i file locali
+reveal_tooltip = Mostra nella cartella
+robot_unset = —
+search_placeholder = Cerca canvas…
+snapshot_label = Istantanea:
+time_day_n = {n} giorni fa
+time_hr_n = {n} ore fa
+title = Account
+view_all = Visualizza tutti gli spazi di lavoro
+refresh = Aggiorna
+btn_migrate = Migra
+col_user = Utente
+col_engine = Motore
+col_time = Ultima modifica
+col_action = Azione
+status_recent = Recente
+status_idle = Inattivo
+engine_unset = —
+engine_mixed = Misto ({n})
+time_min_one = 1 minuto fa
+time_hr_one = 1 ora fa
+btn_load = Carica
+cross_user_open_copy = Copia nel mio spazio di lavoro (consigliato)
+cross_user_open_inplace = Apri direttamente
+cross_user_open_cancel = Annulla
+time_just_now = proprio ora
+time_min_n = {n} minuti fa
+time_unknown = —
+time_yesterday = ieri
+user_guest = Ospite
+
+[user]
+headline_signed_out = Benvenuto in UnitPort Studio
+methods_prompt = Metodi di accesso
+signin_prompt = Accedi / Registrati
+sub_signed_out = Accedi al tuo account per sincronizzare i progetti e sbloccare le funzionalità cloud.
+uuid_copied_toast = UUID copiato negli appunti
+uuid_copy_tooltip = Copia UUID
+uuid_label = UUID: {uuid}
+welcome_back = Bentornato, {name}
+welcome_sub = Gestisci il tuo account e sincronizza i tuoi progetti su più dispositivi.
+title = Account
+welcome_back_title = Bentornato,
+btn_google = Continua con Google
+btn_github = Continua con GitHub
+btn_email = Continua con Email
+welcome_back_static = Bentornato,
+cloud_usage_label = Utilizzo cloud
+sign_out = Esci
+learn_more = Scopri di più
+workspace_synced = Spazio di lavoro sincronizzato · i progetti vengono replicati nel tuo account
+

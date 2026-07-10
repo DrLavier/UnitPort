@@ -1,0 +1,21 @@
+[btn]
+new = 새로 만들기
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (비어 있음)
+no_canvas = (캔버스 없음)
+no_project = (프로젝트 없음)
+
+[target]
+cloud = 클라우드
+local = 로컬
+local_ver = 로컬 ({short})
+
+[tooltip]
+new = 새 캔버스 선택기 열기
+start = 학습 시작
+stop = 학습 중지
+

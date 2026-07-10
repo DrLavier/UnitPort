@@ -46,11 +46,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from unitport_sdk import log_info, log_warning
+from unitport_sdk import log_debug, log_info, log_warning
 
 from application.training.bundle_exporter import (
     BundleExporter,
     ExportResult,
+    assert_policy_contract_consistent,
+    build_policy_contract_block,
 )
 from application.training.isaac_lab.manifest_parser import (
     parse_isaac_lab_env_yaml,
@@ -461,11 +463,12 @@ def _skill_manifest_to_v1_dict(
         v2 SkillManifest does not. Caller computes from
         ``IsaacLabConfig.control_dt`` / sim_dt.
 
-    ``deploy_contract`` / ``command_interface`` / ``precondition`` /
-    ``postcondition`` from SkillManifest are forwarded as **optional**
-    extra top-level fields (not part of the v1 12 required, but
-    BundleLoader tolerates them — RELEASE plan §B3 designates them as
-    backwards-compatible carry-along).
+    ``deploy_contract`` / ``precondition`` / ``postcondition`` from
+    SkillManifest are forwarded as **optional** extra top-level fields
+    (not part of the v1 12 required, but BundleLoader tolerates them —
+    RELEASE plan §B3 designates them as backwards-compatible
+    carry-along). ``command_interface`` was retired 2026-07 in favour of
+    ``deploy_contract.commands`` (v1 CommandContract).
     """
     if len(joint_names) != int(manifest.action_dim):
         # CLAUDE.md §1.8: the legacy behaviour padded/trimmed joint_names to
@@ -492,20 +495,11 @@ def _skill_manifest_to_v1_dict(
         )
 
     extra: Dict[str, Any] = {}
-    if manifest.command_interface is not None:
-        extra["command_interface"] = {
-            "type": manifest.command_interface.type,
-            "fields": [
-                {
-                    "name": f.name,
-                    "obs_index": int(f.obs_index),
-                    "range": list(f.range),
-                    "default": float(f.default),
-                }
-                for f in manifest.command_interface.fields
-            ],
-            "input_sources": list(manifest.command_interface.input_sources),
-        }
+    # RETIRED (2026-07): the ``command_interface`` carry-along. Superseded by
+    # ``deploy_contract.commands`` (v1 CommandContract, single emitter in
+    # command_schema.py) — per-channel name/kind/range/default now live
+    # there. Old bundles still carrying the manifest key load through the
+    # §8(c) legacy branch of review_session._resolve_review_command.
     if manifest.precondition is not None:
         extra["precondition"] = {
             "posture": manifest.precondition.posture,
@@ -551,6 +545,42 @@ def _skill_manifest_to_v1_dict(
 # ---------------------------------------------------------------------------
 # AMP discriminator extraction (only invoked when is_amp=True)
 # ---------------------------------------------------------------------------
+
+_NORM_KEY_SUFFIXES = (
+    "mean", "var", "count", "running_mean", "running_var", "running_count",
+)
+
+
+def _checkpoint_has_normalization(source_pt: Path) -> bool:
+    """Build-time probe: does the rsl_rl checkpoint carry an obs-normalization layer?
+
+    Used to set ``policy_contract.normalization_present`` BEFORE export (the
+    actual ``normalization_stats.json`` is written later, after the atomic bundle
+    write). Mirrors the detection in :func:`_extract_normalization_stats` but
+    never writes. Returns False on any read error (the WARN-tier field degrades
+    to "absent" rather than blocking finalize — §8(a)-style cold-path guard).
+    """
+    try:
+        import torch
+
+        # WHY KEPT: trusted trainer artifact written by our own runner; same
+        # rationale as _extract_normalization_stats (weights_only=False needed
+        # for the Normalizer pickle). Cold path only.
+        src = torch.load(str(source_pt), map_location="cpu", weights_only=False)
+        if not isinstance(src, dict):
+            return False
+        for sd_key in ("actor_state_dict", "critic_state_dict", "model_state_dict"):
+            sd = src.get(sd_key)
+            if not isinstance(sd, dict):
+                continue
+            for k in sd:
+                leaf = k.rsplit(".", 1)[-1]
+                if leaf in _NORM_KEY_SUFFIXES and ("norm" in k.lower() or leaf in _NORM_KEY_SUFFIXES):
+                    return True
+        return False
+    except Exception:  # noqa: BLE001 — cold-path probe must never block finalize
+        return False
+
 
 def _extract_normalization_stats(
     source_pt: Path, dst: Path
@@ -1473,7 +1503,7 @@ def finalize_isaac_lab_bundle(
                 _perm_dbg = [_li.get(r) for r in captured_ir_order]
             except Exception:
                 _perm_dbg = None
-            log_warning(
+            log_debug(
                 f"[bundle_finalizer] JOINT-ORDER MISMATCH for SKU {robot_sku!r}: "
                 f"the LIVE IsaacLab articulation order (the policy's true action "
                 f"order, source={joint_order_source!r}) differs from the registry "
@@ -1588,26 +1618,24 @@ def finalize_isaac_lab_bundle(
         deploy_contract_dict = dict(sm.deploy_contract)
         deploy_contract_dict.pop("robot_sku", None)
 
-        # Deploy-side stick→velocity mapping (producer half of the runtime
-        # CommandMapper): the velocity-channel ranges + mapping_mode / deadzone
-        # / curve_exponent from the Training Motion node, so a normalised
-        # [-1,1] controller stick maps to the real m/s envelope the policy was
-        # trained on (the per-item union). Best-effort — a build failure must
-        # never abort finalize; the load-time mapper then passes the stick
-        # through as a raw command and warns.
-        try:
-            from application.training.command_schema import deploy_command_block
-            _canvas_dict = (getattr(spec, "meta", None) or {}).get("__canvas_dict__")
-            _cmd_family = str(getattr(sm, "target_robot_family", "") or "quadruped")
-            _cmd_block = deploy_command_block(_canvas_dict, family=_cmd_family)
-            if _cmd_block:
-                deploy_contract_dict["commands"] = _cmd_block
-        except Exception as exc:  # noqa: BLE001 — never block finalize over telemetry
-            log_warning(
-                f"[bundle_finalizer] could not build deploy stick→velocity "
-                f"mapping block ({type(exc).__name__}: {exc}); bundle ships "
-                f"without it (controller stick used as a raw command at deploy)."
-            )
+        # Deploy-side command contract — single shared emitter with the SB3
+        # exporter (§11 symmetric pair): the full v1 CommandContract from the
+        # Training Motion node, so a normalised [-1,1] controller stick maps
+        # to the real envelope the policy trained on. Fail-loud (§8): an
+        # unresolved condition ABORTS finalize; {} only when the spec carries
+        # no canvas dict or the canvas has no training_motion node
+        # (presence-gated additive block). Family is spec.robot.families[0]
+        # — the gait-registry dispatch key — never a silent "quadruped".
+        from application.training.command_schema import deploy_command_block
+        _canvas_dict = (getattr(spec, "meta", None) or {}).get("__canvas_dict__")
+        _cmd_families = list(
+            getattr(getattr(spec, "robot", None), "families", []) or []
+        )
+        _cmd_block = deploy_command_block(
+            _canvas_dict, family=_cmd_families[0] if _cmd_families else ""
+        )
+        if _cmd_block:
+            deploy_contract_dict["commands"] = _cmd_block
 
         # 缺口① — recurrent policy contract. Source of truth = the export
         # metadata (inferred from the actual exported ONNX tensors); fall back
@@ -1870,6 +1898,56 @@ def finalize_isaac_lab_bundle(
         manifest_action_dim=int(manifest_dict["action_space"]["dim"]),
         obs_keys=list(sm.observation_space_keys or ()),
     )
+
+    # B1 — policy contract snapshot. Injected HERE (manifest dims known; before
+    # the contract is validated + written). recurrent_shape mirrors the
+    # _rec_block set above (its source of truth). normalization presence is
+    # probed from the checkpoint (the stats file is written post-export, so the
+    # presence must be determined now). IsaacLab trains on PhysX but deploys to
+    # MuJoCo — joint arrays are in USD order, obs in isaac_lab convention (same
+    # constants build_manifest uses, line ~540/546). The export-strict gate
+    # refuses an inconsistent snapshot before bytes are written (§10 two-gate).
+    if deploy_contract_dict is not None:
+        _il_norm_present = False
+        if (
+            spec is not None
+            and getattr(spec, "export", None) is not None
+            and bool(getattr(spec.export, "include_normalization", False))
+            and policy.source_path.suffix.lower() == ".pt"
+        ):
+            _il_norm_present = _checkpoint_has_normalization(policy.source_path)
+        _il_disc_dims = None
+        if is_amp:
+            _il_disc_dims = getattr(
+                getattr(
+                    getattr(getattr(getattr(spec, "algorithm", None), "il", None), "amp", None),
+                    "disc",
+                    None,
+                ),
+                "hidden_dims",
+                None,
+            )
+            _il_disc_dims = list(_il_disc_dims) if _il_disc_dims else None
+        _il_rec_block = deploy_contract_dict.get("recurrent")
+        _il_policy_contract = build_policy_contract_block(
+            spec,
+            policy_input_dim=int(manifest_dict["observation_space"]["dim"]),
+            policy_output_dim=int(manifest_dict["action_space"]["dim"]),
+            recurrent_block=_il_rec_block,
+            normalization_present=_il_norm_present,
+            normalization_kind="rsl_rl_obs_norm" if _il_norm_present else "none",
+            inference_convention="isaac_lab",
+            joint_array_format="USD",
+            discriminator_hidden_dims=_il_disc_dims,
+        )
+        assert_policy_contract_consistent(
+            _il_policy_contract,
+            manifest_obs_dim=int(manifest_dict["observation_space"]["dim"]),
+            manifest_action_dim=int(manifest_dict["action_space"]["dim"]),
+            recurrent_block=_il_rec_block,
+            label="[bundle_finalizer] IsaacLab bundle",
+        )
+        deploy_contract_dict["policy_contract"] = _il_policy_contract
 
     # 4.6. Validate the deploy_contract block (Module B) — every check
     # DeployContract.from_dict performs at load time, run here so a broken

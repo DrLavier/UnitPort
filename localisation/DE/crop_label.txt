@@ -1,0 +1,20 @@
+[default]
+title = Clip zuschneiden & beschriften
+length_unknown = Clip-Länge unbekannt (Frame-Parsing findet in der Backend-Runde statt) — Marker werden als rohe Frame-Nummern gespeichert.
+preview_robot = Roboter-Vorschau
+preview = Vorschau in MuJoCo
+preview_started = Vorschau gestartet (ganzer Clip — Bereichswiedergabe wird in der Backend-Runde ausgeführt).
+range = In {a}  ·  Out {b}  ·  {n} Frames
+seg_name = Segment
+seg_name_ph = z. B. walk_loop
+add = Aus Markern hinzufügen
+col_name = Name
+col_tag = Tag
+col_in = In
+col_out = Out
+col_action = 
+close = Schließen
+delete = Löschen
+no_robot = Wähle zuerst einen Vorschau‑Roboter.
+err_name = Segmentname ist erforderlich.
+

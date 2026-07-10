@@ -1,0 +1,136 @@
+[community]
+current = الحالي
+days_ago = {n} يومًا مضت
+latest = الأحدث
+releases_loading = جارٍ تحميل الإصدارات…
+today = اليوم
+tutorial_coming_soon = قريبًا...
+tutorial_desc = أدلة خطوة بخطوة للبناء والتدريب والنشر.
+tutorial_title = الدليل الرسمي
+yesterday = أمس
+title = المجتمع
+support_us = ادعمنا
+tutorial_open = افتح الرابط
+releases_unavailable = تعذر تحميل الإصدارات. تحقّق من الشبكة.
+releases_empty = لا توجد إصدارات منشورة بعد.
+open_page = افتح الصفحة
+download = تنزيل
+day_one = منذ يوم واحد
+
+[create]
+engine_unavailable = غير متاح
+error_create_failed = تعذر إنشاء المشروع '{name}' (قد يتصادم الاسم مع مشروع موجود — تحقق من السجل).
+error_existing_missing = هذا المشروع لم يعد موجودًا على القرص — قم بتحديث القائمة واختر مرة أخرى.
+error_invalid_canvas_name = قد يحتوي اسم اللوحة فقط على حروف وأرقام و '_' و '-'.
+error_invalid_name = قد يحتوي اسم المشروع فقط على حروف وأرقام و '_' و '-'.
+error_no_backend = اختر نظامًا خلفيًا قبل الإنشاء.
+error_no_canvas_name = اكتب اسم اللوحة (مثال: 'main').
+error_no_existing = اختر مشروعًا موجودًا من القائمة، أو انتقل إلى 'مشروع جديد'.
+error_no_name = اكتب اسم المشروع أولًا.
+error_no_template = اختر قالبًا (أو 'بناء حر') قبل الإنشاء.
+label_backend = النظام الخلفي
+label_canvas_name = اسم اللوحة
+label_pick_project = اختر مشروعًا
+label_project_name = اسم المشروع
+label_template = اختر قالبًا
+no_templates = لا توجد قوالب متاحة لهذا النظام الخلفي.
+placeholder_canvas = مثال: 'main'
+placeholder_name = اسم المشروع الجديد
+title = إنشاء مشروع جديد
+btn = إنشاء لوحة
+section_project = المشروع
+section_canvas = اللوحة
+mode_new = مشروع جديد
+mode_existing = إلى مشروع
+
+[projects]
+btn_open_workspace = افتح مساحة العمل المحلية →
+col_canvas = لوحة
+col_project = مشروع
+col_robot = روبوت
+cross_user_audit_recorded = تم تسجيله لمراجعة {owner}
+cross_user_copy_failed_body = تعذر نسخ '{name}' إلى مساحة العمل الخاصة بك:
+	{err}
+cross_user_copy_failed_title = فشل النسخ
+cross_user_delete_warn_body = '{name}' يخص {owner}. سيُسجَّل الحذف الآن حتى يتسنى لـ{owner} مراجعته أو استعادته عند تسجيل الدخول التالي.
+	
+	هل تود الحذف على أي حال؟
+cross_user_delete_warn_title = حذف لوحة مستخدم آخر
+cross_user_open_body = تعود هذه اللوحة إلى {owner}. انسخها إلى مساحة العمل الخاصة بك كنسخة احتياطية معزولة، أو افتح النسخة الأصلية في مكانها — أي تعديل/حذف سيُسجَّل ليتمكن {owner} من مراجعته عند تسجيل الدخول التالي.
+cross_user_open_title = فتح لوحة مستخدم آخر
+delete_confirm_body = حذف '{name}' نهائيًا؟
+	
+	هذا يزيل ملف اللوحة فقط — يُحتفظ بالمشروع نفسه.
+delete_confirm_title = حذف اللوحة
+delete_failed_body = تعذّر حذف '{name}':
+	{err}
+delete_failed_title = فشل الحذف
+delete_tooltip = حذف ملف اللوحة هذا
+empty = لا توجد مساحات عمل محليّة حتى الآن — أنشئ مشروعك الأول على اليمين.
+load_tooltip = افتح هذه اللوحة
+migrate_confirm_body = هل تريد نقل جذر مساحة العمل من
+	{old}
+	إلى
+	{new}؟
+	
+	سيتم نقل كل المشاريع واللوحات والبيانات الخاصة بكل مستخدم. سيعيد التطبيق تحميل حالة مساحة العمل عند الانتهاء.
+migrate_confirm_title = ترحيل مساحة العمل
+migrate_failed_body = تعذّر ترحيل مساحة العمل:
+	{err}
+migrate_failed_title = فشل الترحيل
+migrate_success_body = جذر مساحة العمل الآن:
+	{path}
+migrate_success_title = اكتمل الترحيل
+migrate_title = اختر جذر مساحة عمل جديد
+refresh_tooltip = تحديث الملفات المحلية
+reveal_tooltip = إظهار في المجلد
+robot_unset = —
+search_placeholder = ابحث في اللوحات…
+snapshot_label = لقطة:
+time_day_n = منذ {n} يومًا
+time_hr_n = منذ {n} ساعة
+title = Account
+view_all = عرض جميع مساحات العمل
+refresh = تحديث
+btn_migrate = ترحيل
+col_user = المستخدم
+col_engine = المحرك
+col_time = آخر تعديل
+col_action = إجراء
+status_recent = مؤخر
+status_idle = خامل
+engine_unset = —
+engine_mixed = مختلط ({n})
+time_min_one = منذ دقيقة واحدة
+time_hr_one = منذ ساعة واحدة
+btn_load = فتح
+cross_user_open_copy = نسخ إلى مساحة العمل الخاصة بي (موصى به)
+cross_user_open_inplace = فتح في المكان
+cross_user_open_cancel = إلغاء
+time_just_now = الآن
+time_min_n = منذ {n} دقيقة
+time_unknown = —
+time_yesterday = أمس
+user_guest = زائر
+
+[user]
+headline_signed_out = مرحبًا بك في UnitPort Studio
+methods_prompt = طرق تسجيل الدخول
+signin_prompt = تسجيل الدخول / إنشاء حساب
+sub_signed_out = سجّل الدخول إلى حسابك لمزامنة المشاريع وفتح ميزات السحابة.
+uuid_copied_toast = تم نسخ UUID إلى الحافظة
+uuid_copy_tooltip = نسخ UUID
+uuid_label = UUID: {uuid}
+welcome_back = مرحبًا بعودتك، {name}
+welcome_sub = أدر حسابك وقم بمزامنة مشاريعك عبر الأجهزة.
+title = الحساب
+welcome_back_title = مرحبًا بعودتك،
+btn_google = المتابعة عبر Google
+btn_github = المتابعة عبر GitHub
+btn_email = المتابعة عبر البريد الإلكتروني
+welcome_back_static = مرحبًا بعودتك،
+cloud_usage_label = استخدام السحابة
+sign_out = تسجيل الخروج
+learn_more = تعرف على المزيد
+workspace_synced = مساحة العمل متزامنة · تُنسخ المشاريع إلى حسابك
+

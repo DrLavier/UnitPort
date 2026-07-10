@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = 啟用時，UnitPort 會在你儲存後不久，將每個變更的工作區檔案推送到雲端。
+busy_pull = 從雲端拉取中...
+busy_push = 推送到雲端中...
+manage_dialog_delete_confirm_body = 是否永久從雲端刪除 '{name}'？
+manage_dialog_delete_confirm_title = 刪除雲端檔案
+manage_dialog_dl_conflict_body = 本機檔案已存在：
+	{path}
+	
+	要如何處理？
+manage_dialog_dl_conflict_title = 檔案已存在
+manage_dialog_dl_done_body = 下載至：
+	{path}
+manage_dialog_dl_done_title = 下載完成
+manage_dialog_dl_overwrite = 覆蓋
+manage_dialog_dl_save_as = 另存為…
+manage_dialog_dl_save_as_caption = 儲存下載的檔案
+manage_dialog_dl_skip = 跳過
+manage_dialog_empty = 雲端目前沒有檔案 — 試試按下「推送」或將檔案拖曳到此處。
+manage_dialog_folder_del_body = 是否永久從雲端刪除 '{name}' 及其中所有 {n} 個檔案？
+manage_dialog_folder_del_title = 刪除資料夾
+manage_dialog_folder_dl_all_skipped = 所有檔案已存在本機 — 未下載任何檔案。
+manage_dialog_folder_dl_body = 是否將 '{name}' 中的 {n} 個檔案下載到本機工作區？
+manage_dialog_folder_dl_replace = 取代現有檔案
+manage_dialog_folder_dl_skip_existing = 跳過現有檔案
+manage_dialog_folder_dl_title = 下載資料夾
+manage_dialog_folder_summary = {n} 項 · {size}
+manage_dialog_loading = 載入中…
+manage_dialog_not_signed_in = 請先登入以管理雲端儲存空間。
+manage_dialog_op_failed_body = {phase} 失敗：
+	{err}
+manage_dialog_op_failed_title = 操作失敗
+manage_dialog_oversize_body = 超過 50 MB 的檔案無法上傳：
+	{names}
+manage_dialog_oversize_title = 檔案過大
+manage_dialog_quota = 已使用 {used} / {total}
+manage_dialog_title = 管理雲端儲存空間
+manage_tooltip = 管理雲端同步設定與已儲存的檔案
+never_synced = 從不
+pull_tooltip = 將雲端檔案下載到本機工作區
+push_tooltip = 將本機工作區檔案上傳到雲端
+status_error = 同步失敗：{msg}
+status_signed_out = 請登入以啟用雲端同步
+status_synced = 已同步 {n} 個檔案 · 上次同步 {when}
+section_title = 雲端同步
+push_button = 推送
+pull_button = 拉取
+manage_button = 管理
+manage_coming_soon = 雲端管理對話框即將推出。
+manage_dialog_refresh = 重新整理
+manage_dialog_close = 關閉
+manage_dialog_uploading = 正在上傳 {name}…
+manage_dialog_deleting = 正在刪除…
+manage_dialog_downloading = 正在下載…
+download_tooltip = 下載到本機工作區
+delete_tooltip = 從雲端刪除
+folder_download_tooltip = 下載此資料夾中的所有檔案
+folder_delete_tooltip = 刪除此資料夾及其內所有檔案
+auto_push_label = 自動推送
+status_idle = 閒置
+status_pushing = 推送中... {done}/{total}
+status_pulling = 拉取中... {done}/{total}
+status_self_check = 雲端有 {n} 個物件
+status_no_remote = 雲端為空
+status_size_skip = 已跳過 {n} 個超過 50 MB 的檔案
+busy_self_check = 正在檢查雲端狀態...
+done_push = 已推送 {ok}/{total} 個檔案。跳過 {skipped}。
+done_pull = 已拉取 {ok}/{total} 個檔案。跳過 {skipped}。
+

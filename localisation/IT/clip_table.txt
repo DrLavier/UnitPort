@@ -1,0 +1,11 @@
+[default]
+edit_tip = Fai clic per ritagliare / etichettare questo clip
+segment_tip = Apri questo segmento
+col_name = Clip
+col_tag = Tag
+col_frames = Fotogrammi
+col_duration = Durata
+col_segments = Segmenti
+col_action = 
+crop = Ritaglia / Tag
+

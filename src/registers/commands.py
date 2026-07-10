@@ -581,7 +581,11 @@ def enrich_user_item(item_id: str, user_value: Any) -> Dict[str, Any]:
     # training_items, enriched via this function) sees it just like the
     # Isaac-Lab path (which reads the raw canvas node). Dropping it would make
     # the two engines sample with different distributions (CLAUDE.md §11).
-    for key in ("enabled", "speed", "clip", "weight"):
+    # ``package_id`` is the optional training-package membership (Method A,
+    # Slice 1) — carried for the same §11 producer/consumer-parity reason: the
+    # SB3 spec path and the Isaac-Lab canvas path must agree on which package an
+    # item belongs to, or package reward composition would diverge per engine.
+    for key in ("enabled", "speed", "clip", "weight", "package_id"):
         if key in base:
             out[key] = base[key]
     user_advanced = base.get("advanced") if isinstance(base.get("advanced"), dict) else {}

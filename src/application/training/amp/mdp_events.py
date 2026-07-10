@@ -49,13 +49,18 @@ import numpy as np
 # ---------------------------------------------------------------------------
 
 
-_POOL_SCHEMA: Tuple[Tuple[str, int], ...] = (
+#: Pool field → expected column width. Fixed-width root fields pin their
+#: dim; the two ``*_canonical`` joint fields use ``None`` = "any positive
+#: width, but both must agree" so the pool is morphology-agnostic
+#: (12 quadruped / 29 G1 / …). Pinning 12 here was part of the pre-2026-06
+#: quadruped-only AMP lock.
+_POOL_SCHEMA: Tuple[Tuple[str, Optional[int]], ...] = (
     ("root_pos", 3),
     ("root_quat_wxyz", 4),
     ("root_lin_vel_w", 3),
     ("root_ang_vel_w", 3),
-    ("joint_pos_canonical", 12),
-    ("joint_vel_canonical", 12),
+    ("joint_pos_canonical", None),
+    ("joint_vel_canonical", None),
 )
 
 _RSI_POOLS: Dict[str, Dict[str, np.ndarray]] = {}
@@ -96,10 +101,32 @@ def register_rsi_pool(pool_id: str, pool: Dict[str, np.ndarray]) -> None:
         )
 
     n_frames: Optional[int] = None
+    joint_dim: Optional[int] = None
     cleaned: Dict[str, np.ndarray] = {}
     for key, expected_dim in _POOL_SCHEMA:
         arr = np.asarray(pool[key], dtype=np.float32)
-        if arr.ndim != 2 or arr.shape[1] != expected_dim:
+        if arr.ndim != 2:
+            raise ValueError(
+                f"register_rsi_pool: field {key!r} has shape {arr.shape}, "
+                f"expected a 2-D (N, dim) array."
+            )
+        if expected_dim is None:
+            # Variable-width joint field: any positive width, but the two
+            # joint fields (pos/vel) must agree on it.
+            if arr.shape[1] <= 0:
+                raise ValueError(
+                    f"register_rsi_pool: field {key!r} has width "
+                    f"{arr.shape[1]}; need a positive joint count."
+                )
+            if joint_dim is None:
+                joint_dim = arr.shape[1]
+            elif arr.shape[1] != joint_dim:
+                raise ValueError(
+                    f"register_rsi_pool: joint field {key!r} has width "
+                    f"{arr.shape[1]}, but another joint field declared "
+                    f"{joint_dim}. joint_pos/joint_vel must share a DoF."
+                )
+        elif arr.shape[1] != expected_dim:
             raise ValueError(
                 f"register_rsi_pool: field {key!r} has shape {arr.shape}, "
                 f"expected (N, {expected_dim})."
@@ -160,14 +187,18 @@ def _ensure_torch_pool(pool_id: str, device: Any) -> Optional[Dict[str, Any]]:
 
 def _resolve_joint_perm_from_env(env: Any, asset_cfg: Any) -> Any:
     import torch as _torch
-    from application.training.amp.obs_terms import resolve_canonical_joint_perm
+    # Family-keyed dispatcher — the SAME perm source the env-side AMP obs
+    # readers use, so RSI writes land in the joint order the discriminator
+    # expects (quadruped 12 / humanoid N). The launcher pins the family via
+    # obs_terms.set_amp_obs_family() before any reset fires.
+    from application.training.amp.obs_terms import resolve_amp_joint_perm
 
     articulation = env.scene[asset_cfg.name]
     key = id(articulation)
     cached = _JOINT_PERM_CACHE.get(key)
     if cached is not None:
         return cached
-    perm_list = resolve_canonical_joint_perm(articulation)
+    perm_list = resolve_amp_joint_perm(articulation)
     device = articulation.data.joint_pos.device
     perm = _torch.as_tensor(perm_list, dtype=_torch.long, device=device)
     _JOINT_PERM_CACHE[key] = perm
@@ -260,13 +291,17 @@ def reset_from_reference_motion(
     canonical_joint_vel = pool_t["joint_vel_canonical"][frame_idx]
 
     perm = _resolve_joint_perm_from_env(env, asset_cfg)
-    # Scatter canonical → asset-native: asset[:, perm[k]] = canonical[:, k].
-    # Building a fresh tensor avoids touching whatever the prior reset
-    # wrote for envs we later subset away.
-    asset_joint_pos = _torch.empty_like(canonical_joint_pos)
-    asset_joint_pos[:, perm] = canonical_joint_pos
-    asset_joint_vel = _torch.empty_like(canonical_joint_vel)
-    asset_joint_vel[:, perm] = canonical_joint_vel
+    # ``perm[k]`` is the articulation joint index for canonical column k
+    # (IR-role order). We write ONLY these IR-mapped joints via
+    # ``joint_ids=perm`` below — column k → joint perm[k]. Any extra
+    # articulation joints a reference clip does NOT cover (e.g. a humanoid's
+    # hands: G1 is 29 IR-mapped of 43 total) keep whatever the prior reset
+    # event set. The previous code instead built a scatter buffer sized to
+    # the CANONICAL joint count and wrote it with joint_ids=None, which
+    # silently assumed num_joints == n_canonical — true for the 12-DoF
+    # quadruped, but a (n, 29)→(n, 43) shape-mismatch crash on a humanoid.
+    asset_joint_pos = canonical_joint_pos
+    asset_joint_vel = canonical_joint_vel
 
     if joint_noise > 0.0:
         asset_joint_pos = asset_joint_pos + _torch.randn_like(asset_joint_pos) * float(joint_noise)
@@ -306,6 +341,10 @@ def reset_from_reference_motion(
 
     asset.write_root_pose_to_sim(pose7, env_ids=env_ids_write)
     asset.write_root_velocity_to_sim(vel6, env_ids=env_ids_write)
+    # joint_ids=perm: write each canonical column to its IR-mapped articulation
+    # joint, leaving uncovered joints (humanoid hands) untouched. For the
+    # quadruped perm covers all joints, so this is identical to the prior
+    # write-all behaviour there.
     asset.write_joint_state_to_sim(
-        asset_joint_pos, asset_joint_vel, joint_ids=None, env_ids=env_ids_write
+        asset_joint_pos, asset_joint_vel, joint_ids=perm, env_ids=env_ids_write
     )

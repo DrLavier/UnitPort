@@ -1,0 +1,5 @@
+[default]
+empty = Nenhum projeto encontrado
+open_folder_tip = Abrir a pasta de projetos no explorador de arquivos do OS
+refresh_tip = Reverificar a pasta de projetos
+

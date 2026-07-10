@@ -71,7 +71,17 @@ from unitport_sdk import (
 # without a code change.
 _LANG_DISPLAY = {
     "EN": "English",
-    "ZH": "中文",
+    "FR": "Français",
+    "ZH_S": "简体中文",
+    "ZH_T": "繁體中文",
+    "IT": "Italiano",
+    "ES": "Español",
+    "DE": "Deutsch",
+    "RU": "Русский",
+    "PT": "Português",
+    "AR": "العربية",
+    "JA": "日本語",
+    "KO": "한국어",
 }
 
 
@@ -304,10 +314,15 @@ class Sidebar(QFrame):
     _UNTINTED_KEYS = frozenset({"user"})
 
     # MissionControlPanel mode → which nav buttons are shown.
-    # Keys not listed here (e.g. ``user``) are always visible.
+    # Keys not listed here (e.g. ``user``, ``controller``, ``resources``) are
+    # always visible in every mode.
     _MODE_VISIBLE_KEYS = {
         "training_canva":  frozenset({"node_library", "robot_assets"}),
-        "mission_control": frozenset({"projects", "robot_assets", "controller", "resources"}),
+        # AI Coding edits the same canvas as Training Canva (the AI Build
+        # overlay floats over it) — surface the same node-library / robot-asset
+        # nav so the user can reference them while the assistant works.
+        "ai_coding":       frozenset({"node_library", "robot_assets"}),
+        "mission_control": frozenset({"projects", "robot_assets"}),
         # Terminations / Observations are intentionally hidden: their
         # preset entries are declarative (mapped to Isaac Lab ``mdp.*`` via
         # ``il_func``) and carry no editable inline source — the Script
@@ -317,9 +332,11 @@ class Sidebar(QFrame):
         "scripts":         frozenset({"training", "rewards"}),
     }
     # All mode-gated keys (union of the per-mode sets) — convenient for
-    # toggling visibility in one pass.
+    # toggling visibility in one pass. ``controller`` / ``resources`` are
+    # deliberately excluded: they stay visible under every mode (like ``user``),
+    # so ``apply_view_mode`` never hides them.
     _MODE_GATED_KEYS = frozenset({
-        "node_library", "projects", "robot_assets", "controller", "resources",
+        "node_library", "projects", "robot_assets",
         "training", "rewards", "terminations", "observations",
     })
 

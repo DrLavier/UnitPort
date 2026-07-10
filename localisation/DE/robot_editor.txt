@@ -1,0 +1,31 @@
+[default]
+adapter_none = (keine)
+add_family_tip = Eine neue Familie im Benutzer-Overlay registrieren
+add_joint = + Gelenk
+brand_ph = z. B. unitree
+browse = ...
+browse_title = Wähle {kind}-Datei aus
+cancel = Abbrechen
+col_joint = Gelenkname
+col_role = IR-Rolle
+confirm_delete_body = Diesen Roboter aus der Benutzerschicht entfernen? Kanonische Einträge sind davon nicht betroffen.
+confirm_delete_title = Roboter löschen
+del_joint = − Gelenk
+delete = Löschen
+error_required = Marke und Modell sind erforderlich.
+error_title = Ungültige Eingabe
+error_variant_label = Bezeichnung der Variante ist erforderlich.
+family_placeholder = Familie auswählen…
+model_ph = z. B. go2
+name_ph = Anzeigename
+path_placeholder = Relativer oder absoluter Pfad
+save = Speichern
+variant_label_ph = z. B. Air, Pro, X, Field-Test
+add_family_btn = +
+families = Familien
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

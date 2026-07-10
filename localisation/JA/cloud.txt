@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = オンにすると、UnitPort はワークスペース内で変更された各ファイルを保存後すぐにクラウドへプッシュします。
+busy_pull = クラウドからプルしています…
+busy_push = クラウドにプッシュしています…
+manage_dialog_delete_confirm_body = クラウドから'{name}'を完全に削除しますか？
+manage_dialog_delete_confirm_title = クラウドファイルを削除
+manage_dialog_dl_conflict_body = ローカルファイルが既に存在します:
+	{path}
+	
+	どうしますか？
+manage_dialog_dl_conflict_title = ファイルが既に存在します
+manage_dialog_dl_done_body = ダウンロード先:
+	{path}
+manage_dialog_dl_done_title = ダウンロード完了
+manage_dialog_dl_overwrite = 上書き
+manage_dialog_dl_save_as = 名前を付けて保存…
+manage_dialog_dl_save_as_caption = ダウンロードしたファイルを保存
+manage_dialog_dl_skip = スキップ
+manage_dialog_empty = クラウドにファイルはまだありません — Push を試すか、ここにファイルをドラッグしてください。
+manage_dialog_folder_del_body = クラウドから'{name}'とその中の{n}個のファイルをすべて完全に削除しますか？
+manage_dialog_folder_del_title = フォルダを削除
+manage_dialog_folder_dl_all_skipped = すべてのファイルは既にローカルに存在します — ダウンロードは行われませんでした。
+manage_dialog_folder_dl_body = '{name}'内の{n}個のファイルをローカルワークスペースにダウンロードしますか？
+manage_dialog_folder_dl_replace = 既存のファイルを置き換える
+manage_dialog_folder_dl_skip_existing = 既存のファイルをスキップ
+manage_dialog_folder_dl_title = フォルダをダウンロード
+manage_dialog_folder_summary = {n}項目 · {size}
+manage_dialog_loading = 読み込み中…
+manage_dialog_not_signed_in = クラウドストレージを管理するには、まずサインインしてください。
+manage_dialog_op_failed_body = {phase}に失敗しました:
+	{err}
+manage_dialog_op_failed_title = 操作に失敗しました
+manage_dialog_oversize_body = 50 MB を超えるファイルはアップロードできません:
+	{names}
+manage_dialog_oversize_title = ファイルが大きすぎます
+manage_dialog_quota = 使用済み {used} / {total}
+manage_dialog_title = クラウドストレージを管理
+manage_tooltip = クラウド同期設定と保存されたファイルを管理
+never_synced = しない
+pull_tooltip = クラウドのファイルをローカルワークスペースにダウンロードする
+push_tooltip = ローカルワークスペースのファイルをクラウドへアップロードする
+status_error = 同期に失敗しました: {msg}
+status_signed_out = クラウド同期を有効にするにはサインインしてください
+status_synced = 同期済み {n} 個のファイル · 最終同期 {when}
+section_title = クラウド同期
+push_button = プッシュ
+pull_button = プル
+manage_button = 管理
+manage_coming_soon = クラウド管理ダイアログは近日公開予定です。
+manage_dialog_refresh = 更新
+manage_dialog_close = 閉じる
+manage_dialog_uploading = {name} をアップロード中…
+manage_dialog_deleting = 削除中…
+manage_dialog_downloading = ダウンロード中…
+download_tooltip = ローカルワークスペースにダウンロード
+delete_tooltip = クラウドから削除
+folder_download_tooltip = このフォルダ内のすべてのファイルをダウンロード
+folder_delete_tooltip = このフォルダと内部のすべてのファイルを削除
+auto_push_label = 自動プッシュ
+status_idle = 待機
+status_pushing = プッシュ中… {done}/{total}
+status_pulling = 取得中... {done}/{total}
+status_self_check = クラウドに{n}個のオブジェクトがあります
+status_no_remote = クラウドは空です
+status_size_skip = 50 MB を超えるファイル {n} 個をスキップしました
+busy_self_check = クラウドの状態を確認しています...
+done_push = プッシュ済み {ok}/{total} ファイル。スキップ: {skipped}。
+done_pull = 取得済み {ok}/{total} ファイル。スキップ: {skipped}。
+

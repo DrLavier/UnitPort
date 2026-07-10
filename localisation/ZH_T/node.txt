@@ -1,0 +1,543 @@
+[export]
+compat.no_connection = 未連接起始點 — 連接 train_pipe 以填充
+compat.title = 起始點相容性
+manifest.exists_warn = ⚠ 已存在
+manifest.open = 開啟
+manifest.placeholder = <新增>
+manifest.status.exists = 已存在
+manifest.status.planned = 已規劃
+display = 匯出
+desc = Bundle + ONNX/TorchScript 匯出 + 場景檢視
+param.bundle_name = Bundle 名稱
+param.version = 版本
+param.include_onnx = 包含 ONNX
+param.include_torchscript = 包含 TorchScript
+param.include_normalization = 包含正規化統計
+param.bundle_targets = Bundle 目標
+param.export_target = 匯出目標
+param.export_onnx = [舊版] ONNX
+param.export_torchscript = [舊版] TS
+param.include_norm_stats = [舊版] 正規化
+param.overwrite = 覆蓋
+param.review_backend = 檢視後端
+param.review_scene_id = 檢視場景
+param.review_launch = 檢視啟動
+param.auto_import = 自動匯入
+param.output_files = 輸出檔案
+param.start_point_compat = 起點相容性
+compat.field.framework = 框架
+compat.field.action_dim = 動作維度
+compat.field.decimation = 降採樣
+compat.field.joint_order = 關節順序
+port.train_pipe = 訓練管線
+port.eval_config = 評估設定
+port.bundle_path = Bundle 路徑
+
+[rewards]
+covered_lane = 被 Unconditional 覆蓋
+empty_lane = 無獎勵 — 階段約束不足
+display = 獎勵
+desc = 獎勵項目設定 (SB3 / Isaac Lab)
+param.backend = 後端
+param.reward_terms = 獎勵項目
+param.std = 標準差
+param.threshold = 閾值
+port.actor_pipe = Actor 管線
+port.command_pipe = Command 管線
+port.total_reward = 總獎勵
+
+[example]
+print_hello.display = 印出 Hello
+print_hello.desc = 社群節點起始範本 — 宣告單一字串參數；使用預設的 passthrough execute。
+print_hello.param.message = 訊息
+
+[vis_check]
+display = 視覺檢查
+desc = 視覺檢查 / 預覽
+param.trigger_mode = 觸發模式
+param.vis_start_step = 視覺開始步數
+param.vis_interval_steps = 視覺間隔
+param.num_vis_checks = 視覺次數
+param.vis_episodes = 視覺回合數
+param.deterministic = 確定性
+port.vis_check = 視覺檢查
+
+[training_motion]
+display = 訓練動作
+desc = 參考動作 + 指令 + 課程
+param.training_items = 訓練項目
+param.mapping_mode = 映射模式
+param.deadzone = 死區
+param.curve_exponent = 曲線指數
+param.runtime_clip = 執行時截斷
+param.gait_enabled = 步態啟用
+param.gait_frequency_range = 步態頻率
+param.body_height_range = 身體高度
+param.step_height_range = 步高
+param.gait_presets = 步態預設
+param.resampling_time_range = 重新取樣時間
+param.cmd_step_change_prob = 指令變更機率
+param.gain_lin_forward = 前向速度上限
+param.gain_lin_backward = 後向速度上限
+param.gain_lin_lateral = 側向速度
+param.gain_yaw = 偏航速率上限
+param.reference_state_init_enabled = AMP RSI 開啟
+param.rsi_prob = RSI 機率
+param.rsi_joint_noise = RSI 關節噪聲
+param.consumption_mode = 消耗模式
+param.phase_mode = 相位模式
+param.motion_fps = 動作 FPS
+param.random_start_phase = 隨機起始相位
+param.command_curriculum_enabled = 命令課程 開啟
+param.command_curriculum_start = 命令課程 開始
+param.command_curriculum_end = 命令課程 結束
+param.command_curriculum_ramp_iters = 命令課程 漸進迭代
+port.command_pipe = 命令管線
+port.reference_motion_config = 參考動作 設定
+
+[train]
+display = 訓練
+desc = 頂層訓練入口
+port.env_config = 環境設定
+port.algo_config = 演算法設定
+port.eval_config = 評估設定
+port.train_config = 訓練設定
+port.train_pipe = 訓練管線
+port.vis_check = 可視化檢查
+
+[terminations]
+display = 終止條件
+desc = 終止條件
+param.backend = 後端
+param.termination_conditions = 終止條件
+param.termination_curriculum_enabled = 終止課程啟用
+param.termination_curriculum_start = 終止課程開始
+param.termination_curriculum_end = 終止課程結束
+param.termination_curriculum_ramp_iters = 終止課程遞增
+port.termination_config = 終止設定
+
+[task_config]
+display = 任務設定
+desc = 強化學習任務定義
+param.task_type = 任務類型
+param.command_mode = 指令模式
+param.target_lin_vel_x = 目標 Vx
+param.target_lin_vel_y = 目標 Vy
+param.target_ang_vel_z = 目標 Wz
+param.curriculum = 課程
+param.success_threshold = 成功門檻
+param.truncation_max_steps = 截斷步數
+param.curriculum_schedule = 課程排程
+param.resampling_time_range = 重新取樣時間
+port.total_reward = 總獎勵
+port.termination_config = 終止設定
+port.task_config = 任務設定
+
+[stage_switch]
+display = 階段切換
+desc = 多階段課程切換
+param.stages_config = 階段設定
+param.checkpoint_strategy = CKPT 策略
+port.stage_0 = 階段 0
+port.stage_1 = 階段 1
+port.stage_2 = 階段 2
+port.stage_3 = 階段 3
+port.stage_4 = 階段 4
+port.stage_5 = 階段 5
+port.train_pipe = 訓練管線
+
+[robot]
+display = 機器人
+desc = 機器人資產 + 機體映射 + PD 參數化
+param.asset_id = 資產 ID
+param.active_override = 啟用覆寫
+param.body_mapping = 機體映射
+param.pd_param_mode = PD 模式
+param.pd_groups = PD 群組
+param.pd_effort_limit = 力矩上限
+param.pd_velocity_limit = 速度上限
+param.pd_resolve_at_reset = 重置時重新求解
+param.pd_calibration_blocking = 校準失敗時阻塞
+param.pd_skip_calibration = 跳過校準
+port.robot_pipe = 機器人管線
+
+[play_ground_setting]
+display = 場地
+desc = 場景 + 競技場 + 摩擦 + 高度掃描
+param.scene_id = 場景 Id
+param.scene_type = 場景類型
+param.custom_terrain_path = 地形檔案
+param.custom_terrain_vertical_scale = 高度步長
+param.gravity_z = 重力 Z
+param.arena_extent_x = 競技場範圍 X
+param.arena_extent_y = 競技場範圍 Y
+param.friction_static = 靜態摩擦
+param.friction_dynamic = 動態摩擦
+param.curriculum_enabled = 課程啟用
+param.difficulty_levels = 難度層級
+param.height_scan_enabled = 高度掃描啟用
+param.scan_resolution = 掃描解析度
+param.scan_size_x = 掃描尺寸 X
+param.scan_size_y = 掃描尺寸 Y
+param.sim_dt = 模擬時間步長
+param.gpu_max_rigid_contact_count = GPU 接觸數
+param.gpu_max_rigid_patch_count = GPU 區塊數
+port.scene_pipe = 場景管線
+
+[physics_config]
+display = 物理設定
+desc = 模擬 dt + 控制 dt + 求解器
+param.sim_dt = 模擬時間步長
+param.control_dt = 控制時間步長
+param.episode_max_steps = 回合最大步數
+param.action_type = 動作類型
+port.robot_pipe = 機器人管線
+port.robot_spec = 機器人規格
+port.physics_config = 物理設定
+
+[obs_action_config]
+display = 觀測/動作 設定
+desc = 觀測組件 + 動作對應
+param.contract_preset = Contract 預設
+param.obs_components = 觀測項目
+param.obs_clip_range = 觀測裁切範圍
+param.frame_stack = 幀堆疊
+param.action_type = 動作類型
+param.action_scale = 動作縮放
+param.action_clip = 動作裁切
+port.obs_action_config = 觀測/動作設定
+
+[multigated_reward]
+display = 門控獎勵
+desc = 多階段門控獎勵路由器
+param.max_step_stage0 = 階段0 步數
+param.reward_threshold_ratio = 獎勵閾值
+param.min_ep_window = 最小 Ep 視窗
+param.plateau_window = 平台期視窗
+param.plateau_eps = 平台期 ε
+param.blend_steps = 混合步數
+param.stage_behavior = 階段行為
+param.ep_reward_window = Ep Rwd 視窗
+param.stage1_ratio = 階段1 比率
+port.stage_0 = 階段 0
+port.stage_1 = 階段 1
+port.total_reward = 總獎勵
+port.total_steps = 總步數
+
+[joint_init]
+display = 關節初始化
+desc = 逐關節初始角度
+param.angles = 角度
+port.joint_init = 關節初始化
+
+[init_pose]
+display = 初始姿勢
+desc = 初始姿勢（RSI / 關鍵幀）
+param.mode = 模式
+param.noise_scale = 噪聲尺度
+param.base_height = 基座高度
+param.keyframe_name = 關鍵幀名稱
+param.custom_qpos = 自定義 Qpos
+param.rsi_prob = RSI 機率
+param.rsi_sample_mode = RSI 取樣
+port.init_pose_config = 初始姿勢設定
+
+[il_ppo_trainer]
+display = IL PPO 訓練器
+desc = Isaac Lab PPO/AMP_PPO 訓練器
+param.training_mode = 訓練模式
+param.num_envs = 環境數
+param.max_iterations = 最大迭代次數
+param.num_steps_per_env = 每環境步數
+param.num_learning_epochs = 學習輪次
+param.num_minibatches = 小批次
+param.learning_rate = 學習率
+param.discount_factor = 折扣 γ
+param.gae_lambda = GAE λ
+param.clip_param = 裁剪 ε
+param.entropy_coef = 熵係數
+param.value_loss_coef = 值損失係數
+param.max_grad_norm = 最大梯度範數
+param.schedule = 學習率排程
+param.desired_kl = 目標 KL
+param.save_interval = 保存間隔
+param.seed = 隨機種子
+param.headless = 無頭模式
+param.amp_reward_coef = AMP 報酬係數
+param.task_reward_lerp = 任務報酬插值
+param.disc_grad_penalty = 鑑別器梯度懲罰
+param.disc_label_smoothing = 鑑別器標籤平滑
+param.amp_replay_buffer_size = 回放緩衝區
+param.num_preload_transitions = 預載轉移數
+param.disc_lr = 鑑別器學習率
+param.lerp_schedule = 插值排程
+param.lerp_schedule_json = 插值排程 JSON
+param.entropy_schedule_enabled = 熵排程 開啟
+param.entropy_schedule_start = 熵排程 起始值
+param.entropy_schedule_end = 熵排程 終止值
+param.entropy_schedule_ramp_iters = 熵排程遞增迭代數
+port.policy = 策略
+port.total_reward = 總回報
+port.termination_config = 終止設定
+port.domain_rand_config = 領域隨機化設定
+port.obs_vector = 觀測向量
+port.scene_pipe = 場景管線
+port.checkpoint = 檢查點
+port.reference_motion_config = 參考動作設定
+port.init_pose_config = 初始姿勢設定
+port.discriminator_config = 判別器設定
+port.train_pipe = 訓練管線
+port.training_metrics = 訓練指標
+
+[il_policy_network]
+display = IL 策略網路
+desc = Isaac Lab 的 MLP actor-critic
+param.actor_hidden_dims = Actor 隱藏層
+param.critic_hidden_dims = Critic 隱藏層
+param.activation = 激活函數
+param.init_noise_std = 初始噪聲標準差（direct，1.0=標準差 1.0）
+param.disc_hidden_dims = 鑑別器隱藏維度
+port.obs_vector = 觀測向量
+port.policy = 策略
+
+[il_observation]
+param.command_injected_obs = 注入觀測（Command 管線）
+display = IL 觀測
+desc = Isaac Lab 觀測項目 + 課程
+param.obs_terms = 觀測項目
+param.critic_privileged_terms = Critic 專屬
+param.enable_corruption = 啟用噪聲
+param.corruption_noise_std = 噪聲標準差
+param.obs_noise_curriculum_enabled = 噪聲課程啟用
+param.obs_noise_curriculum_start = 噪聲開始
+param.obs_noise_curriculum_end = 噪聲課程結束
+param.obs_noise_curriculum_ramp_iters = 噪聲課程遞增
+port.actor_pipe = Actor 管線
+port.command_pipe = Command 管線
+port.obs_vector = 觀測向量
+
+[eval_config]
+display = 評估設定
+desc = 評估回合 + 影片錄製器
+param.eval_episodes = 評估回合數
+param.deterministic = 確定性
+param.success_threshold = 成功門檻
+param.record_video = 錄製影片
+param.eval_interval = 評估間隔
+param.save_best_model = 儲存最佳
+param.video_dir = 影片資料夾
+port.eval_config = Eval Config
+
+[env_assembler]
+display = Env 組裝器
+desc = 組合 vec env 包裝器 + step_fn
+param.n_envs = N 個 Env
+param.vec_type = Vec 類型
+param.obs_normalize = Obs 正規化
+param.reward_normalize = Rwd 正規化
+param.clip_obs = 截斷 Obs
+param.clip_reward = 截斷 獎勵
+param.action_clip_range = Action 截斷
+param.enable_monitor = 啟用監控
+param.time_limit_override = 時間限制
+param.eval_disable_rand = 評估無隨機化
+port.actor_pipe = Actor 管線
+port.scene_pipe = Scene 管線
+port.command_pipe = Command 管線
+port.physics_config = Physics 設定
+port.task_config = Task 設定
+port.obs_action_config = Obs/Act 設定
+port.domain_rand_config = DR 設定
+port.reference_motion_config = Ref Motion 設定
+port.init_pose_config = Init Pose 設定
+port.env_config = Env 設定
+
+[domain_rand]
+display = 領域隨機化
+desc = 領域隨機化（由後端控制：SB3 / Isaac Lab）
+param.backend = 後端
+param.rand_schedule = 隨機化排程
+param.rand_schedule_start_step = DR 起始步數
+param.rand_schedule_end_step = DR 結束步數
+param.enabled = 已啟用
+param.mass_range = 質量範圍
+param.friction_range = 摩擦範圍
+param.motor_strength_range = 馬達強度
+param.joint_damping_range = 關節阻尼
+param.obs_noise_std = 觀測噪聲標準差
+param.push_robot = 推擠機器人
+param.push_interval_steps = 推擠間隔（步）
+param.push_force_range = 推力
+param.enable_friction_rand = 摩擦隨機化
+param.friction_mode = 摩擦模式
+param.static_friction_range = 靜摩擦
+param.dynamic_friction_range = 動摩擦
+param.restitution_range = 彈性係數
+param.enable_mass_rand = 質量隨機化
+param.mass_mode = 質量模式
+param.mass_operation = 質量操作
+param.mass_target_body = 目標剛體
+param.mass_offset_range = 質量偏移
+param.enable_external_push = 外部推力
+param.push_mode = 推力模式
+param.push_interval_range_s = 推擠間隔 s
+param.push_velocity_x_range = 推擠 Vx 範圍
+param.push_velocity_y_range = 推擠 Vy 範圍
+param.enable_init_pose_rand = 初始姿態隨機化
+param.init_pose_mode = 初始姿態模式
+param.init_pos_x_range = 初始 X 範圍
+param.init_pos_y_range = 初始 Y 範圍
+param.init_yaw_range = 初始偏航範圍
+param.enable_joint_noise = 關節噪聲
+param.joint_noise_mode = 關節噪聲模式
+param.joint_pos_noise = 關節位置噪聲
+param.joint_vel_noise = 關節速度噪聲
+port.actor_pipe = Actor 管線
+port.domain_rand_config = DR 設定
+
+[discriminator]
+display = 判別器
+desc = AMP 判別器網路 + 獎勵塑形
+param.disc_modules = 判別器模組
+param.disc_hidden_dims = 判別器隱藏層
+param.amp_reward_coef = AMP 獎勵係數
+param.task_reward_lerp = 任務獎勵 Lerp
+param.lerp_schedule = Lerp 排程
+param.lerp_schedule_json = Lerp 排程 JSON
+param.disc_lr = 判別器學習率
+param.disc_grad_penalty = 梯度懲罰
+param.disc_label_smoothing = 標籤平滑
+param.amp_replay_buffer_size = 回放緩衝區
+param.num_preload_transitions = 預載轉移
+param.amp_obs_fields = AMP 觀測欄位
+param.auto_inject_ref_obs = 注入參考觀測
+param.disc_logit_clamp_max = Logit 限幅
+param.reward_clamp_per_step = 獎勵限制
+param.policy_std_clamp_max = Std 最大限幅
+port.reference_motion_config = 參考動作設定
+port.discriminator_config = 判別器設定
+
+[base_asset]
+display = 基礎資產
+desc = 機器人基礎資產 + 起始點
+param.start_point = 起始點
+param.asset_id = 資產 ID
+param.checkpoint_file = 檢查點檔案
+param.load_mode = 載入模式
+port.checkpoint = 檢查點
+
+[amp_trainer]
+display = AMP 訓練器
+desc = Isaac Lab 的 AMP_PPO 訓練器（AMP_PPO 模式下 IL PPO Trainer 的別名）
+param.training_mode = 訓練模式
+param.num_envs = 環境數
+param.max_iterations = 最大迭代次數
+param.num_steps_per_env = 每環境步數
+param.num_learning_epochs = 學習週期數
+param.num_minibatches = 小批次數
+param.learning_rate = 學習率
+param.discount_factor = 折扣 γ
+param.gae_lambda = GAE λ
+param.clip_param = 剪裁 ε
+param.entropy_coef = 熵係數
+param.value_loss_coef = 價值損失
+param.max_grad_norm = 最大梯度範數
+param.schedule = LR 排程
+param.desired_kl = 目標 KL
+param.save_interval = 儲存間隔
+param.seed = 隨機種子
+param.headless = 無頭模式
+param.amp_reward_coef = AMP 獎勵係數
+param.task_reward_lerp = 任務獎勵插值
+param.disc_grad_penalty = 梯度罰項
+param.disc_label_smoothing = 標籤平滑
+param.amp_replay_buffer_size = 回放緩衝區大小
+param.num_preload_transitions = 預載轉換數
+param.disc_lr = 鑑別器學習率
+param.lerp_schedule = 插值排程
+param.lerp_schedule_json = 插值排程 JSON
+param.entropy_schedule_enabled = 啟用熵排程
+param.entropy_schedule_start = 熵排程起始值
+param.entropy_schedule_end = 熵排程結束
+param.entropy_schedule_ramp_iters = 熵排程過渡期
+port.policy = 策略
+port.total_reward = 總獎勵
+port.termination_config = 終止設定
+port.domain_rand_config = 領域隨機化設定
+port.obs_vector = 觀測向量
+port.scene_pipe = 場景管線
+port.checkpoint = 檢查點
+port.reference_motion_config = 參考動作設定
+port.init_pose_config = 初始姿勢設定
+port.discriminator_config = 判別器設定
+port.train_pipe = 訓練管線
+port.training_metrics = 訓練指標
+
+[algorithm_config]
+display = 演算法設定
+desc = 強化學習演算法 + 緩衝區 + 排程
+param.algorithm = 演算法
+param.total_timesteps = 總步數
+param.learning_rate = 學習率
+param.batch_size = 批次大小
+param.gamma = 折扣因子
+param.seed = 隨機種子
+param.device = 裝置
+param.hidden_dim_1 = 隱藏維度 1
+param.hidden_dim_2 = 隱藏維度 2
+param.activation = 激活函數
+param.ent_coef = 熵係數
+param.checkpoint_interval = 檢查點間隔
+param.resume_mode = 繼續模式
+param.policy_id_out = 策略輸出 ID
+param.gae_lambda = GAE λ
+param.n_steps = [PPO] n_steps
+param.n_epochs = [PPO] n_epochs
+param.lr_schedule = 學習率排程
+param.gradient_steps = 梯度步數
+param.tau = Tau
+param.target_entropy = 目標熵
+param.buffer_size_mode = 緩衝模式
+param.buffer_size = 緩衝區大小
+param.learning_starts = 開始學習
+param.use_per = 使用 PER
+param.per_alpha = PER α
+param.per_beta = PER β
+param.collapse_guard = 崩潰防護
+param.collapse_threshold = 崩潰閾值
+param.collapse_patience = 容忍次數
+param.collapse_lr_factor = 崩潰學習率
+param.collapse_max_rollbacks = 最大回滾次數
+port.checkpoint = 檢查點
+port.total_steps = 總步數
+port.algo_config = 演算法設定
+
+[actor_setting]
+display = Actor 設定
+desc = Actor 區塊：初始姿勢 / 接觸 / 執行器 / 動作空間 / 課程
+param.init_pos_x = 初始位置 X
+param.init_pos_y = 初始位置 Y
+param.init_pos_z = 初始位置 Z
+param.init_joint_angles = 初始關節
+param.contact_body_names = 接觸物件
+param.contact_history_length = 接觸歷史
+param.contact_track_air_time = 追蹤空中時間
+param.stiffness = 剛性
+param.damping = 阻尼
+param.effort_limit = 力矩上限
+param.velocity_limit = 速度上限
+param.action_joint_names_expr = 動作關節
+param.action_scale = 動作縮放
+param.action_use_default_offset = 預設偏移
+param.action_scale_curriculum_enabled = 啟用縮放課程
+param.action_scale_curriculum_start = 課程開始
+param.action_scale_curriculum_end = 課程結束
+param.action_scale_curriculum_ramp_iters = 課程遞增
+port.robot_pipe = 機器人管道
+port.joint_init = 關節初始化
+port.actor_pipe = Actor 管道
+
+[note]
+display = 註記
+desc = 畫布註解卡（非執行）。包含標題與多行文字內容，用於畫布內註解。
+

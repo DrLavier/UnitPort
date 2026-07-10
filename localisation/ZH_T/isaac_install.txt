@@ -1,0 +1,24 @@
+[btn]
+close = 關閉
+open_log = 開啟日誌資料夾
+retry = 重試
+switch_locate = 切換至定位模式
+
+[dialog]
+title = 正在安裝 Isaac Lab
+
+[heading]
+error = Isaac Lab 安裝失敗
+running = 正在安裝 Isaac Lab
+success = Isaac Lab 已安裝
+
+[phase]
+fallback_external = 正在切換到外部 venv（偵測到 pip 衝突）
+preflight = 準備中...
+
+[status]
+error_hint = 詳情請參閱日誌。您可以重試，或切換到定位現有的 Isaac Lab 安裝位置。
+idle = 正在等待安裝程式啟動...
+success = 已成功安裝於: {path}
+success_generic = 安裝完成
+

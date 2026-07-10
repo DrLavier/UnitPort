@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = عند التفعيل، يقوم UnitPort بدفع كل ملف تم تغييره في مساحة العمل إلى السحابة بعد حفظه بفترة وجيزة.
+busy_pull = جارٍ السحب من السحابة…
+busy_push = جارٍ الرفع إلى السحابة…
+manage_dialog_delete_confirm_body = هل تريد حذف '{name}' من السحابة بشكل دائم؟
+manage_dialog_delete_confirm_title = حذف ملف من السحابة
+manage_dialog_dl_conflict_body = الملف المحلي موجود بالفعل:
+	{path}
+	
+	ماذا تريد أن نفعل؟
+manage_dialog_dl_conflict_title = الملف موجود
+manage_dialog_dl_done_body = تم التنزيل إلى:
+	{path}
+manage_dialog_dl_done_title = اكتمل التنزيل
+manage_dialog_dl_overwrite = استبدال
+manage_dialog_dl_save_as = حفظ باسم…
+manage_dialog_dl_save_as_caption = حفظ الملف الذي تم تنزيله
+manage_dialog_dl_skip = تخطي
+manage_dialog_empty = لا توجد ملفات في السحابة بعد — جرّب الضغط على Push أو اسحب ملفًا هنا.
+manage_dialog_folder_del_body = هل تريد حذف '{name}' وجميع الملفات الـ {n} الموجودة بداخله من السحابة بشكل دائم؟
+manage_dialog_folder_del_title = حذف المجلد
+manage_dialog_folder_dl_all_skipped = جميع الملفات موجودة محليًا بالفعل — لم يتم تنزيل أي شيء.
+manage_dialog_folder_dl_body = هل تريد تنزيل {n} ملفًا من '{name}' إلى مساحة العمل المحلية؟
+manage_dialog_folder_dl_replace = استبدال الموجود
+manage_dialog_folder_dl_skip_existing = تخطي الموجود
+manage_dialog_folder_dl_title = تنزيل المجلد
+manage_dialog_folder_summary = {n} عناصر · {size}
+manage_dialog_loading = جارٍ التحميل…
+manage_dialog_not_signed_in = سجّل الدخول أولًا لإدارة التخزين السحابي.
+manage_dialog_op_failed_body = فشل {phase}:
+	{err}
+manage_dialog_op_failed_title = فشلت العملية
+manage_dialog_oversize_body = لا يمكن رفع الملفات التي تزيد عن 50 MB:
+	{names}
+manage_dialog_oversize_title = الملف كبير جدًا
+manage_dialog_quota = المساحة المستخدمة {used} / {total}
+manage_dialog_title = إدارة التخزين السحابي
+manage_tooltip = إدارة إعدادات مزامنة السحابة والملفات المخزنة
+never_synced = أبدًا
+pull_tooltip = تنزيل ملفات السحابة إلى مساحة العمل المحلية
+push_tooltip = رفع ملفات مساحة العمل المحلية إلى السحابة
+status_error = فشلت المزامنة: {msg}
+status_signed_out = سجّل الدخول لتمكين مزامنة السحابة
+status_synced = تمت مزامنة {n} ملفًا · آخر مزامنة {when}
+section_title = مزامنة السحابة
+push_button = رفع
+pull_button = سحب
+manage_button = إدارة
+manage_coming_soon = نافذة إدارة السحابة قادمة قريبًا.
+manage_dialog_refresh = تحديث
+manage_dialog_close = إغلاق
+manage_dialog_uploading = جارٍ رفع {name}…
+manage_dialog_deleting = جارٍ الحذف…
+manage_dialog_downloading = جارٍ التنزيل…
+download_tooltip = تنزيل إلى مساحة العمل المحلية
+delete_tooltip = حذف من السحابة
+folder_download_tooltip = تنزيل جميع الملفات في هذا المجلد
+folder_delete_tooltip = حذف هذا المجلد وجميع الملفات بداخله
+auto_push_label = الرفع التلقائي
+status_idle = خامل
+status_pushing = جارٍ الرفع... {done}/{total}
+status_pulling = جارٍ السحب... {done}/{total}
+status_self_check = تحتوي السحابة على {n} عنصر(عناصر)
+status_no_remote = السحابة فارغة
+status_size_skip = تم تخطي {n} ملف(ملفات) يزيد حجمها عن 50 MB
+busy_self_check = جارٍ التحقق من حالة السحابة...
+done_push = تم رفع {ok}/{total} ملف(ملفات). تم تخطي {skipped}.
+done_pull = تم تنزيل {ok}/{total} ملف(ملفات). تم تخطي {skipped}.
+

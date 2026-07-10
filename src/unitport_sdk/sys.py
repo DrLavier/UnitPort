@@ -964,7 +964,12 @@ class DataManager:
         format: Optional[str] = None,
         **handler_kw,
     ) -> bool:
-        """整体写入并刷新缓存；失败返回 False 并尝试写日志。"""
+        """整体写入并刷新缓存；失败返回 False 并尝试写日志。
+
+        成功落盘后（锁外）触发 persist observer：这是 cloud auto-sync 跟随用户落盘
+        动作的单一接入点。observer 只在目标位于 ``USER_CONFIG_DIR`` 下时被通知，
+        且约定为廉价非阻塞（仅入队/kick，绝不内联网络 I/O）。
+        """
         abs_path = cls._abs(path)
         key = str(abs_path)
         with cls._file_lock(key):
@@ -979,7 +984,11 @@ class DataManager:
                     pass
                 return False
             cls._cache[key] = value
-            return True
+        # Fire OUTSIDE the per-file lock, and only after a confirmed write, so
+        # the observer (auto-sync enqueue) never runs while holding the lock and
+        # never fires for a failed write.
+        _notify_persist(abs_path)
+        return True
 
     @classmethod
     def get(
@@ -1166,6 +1175,21 @@ class Storage:
     # ``None`` means "no transport registered yet" — the cloud branch fails loud.
     _cloud_transport: Optional[Callable[..., bool]] = None
 
+    # App-registered persist observer. Signature:
+    #   observer(rel_posix: str) -> None
+    # Fired by ``DataManager.write`` after ANY successful write whose target
+    # resolves under ``Paths.USER_CONFIG_DIR`` — the single on-disk funnel for
+    # all per-user state (``Storage.push(local)`` → DataManager.write, direct
+    # ``save_data`` for canvas/project files, and ``Config._flush`` for
+    # ``user.ini`` all pass through it). The observer is how cloud auto-sync
+    # follows the user's edits at persist-time instead of batching on exit:
+    # the app registers a bridge to its AutoSyncController at bootstrap, which
+    # debounces + pushes the eligible touched files. ``None`` means "not wired
+    # yet" → the fire is a no-op (the pre-bootstrap default, so early-boot
+    # writes never trigger sync). The SDK stays app-agnostic (CLAUDE.md §4):
+    # it never imports the cloud service, it only invokes the injected callable.
+    _persist_observer: Optional[Callable[[str], None]] = None
+
     @classmethod
     def register_cloud_transport(
         cls, transport: Optional[Callable[..., bool]]
@@ -1177,6 +1201,24 @@ class Storage:
         tests / teardown). Idempotent — re-registering replaces.
         """
         cls._cloud_transport = transport
+
+    @classmethod
+    def register_persist_observer(
+        cls, observer: Optional[Callable[[str], None]]
+    ) -> None:
+        """Install (or clear) the persist observer fired after local writes.
+
+        ``observer`` receives the target's posix path RELATIVE to
+        ``Paths.USER_CONFIG_DIR`` (e.g. ``"user.ini"``,
+        ``"projects/foo/canvas/main.canvas.json"``). It is invoked by
+        :meth:`DataManager.write` after every successful write that lands under
+        the user-config dir, on whatever thread performed the write, and MUST be
+        cheap + non-blocking (enqueue/kick only — never network I/O inline) so it
+        does not stall the write path. Any exception it raises is swallowed by
+        the SDK so a misbehaving observer can never corrupt a successful write.
+        Passing ``None`` clears it (tests / teardown). Idempotent.
+        """
+        cls._persist_observer = observer
 
     @classmethod
     def push(
@@ -1254,6 +1296,45 @@ class Storage:
 def push_data(rel_path, value, *, channel: str = "local", format: Optional[str] = None, **handler_kw) -> bool:
     """Module-level alias mirroring load_data / read_data / save_data style."""
     return Storage.push(rel_path, value, channel=channel, format=format, **handler_kw)
+
+
+def _notify_persist(abs_path: Path) -> None:
+    """Fire the registered persist observer for ``abs_path`` if it lands under
+    ``Paths.USER_CONFIG_DIR``.
+
+    Called by :meth:`DataManager.write` after a successful write. Resolves the
+    target relative to the user-config root and hands the observer the posix
+    rel-path; targets outside the root (system.ini under ``src/config``, RUNTIME
+    cache, temp files elsewhere) are silently skipped — they are not per-user
+    state and carry no cloud meaning. The observer is only consulted after it is
+    registered at bootstrap, so this is a cheap ``None`` check on the hot path
+    for early-boot writes. Never raises into the write path (CLAUDE.md §8: a
+    failing SIDE-effect observer must not turn a successful persist into a
+    reported failure — the bytes are already on disk).
+    """
+    observer = Storage._persist_observer
+    if observer is None:
+        return
+    try:
+        if not Paths.is_user_config_dir_set():
+            return
+        root = Path(Paths.USER_CONFIG_DIR).expanduser().resolve()
+        try:
+            rel = Path(abs_path).relative_to(root)
+        except ValueError:
+            return                      # not under USER_CONFIG_DIR
+        rel_posix = rel.as_posix()
+        if not rel_posix or rel_posix == ".":
+            return
+        observer(rel_posix)
+    except Exception:
+        # A misbehaving observer must never corrupt a successful write.
+        try:
+            from .logger import log_debug
+
+            log_debug(f"[Storage] persist observer error for {abs_path}")
+        except Exception:
+            pass
 
 
 # =============================================================================
@@ -1700,7 +1781,17 @@ class I18n(QObject):
                 if not cp.has_section(section):
                     cp.add_section(section)
                 if not cp.has_option(section, opt):
-                    cp.set(section, opt, default or "")
+                    # 翻译目录用 ConfigParser 默认的 BasicInterpolation：磁盘上
+                    # 存转义值（``%`` -> ``%%``），运行期 ``_lookup`` 的 ``cp.get()``
+                    # 再反转义回字面 ``%``。若不转义，源默认里出现的 ``%``（如
+                    # "100%"）会让 ``cp.set`` 抛 ``ValueError: invalid interpolation
+                    # syntax`` 并中断整个导出（尤其是首次写入的新语种文件）。
+                    # Translation catalogs use ConfigParser's default
+                    # BasicInterpolation: values are stored escaped (``%`` ->
+                    # ``%%``) and de-escaped by ``_lookup``'s ``cp.get()`` at
+                    # runtime. Without escaping, a source default containing a
+                    # literal ``%`` aborts the export on ``cp.set``.
+                    cp.set(section, opt, (default or "").replace("%", "%%"))
 
             # 原子写入（临时文件 + os.replace）
             DataManager.write(target, cp, format="ini")

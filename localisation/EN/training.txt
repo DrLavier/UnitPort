@@ -31,3 +31,40 @@ hint = Proceed records this for the current plant — you won't be asked again u
 proceed = Proceed anyway
 title = Non-convergent sim2sim dimension
 
+[packages]
+add = Add package
+bad_weight = package_weight must be a number
+edit_rewards = Edit rewards…
+enabled = Enabled
+gate_missing = {s} (missing)
+gate_none = — none —
+gated_by = Gated by skill
+gated_by.tip = Restrict this package's rewards to a skill's trigger window — the rewards only count while that skill is firing (post-pulse decay). Requires a skill authored in this node's Skill Channels.
+hint = Group items into packages. package_weight rebalances a whole package; each package can own an inline reward set. Empty = one implicit default package.
+membership = Item membership
+name = Name
+new_name = Package {n}
+preview = Composed reward preview (= export)
+preview_empty = No inline package rewards. Items with no package reward keep their wired rewards node.
+remove = Remove
+title = Training Packages
+weight = package_weight
+
+[skills]
+add = Add skill
+bad_id = every skill needs an id
+bad_window = window must be a positive number
+enabled = Enabled
+hint = Each skill is a discrete policy command channel (a trigger). It enters the policy obs and rides the command contract; a policy must be trained to respond to it. Binding it to a key or button is done per-user in the Controller panel after training — not here.
+latch = Latch
+latch.hold = hold (while held)
+latch.pulse = pulse (one-shot)
+name = Name
+new_name = skill {n}
+preview = Emitted trigger channels
+preview_empty = No enabled skills.
+remove = Remove
+title = Skill Channels
+window = Window (s)
+window.tip = Post-pulse decay window: the trigger obs + reward gate decay 1→0 over this many seconds. The deploy runtime rebuilds the same window.
+

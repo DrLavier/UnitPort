@@ -155,6 +155,12 @@ class _MainPanel(QWidget):
         self._mc: Optional[MissionControlPanel] = None
         self._picker: Optional[QWidget] = None
         self._mode: str = self.MODE_PICKER
+        # AI Build mask — a main_panel sibling of the canvas (NOT a viewport
+        # child), so its opacity effect composites against the canvas behind it
+        # exactly like MissionControlPanel. Owned/wired by CanvasPage; reparented
+        # here in set_children. ``_ai_open`` tracks whether it is shown.
+        self._ai_mask: Optional[QWidget] = None
+        self._ai_open: bool = False
 
     def set_children(
         self,
@@ -165,6 +171,15 @@ class _MainPanel(QWidget):
         self._canvas = canvas
         self._mc = mc
         self._picker = picker
+        # Adopt the AI Build mask as a sibling of the canvas (see __init__): it
+        # must be a main_panel-level child for its opacity to reveal the canvas.
+        # _relayout insets it below the MC top_row strip (the tab row), so the
+        # mask widget itself carries no internal top inset.
+        self._ai_mask = canvas.ai_build_panel
+        self._ai_mask.setParent(self)
+        self._ai_mask.set_top_inset(0)
+        self._ai_mask.hide()
+        canvas.ai_build_overlay_toggled.connect(self._set_ai_overlay_open)
         mc.overlay_compact_changed.connect(lambda _b: self._relayout())
         # Initial mode applied + relayout so the right children are visible.
         self.set_mode(self._mode)
@@ -188,6 +203,22 @@ class _MainPanel(QWidget):
             self._mc.setVisible(not is_picker)
         if self._picker is not None:
             self._picker.setVisible(is_picker)
+        # Leaving canvas mode force-collapses the AI Build mask (and un-checks
+        # its floating toggle) so it can't bleed over the picker.
+        if is_picker and self._canvas is not None:
+            self._canvas.collapse_ai_build()
+        self._relayout()
+
+    def _set_ai_overlay_open(self, open_: bool) -> None:
+        """Show/hide the AI Build mask (driven by the page's toggle signal).
+
+        ``_relayout`` insets it below the MC top_row strip (the tab row stays
+        visible) and raises it above the canvas, so it dims only the canvas
+        display area — minimap + control guide sit behind it — exactly like MC's
+        chart overlay."""
+        self._ai_open = bool(open_)
+        if self._ai_mask is not None:
+            self._ai_mask.setVisible(self._ai_open)
         self._relayout()
 
     def resizeEvent(self, ev) -> None:  # noqa: D401
@@ -214,6 +245,19 @@ class _MainPanel(QWidget):
             mc_h = h
         self._mc.setGeometry(0, 0, w, mc_h)
         self._mc.raise_()
+        # Tell the canvas how tall the MC top_row strip is so its top-right
+        # overlay (the floating AI Build button) floats just below it, not
+        # behind it.
+        self._canvas.set_top_overlay_inset(self._mc.top_row_height())
+        # AI Build mask (when open): covers ONLY the canvas display area BELOW
+        # the MC top_row strip (the tab row), exactly like MC's chart overlay —
+        # the tab row stays visible above it. Raised above the canvas so the
+        # minimap + control guide (viewport children) sit behind it; as a
+        # main_panel sibling, its opacity effect reveals the canvas like MC.
+        if self._ai_mask is not None and self._ai_open:
+            top = self._mc.top_row_height()
+            self._ai_mask.setGeometry(0, top, w, max(0, h - top))
+            self._ai_mask.raise_()
 
 
 # Trainer tasks emit progress text like "step 100/6000  reward=..." (SB3) or
@@ -1646,6 +1690,11 @@ class MainWindow(QMainWindow):
                 f"[ui] review_launch/mujoco: submitted task {tid} "
                 f"(bundle={bundle_dir.name}, sku={sku}, scene={scene_id})"
             )
+            # Register the live-sim task so a system estop can cancel it (Slice 0).
+            from application.service.runtime.session_controller import (
+                get_session_controller,
+            )
+            get_session_controller().register_review_task(tid)
         elif backend == "isaac_sim":
             # Bundle-only IsaacSim review (CLAUDE.md §1.9). The subprocess
             # loads policy + deploy_contract from the bundle directory and
@@ -1693,6 +1742,11 @@ class MainWindow(QMainWindow):
                 f"[ui] review_launch/isaac_sim: submitted task {tid} "
                 f"(bundle={bundle_dir.name}, sku={sku}, scene={scene_id})"
             )
+            # Register the live-sim task so a system estop can cancel it (Slice 0).
+            from application.service.runtime.session_controller import (
+                get_session_controller,
+            )
+            get_session_controller().register_review_task(tid)
         elif backend == "newton":
             log_warning(
                 "[ui] review_launch/newton: backend is a placeholder — no-op"

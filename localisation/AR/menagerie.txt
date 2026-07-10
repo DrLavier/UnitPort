@@ -1,0 +1,20 @@
+[default]
+close_btn = إغلاق
+dialog_title = مجموعة MuJoCo
+download_btn = تنزيل العناصر المحددة
+download_busy = التنزيل جارٍ بالفعل؛ الرجاء الانتظار.
+download_done = تم تنزيل {n} حزمة(حزم).
+download_empty = ضع علامة على حزمة واحدة على الأقل قبل النقر على تنزيل.
+download_failed = فشل التنزيل: {err}
+downloading = سحب انتقائي لـ {n} حزمة(حزم)…
+filter_ph = تصفية الحزم…
+icons_offline = فشل جلب الأيقونات؛ الأيقونات المخزّنة مؤقتًا لا تزال تُعرض.
+progress_icons = جاري جلب {n} أيقونات معاينة…
+refresh_btn = تحديث من GitHub
+refresh_busy = التحديث جارٍ بالفعل؛ الرجاء الانتظار.
+refresh_done = تم التحديث: {n} حزمة(حزم).
+refresh_empty = أعاد GitHub قائمة حزم فارغة؛ سيتم الاحتفاظ باللقطة.
+refresh_failed = تعذر الوصول إلى GitHub — سيتم الاحتفاظ باللقطة المُضمّنة.
+refreshing = جارٍ جلب قائمة الحزم الحية من GitHub…
+status_line = {installed} / {total} مثبت · {selected} محدد
+

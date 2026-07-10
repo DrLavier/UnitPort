@@ -105,6 +105,12 @@ class ConnectionControllerCard(QFrame):
         self._is_taking_control = False
         self._build_ui()
         self.apply_theme()
+        # SYSTEM-channel estop (Slice 0): a bound estop key/button in the input
+        # layer reaches the deploy adapter through the SAME stop path as this
+        # card's Estop button. Subscribing here converges input-driven estop and
+        # the UI button on ``adapter.disable_teleop()``. Disconnected in shutdown.
+        from application.service.signals import get_app_signals
+        get_app_signals().system_estop.connect(self._on_system_estop)
 
     # ------------------------------------------------------------------
     # Build
@@ -261,12 +267,21 @@ class ConnectionControllerCard(QFrame):
                 log_warning(f"[controller_card] estop disable_teleop: {exc}")
         log_info("[controller_card] estop fired")
 
+    def _on_system_estop(self, source: str = "") -> None:
+        """SYSTEM estop from the input layer → same adapter stop as the button."""
+        self._on_estop()
+
     # ------------------------------------------------------------------
     # Lifecycle (called by parent card on disconnect)
     # ------------------------------------------------------------------
 
     def shutdown(self) -> None:
         """Release control + stop the teleop widget's poll timer."""
+        try:
+            from application.service.signals import get_app_signals
+            get_app_signals().system_estop.disconnect(self._on_system_estop)
+        except Exception:  # noqa: BLE001 — not connected / already torn down
+            pass
         if self._is_taking_control:
             self._release_control()
         if self._teleop_widget is not None:

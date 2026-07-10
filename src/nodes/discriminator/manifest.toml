@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "discriminator"
+backends = ["isaac_lab"]  # IsaacLab AMP discriminator (spec.il.amp.disc); SB3 never reads spec.il
 kind = "CUSTOM"
 version = "1.0.0"
 category = "config"

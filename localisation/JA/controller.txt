@@ -1,0 +1,58 @@
+[conflict]
+action = システムアクション
+channel = コマンドチャンネル
+msg = {input} は既に {owner} ({cat}) にバインドされています。物理入力は1つのバインディングにしか割り当てられません — まずそこでバインドを解除してから、もう一度お試しください。
+title = バインディングの競合
+trigger = スキルトリガー
+
+[default]
+axis_unbound = — (未割り当て)
+button_unbound = — (未割り当て)
+channel_not_bindable = — (まだバインドできません)
+invert_vy = vy を反転
+invert_vyaw = vyaw を反転
+reset = リセット
+off_hint = 入力が無効です。上で Keyboard または Gamepad を選択してください。
+policy_channels = ポリシー コマンド チャンネル
+system_actions = ボタン → システムアクション
+system_actions_keys = キー → システムアクション
+stale_channels = この contract に含まれていない保存済みのバインディング
+no_policy_hint = ポリシーが読み込まれていません。Training Motion node 上であなたが作成したスキルは、ポリシーをトレーニングしてエクスポートし、Mission Control · Simulate で選択した場合にのみここでバインド可能なチャンネルになります — トリガーは単なるキー割り当てではなく、訓練された振る舞いです。下のボタンはシステムアクション（boost / estop / …）で、常に利用可能かつ任意のポリシーとは別になっているため、Training Motion node 上には表示されません。
+no_contract_hint = このポリシーにはコマンドチャンネルがありません — 速度コマンドや Training Motion node 上でのスキルを作成した後に、バンドルを再エクスポートしてください。
+legacy_contract_hint = 読み込まれたポリシーにはレガシーな commands ブロックが含まれています — コマンドチャンネルをここでバインドするにはバンドルを再エクスポートしてください。
+
+[latch]
+hold = ホールド (押している間)
+pulse = パルス (1回押す)
+unsupported = (トレーニング側が提供していません)
+
+[pick]
+button = ボタン
+mode = モード
+
+[axis]
+left_stick_x = Stick L X
+left_stick_y = Stick L Y
+right_stick_x = Stick R X
+right_stick_y = Stick R Y
+
+[kb]
+forward = 前進
+backward = 後退
+strafe_left = 左へ横移動
+strafe_right = 右へ横移動
+yaw_left = 左回転
+yaw_right = 右回転
+estop = 非常停止
+boost = ブースト
+
+[mode_btn]
+off = Off
+keyboard = Keyboard
+gamepad = Gamepad
+
+[mode]
+off = Off
+keyboard = Keyboard
+gamepad = Gamepad
+

@@ -147,6 +147,13 @@ class GaitCommandSpec:
             ``"frequency:1"``, ``"phase_sin_cos:8"``).
         phase_names: ordered tuple of per-leg labels keyed by phase
             index (length must equal ``phase_count``).
+        default_ranges: per-family default sampling ranges
+            ``{"frequency" | "body_height" | "step_height": (lo, hi)}``
+            — the SINGLE source of the bundled gait range numbers
+            (catalog 1.1.0). ``None`` when the entry declares none;
+            consumers (``gait_presets.default_ranges_for_family``)
+            fail loud on ``None`` instead of substituting a
+            wrong-geometry family's values.
     """
 
     family: str
@@ -158,6 +165,7 @@ class GaitCommandSpec:
     phase_obs_dim: int
     obs_layout: Tuple[str, ...]
     phase_names: Tuple[str, ...]
+    default_ranges: Optional[Dict[str, Tuple[float, float]]] = None
 
 
 class GaitCommandValidationError(RuntimeError):
@@ -272,6 +280,17 @@ def _validate_entry(fid: str, spec: Dict[str, Any], *, source: str) -> None:
                 f"gait_commands: family={fid!r}.alias_of must be a "
                 f"non-empty string (got {alias!r}) in {source}"
             )
+        # L8 (alias half): default_ranges on an alias entry would be
+        # silently ignored (aliases reuse the root's data verbatim) —
+        # refuse instead of letting the author believe it took effect.
+        if "default_ranges" in spec:
+            raise RuntimeError(
+                f"gait_commands: family={fid!r} declares alias_of and "
+                f"default_ranges; aliases reuse the target's data "
+                f"verbatim, so the ranges would be silently ignored — "
+                f"move them to the target family or drop alias_of; "
+                f"in {source}"
+            )
         return
     # L5: every data field is present + typed.
     missing = [k for k in _DATA_FIELDS if k not in spec]
@@ -334,6 +353,49 @@ def _validate_entry(fid: str, spec: Dict[str, Any], *, source: str) -> None:
             f"{expected_obs} in {source}; sin/cos encoding doubles the "
             f"channel count -- fix the value to {expected_obs}"
         )
+    # L8 (data half): default_ranges, when present, is exactly
+    # {frequency, body_height, step_height} -> [lo, hi] numeric with
+    # lo <= hi. Optional per entry -- a family without it fail-louds at
+    # gait_presets.default_ranges_for_family time instead (no silent
+    # substitute of another family's geometry-class values).
+    if "default_ranges" in spec:
+        _validate_default_ranges(fid, spec["default_ranges"], source=source)
+
+
+_DEFAULT_RANGE_KEYS = ("frequency", "body_height", "step_height")
+
+
+def _validate_default_ranges(fid: str, ranges: Any, *, source: str) -> None:
+    """L8 shape check for a ``default_ranges`` block. Raises RuntimeError."""
+    if not isinstance(ranges, dict):
+        raise RuntimeError(
+            f"gait_commands: family={fid!r}.default_ranges must be a "
+            f"mapping (got {type(ranges).__name__}) in {source}"
+        )
+    missing = [k for k in _DEFAULT_RANGE_KEYS if k not in ranges]
+    extra = [k for k in ranges if k not in _DEFAULT_RANGE_KEYS]
+    if missing or extra:
+        raise RuntimeError(
+            f"gait_commands: family={fid!r}.default_ranges must declare "
+            f"exactly {list(_DEFAULT_RANGE_KEYS)!r} (missing={missing!r}, "
+            f"unexpected={extra!r}) in {source}"
+        )
+    for k in _DEFAULT_RANGE_KEYS:
+        pair = ranges[k]
+        if (
+            not isinstance(pair, (list, tuple))
+            or len(pair) != 2
+            or any(isinstance(x, bool) or not isinstance(x, (int, float)) for x in pair)
+        ):
+            raise RuntimeError(
+                f"gait_commands: family={fid!r}.default_ranges[{k!r}] must "
+                f"be a [lo, hi] pair of numbers (got {pair!r}) in {source}"
+            )
+        if float(pair[0]) > float(pair[1]):
+            raise RuntimeError(
+                f"gait_commands: family={fid!r}.default_ranges[{k!r}]="
+                f"{pair!r} has lo > hi in {source}"
+            )
 
 
 def _load_payload_into_state(
@@ -359,7 +421,7 @@ def _load_payload_into_state(
         if "alias_of" in spec and spec["alias_of"] is not None:
             _state["families"][fid] = {"alias_of": str(spec["alias_of"])}
         else:
-            _state["families"][fid] = {
+            entry: Dict[str, Any] = {
                 "alias_of": None,
                 "class_name": str(spec["class_name"]),
                 "command_dim": int(spec["command_dim"]),
@@ -368,6 +430,12 @@ def _load_payload_into_state(
                 "obs_layout": list(spec["obs_layout"]),
                 "phase_names": list(spec["phase_names"]),
             }
+            if "default_ranges" in spec:
+                entry["default_ranges"] = {
+                    k: [float(v[0]), float(v[1])]
+                    for k, v in spec["default_ranges"].items()
+                }
+            _state["families"][fid] = entry
         if track_user_overrides:
             _state["user_overrides"][fid] = dict(spec)
         added += 1
@@ -520,6 +588,12 @@ def get_gait_command(family: str) -> GaitCommandSpec:
             f"have flagged this -- please re-run."
         )
     declared_alias = _state["families"][fid].get("alias_of")
+    raw_ranges = root_spec.get("default_ranges")
+    default_ranges: Optional[Dict[str, Tuple[float, float]]] = None
+    if raw_ranges is not None:
+        default_ranges = {
+            k: (float(v[0]), float(v[1])) for k, v in raw_ranges.items()
+        }
     return GaitCommandSpec(
         family=fid,
         alias_of=declared_alias,
@@ -530,6 +604,7 @@ def get_gait_command(family: str) -> GaitCommandSpec:
         phase_obs_dim=int(root_spec["phase_obs_dim"]),
         obs_layout=tuple(root_spec["obs_layout"]),
         phase_names=tuple(root_spec["phase_names"]),
+        default_ranges=default_ranges,
     )
 
 
@@ -653,6 +728,14 @@ def validate() -> List[str]:
                 f"!= 2 * phase_count={2 * pcount}; sin/cos encoding "
                 f"doubles the channel count"
             )
+        # G7 (belt for L8): default_ranges shape re-check against
+        # in-memory mutation between load and validate.
+        dr = spec.get("default_ranges")
+        if dr is not None:
+            try:
+                _validate_default_ranges(fid, dr, source="in-memory state")
+            except RuntimeError as exc:
+                problems.append(f"  {exc}")
 
     # G6 (soft warn) -- families_catalog declares a family but
     # gait_commands catalog has no entry. Emitted via log_warning (not

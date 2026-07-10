@@ -1,0 +1,38 @@
+[btn]
+close = 關閉 UnitPort
+ok = 確定
+skip = 跳過此版本
+update_on_exit = 在結束時更新
+update_restart = 更新並重新啟動
+apply = 套用更新
+later = 稍後
+
+[dialog]
+title_available = 有更新可用
+title_complete = 已套用更新
+title_latest = UnitPort 已為最新版本
+title_progress = 正在更新 UnitPort
+
+[label]
+channel = 頻道
+latest_body = 您正在使用 UnitPort v{current}。在 GitHub 上未找到較新的版本。
+no_release_notes = (此版本沒有發行說明)
+release_notes = 發行說明
+restart_prompt = 已套用更新至 v{version}。UnitPort 現在將關閉 — 請透過 start.bat 或 start.sh 重新啟動。
+current_version = 目前版本
+latest_version = 最新版本
+restarting = 已套用更新至 v{version}。正在重新啟動 UnitPort…
+
+[notice]
+ok = 了解
+title = 更新內容
+
+[progress]
+connecting = 連線中
+checking = 正在檢查更新
+downloading = 正在下載
+extracting = 正在解壓縮檔案
+merging = 正在合併檔案
+git_fetch = 正在擷取標籤
+git_checkout = 正在檢出發行版本
+

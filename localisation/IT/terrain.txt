@@ -1,0 +1,12 @@
+[import]
+browse = Sfoglia
+cancel = Annulla
+err_id = L'id della scena è obbligatorio.
+err_src = Seleziona un file height-map valido.
+menu = ➕ Importa terreno…
+menu_desc = Importa una height-map PNG / .npy / .npz come terreno personalizzato.
+ok = Importa
+scene_id_ph = es. my_hills
+source_ph = .png / .npy / .npz
+title = Importa terreno
+

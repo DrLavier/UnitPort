@@ -1,0 +1,543 @@
+[export]
+compat.no_connection = 開始点が接続されていません — train_pipe を接続して項目を生成してください
+compat.title = 開始点の互換性
+manifest.exists_warn = ⚠ すでに存在します
+manifest.open = 開く
+manifest.placeholder = <新規>
+manifest.status.exists = 存在します
+manifest.status.planned = 予定
+display = エクスポート
+desc = バンドル + ONNX/TorchScript エクスポート + シーンレビュー
+param.bundle_name = バンドル名
+param.version = バージョン
+param.include_onnx = ONNX を含める
+param.include_torchscript = TorchScript を含める
+param.include_normalization = 正規化統計を含める
+param.bundle_targets = バンドルターゲット
+param.export_target = エクスポートターゲット
+param.export_onnx = [レガシー] ONNX
+param.export_torchscript = [レガシー] TS
+param.include_norm_stats = [レガシー] 正規化
+param.overwrite = 上書き
+param.review_backend = レビュー バックエンド
+param.review_scene_id = レビューシーン
+param.review_launch = レビュー起動
+param.auto_import = 自動インポート
+param.output_files = 出力ファイル
+param.start_point_compat = 開始点互換
+compat.field.framework = フレームワーク
+compat.field.action_dim = アクション次元
+compat.field.decimation = デシメーション
+compat.field.joint_order = 関節順序
+port.train_pipe = トレーニングパイプ
+port.eval_config = 評価設定
+port.bundle_path = バンドルパス
+
+[rewards]
+covered_lane = Unconditional によってカバーされています
+empty_lane = 報酬なし — フェーズの制約が不十分です
+display = 報酬
+desc = 報酬項目の設定 (SB3 / Isaac Lab)
+param.backend = バックエンド
+param.reward_terms = 報酬項目
+param.std = Std
+param.threshold = 閾値
+port.actor_pipe = アクターパイプ
+port.command_pipe = コマンドパイプ
+port.total_reward = 合計報酬
+
+[example]
+print_hello.display = Hello を出力
+print_hello.desc = コミュニティノードのスターターテンプレート — 単一の文字列パラメータを宣言し、デフォルトのパススルー実行を使用します。
+print_hello.param.message = メッセージ
+
+[vis_check]
+display = 可視化チェック
+desc = ビジュアルの簡易チェック / プレビュー
+param.trigger_mode = トリガーモード
+param.vis_start_step = 可視化開始ステップ
+param.vis_interval_steps = 可視化間隔
+param.num_vis_checks = 可視化回数
+param.vis_episodes = 可視化エピソード
+param.deterministic = 決定論的
+port.vis_check = 可視化チェック
+
+[training_motion]
+display = 学習モーション
+desc = 参照モーション + コマンド + カリキュラム
+param.training_items = 学習項目
+param.mapping_mode = マッピングモード
+param.deadzone = デッドゾーン
+param.curve_exponent = カーブ指数
+param.runtime_clip = ランタイムクリップ
+param.gait_enabled = 歩行有効
+param.gait_frequency_range = 歩行周波数
+param.body_height_range = 胴体高さ
+param.step_height_range = ステップの高さ
+param.gait_presets = 歩行プリセット
+param.resampling_time_range = リサンプル時間
+param.cmd_step_change_prob = コマンド変更確率
+param.gain_lin_forward = 前進速度上限
+param.gain_lin_backward = 後退速度上限
+param.gain_lin_lateral = 横方向速度
+param.gain_yaw = ヨー角速度上限
+param.reference_state_init_enabled = AMP RSI 有効
+param.rsi_prob = RSI 確率
+param.rsi_joint_noise = RSI 関節ノイズ
+param.consumption_mode = 消費モード
+param.phase_mode = 位相モード
+param.motion_fps = モーションFPS
+param.random_start_phase = ランダム開始位相
+param.command_curriculum_enabled = コマンドカリキュラム 有効
+param.command_curriculum_start = コマンドカリキュラム開始
+param.command_curriculum_end = コマンドカリキュラム終了
+param.command_curriculum_ramp_iters = コマンドカリキュラム ランプ
+port.command_pipe = コマンドパイプ
+port.reference_motion_config = 参照モーション設定
+
+[train]
+display = 学習
+desc = 学習のトップレベル項目
+port.env_config = 環境設定
+port.algo_config = アルゴリズム設定
+port.eval_config = 評価設定
+port.train_config = 学習設定
+port.train_pipe = 学習パイプライン
+port.vis_check = 可視化チェック
+
+[terminations]
+display = 終了条件
+desc = 終了条件の設定
+param.backend = バックエンド
+param.termination_conditions = 終了条件
+param.termination_curriculum_enabled = 終了カリキュラム有効
+param.termination_curriculum_start = 終了カリキュラム開始
+param.termination_curriculum_end = 終了カリキュラム終了
+param.termination_curriculum_ramp_iters = 終了カリキュラムランプ
+port.termination_config = 終了設定
+
+[task_config]
+display = タスク設定
+desc = 強化学習タスクの定義
+param.task_type = タスクタイプ
+param.command_mode = コマンドモード
+param.target_lin_vel_x = 目標 Vx
+param.target_lin_vel_y = 目標 Vy
+param.target_ang_vel_z = 目標 Wz
+param.curriculum = カリキュラム
+param.success_threshold = 成功閾値
+param.truncation_max_steps = 打ち切りステップ数
+param.curriculum_schedule = カリキュラムスケジュール
+param.resampling_time_range = 再サンプリング時間
+port.total_reward = 総報酬
+port.termination_config = 終了設定
+port.task_config = タスク設定
+
+[stage_switch]
+display = ステージ切替
+desc = マルチステージカリキュラムの切替
+param.stages_config = ステージ構成
+param.checkpoint_strategy = CKPT戦略
+port.stage_0 = ステージ 0
+port.stage_1 = ステージ 1
+port.stage_2 = ステージ 2
+port.stage_3 = ステージ 3
+port.stage_4 = ステージ 4
+port.stage_5 = ステージ 5
+port.train_pipe = トレインパイプ
+
+[robot]
+display = ロボット
+desc = ロボットアセット + ボディマッピング + PDのパラメータ化
+param.asset_id = アセットID
+param.active_override = アクティブオーバーライド
+param.body_mapping = ボディマッピング
+param.pd_param_mode = PDモード
+param.pd_groups = PDグループ
+param.pd_effort_limit = エフォート制限
+param.pd_velocity_limit = 速度制限
+param.pd_resolve_at_reset = リセット時に再解決
+param.pd_calibration_blocking = キャリブレーション失敗時にブロック
+param.pd_skip_calibration = キャリブレーションをスキップ
+port.robot_pipe = ロボットパイプ
+
+[play_ground_setting]
+display = プレイグラウンド
+desc = シーン + アリーナ + 摩擦 + 高さスキャン
+param.scene_id = シーンID
+param.scene_type = シーンタイプ
+param.custom_terrain_path = 地形ファイル
+param.custom_terrain_vertical_scale = 高さステップ
+param.gravity_z = 重力Z
+param.arena_extent_x = アリーナ範囲X
+param.arena_extent_y = アリーナ範囲Y
+param.friction_static = 静摩擦
+param.friction_dynamic = 動摩擦
+param.curriculum_enabled = カリキュラム有効
+param.difficulty_levels = 難易度レベル
+param.height_scan_enabled = 高さスキャン有効
+param.scan_resolution = スキャン解像度
+param.scan_size_x = スキャンサイズX
+param.scan_size_y = スキャンサイズ Y
+param.sim_dt = シミュレーション Dt
+param.gpu_max_rigid_contact_count = GPUコンタクト
+param.gpu_max_rigid_patch_count = GPUパッチ
+port.scene_pipe = シーンパイプ
+
+[physics_config]
+display = 物理設定
+desc = Sim dt + control dt + solver
+param.sim_dt = Sim Dt
+param.control_dt = Control Dt
+param.episode_max_steps = エピソード最大ステップ数
+param.action_type = 行動タイプ
+port.robot_pipe = ロボットパイプ
+port.robot_spec = ロボット仕様
+port.physics_config = 物理設定
+
+[obs_action_config]
+display = 観測/行動設定
+desc = 観測コンポーネント + 行動マッピング
+param.contract_preset = コントラクトプリセット
+param.obs_components = 観測コンポーネント
+param.obs_clip_range = 観測クリップ範囲
+param.frame_stack = フレームスタック
+param.action_type = 行動タイプ
+param.action_scale = 行動スケール
+param.action_clip = 行動クリップ
+port.obs_action_config = 観測/行動設定
+
+[multigated_reward]
+display = ゲート付き報酬
+desc = マルチステージのゲート付き報酬ルーター
+param.max_step_stage0 = ステージ0 ステップ数
+param.reward_threshold_ratio = 報酬閾値
+param.min_ep_window = 最小エピソードウィンドウ
+param.plateau_window = プラトーウィンドウ
+param.plateau_eps = プラトー ε
+param.blend_steps = ブレンドステップ数
+param.stage_behavior = ステージ挙動
+param.ep_reward_window = エピソード報酬ウィンドウ
+param.stage1_ratio = ステージ1比率
+port.stage_0 = ステージ0
+port.stage_1 = ステージ1
+port.total_reward = 合計報酬
+port.total_steps = 合計ステップ数
+
+[joint_init]
+display = 関節初期化
+desc = 関節ごとの初期角度
+param.angles = 角度
+port.joint_init = 関節初期化
+
+[init_pose]
+display = 初期姿勢
+desc = 初期姿勢（RSI / キーフレーム）
+param.mode = モード
+param.noise_scale = ノイズスケール
+param.base_height = ベース高さ
+param.keyframe_name = キーフレーム名
+param.custom_qpos = カスタム Qpos
+param.rsi_prob = RSI 確率
+param.rsi_sample_mode = RSI サンプル
+port.init_pose_config = 初期姿勢設定
+
+[il_ppo_trainer]
+display = IL PPOトレーナー
+desc = Isaac Lab の PPO/AMP_PPO トレーナー
+param.training_mode = トレーニングモード
+param.num_envs = 環境数
+param.max_iterations = 最大イテレーション
+param.num_steps_per_env = ステップ / 環境
+param.num_learning_epochs = 学習エポック
+param.num_minibatches = ミニバッチ数
+param.learning_rate = 学習率
+param.discount_factor = 割引率 γ
+param.gae_lambda = GAE λ
+param.clip_param = クリップ ε
+param.entropy_coef = エントロピー係数
+param.value_loss_coef = バリュー損失係数
+param.max_grad_norm = 最大勾配ノルム
+param.schedule = 学習率スケジュール
+param.desired_kl = 目標KL
+param.save_interval = 保存間隔
+param.seed = シード
+param.headless = ヘッドレス
+param.amp_reward_coef = AMP報酬係数
+param.task_reward_lerp = タスク報酬のLerp
+param.disc_grad_penalty = 勾配ペナルティ
+param.disc_label_smoothing = ラベルスムージング
+param.amp_replay_buffer_size = リプレイバッファサイズ
+param.num_preload_transitions = プリロード遷移数
+param.disc_lr = 判別器学習率
+param.lerp_schedule = Lerpスケジュール
+param.lerp_schedule_json = LerpスケジュールJSON
+param.entropy_schedule_enabled = エントロピースケジュール: 有効
+param.entropy_schedule_start = エントロピースケジュール開始
+param.entropy_schedule_end = エントロピースケジュール終了
+param.entropy_schedule_ramp_iters = エントロピースケジュール ランプ（イテレーション数）
+port.policy = ポリシー
+port.total_reward = 合計報酬
+port.termination_config = 終了設定
+port.domain_rand_config = ドメインランダマイゼーション設定
+port.obs_vector = 観測ベクトル
+port.scene_pipe = シーンパイプライン
+port.checkpoint = チェックポイント
+port.reference_motion_config = 参照モーション設定
+port.init_pose_config = 初期姿勢設定
+port.discriminator_config = ディスクリミネーター設定
+port.train_pipe = トレーニングパイプライン
+port.training_metrics = トレーニング指標
+
+[il_policy_network]
+display = ILポリシーネット
+desc = Isaac Lab の MLP アクター-クリティック
+param.actor_hidden_dims = アクタ隠れ次元
+param.critic_hidden_dims = クリティック隠れ次元
+param.activation = 活性化関数
+param.init_noise_std = 初期ノイズ標準偏差 (direct, 1.0=std 1.0)
+param.disc_hidden_dims = 判別器隠れ次元
+port.obs_vector = 観測ベクトル
+port.policy = ポリシー
+
+[il_observation]
+param.command_injected_obs = 注入観測（コマンドパイプ）
+display = IL 観測
+desc = Isaac Lab の観測項目 + カリキュラム
+param.obs_terms = 観測項目
+param.critic_privileged_terms = Critic 特権
+param.enable_corruption = ノイズ有効
+param.corruption_noise_std = ノイズ標準偏差
+param.obs_noise_curriculum_enabled = ノイズカリキュラム有効
+param.obs_noise_curriculum_start = ノイズ開始
+param.obs_noise_curriculum_end = ノイズカリキュラム終了
+param.obs_noise_curriculum_ramp_iters = ノイズカリキュラムランプ
+port.actor_pipe = アクターパイプ
+port.command_pipe = コマンドパイプ
+port.obs_vector = 観測ベクトル
+
+[eval_config]
+display = 評価設定
+desc = 評価エピソード + ビデオ録画
+param.eval_episodes = 評価エピソード数
+param.deterministic = 決定論的
+param.success_threshold = 成功閾値
+param.record_video = ビデオ記録
+param.eval_interval = 評価間隔
+param.save_best_model = 最良モデルを保存
+param.video_dir = ビデオディレクトリ
+port.eval_config = 評価設定
+
+[env_assembler]
+display = 環境アセンブラー
+desc = vec env ラッパー + step_fn を組み立てる
+param.n_envs = 環境数
+param.vec_type = Vecタイプ
+param.obs_normalize = 観測正規化
+param.reward_normalize = 報酬正規化
+param.clip_obs = 観測クリップ
+param.clip_reward = 報酬クリップ
+param.action_clip_range = 行動クリップ
+param.enable_monitor = モニターを有効化
+param.time_limit_override = 時間制限
+param.eval_disable_rand = 評価時ランダム化無効
+port.actor_pipe = アクターパイプ
+port.scene_pipe = シーンパイプ
+port.command_pipe = コマンドパイプ
+port.physics_config = 物理設定
+port.task_config = タスク設定
+port.obs_action_config = 観測/行動設定
+port.domain_rand_config = DR設定
+port.reference_motion_config = 参照モーション設定
+port.init_pose_config = 初期姿勢設定
+port.env_config = 環境設定
+
+[domain_rand]
+display = ドメインランダム化
+desc = ドメインランダム化 (バックエンド制御 SB3 / Isaac Lab)
+param.backend = バックエンド
+param.rand_schedule = ランダム化スケジュール
+param.rand_schedule_start_step = DR 開始ステップ
+param.rand_schedule_end_step = DR 終了ステップ
+param.enabled = 有効
+param.mass_range = 質量範囲
+param.friction_range = 摩擦範囲
+param.motor_strength_range = モータ強度
+param.joint_damping_range = 関節ダンピング
+param.obs_noise_std = 観測ノイズ標準偏差
+param.push_robot = ロボットを押す
+param.push_interval_steps = プッシュ間隔
+param.push_force_range = プッシュ力
+param.enable_friction_rand = 摩擦ランダム化
+param.friction_mode = 摩擦モード
+param.static_friction_range = 静止摩擦係数
+param.dynamic_friction_range = 動摩擦係数
+param.restitution_range = 反発係数
+param.enable_mass_rand = 質量ランダム化
+param.mass_mode = 質量モード
+param.mass_operation = 質量操作
+param.mass_target_body = 対象ボディ
+param.mass_offset_range = 質量オフセット
+param.enable_external_push = 外部プッシュ
+param.push_mode = プッシュモード
+param.push_interval_range_s = プッシュ間隔（秒）
+param.push_velocity_x_range = プッシュ速度 Vx 範囲
+param.push_velocity_y_range = プッシュ速度 Vy 範囲
+param.enable_init_pose_rand = 初期姿勢ランダム化
+param.init_pose_mode = 初期姿勢モード
+param.init_pos_x_range = 初期X範囲
+param.init_pos_y_range = 初期Y範囲
+param.init_yaw_range = 初期ヨー角範囲
+param.enable_joint_noise = 関節ノイズ
+param.joint_noise_mode = 関節ノイズモード
+param.joint_pos_noise = 関節位置ノイズ
+param.joint_vel_noise = 関節速度ノイズ
+port.actor_pipe = アクターパイプ
+port.domain_rand_config = DR設定
+
+[discriminator]
+display = 識別器
+desc = AMP識別器ネットワーク + 報酬シェイピング
+param.disc_modules = 識別器モジュール
+param.disc_hidden_dims = 識別器の隠れ層
+param.amp_reward_coef = AMP報酬係数
+param.task_reward_lerp = タスク報酬 Lerp
+param.lerp_schedule = Lerp スケジュール
+param.lerp_schedule_json = Lerp スケジュール JSON
+param.disc_lr = 識別器学習率 (LR)
+param.disc_grad_penalty = 勾配ペナルティ
+param.disc_label_smoothing = ラベルスムージング
+param.amp_replay_buffer_size = リプレイバッファ
+param.num_preload_transitions = プリロード遷移
+param.amp_obs_fields = AMP 観測フィールド
+param.auto_inject_ref_obs = 参照観測を注入
+param.disc_logit_clamp_max = ロジットクランプ
+param.reward_clamp_per_step = 報酬クランプ
+param.policy_std_clamp_max = 標準偏差クランプ上限
+port.reference_motion_config = 参照モーション設定
+port.discriminator_config = 識別器設定
+
+[base_asset]
+display = ベースアセット
+desc = ロボットベースアセット + 開始地点
+param.start_point = 開始地点
+param.asset_id = アセットID
+param.checkpoint_file = チェックポイントファイル
+param.load_mode = 読み込みモード
+port.checkpoint = チェックポイント
+
+[amp_trainer]
+display = AMP トレーナー
+desc = Isaac Lab AMP_PPO トレーナー (AMP_PPO モードの IL PPO Trainer の別名)
+param.training_mode = トレーニングモード
+param.num_envs = 環境数
+param.max_iterations = 最大イテレーション
+param.num_steps_per_env = ステップ/環境
+param.num_learning_epochs = 学習エポック
+param.num_minibatches = ミニバッチ数
+param.learning_rate = 学習率
+param.discount_factor = 割引 γ
+param.gae_lambda = GAE λ
+param.clip_param = クリップ ε
+param.entropy_coef = エントロピー係数
+param.value_loss_coef = 価値損失
+param.max_grad_norm = 最大勾配ノルム
+param.schedule = 学習率スケジュール
+param.desired_kl = 目標 KL
+param.save_interval = 保存間隔
+param.seed = シード
+param.headless = ヘッドレス
+param.amp_reward_coef = AMP 報酬係数
+param.task_reward_lerp = タスク報酬補間
+param.disc_grad_penalty = 勾配ペナルティ
+param.disc_label_smoothing = ラベルスムージング
+param.amp_replay_buffer_size = リプレイバッファ
+param.num_preload_transitions = トランジションの事前読み込み
+param.disc_lr = 識別器の学習率
+param.lerp_schedule = Lerp スケジュール
+param.lerp_schedule_json = Lerp スケジュール JSON
+param.entropy_schedule_enabled = エントロピースケジュール有効
+param.entropy_schedule_start = エントロピースケジュール開始
+param.entropy_schedule_end = エントロピースケジュール終了
+param.entropy_schedule_ramp_iters = エントロピースケジュール ランプ
+port.policy = ポリシー
+port.total_reward = 合計報酬
+port.termination_config = 終了設定
+port.domain_rand_config = ドメインランダマイゼーション設定
+port.obs_vector = 観測ベクトル
+port.scene_pipe = シーンパイプライン
+port.checkpoint = チェックポイント
+port.reference_motion_config = 参照モーション設定
+port.init_pose_config = 初期姿勢設定
+port.discriminator_config = 識別器設定
+port.train_pipe = トレーニングパイプライン
+port.training_metrics = トレーニング指標
+
+[algorithm_config]
+display = アルゴリズム設定
+desc = 強化学習アルゴリズム + バッファ + スケジュール
+param.algorithm = アルゴリズム
+param.total_timesteps = 総ステップ数
+param.learning_rate = 学習率
+param.batch_size = バッチサイズ
+param.gamma = ガンマ
+param.seed = シード
+param.device = デバイス
+param.hidden_dim_1 = 隠れ次元1
+param.hidden_dim_2 = 隠れ次元2
+param.activation = 活性化関数
+param.ent_coef = エントロピー係数
+param.checkpoint_interval = チェックポイント間隔
+param.resume_mode = 再開モード
+param.policy_id_out = ポリシーID出力
+param.gae_lambda = GAE λ
+param.n_steps = [PPO] n_steps
+param.n_epochs = [PPO] n_epochs
+param.lr_schedule = 学習率スケジュール
+param.gradient_steps = 勾配ステップ
+param.tau = Tau
+param.target_entropy = 目標エントロピー
+param.buffer_size_mode = バッファモード
+param.buffer_size = バッファサイズ
+param.learning_starts = 学習開始
+param.use_per = PER を使用
+param.per_alpha = PER α
+param.per_beta = PER β
+param.collapse_guard = 崩壊ガード
+param.collapse_threshold = 崩壊閾値
+param.collapse_patience = 猶予回数
+param.collapse_lr_factor = 崩壊 LR
+param.collapse_max_rollbacks = 最大ロールバック数
+port.checkpoint = チェックポイント
+port.total_steps = 総ステップ数
+port.algo_config = アルゴリズム設定
+
+[actor_setting]
+display = アクター設定
+desc = アクターブロック: 初期姿勢 / 接触 / アクチュエータ / アクション空間 / カリキュラム
+param.init_pos_x = 初期位置 X
+param.init_pos_y = 初期位置 Y
+param.init_pos_z = 初期位置 Z
+param.init_joint_angles = 初期関節角
+param.contact_body_names = 接触ボディ
+param.contact_history_length = 接触履歴
+param.contact_track_air_time = 空中時間を追跡
+param.stiffness = 剛性
+param.damping = 減衰
+param.effort_limit = 出力上限
+param.velocity_limit = 速度上限
+param.action_joint_names_expr = 制御ジョイント
+param.action_scale = アクション倍率
+param.action_use_default_offset = デフォルトオフセット
+param.action_scale_curriculum_enabled = スケールカリキュラム有効
+param.action_scale_curriculum_start = カリキュラム開始
+param.action_scale_curriculum_end = カリキュラム終了
+param.action_scale_curriculum_ramp_iters = カリキュラムランプ
+port.robot_pipe = ロボットパイプ
+port.joint_init = 関節初期化
+port.actor_pipe = アクターパイプ
+
+[note]
+display = ノート
+desc = キャンバス注釈カード（実行されません）。タイトルと複数行のテキスト本文を含み、キャンバス内のコメント用です。
+

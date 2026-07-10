@@ -1,0 +1,58 @@
+[default]
+busy_linking = {provider} アカウントをリンク中...
+busy_oauth = ブラウザでの確認を待っています...
+busy_sending_reset = リセットメールを送信しています...
+busy_signing_in = サインインしています...
+busy_signing_up = アカウントを作成しています...
+close_button = 閉じる
+confirm_password_label = パスワードを確認
+continue_github = GitHubで続行
+continue_google = Googleで続行
+continue_with = または以下で続行
+dialog_title = UnitPortアカウント
+email_label = メールアドレス
+email_placeholder = you@example.com
+error_email_rate_limited = リクエストが多すぎます。1分ほど待ってから再試行してください。
+error_email_taken = このメールアドレスは既に登録されています。
+error_empty_email = メールアドレスは必須です。
+error_empty_password = パスワードは必須です。
+error_generic = サインインに失敗しました: {message}
+error_invalid_credentials = メールアドレスまたはパスワードが正しくありません。
+error_network = ネットワークエラー — 接続を確認してください。
+error_password_mismatch = パスワードが一致しません。
+error_password_too_short = パスワードは6文字以上である必要があります。
+forgot_password = パスワードをお忘れですか？
+identity_conflict_body = {provider} をリンクできませんでした。
+	
+	そのアカウントは既に別の UnitPort ユーザーに属しており、Supabase は既存の2つのアカウントを統合できません。
+	
+	代わりに直接 {provider} でサインインするか、別の {provider} アカウントをお試しください。
+	
+	プロバイダーのメッセージ: {message}
+identity_conflict_switch = 代わりに {provider} でサインインする
+identity_conflict_title = 認証情報は既に使用されています。
+info_email_confirmation = アカウントが作成されました。{email} を確認してアドレスを認証してください。
+password_label = パスワード
+password_placeholder = 6文字以上
+sidebar_sign_in_button = サインイン
+sidebar_sign_out = サインアウト
+sidebar_signed_out_hint = UnitPortにサインイン
+sign_in_button = サインイン
+sign_up_button = アカウントを作成
+tab_sign_in = サインイン
+tab_sign_up = サインアップ
+restart_body_signin = {email} としてサインインしています。今すぐ UnitPort を再起動してこのアカウントのワークスペースを読み込みますか？
+restart_body_signout = サインアウトしました。今すぐ UnitPort を再起動してゲストワークスペースに戻りますか？
+restart_button_later = 後で
+restart_button_now = 今すぐ再起動
+restart_title = 再起動が必要です
+busy_unlinking = リンク解除中...
+busy_setting_password = パスワード更新中...
+busy_changing_email = 確認メール送信中...
+error_oauth_busy = 別のサインイン操作が保留中です。しばらくお待ちください。
+error_single_identity_not_deletable = 唯一のサインイン方法はリンク解除できません。
+error_identity_already_exists = このアカウントは既に別のユーザーにリンクされています。
+info_email_change_pending = 確認メールを送信しました。変更を確定するにはリンクをクリックしてください。
+info_password_updated = パスワードが更新されました。
+info_unlink_current_provider = 現在のサインイン方法のリンクを解除しました。まもなくサインアウトされる可能性があります。
+

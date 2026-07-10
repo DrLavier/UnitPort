@@ -1,0 +1,25 @@
+[default]
+canvas_saved = Канвас сохранён: {path}
+feature_pending = 
+history_cleared = История обучения очищена
+history_delete_failed = Не удалось удалить запуск {}
+history_deleted = Запуск {} удалён
+history_loaded = Канвас восстановлен из прогона {} — нажмите Ctrl+S, чтобы сохранить
+history_missing = Прогон [{}] {} больше не существует на диске
+history_snapshot_missing = Снимок канваса для прогона [{}] {} отсутствует на диске
+no_project = Проект не загружен
+policy_missing = Политика [{}] {} выбрана, но путь к бандлу отсутствует на диске
+policy_no_project = Проект не загружен
+policy_selected = Выбрана политика: [{}] {}
+ready = UnitPort готов
+template_apply_failed = Не удалось применить содержимое шаблона
+template_backend_mismatch = Бэкенд шаблона '{tb}' не соответствует бэкенду текущего канваса '{cb}'
+template_loaded = Шаблон '{name}' загружен в текущий канвас — нажмите Ctrl+S, чтобы сохранить
+template_missing = Шаблон не найден на диске
+template_no_backend = В шаблоне отсутствует поле backend
+template_no_canvas = Откройте канвас перед загрузкой шаблона
+template_no_project = Откройте проект и канвас перед загрузкой шаблона
+template_read_failed = Не удалось прочитать шаблон
+history_no_chart = Выбранный запуск: {} (график ещё не готов)
+history_selected = Запуск выбран:
+

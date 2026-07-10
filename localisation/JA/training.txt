@@ -1,0 +1,70 @@
+[coverage]
+blocked.body = 報酬のカバレッジが重要です — 影響を受けるフェーズが有効なとき、ポリシーが望ましくない振る舞いを学習する可能性があります。
+blocked.cancel = キャンセル
+blocked.header = トレーニングを開始できません: 報酬カバレッジのチェックに失敗しました。
+blocked.hint = Rewards ノードのバッジをダブルクリックすると、修正案を表示するカバレッジインスペクターが開きます。
+blocked.proceed = とにかく続行
+blocked.title = 報酬カバレッジの問題
+
+[default]
+already_running = 既にトレーニング実行がアクティブです
+no_canvas = キャンバスが読み込まれていません
+preparing = トレーニング実行を準備中（UI スレッド外でコンパイルしています）…
+started = トレーニング開始: run={run} backend={backend} algo={algo}
+
+[deploy_coverage]
+affected = 影響を受けるデプロイ対象:
+body = トレーニングされたバンドルはサポート対象のうち一部のターゲットにのみデプロイ可能になります。これはロボットの MJCF と USD のアセットテーブルが同じジョイントセットを宣言していないためです。
+cancel = キャンセル
+header = トレーニングはロボット ‘{name}’（sku={sku}）向けにデプロイ対象が制限されたバンドルを生成します。
+hint = 両方のデプロイ対象を復元するには: キャンセルして Robot Assets サイドバーを開き、自由度の少ない方のアセットを対応するバリアントに差し替えます（例: Unitree G1 の場合、g1.usd と並べて scene_with_hands.xml を使用）。その後、ダンプを再実行してから Play を再実行してください。
+miss_mjcf = USD で宣言されているが MJCF に存在しないロール: {roles}
+miss_usd = MJCF で宣言されているが USD に存在しないロール: {roles}
+proceed = とにかく続行する（後で計算資源を無駄にしないように）
+title = デプロイ対象のカバレッジが縮小されます
+
+[packages]
+add = パッケージを追加
+bad_weight = package_weight は数値でなければなりません
+edit_rewards = 報酬を編集…
+enabled = 有効
+gate_missing = {s}（見つかりません）
+gate_none = — なし —
+gated_by = スキルで制御
+gated_by.tip = このパッケージの報酬をスキルのトリガーウィンドウに制限します — そのスキルが発動している間のみ（ポストパルスの減衰期間も含む）報酬がカウントされます。これはこのノードの Skill Channels で作成されたスキルを必要とします。
+hint = アイテムをパッケージにグループ化します。package_weight はパッケージ全体を再配分します。各パッケージはインラインの報酬セットを持つことができます。空欄の場合は暗黙のデフォルトパッケージが1つ作られます。
+membership = アイテムの所属
+name = 名前
+new_name = パッケージ {n}
+preview = 合成報酬のプレビュー（= エクスポート）
+preview_empty = インラインのパッケージ報酬はありません。パッケージ報酬を持たないアイテムは、ワイヤー接続された Rewards ノードをそのまま使用します。
+remove = 削除
+title = トレーニングパッケージ
+weight = package_weight
+
+[sim2sim]
+body = PhysX↔MuJoCo のクロスエンジン測定で、残差が収束しない（カオスな）次元が見つかりました: {dims}。ドメインランダマイゼーションではこれらをカバーできず、sim2sim がこの挙動を忠実に再現しない可能性があります。
+cancel = キャンセル
+header = クロスエンジン残差の自己チェックでロボット ‘{sku}’ に問題が検出されました。
+hint = 続行すると現在のプラントにこれが記録されます — ロボットアセットが変更されない限り再度尋ねられることはありません。
+proceed = それでも続行
+title = 収束しない sim2sim 次元
+
+[skills]
+add = スキルを追加
+bad_id = すべてのスキルには id が必要です。
+bad_window = window は正の数でなければなりません。
+enabled = 有効
+hint = 各スキルは離散的なポリシーのコマンドチャネル（トリガー）です。これは policy obs に入り、command contract に従います。ポリシーはそれに応答するように訓練されている必要があります。キーやボタンへの割り当てはトレーニング後に各ユーザーが Controller panel で行います — ここでは行いません。
+latch = ラッチ
+latch.hold = 保持（押している間）
+latch.pulse = パルス（単発）
+name = 名前
+new_name = スキル {n}
+preview = 出力されるトリガーチャネル
+preview_empty = 有効なスキルがありません。
+remove = 削除
+title = スキルチャネル
+window = ウィンドウ (s)
+window.tip = パルス後の減衰ウィンドウ: トリガー obs + reward gate がこの秒数にわたって 1→0 に減衰します。デプロイランタイムは同じウィンドウを再構築します。
+

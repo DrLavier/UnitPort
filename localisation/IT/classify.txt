@@ -1,0 +1,11 @@
+[default]
+cancel = Annulla
+err_kind = Seleziona un tipo di asset.
+family_any = (qualsiasi)
+hint = Seleziona il tipo di asset e la famiglia robotica di destinazione. La tua scelta viene registrata per essere applicata dal backend.
+ok = Registra
+recorded = Classificazione registrata. Non è ancora applicata — il backend provvederà a smistare l'asset nel registro appropriato.
+title = Classifica l'asset
+kind = Tipo di asset
+family = Famiglia robot
+

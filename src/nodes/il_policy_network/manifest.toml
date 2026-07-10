@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "il_policy_network"
+backends = ["isaac_lab"]  # IsaacLab policy_net; SB3 builds net_arch from algorithm_config
 kind = "CUSTOM"
 version = "1.0.0"
 category = "config"

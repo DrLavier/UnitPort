@@ -1,0 +1,12 @@
+[import]
+browse = تصفح
+cancel = إلغاء
+err_id = معرّف المشهد مطلوب.
+err_src = اختر ملف خريطة ارتفاع صالح.
+menu = ➕ استيراد التضاريس…
+menu_desc = استورد خريطة ارتفاع بصيغة PNG / .npy / .npz كتضاريس مخصصة.
+ok = استيراد
+scene_id_ph = مثال: my_hills
+source_ph = .png / .npy / .npz
+title = استيراد التضاريس
+

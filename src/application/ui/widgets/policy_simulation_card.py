@@ -106,6 +106,25 @@ def _read_bundle_sku(bundle_dir) -> str:
     return str(robot.get("sku") or "").strip()
 
 
+def _read_bundle_commands(bundle_dir) -> "Optional[dict]":
+    """Extract ``deploy_contract.commands`` from a bundle's manifest.
+
+    Returns ``None`` when missing / empty / unreadable — the Controller
+    panel then shows the "no contract" hint. Same fresh-parse rationale
+    as :func:`_read_bundle_sku` (no read_data mtime-less cache)."""
+    manifest_path = bundle_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        return None
+    try:
+        raw = BundleLoader._parse_manifest(bundle_dir)
+    except Exception as exc:                           # pragma: no cover
+        log_warning(f"[mission.sim] manifest read failed: {exc}")
+        return None
+    contract = raw.get("deploy_contract")
+    commands = contract.get("commands") if isinstance(contract, dict) else None
+    return commands if isinstance(commands, dict) and commands else None
+
+
 def _robot_display_name(sku: str) -> str:
     """Best-effort human label for a SKU, for error messages.
 
@@ -268,6 +287,11 @@ class _SimConfigSection(SectionFrame):
         # to re-select the policy. The combo's currentIndexChanged was
         # silent during _refresh_policies (signals not connected yet).
         self._refresh_init_pose_sku()
+        # Broadcast the initially-selected policy's command contract so the
+        # Controller panel renders + routes its channel bindings right away,
+        # without waiting for a live-review to start (currentIndexChanged was
+        # silent during the pre-wiring _refresh_policies).
+        self._broadcast_policy_contract()
 
     # ------------------------------------------------------------------
     # Populate helpers
@@ -484,6 +508,27 @@ class _SimConfigSection(SectionFrame):
             )
         self._refresh_run_enabled()
         self._refresh_init_pose_sku()
+        self._broadcast_policy_contract()
+
+    def _broadcast_policy_contract(self) -> None:
+        """Emit ``policy_contract_changed`` for the currently-selected policy so
+        the Controller panel renders/routes its command-channel bindings from the
+        loaded bundle's ``deploy_contract.commands`` — decoupled from live-review.
+        No policy selected → ``("", None)`` so the panel shows its unavailable state."""
+        asset = self._cb_policy.currentData()
+        sku, commands = "", None
+        if isinstance(asset, PolicyAsset):
+            try:
+                sku = _read_bundle_sku(asset.path) or (self._robot_sku or "")
+                commands = _read_bundle_commands(asset.path)
+            except Exception as exc:                       # pragma: no cover
+                log_warning(f"[mission.sim] contract broadcast read failed: {exc}")
+                sku, commands = "", None
+        try:
+            from application.service.signals import get_app_signals
+            get_app_signals().policy_contract_changed.emit(sku, commands)
+        except Exception as exc:                            # pragma: no cover
+            log_warning(f"[mission.sim] contract broadcast failed: {exc}")
 
     def _on_field_changed(self, _idx: int) -> None:
         sid = str(self._cb_field.currentData() or "")
@@ -757,6 +802,22 @@ class PolicySimulationCard(QFrame):
                 f"policy={asset.policy_id} scene={scene_id} sku={sku} "
                 f"init_pose_override={'yes' if override is not None else 'no'}"
             )
+            # Register the live-sim task so a system estop can cancel it (Slice 0).
+            from application.service.runtime.session_controller import (
+                get_session_controller,
+            )
+            get_session_controller().register_review_task(tid)
+            # Broadcast the active policy's command contract so the
+            # Controller panel can render contract-driven channel bindings
+            # (per SKU) and install the matching axis routing for this
+            # live-sim teleop session. None commands = legacy / no contract.
+            try:
+                from application.service.signals import get_app_signals
+                get_app_signals().policy_review_started.emit(
+                    sku, _read_bundle_commands(asset.path)
+                )
+            except Exception as exc:
+                log_warning(f"[mission.sim] contract broadcast failed: {exc}")
             self.sim_run_requested.emit(asset, scene_id, engine_id)
         elif engine_id == "isaac_lab":
             # Bundle-only IsaacSim replay (CLAUDE.md §1.9): the subprocess
@@ -784,6 +845,11 @@ class PolicySimulationCard(QFrame):
                 f"policy={asset.policy_id} scene={scene_id} sku={sku} "
                 f"init_pose_override={'yes' if override is not None else 'no'}"
             )
+            # Register the live-sim task so a system estop can cancel it (Slice 0).
+            from application.service.runtime.session_controller import (
+                get_session_controller,
+            )
+            get_session_controller().register_review_task(tid)
             self.sim_run_requested.emit(asset, scene_id, engine_id)
         else:
             log_warning(
@@ -844,6 +910,10 @@ class PolicySimulationCard(QFrame):
                 f"sku={sku} scene={scene_id} live_physics={live_physics} "
                 f"init_pose_override={'yes' if override is not None else 'no'}"
             )
+            from application.service.runtime.session_controller import (
+                get_session_controller,
+            )
+            get_session_controller().register_review_task(tid)
             self.sim_review_requested.emit(
                 asset, scene_id, engine_id, live_physics,
             )
@@ -873,6 +943,10 @@ class PolicySimulationCard(QFrame):
                 f"sku={sku} scene={scene_id} "
                 f"init_pose_override={'yes' if override is not None else 'no'}"
             )
+            from application.service.runtime.session_controller import (
+                get_session_controller,
+            )
+            get_session_controller().register_review_task(tid)
             self.sim_review_requested.emit(
                 asset, scene_id, engine_id, live_physics,
             )

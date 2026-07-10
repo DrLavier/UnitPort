@@ -1,0 +1,85 @@
+[backend]
+cb_isaac = تمكين تكامل Isaac Lab
+cb_isaac_tip = يوفر Isaac Lab محاكاة مع تسريع بواسطة GPU عبر NVIDIA Isaac Sim. يمكنك تثبيته الآن أو الإشارة إلى تثبيت موجود.
+cb_loco = تنزيل مكتبة الحركات المرجعية loco-mujoco
+cb_loco_tip = مكتبة حركات مرجعية مجتمعية لتدريب التنقل. مستنسخة من github.com/robfiras/loco-mujoco.
+cb_mujoco = تثبيت MuJoCo (حزمة pip)
+cb_mujoco_tip = مطلوب للمحاكاة والتدريب المعتمدة على MuJoCo.
+cb_ros2 = تثبيت دعم ROS2
+cb_ros2_tip = يُمكِّن الأجهزة/العلامات المعتمدة على ROS2 (Unitree Go2, Mangdang Mini Pupper, …). يُعاد استخدام تثبيت ROS2 Humble المحلي عندما يكون متوفراً؛ وإلا فسيتم بناء صورة جسر Docker.
+cloud_auth = المصادقة:
+cloud_auth_key = مفتاح SSH
+cloud_auth_pwd = كلمة المرور
+cloud_hint = أدخل تفاصيل اتصال SSH لخادم GPU البعيد. سيتم تثبيت Isaac Lab عبر SSH + SFTP.
+cloud_host = المضيف:
+cloud_key_file = ملف المفتاح:
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	المتطلبات: Ubuntu 22.04+, NVIDIA GPU, CUDA 12.x, قرص ~30 GB
+cloud_password = كلمة المرور:
+cloud_port = المنفذ:
+cloud_remote_path = المسار البعيد:
+cloud_server_name = اسم الخادم:
+cloud_user = اسم المستخدم:
+custom_mod_already_installed = (مثبت بالفعل)
+custom_mod_required_suffix = (مطلوب من أجل {templates})
+custom_mod_required_tip = مطلوب من قِبل قالب(قوالب) canvas: {templates}. قم بإلغاء التحديد فقط إذا لم تكن تخطط لاستخدام القالب المدرج — وإلا سيفشل القالب في التحميل.
+custom_mods_hint = مستودعات الحركات المرجعية المجتمعية / AMP، يتم استنساخ كلٍ منها بشكل سطحي إلى custom_mods/motions/. الإدخالات المعلَّمة كمطلوبة تدعم قالب canvas المرفق — اتركها محددة وإلا سيفشل تحميل القالب.
+group_custom_mods = مكتبات الحركات المرجعية
+group_isaac = Isaac Lab (NVIDIA)
+group_mujoco = MuJoCo
+group_ros2 = ROS2
+hint = قم بتكوين محركات المحاكاة للتدريب والتنفيذ. قم بإلغاء تحديد العناصر التي لا تحتاجها لتسريع الإعداد.
+install_hint = اختر دليل التثبيت. سيتم تثبيت Isaac Lab + Isaac Sim مع venv مخصص داخل هذا الدليل.
+install_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	القرص: ~30 GB | المتطلبات: NVIDIA GPU مع برنامج تشغيل CUDA 12.x
+isaac_install_dir_ph = دليل التثبيت ...
+isaac_invalid = تعذّر التحقق من Isaac Lab في هذا المسار -- متوقع isaaclab.sh/bat أو دليل source/
+isaac_locate_dir_ph = دليل الجذر الخاص بـ Isaac Lab ...
+isaac_valid = تم اكتشاف تثبيت صالح لـ Isaac Lab
+rb_isaac_cloud = نشر Isaac Lab على خادم Linux بعيد (SSH)
+rb_isaac_install = تثبيت Isaac Lab + Isaac Sim (من الصفر)
+rb_isaac_locate = تحديد موقع تثبيت Isaac Lab الحالي
+ros2_note = يكشف تلقائيًا عن تثبيت ROS2 محلي (تُفضَّل Humble). عندما لا يكون هناك تثبيت، يتم بناء صورة جسر UnitPort Docker بدلاً من ذلك — يجب أن يكون Docker Desktop / Docker Engine قيد التشغيل.
+title = بيئة الخلفية
+
+[data_dir]
+btn_browse = تصفح ...
+hint = اختر المكان الذي يخزن فيه UnitPort جميع بيانات كل مستخدم: المشاريع، السياسات المصدرة، رموز تسجيل الدخول، ذاكرات التخزين المؤقت للقياسات، المحركات التي تم تنزيلها، وتراكب ملف user.ini. لا يتم الكتابة إلى مجلد تثبيت التطبيق أثناء وقت التشغيل، لذا هذا الدليل هو ما يبقى عبر عمليات إعادة النشر / git pulls. يجب أن تختار مسارًا مطلقًا — لا يوجد قيمة افتراضية مدمجة.
+label_dir = دليل UserConfig:
+note = هذا المسار هو جذر WORKSPACE: مجلدات كل حساب توضع تحته (مجلد واحد لكل مستخدم مسجل دخول، بالإضافة إلى _guest/). اختر مسارًا مطلقًا به مساحة كافية (تنزيلات المحركات قد تتجاوز 30 GB).
+placeholder = اختر مسارًا مطلقًا (مثال: D:\\UnitPort)
+status_custom_create = موقع WORKSPACE — سيتم إنشاؤه في {path}
+status_custom_exists = موقع WORKSPACE — موجود بالفعل في {path}
+status_invalid = مسار غير صالح
+status_relative = يجب أن يكون المسار مطلقًا (المُدخل: {path}).
+status_required = مطلوب — اختر مسارًا مطلقًا لجذر WORKSPACE.
+title = دليل البيانات
+btn_reset = استعادة الإعدادات الافتراضية
+status_default = يُستخدم الموقع الافتراضي.
+
+[language]
+hint = اختر اللغة المفضلة لديك لـ UnitPort. يمكنك تغييرها لاحقًا من الشريط الجانبي.
+ok = متابعة
+title = اختر اللغة
+
+[menagerie]
+btn_deselect_all = إلغاء تحديد الكل
+btn_refresh = تحديث من GitHub
+btn_select_all = تحديد الكل
+hint = اختر نماذج الروبوت التي تحتاجها من mujoco_menagerie. النماذج المدعومة من UnitPort مُحددة مسبقًا. النماذج الأخرى اختيارية.
+loading = جارٍ تحميل قائمة النماذج من GitHub …
+title = نماذج MuJoCo Menagerie
+
+[sdk]
+hint = اختر حزم SDK الخاصة بالروبوت لتنزيلها. سيتم استنساخ العناصر المحددة فقط. يمكنك تثبيت المزيد لاحقًا من الإعدادات.
+title = حزم SDK
+
+[wizard]
+btn_back = رجوع
+btn_finish = إنهاء
+btn_next = التالي
+btn_skip = تخطي الإعداد
+header_subtitle = اختر المكونات التي تريد تثبيتها. يمكنك تغييرها لاحقًا في الإعدادات.
+header_title = إعداد UnitPort
+window_title = UnitPort — إعداد مخصص
+

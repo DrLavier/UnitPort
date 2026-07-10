@@ -1,0 +1,7 @@
+[default]
+action = Cloud-Server starten und Dump ausführen
+body = UnitPort benötigt für jeden Standardroboter (Unitree Go2, Boston Dynamics Spot, Unitree H1 usw.) eine USD-Körper-Topologie, damit Kontaktsensoren, Canvas-Vorrealisierung und Trainingsvalidierung zuverlässig verdrahtet werden können. Der lokale Dump-Pfad erfordert eine lokale IsaacLab-Installation; Sie haben nur Cloud-IsaacLab-Server konfiguriert. Starten Sie Ihren Cloud-Server und klicken Sie dann auf die Schaltfläche unten, um den Dump aus der Ferne auszuführen.
+dismiss = Schließen
+headline = USD-Körpertabellen für Standardroboter wurden auf dieser Installation noch nicht erstellt.
+window_title = Cloud IsaacLab — USD-Körper-Dump erforderlich
+

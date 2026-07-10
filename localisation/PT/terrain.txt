@@ -1,0 +1,12 @@
+[import]
+browse = Procurar
+cancel = Cancelar
+err_id = O id da cena é obrigatório.
+err_src = Selecione um ficheiro de mapa de alturas válido.
+menu = ➕ Importar terreno…
+menu_desc = Importe um mapa de alturas PNG / .npy / .npz como um terreno personalizado.
+ok = Importar
+scene_id_ph = p.ex.: my_hills
+source_ph = .png / .npy / .npz
+title = Importar terreno
+

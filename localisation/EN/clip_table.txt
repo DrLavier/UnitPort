@@ -1,0 +1,11 @@
+[default]
+col_name = Clip
+col_tag = Tag
+col_frames = Frames
+col_duration = Duration
+col_segments = Segments
+col_action = 
+crop = Crop / Label
+edit_tip = Crop / label this clip
+segment_tip = Open this segment
+

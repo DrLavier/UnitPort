@@ -1,0 +1,15 @@
+[engine]
+unavailable = 利用不可
+
+[error]
+create_failed = プロジェクト '{name}' を作成できませんでした（詳細はログを参照）
+exists = キャンバスは既に存在します: {path}
+invalid_name = キャンバス名は空であってはなりません（使用可能な文字: 英字、数字、_、- のみ）
+invalid_project_name = プロジェクト名は空であってはなりません（使用可能な文字: 英字、数字、_、- のみ）
+no_engine = トレーニングエンジンを選択してください
+no_project_name = 選択または作成するプロジェクト名を入力してください
+
+[placeholder]
+canvas = 例: main
+project = プロジェクトを検索するには入力してください
+

@@ -1,0 +1,23 @@
+[review]
+actor_line = {actor}
+btn_accept = 受け入れる
+btn_reject = 拒否
+btn_reject_all = すべて拒否
+dialog_intro = サインアウトしている間に、このマシンの他のユーザーがワークスペース内のファイルを{n}件変更しました。各変更を確認し、「受け入れる」（相手の変更を保持）または「拒否」（クラウドのコピーから復元）を選択してください。
+dialog_title = 他のユーザーによる保留中の変更
+file_line = {path}
+op_delete = 削除済み
+op_overwrite = 編集済み
+reject_confirm_body = これにより、クラウドネームスペースから'{name}'の以前のバージョンを取得して、ローカルファイルに上書きします。
+	
+	続行しますか？
+reject_confirm_title = クラウドから復元しますか？
+reject_failed_network = クラウドの取得に失敗しました (ネットワークまたは認証エラー): {err}
+reject_failed_no_cloud = クラウドのコピーが利用できないため、拒否はできません。（このファイルはこれまでに同期されましたか？）
+time_line = {time}
+btn_accept_all = すべて承認
+btn_later = 後で決定
+reject_success_cloud = クラウドから復元されました
+accept_confirm_body = Keep {actor}'s {op} on '{name}'? このエントリはレビューリストから削除されます。
+empty_state = レビュー対象の保留中の変更はありません。
+

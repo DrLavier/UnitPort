@@ -1,0 +1,10 @@
+[confirm]
+clear_body = Questo elimina tutte le directory di run sotto <project>/training/runs/ e tutte le istantanee del canvas in _runs_/. Questa operazione non può essere annullata.
+clear_title = Cancellare tutta la cronologia di addestramento?
+
+[row]
+delete.tip = Elimina questa run
+
+[default]
+clear_all = Cancella tutto
+

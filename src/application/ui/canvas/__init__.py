@@ -23,6 +23,8 @@ from .grid import CachedGrid
 from .items import (
     EDGE_PEN_DATA,
     EDGE_PEN_HOVER,
+    NODE_MIN_W,
+    NODE_MIN_WIDTH,
     NODE_W,
     PARAM_ROW_H,
     PORT_HIT_R,
@@ -93,6 +95,8 @@ __all__ = [
     # geometry constants
     "TITLE_H",
     "NODE_W",
+    "NODE_MIN_W",
+    "NODE_MIN_WIDTH",
     "PORT_ROW_H",
     "PARAM_ROW_H",
     "SEP_H",

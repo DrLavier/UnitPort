@@ -1,0 +1,21 @@
+[btn]
+new = Nuovo
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (vuoto)
+no_canvas = (nessun canvas)
+no_project = (nessun progetto)
+
+[target]
+cloud = Cloud
+local = Locale
+local_ver = Locale ({short})
+
+[tooltip]
+new = Apri il selettore per il nuovo canvas
+start = Avvia l'addestramento
+stop = Interrompi l'addestramento
+

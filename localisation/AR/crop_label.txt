@@ -1,0 +1,20 @@
+[default]
+title = اقتطاع وتسمية المقطع
+length_unknown = طول المقطع غير معروف (يتم تحليل الإطارات في المعالجة الخلفية) — يتم حفظ العلامات كأرقام إطارات خام.
+preview_robot = معاينة الروبوت
+preview = معاينة في MuJoCo
+preview_started = تم تشغيل المعاينة (المقطع كامل — يتم تشغيل النطاق في المعالجة الخلفية).
+range = بداية {a}  ·  نهاية {b}  ·  {n} إطار
+seg_name = مقطع
+seg_name_ph = مثال: walk_loop
+add = أضف من العلامات
+col_name = الاسم
+col_tag = وسم
+col_in = بداية
+col_out = نهاية
+col_action = 
+close = إغلاق
+delete = حذف
+no_robot = اختر روبوت المعاينة أولاً.
+err_name = اسم المقطع مطلوب.
+

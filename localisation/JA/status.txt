@@ -1,0 +1,25 @@
+[default]
+canvas_saved = キャンバスを保存しました: {path}
+feature_pending = 
+history_cleared = 学習履歴がクリアされました
+history_delete_failed = ラン {} の削除に失敗しました
+history_deleted = ラン {} を削除しました
+history_loaded = ラン {} からキャンバスを復元しました — 保存するには Ctrl+S を押してください
+history_missing = ラン [{}] {} はディスク上に存在しません
+history_snapshot_missing = ラン [{}] {} のキャンバススナップショットがディスク上に見つかりません
+no_project = プロジェクトが読み込まれていません
+policy_missing = ポリシー [{}] {} が選択されていますが、バンドルパスがディスク上にありません
+policy_no_project = プロジェクトが読み込まれていません
+policy_selected = ポリシーが選択されました: [{}] {}
+ready = UnitPort の準備ができました
+template_apply_failed = テンプレートの内容を適用できませんでした
+template_backend_mismatch = テンプレートのバックエンド '{tb}' が現在のキャンバスのバックエンド '{cb}' と一致しません
+template_loaded = テンプレート '{name}' を現在のキャンバスに読み込みました — 保存するには Ctrl+S を押してください
+template_missing = テンプレートがディスク上に見つかりません
+template_no_backend = テンプレートに backend フィールドがありません
+template_no_canvas = テンプレートを読み込む前にキャンバスを開いてください
+template_no_project = テンプレートを読み込む前にプロジェクトとキャンバスを開いてください
+template_read_failed = テンプレートの読み込みに失敗しました
+history_no_chart = 選択された実行: {} (チャートは準備できていません)
+history_selected = 選択中の実行:
+

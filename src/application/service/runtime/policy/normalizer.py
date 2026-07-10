@@ -75,6 +75,13 @@ class Normalizer:
         out = self._clip(out, stats)
         return out
 
+    def is_empty(self) -> bool:
+        """True when no obs/action stats are loaded — normalize/denormalize are
+        no-ops. Used by the B1 PCW2 load check to WARN when the policy_contract
+        says the policy expects normalized obs but no stats were shipped/loaded.
+        """
+        return self._obs_stats is None and self._action_stats is None
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

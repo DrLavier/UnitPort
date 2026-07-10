@@ -1,0 +1,357 @@
+[active_file]
+col_status = Stato
+col_type = Tipo
+status_cloud = Cloud
+status_loaded = Caricato
+
+[actor_setting]
+init_pose.dialog_title = Editor posa iniziale
+init_pose.empty = Nessun giunto disponibile per questo SKU.
+init_pose.joints_label = Angoli dei giunti [rad] — intervallo da MJCF
+init_pose.review_button = Rivedi
+init_pose.unlimited_hint = (illimitato)
+review_pose.button = Rivedi posa
+
+[ai_build]
+agent_setup = < Configura il tuo agente >
+agent_tip = Configura o cambia l'agente AI
+assistant_name = Assistente AI
+banner_none = —
+cfg_f_backend = Backend
+cfg_f_curriculum = Curriculum
+cfg_f_device = Dispositivo
+cfg_f_difficulty = Difficoltà
+cfg_f_episode = Durata episodio
+cfg_f_family = Famiglia
+cfg_f_name = Nome
+cfg_f_num_envs = Num ambienti
+cfg_f_reward_terms = Termini di ricompensa
+cfg_f_sku = SKU
+cfg_f_spacing = Spaziatura ambienti
+cfg_f_terrain = Terreno
+cfg_sec_engine = Motore
+cfg_sec_env = Ambiente
+cfg_sec_ground = Area di addestramento
+cfg_sec_rewards = Ricompense
+cfg_sec_robot = Robot
+checkpoint_failed = [[error:Impossibile acquisire un'istantanea dell'area di lavoro — Ripristina non è disponibile per questa esecuzione.]]
+checkpoint_made = [[success:Checkpoint salvato — Ripristina riporta l'area di lavoro a questo punto.]]
+config_empty = Ancora nessuna configurazione da visualizzare.
+	Descrivi un'esecuzione di addestramento per generarne una.
+config_origin = Origine
+delete_body = Eliminare questa conversazione e la sua cronologia? Questa operazione non può essere annullata.
+delete_convo = Elimina
+delete_title = Elimina conversazione
+empty_hint = Descrivi l'addestramento che desideri e costruirò l'area di lavoro.
+ev_failed = [[error:{op} non riuscito — {detail}]]
+input_placeholder = Chiedi all'AI di generare configurazioni, script o strategie di addestramento…
+json_items = elementi
+new_conversation = + Nuovo
+new_conversation_tip = Nuova conversazione
+newline = Invio per nuova riga
+no_checkpoint = [[warning:Nessun checkpoint ancora — invia prima un prompt.]]
+pause = Pausa
+phase_chat = Assistente
+phase_complete = Completamento della struttura
+phase_repair = Ripara
+phase_report = Riepilogo
+phase_understanding = Comprensione
+reset = Ripristina la tela
+reset_tip = Ripristina la tela al checkpoint acquisito prima del tuo ultimo prompt.
+resume = Riprendi
+retry = Riprova
+retry_busy = [[warning:Un'esecuzione è in corso — metti in pausa o attendi prima di riprovare.]]
+retry_none = [[warning:Niente da riprovare ancora — invia prima un prompt.]]
+reverted = [[success:La tela è stata ripristinata al checkpoint precedente al prompt.]]
+run_busy = [[warning:Un'esecuzione di AI Build è già in corso — attendi che termini.]]
+run_failed = [[error:Esecuzione di AI Build fallita — vedi i messaggi sopra.]]
+save_config = Salva configurazione
+search_ph = Cerca conversazioni…
+settings_agent_add_tip = Aggiungi agente
+settings_agent_name = Nome
+settings_agent_name_ph = es. GPT-4o
+settings_agent_new = Nuovo agente
+settings_agent_no_model = (nessun modello)
+settings_agent_remove_tip = Rimuovi agente
+settings_agent_untitled = Agente senza nome
+settings_agents_title = Agenti
+settings_api_key = Chiave API
+settings_api_key_ph = sk-…
+settings_base_url = URL di base
+settings_cloud = Carica queste informazioni API nel cloud
+settings_cloud_tip = Disattivato per impostazione predefinita. Quando è disattivato, la funzione di sincronizzazione online non carica mai la tua chiave API.
+settings_env_bad = ✗ {name} non è impostato, oppure il suo valore è ≤ {n} caratteri.
+settings_env_invalid = La variabile d'ambiente deve esistere e contenere un valore più lungo di {n} caratteri.
+settings_env_ok = ✓ {name} risolto ({n} caratteri)
+settings_env_ph = es. OPENAI_API_KEY
+settings_incomplete = URL di base, Chiave API e Modello sono tutti obbligatori.
+settings_intro = Registra la/le connessione/i modello utilizzate da AI Build. L'agente selezionato diventa quello predefinito; le impostazioni vengono salvate nella cartella di configurazione utente.
+settings_model = Modello
+settings_model_ph = es. gpt-4o / claude-opus-4-8
+settings_remove_body = Rimuovere questa registrazione dell'agente? Questa operazione non può essere annullata.
+settings_remove_title = Rimuovi agente
+settings_save_failed = Impossibile scrivere il file delle impostazioni. Controlla il log.
+settings_title = AI Build — Impostazioni API
+settings_use_env = Leggi il token dalla variabile d'ambiente
+settings_use_env_tip = Memorizza solo la variabile NAME; il token viene letto dall'ambiente a runtime e non viene mai scritto su disco.
+submit = Invia
+title = AI Build
+tokens_n = {n} token
+tokens_total = Token: 0
+untitled = Nuova conversazione
+user_name = Utente
+version_busy = [[warning:È in corso un'esecuzione — attendi prima di cambiare la versione di configurazione.]]
+version_saved = [[success:Salvato come versione di configurazione {v} — selezionala (o Origin per ripristinare) nell'elenco Configurazione.]]
+button = AI Build
+conv_title = Chat
+input_title = Prompt
+opacity_tip = Opacità overlay
+req_title = Requisiti
+max_repair = Numero massimo di round di riparazione
+auto_commit = Salvataggio automatico alla compilazione pulita
+run_autosave_off = [[warning:Il salvataggio automatico è disattivato — il canvas è stato compilato ma non salvato. Salvalo manualmente.]]
+clear = Cancella
+demo_intro = Connesso. Descrivi ciò che vuoi e costruirò il canvas.
+demo_place = Posizionato il nodo [[node:Rewards]]
+demo_param = Impostato il peso di [[param:track_lin_vel_xy]] a [[value:10.0]]
+demo_wire = Collegato [[node:Rewards]] all'elemento [[node:walk]]
+demo_param2 = Impostato [[param:action_scale]] a [[value:0.25]] su [[node:Actor Setting]]
+demo_warning = [[warning:Il peso base_height -8.0 è vicino al suo limite inferiore -50.0]]
+demo_error = [[error:joint_accel_penalty 2.5 è fuori dal range -0.001..0 — congelerebbe le articolazioni]]
+demo_success = [[success:Canvas compilato con successo — 12 nodi, 18 archi]]
+ev_place = Posizionato il nodo [[node:{node}]]
+ev_remove = Rimosso il nodo [[node:{node}]]
+ev_connect = Collegato [[node:{src}]] -> [[node:{dst}]] [[param:{port}]]
+ev_disconnect = Disconnesso l'arco [[param:{edge}]]
+ev_set = Impostato [[param:{key}]] = [[value:{value}]] su [[node:{node}]]
+run_block = [[info:Blocco {i}/{n} — {title}]]
+block_robot = Robot
+block_actor_env = Agente e ambiente
+block_rewards = Ricompense
+block_training = Addestramento
+block_export = Esportazione
+req_applied = [[info:Applicati i requisiti bloccati:]]
+req_no_trainer = [[warning:Nessun nodo trainer ancora presente per il requisito sulla durata dell'addestramento; sarà applicato dall'agente.]]
+req_no_envs = [[warning:Compute intensity non ha il controllo parallel-env per il trainer di questo backend; ignorato.]]
+req_failed = [[warning:Impossibile applicare il requisito {key}: {message}]]
+report_failed = [[warning:Impossibile generare il riepilogo ({detail}); il canvas è stato costruito ed è valido.]]
+req_robot = Robot
+req_robot_auto = Auto (mantieni corrente)
+req_motion = Movimento di riferimento
+req_none = Nessuno
+req_length = Durata dell'addestramento
+req_intensity = Intensità di calcolo
+req_advanced = Numeri avanzati ▸
+req_iters = Iterazioni massime
+req_envs = Env paralleli
+tier_auto = Auto
+tier_short = Breve
+tier_medium = Medio
+tier_long = Lungo
+tier_light = Leggero
+tier_heavy = Pesante
+settings_tip = Impostazioni API
+settings_reveal = Mostra
+settings_save = Salva
+settings_cancel = Annulla
+run_design = [[info:Design — bloccato {sku} / {backend} ({fam})]]
+run_need_robot = [[error:AI Build richiede prima un robot e un backend sul canvas. Aggiungi un nodo robot (scegli uno SKU) e associa un backend, poi riprova.]]
+run_no_reference = [[warning:Nessun riferimento della stessa famiglia per questa attività; costruzione basata sulle semantiche del registro.]]
+run_building = [[info:Orchestrator — costruzione del canvas…]]
+run_repairing = [[warning:{n} problema(i) bloccante(i); riparazione (round {r})…]]
+run_compiled = [[success:Canvas compilato — nessun problema bloccante.]]
+run_exhausted = [[error:Riparazione esaurita — {n} problema(i) bloccante(i); nulla è stato salvato.]]
+run_issue = [[error:{message}]]
+run_connecting = [[info:Connessione al modello…]]
+run_saved = [[success:Canvas salvato nel progetto.]]
+run_not_saved = [[warning:Canvas costruito ma non salvato automaticamente (nessun progetto di destinazione) — salvalo manualmente.]]
+run_api_failed = [[error:Chiamata all'API del modello fallita — {detail}]]
+run_cancelled = [[warning:Esecuzione di AI Build annullata.]]
+group_today = Oggi
+group_yesterday = Ieri
+group_week = Ultimi 7 giorni
+group_older = Più vecchi
+chip_ppo = Genera configurazione PPO
+chip_reward = Aggiungi funzione di ricompensa
+chip_tune = Regola iperparametri
+chip_debug = Debug dell'addestramento
+config_title = Configurazione
+banner_robot = Robot
+banner_backend = Backend
+banner_task = Attività corrente
+banner_target = Obiettivo di addestramento
+banner_local = Addestramento locale
+banner_cloud = Addestramento cloud
+banner_task_more = {first} +{n} in più…
+
+[body_mapping]
+col_current = Corrente
+col_role = Ruolo
+no_roles = Nessun ruolo del corpo per questo asset
+refresh = Aggiorna
+select_asset = Seleziona un asset_id
+warn_joints = ⚠ {n} giunto(i) non corrisposti — assegna o contrassegna come fuori ambito: {preview}
+label_unassigned = (Non assegnato)
+label_out_of_scope = (Fuori ambito)
+
+[btn]
+node_lib.tip = Libreria nodi
+
+[button]
+close = Chiudi
+
+[cmd_inspector]
+col_kind = Tipo
+col_name = Nome
+col_obs = Dim. Osserv.
+col_range = Intervallo
+col_source = Sorgente
+empty_hint = Abilita almeno un elemento di addestramento.
+	I canali di comando vengono derivati automaticamente.
+empty_title = Contratto di comando vuoto
+footer_cmd = Dim. Comando
+footer_obs = Dimensioni osservazione
+footnote_encoding = (canali di fase codificati come {layouts})
+title = Contratto di comando
+kind.continuous = continuo
+kind.trigger = trigger
+kind.enum = enum
+source.velocity_item_union = elementi di velocità
+source.gait_registry = registro delle andature
+source.skill = abilità
+layout.sin_cos = sin/cos
+unresolved.family_unknown = Famiglia del robot sconosciuta - collega un nodo Robot tramite la pipe Actor.
+unresolved.family_no_gait = Questa famiglia di robot non ha una voce di comando gait nel registro.
+unresolved.no_enabled_items = Nessun elemento di addestramento abilitato - abilita almeno un elemento.
+unresolved.unknown_item = Un elemento di addestramento su questo nodo non è presente nel registro dei comandi.
+unresolved.malformed_param = Un parametro del nodo è malformato - è stato sostituito un valore predefinito solo per l'anteprima.
+
+[error]
+copy.done = Rapporto errori della canvas copiato negli appunti.
+empty = (nessun problema strutturato segnalato)
+headline.errors = La canvas ha {e} problema(i) che devono essere risolti prima che l'addestramento possa iniziare.
+headline.mixed = La canvas ha {e} errore(i) e {w} avvertimento(i). Risolvi gli errori sotto e riesegui.
+headline.unknown = Il controllo del canvas ha segnalato un problema.
+headline.warnings = Il canvas ha {w} avviso(i).
+hint = Ogni voce qui sotto indica il nodo del canvas e il parametro che ha attivato il controllo. Apri il nodo, modifica il valore, salva il canvas e riprova ▶.
+title = Controllo Canvas Fallito
+
+[group]
+default_title = Gruppo
+
+[inline]
+col_grace = Periodo di grazia
+col_item = Elemento
+col_maxspeed = Vel. max
+col_name = Nome
+col_param = Valore
+col_scale = Scala
+col_threshold = Soglia
+col_value = Valore
+col_weight = Peso
+
+[menu]
+add_node = Aggiungi nodo
+copy = Copia (Ctrl+C)
+delete = Elimina
+disconnect_all = Disconnetti tutti i collegamenti
+duplicate = Duplica (Ctrl+D)
+paste_here = Incolla qui (Ctrl+V)
+disconnect = Disconnetti
+
+[minimenu]
+placeholder = (prossimamente)
+
+[obs_injected]
+critic_section = Critic (privilegiato)
+divider = Da Command Pipe (iniettato)
+footer = Dimensione totale Obs {total} — Utente {user} + Iniettate {injected}
+readonly = SOLO LETTURA
+
+[port]
+optional = (opz)
+
+[review_launch]
+button = Revisione lancio
+
+[reward_pager]
+col_count = Numero di ricompense
+col_group = Gruppo di giunti
+col_ops = Operazioni
+global = Globale (tutti i giunti)
+summary = {n} gruppi
+
+[rewards]
+coverage.add_set = Aggiungi set consigliato
+coverage.banner.critical = Critico: una o più fasi sono prive della ricompensa negativa obbligatoria. L'addestramento potrebbe produrre comportamenti indesiderati come lo sventolio inutile degli arti.
+coverage.banner.ok = Tutte le fasi hanno copertura di ricompense positiva e negativa.
+coverage.banner.warning = Avviso: almeno una fase è priva della copertura di ricompense raccomandata.
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = Fase
+coverage.col.pos = +
+coverage.col.status = Stato
+coverage.double_click_hint = Fai doppio clic sul badge per aprire l'Inspector di copertura.
+coverage.empty = Nessun termine di ricompensa configurato — aggiungi almeno un termine per ottenere una valutazione della copertura.
+coverage.green = Tutte le fasi hanno copertura di ricompensa positiva e negativa.
+coverage.inspector.title = Ispezione copertura ricompense
+coverage.red = Critico: una o più fasi mancano della ricompensa di vincolo richiesta.
+coverage.title = Copertura ricompense
+coverage.yellow = Avviso: almeno una fase è priva di una ricompensa consigliata.
+
+[robot]
+health.counts = MJCF: {m} giunti  ·  USD: {u} giunti  ·  offset base: {off}
+health.crit = Nessuno dei due formati è stato esportato — apri Robot Assets e fai clic su Dump MJCF / Dump USD prima dell'addestramento.
+health.double_click_hint = Fai doppio clic sul badge per la tabella completa di mappatura dei giunti.
+health.gap = MJCF e USD dichiarano insiemi di IR-role differenti — interessati: {aff}.
+health.offset_uncalibrated = (non calibrato)
+health.ok = MJCF e USD concordano sull'insieme di giunti — entrambi i target di deploy sono disponibili.
+health.single = È stato esportato solo {present} — il target di deploy {missing} non sarà disponibile per i bundle addestrati su questo robot.
+health.title = Stato esportazione robot
+mjcf_offset.not_applicable = non applicabile
+mjcf_offset.uncalibrated = non calibrato
+pd_table.auto_none = Nessun preset consigliato disponibile per questo robot.
+pd_table.auto_tooltip = Imposta il preset ufficiale consigliato (ωn, ζ) + sforzo/velocità. Ordine di risoluzione: brand manifest → USD drive params (memorizzati dalla Dump USD) → family defaults.
+pd_table.dialog_title = PD / Attuatore
+pd_table.header = Guadagni PD per giunto (kp = m_eff·ωn²) — derivati in tempo reale dalla matrice di massa MJCF. Modifica (ωn, ζ) per gruppo; kp/kd sono di sola lettura.
+pd_table.redump_failed = Re-dump USD non riuscito: {error}
+pd_table.redump_tooltip = Esporta l'asset USD per aggiornare i drive params memorizzati nella cache, poi reimposta AUTO dai valori esportati.
+pd_table.remotized_note = I giunti remotizzati (azionati da collegamenti) mostrano il picco della tabella di coppia dipendente dall'angolo in Effort, non il limite scalare.
+pd_table.remotized_tooltip = Picco della tabella di coppia dipendente dall'angolo (giunto remotizzato)
+pd_table.auto_button = AUTO ⤓
+pd_table.redump_button = Riesegui dump USD
+
+[row]
+empty = —
+entries = {n} voci
+false = Falso
+ir_picker_all = Tutti
+no_items = (nessun elemento)
+preset_unselected = —
+selected = {n} selezionati
+true = Vero
+bool_check = ✔
+
+[toolbar]
+collapse = Comprimi
+color = Scegli colore (clic destro per ripristinare)
+delete = Elimina
+enable = Abilita
+expand = Espandi
+group = Raggruppa
+skip = Disabilita
+ungroup = Annulla raggruppamento
+
+[training_motion]
+add_item = + Aggiungi elemento di addestramento
+helper = Gli elementi abilitati contribuiscono con canali di velocità al contratto di comando derivato.
+packages.button = Pacchetti di addestramento
+skills.button = Canali di abilità
+weight_set.button = Set di pesi
+weight_set.cancel = Annulla
+weight_set.hint = Trascina un bordo tra due fette per spostare il peso tra di esse; oppure fai clic su una percentuale per digitarla (solo quell'elemento cambia). Il pulsante Applica viene abilitato quando il totale è esattamente 100%%.
+weight_set.ok = Applica
+weight_set.reset = Reimposta su valori uniformi
+weight_set.title = Pesi di campionamento
+weight_set.total = Totale
+

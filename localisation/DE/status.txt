@@ -1,0 +1,25 @@
+[default]
+canvas_saved = Canvas gespeichert: {path}
+feature_pending = 
+history_cleared = Trainingsverlauf gelöscht
+history_delete_failed = Lauf {} konnte nicht gelöscht werden
+history_deleted = Lauf {} gelöscht
+history_loaded = Canvas aus Lauf {} wiederhergestellt — Strg+S zum Speichern
+history_missing = Lauf [{}] {} existiert nicht mehr auf der Festplatte
+history_snapshot_missing = Canvas-Snapshot für Lauf [{}] {} fehlt auf der Festplatte
+no_project = Kein Projekt geladen
+policy_missing = Policy [{}] {} ausgewählt, aber der Bundle-Pfad fehlt auf der Festplatte
+policy_no_project = Kein Projekt geladen
+policy_selected = Policy ausgewählt: [{}] {}
+ready = UnitPort bereit
+template_apply_failed = Template-Inhalt konnte nicht angewendet werden
+template_backend_mismatch = Template-Backend '{tb}' stimmt nicht mit aktuellem Canvas-Backend '{cb}' überein
+template_loaded = Template '{name}' in die aktuelle Canvas geladen — Strg+S zum Speichern
+template_missing = Template auf der Festplatte nicht gefunden
+template_no_backend = Dem Template fehlt ein Backend-Feld
+template_no_canvas = Öffnen Sie eine Canvas, bevor Sie ein Template laden
+template_no_project = Öffnen Sie ein Projekt und eine Canvas, bevor Sie ein Template laden
+template_read_failed = Template konnte nicht gelesen werden
+history_no_chart = Ausgewählter Lauf: {} (Diagramm noch nicht verfügbar)
+history_selected = Lauf ausgewählt:
+

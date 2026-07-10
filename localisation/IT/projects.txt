@@ -1,0 +1,5 @@
+[default]
+empty = Nessun progetto trovato
+open_folder_tip = Apri la cartella dei progetti nel file manager del sistema operativo
+refresh_tip = Riesegui la scansione della cartella dei progetti
+

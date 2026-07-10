@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = Quando attivato, UnitPort invia ogni file modificato dell'area di lavoro al cloud poco dopo il salvataggio.
+busy_pull = Scaricamento dal cloud...
+busy_push = Caricamento sul cloud...
+manage_dialog_delete_confirm_body = Eliminare definitivamente '{name}' dal cloud?
+manage_dialog_delete_confirm_title = Elimina file dal cloud
+manage_dialog_dl_conflict_body = Il file locale esiste già:
+	{path}
+	
+	Cosa desideri fare?
+manage_dialog_dl_conflict_title = File esistente
+manage_dialog_dl_done_body = Scaricato in:
+	{path}
+manage_dialog_dl_done_title = Download completato
+manage_dialog_dl_overwrite = Sovrascrivi
+manage_dialog_dl_save_as = Salva come…
+manage_dialog_dl_save_as_caption = Salva il file scaricato
+manage_dialog_dl_skip = Ignora
+manage_dialog_empty = Nessun file nel cloud ancora — prova a premere Push o trascina un file qui.
+manage_dialog_folder_del_body = Eliminare definitivamente '{name}' e tutti i {n} file al suo interno dal cloud?
+manage_dialog_folder_del_title = Elimina cartella
+manage_dialog_folder_dl_all_skipped = Tutti i file esistono già localmente — nulla è stato scaricato.
+manage_dialog_folder_dl_body = Scaricare {n} file contenuti in '{name}' nell'area di lavoro locale?
+manage_dialog_folder_dl_replace = Sostituisci esistenti
+manage_dialog_folder_dl_skip_existing = Ignora esistenti
+manage_dialog_folder_dl_title = Scarica cartella
+manage_dialog_folder_summary = {n} elementi · {size}
+manage_dialog_loading = Caricamento…
+manage_dialog_not_signed_in = Accedi prima per gestire l'archiviazione cloud.
+manage_dialog_op_failed_body = {phase} non riuscito:
+	{err}
+manage_dialog_op_failed_title = Operazione non riuscita
+manage_dialog_oversize_body = I file oltre 50 MB non possono essere caricati:
+	{names}
+manage_dialog_oversize_title = File troppo grande
+manage_dialog_quota = Utilizzato {used} / {total}
+manage_dialog_title = Gestisci archiviazione cloud
+manage_tooltip = Gestisci le impostazioni di sincronizzazione cloud e i file archiviati
+never_synced = mai
+pull_tooltip = Scarica i file dal cloud nell'area di lavoro locale
+push_tooltip = Carica i file dell'area di lavoro locale sul cloud
+status_error = Sincronizzazione non riuscita: {msg}
+status_signed_out = Accedi per abilitare la sincronizzazione cloud
+status_synced = Sincronizzati {n} file · ultima sincronizzazione {when}
+section_title = Sincronizzazione cloud
+push_button = Invia
+pull_button = Scarica
+manage_button = Gestisci
+manage_coming_soon = La finestra di gestione del cloud sarà disponibile a breve.
+manage_dialog_refresh = Aggiorna
+manage_dialog_close = Chiudi
+manage_dialog_uploading = Caricamento di {name}…
+manage_dialog_deleting = Eliminazione in corso…
+manage_dialog_downloading = Download in corso…
+download_tooltip = Scarica nello spazio di lavoro locale
+delete_tooltip = Elimina dal cloud
+folder_download_tooltip = Scarica tutti i file in questa cartella
+folder_delete_tooltip = Elimina questa cartella e tutti i file al suo interno
+auto_push_label = Push automatico
+status_idle = Inattivo
+status_pushing = Invio... {done}/{total}
+status_pulling = Download... {done}/{total}
+status_self_check = Il cloud contiene {n} oggetto(i)
+status_no_remote = Il cloud è vuoto
+status_size_skip = Saltati {n} file oltre 50 MB
+busy_self_check = Verifica dello stato del cloud...
+done_push = Inviati {ok}/{total} file. Saltati {skipped}.
+done_pull = Scaricati {ok}/{total} file. Saltati {skipped}.
+

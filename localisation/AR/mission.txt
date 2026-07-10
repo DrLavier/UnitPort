@@ -1,0 +1,186 @@
+[conn]
+btn.connect = اتصال
+btn.connecting = جارٍ الاتصال…
+btn.disconnect = قطع الاتصال
+controller.arm_pending = تتوفر ميزة التحكم عن بُعد لذراع الروبوت في المرحلة 6.
+controller.no_teleop = هذا المحول لا يعلن عن قدرة التحكم عن بُعد.
+controller.pid_pending = واجهة ضبط PID متاحة في المرحلة 6.
+controller.release_control = تحرير التحكم
+controller.take_control = تولي التحكم
+dialog.section.domain = معرّف نطاق ROS2
+dialog.section.ssh = بيانات اعتماد SSH
+dialog.ssh.server = الخادم: {server}
+dialog.title = إعدادات الاتصال
+hw.battery = مستوى البطارية
+hw.no_selection = لم يتم اختيار روبوت
+hw.temperature = درجة الحرارة
+hw.uptime = مدة التشغيل
+level.error = خطأ
+level.idle = في وضع الاستعداد
+level.ok = سليم
+level.warn = تحذير
+middleware.auto_detected = ↳ تلقائي: {rmw}
+result.fix_tag.invasive = تداخلي
+result.fix_tag.safe = آمن
+result.head.fail = تعذر إتمام الاتصال.
+result.head.ok_clean = الاتصال جاهز. لا توجد مشاكل.
+result.head.ok_fixed = الاتصال جاهز. تم إصلاح {n} مشكلة تلقائيًا.
+result.head.partial = الاتصال نشط، لكن {n} مشكلة تتطلب اهتمامًا.
+result.invasive.confirm = على وشك تنفيذ {n} عملية إصلاح تداخلية على الروبوت. قد تقوم هذه بتثبيت حزم أو تعديل ملفات تكوين دائمة.
+	
+	الإجراءات:
+	{summary}
+	
+	هل تريد المتابعة?
+result.invasive.confirm.title = تأكيد الإصلاح التداخلي
+result.meta = محاولات الإصلاح التلقائي: {a}   تم التطبيق: {ap}   الفاشلة: {fl}   المدة: {d:.1f}s
+result.section.applied = تم التطبيق (تم الإصلاح تلقائيًا)
+result.section.failed = فشل أثناء الإصلاح التلقائي
+result.section.unresolved_invasive = غير محلول (يتوفر إصلاح تداخلي — يتطلب موافقتك)
+result.section.unresolved_manual = غير محلول (لا يوجد إصلاح تلقائي — يتطلب إجراءً يدويًا)
+result.section.unresolved_safe = غير محلول (قابل للإصلاح الآمن؛ ضع في اعتبارك إعادة المحاولة)
+result.title.fail = فشل الاتصال
+result.title.ok = الاتصال جاهز
+result.title.partial = اتصال جزئي — يُقترح اتخاذ إجراء
+robot.none = —
+section.controller = متحكم
+ssh.has_password = pw✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (لا توجد بيانات اعتماد)
+ssh.password = كلمة المرور
+ssh.password.placeholder = (أدخل كلمة المرور واضغط حفظ)
+ssh.sudo = كلمة مرور sudo
+ssh.sudo.placeholder = (مطلوبة للإصلاحات التدخّلية)
+ssh.user = مستخدم SSH
+state.connected = متصل
+state.connecting = جارٍ الاتصال…
+state.disconnected = غير متصل
+state.error = خطأ
+state.testing = جارٍ الاختبار…
+title = تكوين اتصال الجهاز الفعلي
+section.ros2 = اتصال ROS2
+section.hardware = أجهزة الروبوت
+section.sensor = حالة المستشعر
+field.domain_id = معرّف مجال ROS2
+field.middleware = الوسيط
+field.address = العنوان
+field.port = المنفذ
+btn.test = اختبار
+field.brand = العلامة التجارية
+field.model = الطراز
+field.serial = الرقم التسلسلي
+field.firmware = البرامج الثابتة
+field.battery = البطارية
+field.temperature = درجة الحرارة
+field.uptime = مدة التشغيل
+sensor.imu = IMU
+sensor.joints = المفاصل
+sensor.lidar = Lidar
+sensor.camera = الكاميرا
+sensor.torque = العزم
+sensor.battery = البطارية
+field.state = حالة الاتصال
+
+[diag]
+repair_invasive = إصلاح تدخّلي
+repair_safe = إصلاح آمن
+ssh.context = الخادم: {server}
+	السبب: {reason}
+ssh.err_empty_pw = كلمة مرور SSH مطلوبة.
+ssh.err_save = تعذر حفظ بيانات الاعتماد: {err}
+ssh.headline = تتطلب ميزة الإصلاح التلقائي وصول SSH إلى الروبوت.
+ssh.pw = كلمة مرور SSH
+ssh.pw_placeholder = مطلوب
+ssh.sudo = كلمة مرور sudo
+ssh.sudo_placeholder = اختياري — الافتراضي هو كلمة مرور SSH إذا تُرك فارغًا
+ssh.title = مطلوب بيانات اعتماد SSH
+ssh.user = مستخدم SSH
+summary.error = تم اكتشاف أخطاء.
+summary.pass = نجحت جميع الفحوصات.
+summary.warn = تم اكتشاف تحذيرات.
+title = تشخيص الاتصال
+
+[sim]
+backend.empty = لا يوجد محرك محاكاة
+dialog.save_pose.prompt = اسم الإعداد المسبق:
+dialog.save_pose.title = حفظ إعداد وضع البداية المسبق
+field.init_pose_base = موضع القاعدة [m]
+field.init_pose_enable = استبدال وضع البداية
+field.init_pose_enable.tip = إنشاء الروبوت باستخدام القيم المعدّلة بدلاً من قيم الحزمة الافتراضية
+field.init_pose_joints = زوايا المفاصل [rad]
+field.init_pose_preset = إعداد مسبق
+field.preview_physic = معاينة الفيزياء
+field.preview_physic.tip = تشغيل الفيزياء مباشرة أثناء مراجعة الروبوت (جاذبية فقط، بدون مشغلات)
+init_pose.editor.title = محرر وضع البداية
+init_pose.empty = لا توجد مفاصل متاحة لهذا SKU.
+policy.empty = لا توجد سياسات مُصدرة
+title = محاكاة السياسة
+section.simconfig = تكوين المحاكاة
+field.policy = السياسة
+field.play_ground = الملعب
+field.backend = الواجهة الخلفية
+btn.run = تشغيل
+btn.review_robot = مراجعة الروبوت
+section.init_pose = تجاوز وضعية البدء
+btn.edit_pose = تحرير…
+btn.save_pose = حفظ باسم…
+btn.delete_pose = حذف
+init_pose.custom = مخصص (غير محفوظ)
+
+[train]
+body.col_robot = الروبوت
+body.col_role = الدور
+body.menu_oos = وضع علامة كخارج النطاق
+body.menu_restore = استعادة (غير معين)
+body.menu_unassign = إلغاء التعيين
+body.out_of_scope = (خارج النطاق)
+body.unassigned = (غير معين)
+field.body_mapping = body_mapping
+placeholder.empty = —
+placeholder.no_canvas = لم يتم تحميل اللوحة
+placeholder.no_robot = لا توجد عقدة روبوت
+state.failed = فشل
+state.finished = انتهى
+state.idle = غير قيد التشغيل
+state.paused = متوقف مؤقتًا
+state.running = قيد التشغيل
+title = منظور إعدادات التدريب
+section.status = حالة التدريب
+section.task = تكوين المهمة
+section.hyper = المعلمات الفائقة
+section.robot = تكوين الروبوت
+field.elapsed = الوقت المنقضي
+field.iterations = التكرارات
+field.current_reward = المكافأة الحالية
+field.mean_reward = متوسط المكافأة
+field.best_reward = أفضل مكافأة
+field.episode_length = متوسط طول الحلقة
+field.fps = FPS
+field.task_env = خلفية المهمة
+field.task_name = اسم المهمة
+field.link = رابط
+field.device = جهاز التدريب
+btn.task_configure = تكوين المهمة
+field.lr = معدل التعلم
+field.batch_size = حجم الدفعة
+field.gamma = جاما
+field.total_timesteps = إجمالي الخطوات الزمنية
+field.ent_coef = معامل الإنتروبيا
+field.seed = البذرة العشوائية
+field.num_envs = بيئات متوازية
+field.max_iterations = الحد الأقصى لعدد التكرارات
+btn.hyper_edit = تعديل المعاملات الفائقة
+field.training_asset = مورد التدريب
+field.active_files = ملفات المورد
+btn.start = بدء
+btn.pause = إيقاف مؤقت
+btn.stop = إيقاف
+
+[link]
+local = محلي
+cloud = سحابي
+
+[robot]
+status.loaded = تم التحميل
+status.missing = مفقود
+

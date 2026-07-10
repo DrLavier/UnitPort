@@ -1,0 +1,11 @@
+[dtype]
+both = قيمة مفردة/قائمة
+list = قائمة
+scalar = قيمة مفردة
+
+[err]
+dup_item = عنصر باسم '{name}' موجود بالفعل.
+
+[review_motion]
+submitted = بدأ Review Motion (تشغيل MuJoCo غير الفيزيائي)…
+

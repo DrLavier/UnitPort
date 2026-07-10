@@ -153,6 +153,65 @@ class MotionClip:
         """True iff this clip can produce discriminator transitions."""
         return self.amp_obs_dim > 0 and self.joint_vel is not None
 
+    def subrange(self, start: int, end: int) -> "MotionClip":
+        """Return a new clip covering the **inclusive** frame range ``[start, end]``.
+
+        Slices every populated ``(n_frames, …)`` array to ``[start : end+1]``
+        (a copy — the parent is untouched) and preserves everything else:
+        ``format_id`` / ``fps`` / ``loop_mode`` / ``amp_obs_dim`` and the full
+        ``metadata`` dict (so ``ir_roles`` survive → the sub-clip still reorders
+        to a robot joint layout). This is the single frame-slicing primitive
+        behind the Clip Motion Editor's "segment" feature: a segment is stored
+        as ``(clip_ref, start, end)`` and materialised here at load time, never
+        as a separate file.
+
+        Raises :exc:`MotionClipError` (fail-loud, §8) on an out-of-bounds range
+        — never clamps silently, which would train on frames the user did not
+        select.
+        """
+        n = self.n_frames
+        if n == 0:
+            raise MotionClipError(
+                f"MotionClip '{self.name}' is empty — cannot take subrange "
+                f"[{start}, {end}]"
+            )
+        s, e = int(start), int(end)
+        if s < 0 or e < s or e >= n:
+            raise MotionClipError(
+                f"MotionClip '{self.name}' subrange [{s}, {e}] out of bounds "
+                f"(clip has {n} frames; need 0 <= start <= end < {n})"
+            )
+        sl = slice(s, e + 1)
+
+        def _slice(a: Optional[np.ndarray]) -> Optional[np.ndarray]:
+            return a[sl].copy() if a is not None else None
+
+        new_meta = dict(self.metadata)
+        new_meta["subrange"] = {
+            "start": s,
+            "end": e,
+            "parent_name": self.name,
+            "parent_n_frames": n,
+        }
+        return MotionClip(
+            name=f"{self.name}[{s}-{e}]",
+            format_id=self.format_id,
+            fps=self.fps,
+            loop_mode=self.loop_mode,
+            motion_weight=self.motion_weight,
+            task_tag=self.task_tag,
+            root_pos=_slice(self.root_pos),
+            root_quat=_slice(self.root_quat),
+            joint_pos=self.joint_pos[sl].copy(),
+            joint_vel=_slice(self.joint_vel),
+            toe_pos_local=_slice(self.toe_pos_local),
+            toe_vel_local=_slice(self.toe_vel_local),
+            lin_vel=_slice(self.lin_vel),
+            ang_vel=_slice(self.ang_vel),
+            amp_obs_dim=self.amp_obs_dim,
+            metadata=new_meta,
+        )
+
     # ------------------------------------------------------------------
     # Frame access (tracking + preview)
     # ------------------------------------------------------------------

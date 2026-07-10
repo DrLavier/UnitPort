@@ -6,6 +6,7 @@ undo.tip = Undo (Ctrl+Z)
 
 [mode]
 mission_control = Mission Control
+ai_coding = AI Coding
 training_canva = Training Canva
 scripts = Scripts
 
@@ -27,4 +28,9 @@ btn.undo.tip = Undo (Ctrl+Z)
 [ros2_dev_notice]
 title = ROS2 Connection (Preview)
 body = ROS2 connection is still under development. Basic connection and control are available; the full feature set will land in a later release.
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
 

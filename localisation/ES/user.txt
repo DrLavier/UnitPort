@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (no hay correo electrónico disponible)
+email_identity_security_hint = Haz clic en el enlace en tu bandeja de entrada para establecer o actualizar tu contraseña de inicio de sesión. Por seguridad, los cambios de contraseña no pueden hacerse dentro de la aplicación; todas las modificaciones se realizan mediante verificación por correo electrónico.
+email_identity_send_button = Enviar enlace
+email_identity_send_to = Enviaremos un enlace de verificación a:
+email_identity_title = Inicio de sesión por correo electrónico
+engines_cloud_settings = Configurar servidores en la nube
+engines_local_settings = Configurar instalación local
+linked_account_status_linked = vinculado
+linked_account_unlink_button = Desvincular {provider}
+linked_account_unlink_confirm_title = ¿Desvincular {provider}?
+linked_account_unlink_current_body = Se cerrará tu sesión después de desvincularlo, porque este es tu método de inicio de sesión actual.
+linked_account_unlink_normal_body = Ya no podrás iniciar sesión con {provider}.
+linked_account_unlink_only_body = Este es tu único método de inicio de sesión. No puedes desvincularlo.
+open_workspace_tip = Abrir el directorio de datos de usuario de UnitPort
+open_workspace = Abrir espacio de trabajo del usuario
+linked_accounts_label = Métodos de inicio de sesión:
+linked_account_btn_signedout_email = Correo: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = Correo: (ninguno)
+linked_account_btn_unlinked_google = Google: (no vinculado)
+linked_account_btn_unlinked_github = GitHub: (no vinculado)
+workspace_email_label = Espacio de trabajo:
+workspace_email_confirm_title = ¿Cambiar el correo de almacenamiento del espacio de trabajo?
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = El almacenamiento del espacio de trabajo se ha movido a {path}.
+workspace_email_failed = No se pudo cambiar de espacio de trabajo: {error}
+

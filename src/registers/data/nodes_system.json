@@ -372,7 +372,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "algorithm_config": {
       "schema": "unitport.node/v1",
@@ -795,7 +797,11 @@
           }
         }
       ],
-      "is_trainer": true
+      "is_trainer": true,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "amp_trainer": {
       "schema": "unitport.node/v1",
@@ -1348,7 +1354,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "isaac_lab"
+      ],
+      "width": null
     },
     "base_asset": {
       "schema": "unitport.node/v1",
@@ -1431,7 +1441,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "discriminator": {
       "schema": "unitport.node/v1",
@@ -1659,7 +1671,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "isaac_lab"
+      ],
+      "width": null
     },
     "domain_rand": {
       "schema": "unitport.node/v1",
@@ -2466,7 +2482,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "env_assembler": {
       "schema": "unitport.node/v1",
@@ -2660,7 +2678,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "eval_config": {
       "schema": "unitport.node/v1",
@@ -2765,7 +2787,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "export": {
       "schema": "unitport.node/v1",
@@ -3004,7 +3030,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "il_observation": {
       "schema": "unitport.node/v1",
@@ -3071,6 +3099,15 @@
               "value": "isaac_lab"
             }
           }
+        },
+        {
+          "key": "command_injected_obs",
+          "type": "string",
+          "default": "",
+          "choices": null,
+          "description": "Command Pipe 注入观测（只读渲染；随 command_pipe 接线出现）",
+          "widget": "command_injected_obs",
+          "meta": null
         },
         {
           "key": "enable_corruption",
@@ -3195,7 +3232,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "il_policy_network": {
       "schema": "unitport.node/v1",
@@ -3315,7 +3354,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "isaac_lab"
+      ],
+      "width": null
     },
     "il_ppo_trainer": {
       "schema": "unitport.node/v1",
@@ -3892,7 +3935,11 @@
           }
         }
       ],
-      "is_trainer": true
+      "is_trainer": true,
+      "backends": [
+        "isaac_lab"
+      ],
+      "width": null
     },
     "multigated_reward": {
       "schema": "unitport.node/v1",
@@ -4053,7 +4100,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "note": {
       "schema": "unitport.node/v1",
@@ -4089,7 +4140,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "obs_action_config": {
       "schema": "unitport.node/v1",
@@ -4164,7 +4217,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "physics_config": {
       "schema": "unitport.node/v1",
@@ -4257,7 +4314,11 @@
           "meta": null
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "play_ground_setting": {
       "schema": "unitport.node/v1",
@@ -4614,7 +4675,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "rewards": {
       "schema": "unitport.node/v1",
@@ -4703,7 +4766,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "robot": {
       "schema": "unitport.node/v1",
@@ -4843,7 +4908,9 @@
           "meta": null
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "stage_switch": {
       "schema": "unitport.node/v1",
@@ -4951,7 +5018,11 @@
           "meta": null
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "isaac_lab"
+      ],
+      "width": null
     },
     "task_config": {
       "schema": "unitport.node/v1",
@@ -5067,7 +5138,11 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "terminations": {
       "schema": "unitport.node/v1",
@@ -5194,7 +5269,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "train": {
       "schema": "unitport.node/v1",
@@ -5259,7 +5336,11 @@
         }
       ],
       "parameters": [],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     },
     "training_motion": {
       "schema": "unitport.node/v1",
@@ -5319,6 +5400,28 @@
           "description": "命令项初始采样权重（饼图编辑器；写入各启用 item 的 weight，缺省=均匀）",
           "widget": "weight_pie_editor",
           "meta": null
+        },
+        {
+          "key": "packages",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "训练包（分组 + package_weight 再平衡 + 每包内联奖励；空=单个隐式默认包）",
+          "widget": "package_authoring",
+          "meta": {
+            "pin_on_collapse": true
+          }
+        },
+        {
+          "key": "skill_items",
+          "type": "json",
+          "default": "{}",
+          "choices": null,
+          "description": "技能项（trigger 命令通道；每项 {name, latch=pulse/hold, enabled}；空=无技能通道）",
+          "widget": "skill_authoring",
+          "meta": {
+            "pin_on_collapse": true
+          }
         },
         {
           "key": "mapping_mode",
@@ -5883,7 +5986,9 @@
           }
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [],
+      "width": null
     },
     "vis_check": {
       "schema": "unitport.node/v1",
@@ -5977,7 +6082,11 @@
           "meta": null
         }
       ],
-      "is_trainer": false
+      "is_trainer": false,
+      "backends": [
+        "sb3_mujoco"
+      ],
+      "width": null
     }
   },
   "custom_scan_dirs": [

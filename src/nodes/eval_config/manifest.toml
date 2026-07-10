@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "eval_config"
+backends = ["sb3_mujoco"]  # SB3/MuJoCo only; spec.eval read by sb3_trainer's EvalCallback
 kind = "CUSTOM"
 version = "1.0.0"
 category = "config"

@@ -98,9 +98,47 @@ LOCO_MUJOCO_UNITREE_H1_IR_ROLES: List[str] = [
     "knee_L", "ankle_L",                                     # 17-18
 ]
 
+# 29-DoF humanoid, source order = the LAFAN1 Unitree-retargeting CSV column
+# layout (lvhaidong/LAFAN1_Retargeting_Dataset, ``g1/*.csv``). Each frame is
+# ``root(XYZ + quat XYZW) + 29 joint angles`` at 30 FPS; the 29 joints are
+# laid out in the order documented in the dataset README, which is
+# **bit-identical** to UnitPort G1's canonical MJCF joint order
+# (``registers/data/robots_canonical.json`` G1 ``joints_per_format.MJCF``
+# j01..j29). The source→IR permutation is therefore the identity, but the
+# two tables are declared in parallel (source name ↔ IR role at the same
+# index) and asserted equal-length by the loader so a future column
+# reshuffle on either side surfaces as a load-time failure rather than a
+# silently column-shuffled clip the discriminator separates trivially.
+LAFAN_UNITREE_G1_SOURCE_JOINTS: List[str] = [
+    "left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint",      # 0-2
+    "left_knee_joint", "left_ankle_pitch_joint", "left_ankle_roll_joint",     # 3-5
+    "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",   # 6-8
+    "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint",  # 9-11
+    "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",               # 12-14
+    "left_shoulder_pitch_joint", "left_shoulder_roll_joint",                  # 15-16
+    "left_shoulder_yaw_joint", "left_elbow_joint",                            # 17-18
+    "left_wrist_roll_joint", "left_wrist_pitch_joint", "left_wrist_yaw_joint",  # 19-21
+    "right_shoulder_pitch_joint", "right_shoulder_roll_joint",                # 22-23
+    "right_shoulder_yaw_joint", "right_elbow_joint",                          # 24-25
+    "right_wrist_roll_joint", "right_wrist_pitch_joint", "right_wrist_yaw_joint",  # 26-28
+]
+
+LAFAN_UNITREE_G1_IR_ROLES: List[str] = [
+    "hip_pitch_L", "hip_roll_L", "hip_yaw_L",                # 0-2
+    "knee_L", "ankle_pitch_L", "ankle_roll_L",               # 3-5
+    "hip_pitch_R", "hip_roll_R", "hip_yaw_R",                # 6-8
+    "knee_R", "ankle_pitch_R", "ankle_roll_R",               # 9-11
+    "waist_yaw", "waist_roll", "waist_pitch",                # 12-14
+    "shoulder_pitch_L", "shoulder_roll_L", "shoulder_yaw_L", "elbow_L",  # 15-18
+    "wrist_roll_L", "wrist_pitch_L", "wrist_yaw_L",          # 19-21
+    "shoulder_pitch_R", "shoulder_roll_R", "shoulder_yaw_R", "elbow_R",  # 22-25
+    "wrist_roll_R", "wrist_pitch_R", "wrist_yaw_R",          # 26-28
+]
+
 FORMAT_IR_ROLES: Dict[str, List[str]] = {
     "amp_legged_gym": QUADRUPED_AMP_IR_ROLES,
     "loco_mujoco_unitree_h1": LOCO_MUJOCO_UNITREE_H1_IR_ROLES,
+    "lafan_unitree_g1": LAFAN_UNITREE_G1_IR_ROLES,
     # unitport_npy is intentionally absent — those clips carry no portable
     # joint-order contract and must be matched by the env directly.
 }
@@ -317,6 +355,8 @@ __all__ = [
     "QUADRUPED_AMP_IR_ROLES",
     "LOCO_MUJOCO_UNITREE_H1_SOURCE_JOINTS",
     "LOCO_MUJOCO_UNITREE_H1_IR_ROLES",
+    "LAFAN_UNITREE_G1_SOURCE_JOINTS",
+    "LAFAN_UNITREE_G1_IR_ROLES",
     "FORMAT_IR_ROLES",
     "ClipIRStatus",
     "get_ir_roles",

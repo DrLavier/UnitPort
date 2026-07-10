@@ -1,0 +1,25 @@
+[default]
+canvas_saved = Canvas salvo: {path}
+feature_pending = 
+history_cleared = Histórico de treinamento limpo
+history_delete_failed = Falha ao excluir a execução {}
+history_deleted = Execução {} excluída
+history_loaded = Canvas restaurado a partir da execução {} — Ctrl+S para persistir
+history_missing = A execução [{}] {} não existe mais no disco
+history_snapshot_missing = Instantâneo do canvas para a execução [{}] {} está ausente no disco
+no_project = Nenhum projeto carregado
+policy_missing = Política [{}] {} selecionada, mas o caminho do bundle está ausente no disco
+policy_no_project = Nenhum projeto carregado
+policy_selected = Política selecionada: [{}] {}
+ready = UnitPort pronto
+template_apply_failed = Falha ao aplicar o conteúdo do template
+template_backend_mismatch = O backend do template '{tb}' não corresponde ao backend atual do canvas '{cb}'
+template_loaded = Template '{name}' carregado no canvas atual — Ctrl+S para salvar
+template_missing = Template não encontrado no disco
+template_no_backend = O template não possui o campo backend
+template_no_canvas = Abra um canvas antes de carregar um template
+template_no_project = Abra um projeto e um canvas antes de carregar um template
+template_read_failed = Falha ao ler o template
+history_no_chart = Execução selecionada: {} (gráfico não pronto)
+history_selected = Execução selecionada:
+

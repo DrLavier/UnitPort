@@ -84,6 +84,45 @@ widget = "weight_pie_editor"
 description = "命令项初始采样权重（饼图编辑器；写入各启用 item 的 weight，缺省=均匀）"
 
 # ---------------------------------------------------------------------------
+# Parameters — §1.6 Training packages (Method A)
+# ---------------------------------------------------------------------------
+
+# Package layer (Method A). A package groups training items (membership =
+# training_items[id]['package_id']), owns an inline reward set + a coarse
+# ``package_weight`` global-rebalance lever, and always maps to ONE policy
+# network. Empty {} => one implicit default package (byte-identical to the
+# pre-package behavior). Authored via the modal package panel (opened by the
+# ``package_authoring`` action-button row), which reads/writes BOTH this param
+# and the sibling ``training_items`` membership. Shape:
+#   {pid: {package_id, name, enabled, package_weight, reward_terms(paged)}}
+[[parameters]]
+key = "packages"
+type = "json"
+default = "{}"
+widget = "package_authoring"
+description = "训练包（分组 + package_weight 再平衡 + 每包内联奖励；空=单个隐式默认包）"
+meta = { pin_on_collapse = true }
+
+# ---------------------------------------------------------------------------
+# Parameters — §1.7 Skill items (trigger command channels; Slice 2)
+# ---------------------------------------------------------------------------
+
+# Skill items author discrete policy command channels (skill_command_path_design.md).
+# A skill is a training package whose command interface is a TRIGGER channel; for
+# now trigger-only (enum reserved). Each entry = {name?, kind='trigger', latch=
+# 'pulse'|'hold', enabled?, suggested_binding?}. Empty {} => no trigger channels
+# (byte-identical to pre-skill). The emitter derive_command_contract turns each
+# enabled entry into a ContractChannel(kind=trigger, source=skill) that rides the
+# v1 command contract (no schema bump). Authored via the ``skill_authoring`` button.
+[[parameters]]
+key = "skill_items"
+type = "json"
+default = "{}"
+widget = "skill_authoring"
+description = "技能项（trigger 命令通道；每项 {name, latch=pulse/hold, enabled}；空=无技能通道）"
+meta = { pin_on_collapse = true }
+
+# ---------------------------------------------------------------------------
 # Parameters — §2 Global stick-shaping
 # ---------------------------------------------------------------------------
 

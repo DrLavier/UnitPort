@@ -1,0 +1,68 @@
+[default]
+add = 온라인에서 다운로드
+add_tip = 모션 데이터셋 또는 정책 번들 다운로드
+open_folder = 폴더 열기
+refresh_tip = custom_mods/ 다시 스캔
+remove = 제거
+remove_confirm = 이 리소스와 해당 파일들을 제거하시겠습니까?
+section = 타사 리소스
+remove_tip = 이 항목 삭제(디스크의 트리도 함께 삭제)
+open_folder_tip = 파일 관리자에서 자산 폴더 표시
+retry = 다시 시도
+empty_motion = 아직 모션 데이터셋이 없습니다 — 다운로드하려면 "리소스 추가…"를 클릭하세요
+empty_policy = 아직 정책 번들이 없습니다 — 다운로드하려면 "리소스 추가…"를 클릭하세요
+empty_model = 등록된 로봇 모델이 없습니다
+empty_canvas = 캔버스 템플릿이 없습니다
+unindexed = 가져옴
+classify = 분류…
+
+[dialog]
+cancel = 취소
+name_label = 표시 이름(선택 사항)
+ok = 다운로드
+revision_placeholder = 브랜치 / 태그 / 커밋 / HF 리비전
+subpath_placeholder_github = 예: datasets/mocap_motions
+subpath_placeholder_huggingface = 허용할 패턴(예: *.json,*.txt)
+title = 리소스 추가
+url_label = URL 또는 저장소 ID가 필요합니다.
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name  (또는 전체 HF URL)
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = 에셋 종류
+transport_label = 출처
+revision_label = 리비전(선택 사항)
+subpath_label = 하위 경로(선택 사항)
+
+[kind]
+canvas = 캔버스
+model = 모델
+motion = 모션
+policy = 정책
+
+[status]
+missing = 누락됨
+local = 로컬
+downloading = 다운로드 중
+error = 오류
+
+[card]
+source = 출처
+revision = 리비전
+subpath = 하위 경로
+downloaded_at = 다운로드됨
+size = 크기
+package = 패키지
+subdir = 하위 디렉터리
+clips = 클립
+sku = SKU
+brand = 브랜드
+model = 모델
+families = 제품군
+backend = 백엔드
+path = 경로
+
+[transport]
+github_clone = GitHub
+github_release = Release
+huggingface = HuggingFace
+

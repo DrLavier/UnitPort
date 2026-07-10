@@ -1,0 +1,11 @@
+[default]
+edit_tip = انقر لقص أو وسم هذا المقطع
+segment_tip = افتح هذا المقطع
+col_name = مقطع
+col_tag = وسم
+col_frames = إطارات
+col_duration = المدة
+col_segments = مقاطع
+col_action = 
+crop = اقتطاع / وسم
+

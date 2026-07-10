@@ -43,6 +43,30 @@ from application.training.amp.algorithms.actor_critic import _get_activation
 _RNN_CLASSES = {"gru": nn.GRU, "lstm": nn.LSTM}
 
 
+def unpad_trajectories(trajectories: torch.Tensor, masks: torch.Tensor) -> torch.Tensor:
+    """Inverse of ``_split_and_pad_trajectories`` (rollout_storage).
+
+    Verbatim port of ``rsl_rl.utils.utils.unpad_trajectories`` from the
+    AMP_for_hardware fork — the exact counterpart of the
+    ``_split_and_pad_trajectories`` already inlined in
+    ``storage/rollout_storage.py``.
+
+    During the recurrent PPO update the mini-batch generator pads obs into
+    ``[T_pad, n_traj, D]`` so the RNN can re-run whole trajectories from the
+    saved start hidden state. The actor/critic forward therefore produces a
+    ``[T_pad, n_traj, *]`` output, but ``actions_batch`` / ``returns_batch``
+    stay in the raw ``[T, n_envs, *]`` layout. This collapses the padded
+    output back to ``[T, n_envs, *]`` using the trajectory masks so the two
+    align (otherwise ``Normal.log_prob`` sees ``[T_pad, n_traj]`` vs
+    ``[T, n_envs]`` and aborts — the historical crash).
+    """
+    return (
+        trajectories.transpose(1, 0)[masks.transpose(1, 0)]
+        .view(-1, trajectories.shape[0], trajectories.shape[-1])
+        .transpose(1, 0)
+    )
+
+
 class RecurrentActor(nn.Module):
     """Memory cell (GRU/LSTM) → MLP head, producing the action mean.
 
@@ -225,9 +249,24 @@ class ActorCriticRecurrent(nn.Module):
     # ── public API used by AMPPPO ──
 
     def act(self, observations: torch.Tensor, masks=None, hidden_states=None, **kwargs):
-        if hidden_states is not None:
-            self._hidden = hidden_states
-        mean, self._hidden = self.actor(observations, self._hidden)
+        if masks is not None:
+            # Recurrent PPO UPDATE pass: obs arrived padded ([T_pad, n_traj, *])
+            # so the RNN re-runs whole trajectories from the SAVED start hidden
+            # (``hidden_states``). The resulting hidden is per-trajectory
+            # (n_traj) batch state — it MUST NOT overwrite the persistent
+            # rollout hidden (sized to num_envs), or the next single-step
+            # rollout act fails with "Expected hidden (1, num_envs, H), got
+            # (1, n_traj, H)". So discard the new hidden here. Then collapse the
+            # padded mean back to the raw [T, n_envs, *] layout actions_batch
+            # uses (Normal.log_prob can't broadcast otherwise).
+            mean, _ = self.actor(observations, hidden_states)
+            mean = unpad_trajectories(mean, masks)
+        else:
+            # Single-step ROLLOUT/inference: persist the recurrent state across
+            # steps (the runner zeroes terminated envs via reset(dones)).
+            if hidden_states is not None:
+                self._hidden = hidden_states
+            mean, self._hidden = self.actor(observations, self._hidden)
         self._update_distribution(mean)
         return self.distribution.sample()
 
@@ -240,9 +279,16 @@ class ActorCriticRecurrent(nn.Module):
 
     def evaluate(self, critic_observations: torch.Tensor, masks=None,
                  hidden_states=None, **kwargs) -> torch.Tensor:
-        # Critic is non-recurrent (R5): masks / hidden_states accepted for API
-        # parity with the dormant branches but ignored.
-        return self.critic(critic_observations)
+        # Critic is non-recurrent (R5): hidden_states ignored. But the recurrent
+        # mini-batch generator still feeds PADDED critic obs ([T_pad, n_traj, *])
+        # during the update, so the value output must be unpadded back to the
+        # raw [T, n_envs, *] layout to align with returns_batch / values_batch
+        # (the actor side does the same). masks is None on the single-step
+        # rollout path → plain forward.
+        value = self.critic(critic_observations)
+        if masks is not None:
+            value = unpad_trajectories(value, masks)
+        return value
 
 
 __all__ = ["ActorCriticRecurrent", "RecurrentActor"]

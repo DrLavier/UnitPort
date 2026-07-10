@@ -637,8 +637,8 @@ class HomeAccountCard(HomepageCard):
         i18n_bind(
             self._cloud_auto_switch, "setToolTip",
             "cloud.auto_push_tooltip",
-            "When on, UnitPort pushes changed workspace files to the cloud "
-            "each time the app exits.",
+            "When on, UnitPort pushes each changed workspace file to the cloud "
+            "shortly after you save it.",
         )
         autopush_row.addWidget(
             self._cloud_auto_switch, 0, Qt.AlignmentFlag.AlignVCenter
@@ -800,14 +800,15 @@ class HomeAccountCard(HomepageCard):
         return col_host
 
     def _on_auto_push_changed(self, _idx: int, key: str) -> None:
-        """Persist the Auto-push toggle to ``user.ini[Cloud] auto_push``.
+        """Persist the Auto-sync toggle to ``user.ini[Cloud] auto_push``.
 
-        The actual upload happens in ``main.UnitPortMain._shutdown_tasks``
-        on next exit — this slot only stores the preference, so the
+        When on, the AutoSyncController pushes each include-set file to the
+        cloud shortly after it is saved (persist-time, debounced) — there is no
+        batch upload on exit. This slot only stores the preference, so the
         widget itself stays inexpensive to toggle.
         """
         Config.set_value("Cloud", "auto_push", key == "on")
-        log_info(f"[home_account_card] auto-push set to {key!r}")
+        log_info(f"[home_account_card] auto-sync set to {key!r}")
 
     # ==================================================================
     # Rendering

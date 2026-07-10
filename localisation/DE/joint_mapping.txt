@@ -1,0 +1,23 @@
+[default]
+asset_path = Asset: {path}
+col_ir = IR-Rolle
+col_joint = Physikalisches Gelenk
+coverage_gap = ⚠ Formatübergreifende Lücke — Nicht verfügbar: {affected}
+coverage_ok = ✓ MJCF und USD stimmen überein — beide Bereitstellungsziele verfügbar
+coverage_single = Nur ein Format angegeben; formatübergreifende Prüfung übersprungen
+height_na = Basis-Höhenoffset: nicht anwendbar (Ein-Format-Konfiguration)
+height_uncalibrated = Basis-Höhenoffset: (nicht kalibriert — führe Calibrate auf der Robot Asset-Karte aus)
+height_value = Basis-Höhenoffset (USD↔MJCF): {offset}  ·  kalibriert {ts}
+legend = Zeilenfarbe: <span style='color:#4caf50'>■ abgeglichen</span> · <span style='color:#ff9800'>■ verwaist (nur in diesem Format)</span> · <span style='color:#f44336'>■ nicht zugeordnet (leere IR role)</span> · <span style='color:#9e9e9e'>■ Bucket (sonstiges / Sensor / Basis)</span>
+mjcf = MJCF (MuJoCo-Bereitstellung)
+no_rows = (keine Gelenke gedumpt — klicke Dump auf der Robot Asset-Karte)
+row_summary = Gesamt: {total}  ·  abgeglichen: {m}  ·  verwaist: {o}  ·  nicht zugeordnet: {u}  ·  Bucket: {b}
+title = Gelenkzuordnung — {name} (sku={sku})
+usd = USD (IsaacSim / Cloud-Bereitstellung)
+
+[tooltip]
+bucket = Bucket-Rolle (sonstiges / Sensor* / Basis) — kann sich berechtigterweise über Formate hinweg wiederholen oder unterscheiden; wird von der Abdeckungsprüfung ignoriert.
+matched = IR-Rolle in sowohl MJCF- als auch USD-Tabellen vorhanden — Bundle lässt sich sauber bereitstellen.
+orphan = IR-Rolle nur in diesem Format deklariert — das ANDERE Bereitstellungsziel wird dieses Gelenk nicht berücksichtigen.
+unmapped = Physikalisches Gelenk gedumpt, aber keine IR-Rolle zugewiesen. Öffne die Robot Node Body Mapping-Tabelle, um vor dem Training eine zuzuweisen.
+

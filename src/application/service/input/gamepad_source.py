@@ -77,6 +77,25 @@ _TRIGGER_THRESHOLD = 0.5
 # Polling cadence (Hz).
 _POLL_HZ = 60
 
+# Physical stick axes (Xbox layout) → pygame axis index.
+AXIS_INDEX = {
+    "left_stick_x": 0,
+    "left_stick_y": 1,
+    "right_stick_x": 2,
+    "right_stick_y": 3,
+}
+
+# Default bus-field routing — byte-identical to the historical hardcoded
+# map (vx ← -left_stick_y stick-up-positive; vy ← +left_stick_x;
+# vyaw ← -right_stick_x stick-right = clockwise = negative yaw). The
+# controller panel installs per-(SKU, channel) routings derived from the
+# loaded bundle's command contract via set_axis_routing; None reverts here.
+DEFAULT_AXIS_ROUTING = {
+    "vx": ("left_stick_y", -1.0),
+    "vy": ("left_stick_x", 1.0),
+    "vyaw": ("right_stick_x", -1.0),
+}
+
 
 def is_available() -> bool:
     """Return True iff pygame is importable AND at least one joystick is connected."""
@@ -104,6 +123,7 @@ class _PollThread(QThread):
         self._running = False
         self._invert_vy = False
         self._invert_vyaw = False
+        self._axis_routing: dict = dict(DEFAULT_AXIS_ROUTING)
         self._lock = threading.Lock()
         self._last_buttons: dict[str, float] = {}
         self._last_dpad: Tuple[int, int] = (0, 0)
@@ -115,6 +135,14 @@ class _PollThread(QThread):
     def set_invert_vyaw(self, inverted: bool) -> None:
         with self._lock:
             self._invert_vyaw = bool(inverted)
+
+    def set_axis_routing(self, routing) -> None:
+        """Install a bus-field → (axis_id, sign) map; ``None`` reverts to
+        :data:`DEFAULT_AXIS_ROUTING`. Unknown axis ids are refused loudly
+        by the manager before reaching here (fail-loud, never a silently
+        dead stick)."""
+        with self._lock:
+            self._axis_routing = dict(routing) if routing else dict(DEFAULT_AXIS_ROUTING)
 
     def stop(self) -> None:
         self._running = False
@@ -174,27 +202,28 @@ class _PollThread(QThread):
                 pass
 
     def _tick(self, joy) -> None:
-        # ----- sticks -> axes ----------------------------------------------
+        # ----- sticks -> bus fields (routing-driven) -----------------------
+        # The routing map (bus field → (axis_id, sign)) defaults to the
+        # historical hardcoded assignment and is replaced per loaded policy
+        # by the controller panel's contract-driven channel bindings.
         n_axes = joy.get_numaxes()
-        ax_lx = joy.get_axis(0) if n_axes > 0 else 0.0
-        ax_ly = joy.get_axis(1) if n_axes > 1 else 0.0
-        ax_rx = joy.get_axis(2) if n_axes > 2 else 0.0
+        axis_values = {
+            axis_id: (joy.get_axis(idx) if n_axes > idx else 0.0)
+            for axis_id, idx in AXIS_INDEX.items()
+        }
 
         with self._lock:
             inv_vy = self._invert_vy
             inv_vyaw = self._invert_vyaw
+            routing = dict(self._axis_routing)
 
-        vx = -_apply_deadzone(ax_ly)            # stick up -> +vx
-        vy = _apply_deadzone(ax_lx)
-        if inv_vy:
-            vy = -vy
-        vyaw = -_apply_deadzone(ax_rx)          # stick right -> negative yaw
-        if inv_vyaw:
-            vyaw = -vyaw
-
-        self._bus.set("vx", vx)
-        self._bus.set("vy", vy)
-        self._bus.set("vyaw", vyaw)
+        for field, (axis_id, sign) in routing.items():
+            value = float(sign) * _apply_deadzone(axis_values.get(axis_id, 0.0))
+            if field == "vy" and inv_vy:
+                value = -value
+            elif field == "vyaw" and inv_vyaw:
+                value = -value
+            self._bus.set(field, value)
 
         # ----- buttons -> __btn_<name> + edge events ----------------------
         for idx in range(joy.get_numbuttons()):
@@ -269,5 +298,16 @@ class GamepadInputSource(QObject):
         elif field == "vyaw":
             self._thread.set_invert_vyaw(inverted)
 
+    def set_axis_routing(self, routing) -> None:
+        """Forward the bus-field → (axis_id, sign) routing to the poll
+        thread; ``None`` reverts to :data:`DEFAULT_AXIS_ROUTING`."""
+        if self._thread is not None:
+            self._thread.set_axis_routing(routing)
 
-__all__ = ["GamepadInputSource", "is_available"]
+
+__all__ = [
+    "AXIS_INDEX",
+    "DEFAULT_AXIS_ROUTING",
+    "GamepadInputSource",
+    "is_available",
+]

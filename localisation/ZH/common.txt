@@ -1,4 +1,0 @@
-[default]
-empty = （无）
-current_canvas = 当前画布
-

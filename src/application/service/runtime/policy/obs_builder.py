@@ -157,6 +157,21 @@ class ObsBuilder:
         contract: Optional["DeployContract"] = bundle.deploy_contract
         self._contract: Optional["DeployContract"] = contract
         self._use_contract: bool = contract is not None
+        # Slice 4 — skill trigger obs term ``{sid}_trigger`` reads the command
+        # vector at skill ``sid``'s channel index (command_slice, matching the
+        # training SkillTriggerCommand.command[:,0] decaying envelope). Build the
+        # channel name -> index map once from the contract's command channel order
+        # (velocity trio, then gait, then triggers). Name-derived → no new spec field.
+        self._command_channel_index: Dict[str, int] = {}
+        if contract is not None:
+            _cmds = getattr(contract, "commands", None) or {}
+            _chans = _cmds.get("channels") if isinstance(_cmds, dict) else None
+            if isinstance(_chans, list):
+                for _i, _ch in enumerate(_chans):
+                    if isinstance(_ch, dict):
+                        _nm = str(_ch.get("name", "") or "")
+                        if _nm:
+                            self._command_channel_index[_nm] = _i
         # Lazily-built ItemResolver for the per-item obs tail (SB3 per-item-
         # reward bundles). None until first use / when the contract carries no
         # per_item_obs block. See _append_per_item_tail.
@@ -697,6 +712,17 @@ class ObsBuilder:
             return self._get_ref_obs(env, "_get_ref_joint_velocities")
         if name in ("phase_sin_cos", "phase"):
             return self._get_phase_obs(env)
+
+        # Slice 4 — skill trigger obs term: ``{sid}_trigger`` reads the command
+        # vector at skill ``sid``'s channel index (the decaying trigger envelope,
+        # matching training's SkillTriggerCommand.command[:,0]). Name-derived from
+        # the command contract; a trigger obs term whose channel is missing falls
+        # through to the fail-loud below (§8 — broken bundle, never a silent zero).
+        if name.endswith("_trigger"):
+            channel = name[: -len("_trigger")]
+            idx = self._command_channel_index.get(channel)
+            if idx is not None:
+                return _obs_eng.command_slice_vec(command, idx, 1)
 
         # Unknown component — degrade to a zero vector at the right
         # absolute index. Pre-v1.4 raised ValueError; the new behavior

@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (사용 가능한 이메일 없음)
+email_identity_security_hint = 받은 편지함의 링크를 클릭하여 로그인 비밀번호를 설정하거나 업데이트하세요. 보안을 위해 비밀번호 변경은 앱 내에서 할 수 없으며, 모든 변경은 이메일 인증을 통해 진행됩니다.
+email_identity_send_button = 링크 보내기
+email_identity_send_to = 다음 주소로 인증 링크를 보냅니다:
+email_identity_title = 이메일 로그인
+engines_cloud_settings = 클라우드 서버 설정
+engines_local_settings = 로컬 설치 설정
+linked_account_status_linked = 연결됨
+linked_account_unlink_button = {provider} 연결 해제
+linked_account_unlink_confirm_title = {provider} 연결을 해제하시겠습니까?
+linked_account_unlink_current_body = 이 연결을 해제하면 현재 사용 중인 로그인 방법이므로 로그아웃됩니다.
+linked_account_unlink_normal_body = {provider}로 더 이상 로그인할 수 없습니다.
+linked_account_unlink_only_body = 이것은 유일한 로그인 방법입니다. 연결을 해제할 수 없습니다.
+open_workspace_tip = UnitPort 사용자 데이터 디렉터리 열기
+open_workspace = 사용자 워크스페이스 열기
+linked_accounts_label = 로그인 방법:
+linked_account_btn_signedout_email = 이메일: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = 이메일: (없음)
+linked_account_btn_unlinked_google = Google: (연결되지 않음)
+linked_account_btn_unlinked_github = GitHub: (연결되지 않음)
+workspace_email_label = 워크스페이스:
+workspace_email_confirm_title = 워크스페이스 저장 이메일을 변경하시겠습니까?
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = 워크스페이스 저장소가 {path}로 이동되었습니다.
+workspace_email_failed = 워크스페이스 전환에 실패했습니다: {error}
+

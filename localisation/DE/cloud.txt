@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = Wenn aktiviert, lädt UnitPort jede geänderte Workspace-Datei kurz nach dem Speichern in die Cloud hoch.
+busy_pull = Hole aus der Cloud...
+busy_push = Lade in die Cloud hoch...
+manage_dialog_delete_confirm_body = Möchten Sie '{name}' dauerhaft aus der Cloud löschen?
+manage_dialog_delete_confirm_title = Cloud-Datei löschen
+manage_dialog_dl_conflict_body = Lokale Datei existiert bereits:
+	{path}
+	
+	Wie sollen wir vorgehen?
+manage_dialog_dl_conflict_title = Datei bereits vorhanden
+manage_dialog_dl_done_body = Heruntergeladen nach:
+	{path}
+manage_dialog_dl_done_title = Download abgeschlossen
+manage_dialog_dl_overwrite = Überschreiben
+manage_dialog_dl_save_as = Speichern unter…
+manage_dialog_dl_save_as_caption = Heruntergeladene Datei speichern
+manage_dialog_dl_skip = Überspringen
+manage_dialog_empty = Noch keine Dateien in der Cloud — versuchen Sie 'Push' oder ziehen Sie eine Datei hierher.
+manage_dialog_folder_del_body = Möchten Sie '{name}' und alle {n} darin enthaltenen Dateien dauerhaft aus der Cloud löschen?
+manage_dialog_folder_del_title = Ordner löschen
+manage_dialog_folder_dl_all_skipped = Alle Dateien existieren bereits lokal — nichts wurde heruntergeladen.
+manage_dialog_folder_dl_body = Die {n} Dateien in '{name}' in den lokalen Workspace herunterladen?
+manage_dialog_folder_dl_replace = Vorhandene ersetzen
+manage_dialog_folder_dl_skip_existing = Vorhandene überspringen
+manage_dialog_folder_dl_title = Ordner herunterladen
+manage_dialog_folder_summary = {n} Elemente · {size}
+manage_dialog_loading = Wird geladen…
+manage_dialog_not_signed_in = Melden Sie sich zuerst an, um den Cloud-Speicher zu verwalten.
+manage_dialog_op_failed_body = {phase} fehlgeschlagen:
+	{err}
+manage_dialog_op_failed_title = Vorgang fehlgeschlagen
+manage_dialog_oversize_body = Dateien über 50 MB können nicht hochgeladen werden:
+	{names}
+manage_dialog_oversize_title = Datei zu groß
+manage_dialog_quota = Belegt {used} / {total}
+manage_dialog_title = Cloud-Speicher verwalten
+manage_tooltip = Synchronisierungseinstellungen und gespeicherte Dateien verwalten
+never_synced = nie
+pull_tooltip = Cloud-Dateien in den lokalen Workspace herunterladen
+push_tooltip = Lokale Workspace-Dateien in die Cloud hochladen
+status_error = Synchronisierung fehlgeschlagen: {msg}
+status_signed_out = Melden Sie sich an, um die Cloud-Synchronisierung zu aktivieren.
+status_synced = Synchronisiert {n} Dateien · letzte Synchronisation {when}
+section_title = Cloud-Synchronisierung
+push_button = Hochladen
+pull_button = Herunterladen
+manage_button = Verwalten
+manage_coming_soon = Dialog zur Cloud-Verwaltung erscheint bald.
+manage_dialog_refresh = Aktualisieren
+manage_dialog_close = Schließen
+manage_dialog_uploading = Lade {name} hoch…
+manage_dialog_deleting = Löschen…
+manage_dialog_downloading = Herunterladen…
+download_tooltip = In den lokalen Arbeitsbereich herunterladen
+delete_tooltip = Aus der Cloud löschen
+folder_download_tooltip = Alle Dateien in diesem Ordner herunterladen
+folder_delete_tooltip = Diesen Ordner und alle darin befindlichen Dateien löschen
+auto_push_label = Automatisches Hochladen
+status_idle = Leerlauf
+status_pushing = Hochladen... {done}/{total}
+status_pulling = Herunterladen... {done}/{total}
+status_self_check = Cloud enthält {n} Objekt(e)
+status_no_remote = Cloud ist leer
+status_size_skip = Übersprungen: {n} Datei(en) über 50 MB
+busy_self_check = Cloud-Zustand wird überprüft...
+done_push = Hochgeladen: {ok}/{total} Dateien. Übersprungen: {skipped}.
+done_pull = Heruntergeladen: {ok}/{total} Dateien. Übersprungen: {skipped}.
+

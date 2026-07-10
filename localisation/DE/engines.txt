@@ -1,0 +1,72 @@
+[default]
+add_install = Hinzufügen
+add_server = Hinzufügen...
+already_registered_text = Dieses Isaac Lab-Root ist bereits registriert.
+already_registered_title = Bereits registriert
+cloud_none = Keine Server
+cloud_submit_error_title = Cloud-Training
+cloud_summary = {n} Server; Standard: {d}
+confirm_remove_text = Server {name} entfernen?
+confirm_remove_title = Server entfernen
+confirm_uninstall_text = Dadurch wird die Basisinstallation von Isaac Lab dauerhaft von der Festplatte gelöscht:
+	
+	{root}
+	
+	Dies kann nicht rückgängig gemacht werden. Fortfahren?
+confirm_uninstall_title = Isaac Lab deinstallieren
+edit_server = Bearbeiten...
+error_title = Fehler
+install_missing = (fehlt)
+invalid_root_text = Der ausgewählte Ordner ist keine gültige Isaac Lab-Installation (fehlend: isaaclab.sh/.bat und source/).
+invalid_root_title = Kein Isaac Lab-Root
+isaac_installs_empty = Kein Isaac Lab installiert — Vorhandenes Installations-Root hinzufügen.
+isaac_installs_hint = Registrierte Isaac Lab-Installationen
+isaac_installs_title = Isaac Lab-Versionen
+local_base_label = [Root]{ver}
+local_builtin = Integriert (pip), v{ver}
+local_ext_label = {drive} {ver}
+local_isaac_unregistered_short = Nicht registriert
+local_missing = Nicht installiert
+local_registered_no_module = {root} (Modul nicht importierbar)
+local_unregistered = Nicht registriert
+no_local_cloud = Nur in der Cloud
+no_local_register = Lokal registrieren…
+no_local_text = Keine Isaac Lab-Installation ist auf diesem Gerät registriert. Eine lokale Installation registrieren oder nur Cloud-Training verwenden?
+no_local_title = Kein lokales Isaac Lab
+pick_generic = Installations-Root der Engine auswählen
+pick_isaac = Isaac Lab-Installations-Root auswählen
+remove_server = Entfernen
+set_default = Als Standard festlegen
+settings_hint = SSH-ähnliche Trainingsserver für {engine}. Passwörter werden im OS-Schlüsselbund gespeichert; hier wird nichts im Klartext gespeichert.
+settings_title = Cloud-Server — {engine}
+unbind_tooltip = Entbinden (Dateien behalten)
+uninstall_failed_text = Die Isaac Lab-Installation konnte nicht gelöscht werden. Siehe Protokolle.
+uninstall_failed_title = Deinstallation fehlgeschlagen
+uninstall_tooltip = Deinstallieren (Dateien löschen)
+local_isaac_unregistered = Nicht registriert — wähle das Installationsverzeichnis über das Zahnrad
+local_registered_with_ver = {root} (v{ver})
+
+[server_editor]
+add = Server hinzufügen
+auth = Authentifizierung
+auth_key = SSH-Schlüssel
+auth_password = Passwort
+browse = Durchsuchen...
+conda_env = Conda-Umgebung
+conda_env_ph = isaaclab (optional)
+edit = Server bearbeiten
+host = Host
+host_required = Host ist erforderlich.
+invalid_title = Ungültig
+key_file = Schlüsseldatei
+key_required = Der Pfad zum privaten Schlüssel ist für die Schlüsselauthentifizierung erforderlich.
+name = Anzeigename
+name_required = Anzeigename ist erforderlich.
+name_taken = Ein Server mit dem Namen {name} existiert bereits.
+password_hint = Passwörter werden hier niemals gespeichert — geben Sie sie beim Herstellen der Verbindung ein (werden im Schlüsselbund des Betriebssystems gespeichert).
+pick_key = Privaten SSH-Schlüssel auswählen
+port = Port
+remote_install_dir = Remote-Installationsverzeichnis
+remote_work_dir = Remote-Arbeitsverzeichnis
+user = Benutzer
+

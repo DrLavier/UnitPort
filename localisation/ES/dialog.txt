@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = No se puede abrir el menú de roles IR
+joint_pose_editor_unavailable = No se puede abrir el editor de ángulos de las articulaciones
+pd_table_no_sku = El Nodo Robot no tiene un robot válido vinculado (asset_id). Seleccione primero un robot en la tarjeta Robot Asset.
+pd_table_unavailable = No se puede abrir el panel PD
+registry_preset_apply_failed = Error al aplicar el preset
+registry_preset_picker_empty = Esta familia no tiene presets disponibles
+registry_preset_picker_empty_detail = family={family} no tiene preset declarado en registro={registry}.
+registry_preset_picker_unavailable = No se puede abrir el menú Preset
+registry_preset_picker_unknown = Registro desconocido: {key!r}; registros compatibles: {keys}
+replace_canvas_text = Cargar la plantilla '{tpl}' reemplazará todos los nodos y aristas en '{name}'. ¿Continuar?
+replace_canvas_title = Reemplazar el contenido del lienzo
+review_pose_unavailable = No se puede iniciar Review Pose
+unsaved_text = {name} tiene cambios sin guardar. ¿Guardar antes de continuar?
+unsaved_title = Cambios sin guardar
+review_motion_no_clip = No hay ningún clip de referencia seleccionado para este elemento de entrenamiento — selecciona un clip en el desplegable Clip antes de revisar.
+review_motion_no_robot = No hay ningún Robot node vinculado a este canvas. Review Motion necesita el robot MJCF para reproducir el movimiento de referencia — conecta primero un Robot node.
+review_motion_unavailable = No se puede iniciar Review Motion
+

@@ -1,0 +1,20 @@
+[default]
+title = Recortar y etiquetar clip
+length_unknown = Longitud del clip desconocida (el análisis de fotogramas se realiza en la ronda del backend) — los marcadores se guardan como números de fotograma sin procesar.
+preview_robot = Vista previa del robot
+preview = Previsualizar en MuJoCo
+preview_started = Previsualización iniciada (clip completo — la reproducción del rango se realiza en la ronda del backend).
+range = Entrada {a}  ·  Salida {b}  ·  {n} fotogramas
+seg_name = Segmento
+seg_name_ph = p. ej. walk_loop
+add = Añadir desde marcadores
+col_name = Nombre
+col_tag = Etiqueta
+col_in = Entrada
+col_out = Salida
+col_action = 
+close = Cerrar
+delete = Eliminar
+no_robot = Selecciona primero un robot de previsualización.
+err_name = El nombre del segmento es obligatorio.
+

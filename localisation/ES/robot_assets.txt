@@ -1,0 +1,61 @@
+[default]
+add_path = Agregar una ruta personalizada
+add_robot = Nuevo modelo
+add_tip = Registrar un nuevo robot o variante
+add_variant = Nueva variante de …
+add_variant_empty = No hay robots base registrados todavía. Agrega primero un modelo.
+cascade_body = Este robot tiene variantes de usuario que dependen de él. Elimina o desvincula las variantes primero.
+	
+	{detail}
+cascade_title = No se puede eliminar
+coming_soon = Próximamente
+delete = Eliminar
+dump = Volcar cuerpos / articulaciones
+dump_disabled = No está disponible ni el asset MJCF ni el USD (no hay archivo local y no se ha declarado una URL de Nucleus)
+dump_done_title = Volcado completado
+dump_error_no_asset = No se puede resolver el asset del robot para SKU {sku}
+dump_error_persist = No se pudo persistir los cuerpos descubiertos para {fmt}
+dump_error_validation = La validación falló después de escribir el mapeo {fmt}:
+	
+	{exc}
+	
+	Abre el nodo Robot del lienzo y corrige los roles IR de las articulaciones/cuerpos señalados, luego vuelve a Volcar.
+dump_format_mismatch = 
+	⚠ {larger_fmt} tiene {larger_n} articulaciones pero {smaller_fmt} tiene {smaller_n}. El entrenamiento no se ve afectado, pero {affected} no estará disponible para bundles entrenados contra el conjunto de articulaciones del lado {larger_fmt}. Si necesitas ambos objetivos de despliegue, reapunta el asset {smaller_fmt} a una variante coincidente (p. ej., para G1 usa scene_with_hands.xml junto a g1.usd) y vuelve a Volcar.
+edit = Editar
+edit_canonical_disabled = Los robots canónicos son de solo lectura. Agrega en su lugar una nueva entrada de usuario.
+ignore_package = Ignorar
+ignore_package_tip = Omitir este directorio en futuras barridas de actualización
+inertia_calib_done = Superposición de inercia {status}: {n} anulación(es) de cuerpos escritas en {rel}.
+inertia_calib_done_title = Calibración de inercia completada
+inertia_calib_error_title = La calibración de inercia falló
+inertia_calib_ignored = {n} cuerpo(s) por debajo de la tolerancia — consulta la lista de auditoría ignored_bodies de la superposición.
+inertia_calib_offer_body = Compara la masa / inercia por cuerpo del USD de entrenamiento con el MJCF de MuJoCo y escribe una superposición no destructiva (el MJCF original nunca se modifica). Esto cierra la brecha sim2sim IsaacLab→MuJoCo para robots cuyo MJCF incluye inercia de marcador de posición. La recolección desde USD puede tardar 5–30 s.
+inertia_calib_offer_title = ¿Calibrar la inercia desde USD?
+menagerie = Menagerie…
+menagerie_tip = Explorar y descargar paquetes de MuJoCo Menagerie
+no_path = (ninguno)
+pick_file = Elige un archivo {kind}
+pick_parent = Elige el modelo base del que hereda esta variante:
+refresh_tip = Reescanear el registro de assets
+tag_placeholder = Agregar etiqueta...
+view_mapping = Ver mapeo de articulaciones
+view_mapping_error_title = Mapeo de articulaciones no disponible
+add_robot_tip = Registrar un nuevo robot
+dump_error_title = Error al volcar
+dump_mjcf = Volcar cuerpos / articulaciones de MJCF
+dump_mjcf_disabled = Activo MJCF no disponible localmente
+dump_usd = Volcar cuerpos / articulaciones de USD
+dump_usd_disabled = Activo USD no declarado (sin ruta local y sin URL de Nucleus)
+
+[status]
+cloud = nube
+local = local
+missing = faltante
+remote = remoto
+
+[tag]
+canonical = canónico
+cloud = nube
+custom = personalizado
+

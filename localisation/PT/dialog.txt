@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = Não foi possível abrir o menu de função IR
+joint_pose_editor_unavailable = Não foi possível abrir o editor de ângulos das articulações
+pd_table_no_sku = O Nó do Robô não tem um robô válido vinculado (asset_id). Selecione primeiro um robô no cartão Robot Asset.
+pd_table_unavailable = Não foi possível abrir o painel PD
+registry_preset_apply_failed = Falha ao aplicar o Preset
+registry_preset_picker_empty = Esta família não tem preset disponível
+registry_preset_picker_empty_detail = family={family} não tem preset declarado em registry={registry}.
+registry_preset_picker_unavailable = Não foi possível abrir o menu Preset
+registry_preset_picker_unknown = registry desconhecido={key!r}; registries suportados: {keys}
+replace_canvas_text = Carregar o modelo '{tpl}' substituirá todos os nós e arestas em '{name}'. Continuar?
+replace_canvas_title = Substituir conteúdo do canvas
+review_pose_unavailable = Não foi possível iniciar o Review Pose
+unsaved_text = {name} tem alterações não salvas. Salvar antes de continuar?
+unsaved_title = Alterações não salvas
+review_motion_no_clip = Nenhum clipe de referência está selecionado para este item de treinamento — escolha um clipe no menu suspenso Clip antes de revisar.
+review_motion_no_robot = Nenhum nó Robot está vinculado a este canvas. Review Motion precisa do MJCF do robô para reproduzir o movimento de referência — conecte um nó Robot primeiro.
+review_motion_unavailable = Não é possível iniciar o Review Motion
+

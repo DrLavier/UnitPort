@@ -1,0 +1,16 @@
+[empty]
+no_visible_series = 沒有可見的系列
+
+[runs]
+clear = 清除
+empty = 沒有執行紀錄
+n_selected = 
+none_selected = 選擇執行紀錄
+select_all = 全選
+tag.failed = [失敗]
+tag.finished = [已完成]
+tag.running = [進行中]
+
+[series]
+cmd_reward = 指令獎勵
+

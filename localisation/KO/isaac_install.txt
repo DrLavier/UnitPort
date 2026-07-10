@@ -1,0 +1,24 @@
+[btn]
+close = 닫기
+open_log = 로그 폴더 열기
+retry = 다시 시도
+switch_locate = Locate 모드로 전환
+
+[dialog]
+title = Isaac Lab 설치 중
+
+[heading]
+error = Isaac Lab 설치 실패
+running = Isaac Lab 설치 중
+success = Isaac Lab 설치 완료
+
+[phase]
+fallback_external = 외부 venv로 전환 중 (pip 충돌 감지됨)
+preflight = 준비 중...
+
+[status]
+error_hint = 자세한 내용은 로그를 확인하세요. 다시 시도하거나, 기존 Isaac Lab 설치를 찾도록 전환할 수 있습니다.
+idle = 설치 프로그램 시작 대기 중...
+success = 다음 경로에 성공적으로 설치됨: {path}
+success_generic = 설치 완료
+

@@ -671,12 +671,24 @@ class StageScheduleConfig:
 
 @dataclass
 class GaitConfig:
-    """``training_motion`` §3 Walk-These-Ways."""
+    """``training_motion`` §3 Walk-These-Ways.
+
+    Range fields default to ``None`` ("not configured"): the numeric
+    family defaults live ONLY in
+    ``registers/data/gait_commands_catalog.json`` (``default_ranges``,
+    read via ``gait_presets.default_ranges_for_family``).
+    ``spec_compiler._populate_motion`` resolves canvas-or-registry
+    values whenever gait is enabled; a disabled gait legitimately
+    carries ``None`` (no downstream reader — the env_cfg_compiler reads
+    the node params directly, and spec_validator F2 reads ``enabled``
+    only). Kept as carried provenance in the spec record, never a
+    duplicate default-value declaration.
+    """
 
     enabled: bool = False
-    frequency_range_hz: Tuple[float, float] = (1.5, 3.5)
-    body_height_range_m: Tuple[float, float] = (0.28, 0.40)
-    step_height_range_m: Tuple[float, float] = (0.03, 0.15)
+    frequency_range_hz: Optional[Tuple[float, float]] = None
+    body_height_range_m: Optional[Tuple[float, float]] = None
+    step_height_range_m: Optional[Tuple[float, float]] = None
     presets: str = ""
 
 
@@ -688,6 +700,43 @@ class CommandCurriculumConfig:
     ramp_iters: int = 800
 
 
+# Sentinel id for the implicit default package that wraps all flat
+# ``training_items`` when no explicit package layer is authored (Method A,
+# Slice 1). Reserved — a user-authored package may not use this id.
+DEFAULT_PACKAGE_ID = "__default__"
+
+
+@dataclass
+class TrainingPackage:
+    """A training package — an authoring grouping + reward-composition unit that
+    always maps to ONE policy network (Method A, Slice 1).
+
+    A package groups training items (membership = ``training_items[id]['package_id']``)
+    and owns an inline reward set plus one coarse ``package_weight`` global-rebalance
+    lever (e.g. locomotion 0.7 vs manipulation 0.3). It is NOT a canvas node (it lives
+    inside the single ``training_motion`` node), NOT a sub-policy, and NEVER owns a joint
+    subset — all enabled packages collapse into one reward vector / one obs vector / one
+    action space / one PPO update. Reward joint-paging is an orthogonal ``reward-over-joints``
+    concern and is never conflated with package grouping.
+
+    ``reward_terms`` reuses the paged payload shape a rewards node emits
+    (``{page_id: {func: payload}}``); it is lowered into the shared reward seam at
+    compile time so downstream readers stay package-blind. See
+    ``knowledge_base/training_package_schema_design.md``.
+    """
+
+    package_id: str = ""
+    name: str = ""                       # display only; i18n at the UI boundary, never a key
+    enabled: bool = True
+    package_weight: float = 1.0          # multiplies the term weights of this package's items
+    reward_terms: Dict[str, Any] = field(default_factory=dict)  # paged {page_id: {func: payload}}
+    # Skill trigger gate (Method A / skill_command_path_design.md Slice 3). When set to
+    # a skill_id, this package's reward is gated on that skill's trigger command (a
+    # post-pulse window with decay) — the package becomes a "skill package" (§1: a skill
+    # is a package whose command interface is a trigger channel). "" = ungated (default).
+    gated_by: str = ""
+
+
 @dataclass
 class MotionConfig:
     """``training_motion`` — command envelope only.
@@ -696,6 +745,20 @@ class MotionConfig:
     """
 
     training_items: Dict[str, Any] = field(default_factory=dict)
+    # Package layer (Method A, Slice 1) — presence-gated additive. Empty ⇒
+    # ``resolve_effective_packages()`` wraps all flat items into one implicit
+    # default package at ``package_weight=1.0`` (byte-identical to pre-package
+    # behavior). Membership is ``training_items[id]['package_id']``; each package
+    # carries inline ``reward_terms`` + a coarse ``package_weight`` rebalance lever.
+    # NOT a canvas node, NOT a sub-policy, NEVER owns a joint subset. See
+    # ``knowledge_base/training_package_schema_design.md``.
+    packages: Dict[str, TrainingPackage] = field(default_factory=dict)
+    # Skill trigger channels (skill_command_path_design.md Slice 2/3) —
+    # {skill_id: {name, kind:"trigger", latch:"pulse"|"hold", enabled}}. Each enabled
+    # entry becomes a trigger command channel on the contract (Slice 2) and, on
+    # IsaacLab, a command term + obs term + reward gate for the package whose
+    # ``gated_by`` names it (Slice 3). Empty => no triggers (byte-identical).
+    skill_items: Dict[str, Any] = field(default_factory=dict)
     mapping_mode: str = "linear"
     deadzone: float = 0.10
     curve_exponent: float = 2.0
@@ -771,6 +834,12 @@ class MotionRefConfig:
     rsi_joint_noise: float = 0.02
     # task_item_id -> clip_path (resolved from training_items)
     clip_paths: Dict[str, str] = field(default_factory=dict)
+    # task_item_id -> (start_frame, end_frame) INCLUSIVE, for items whose clip
+    # is a segment (a sub-range of a larger file, encoded canvas-side as
+    # ``<ref>#seg=lo-hi``). Absent for whole-file items → the runtime loads the
+    # whole clip. Parallel to clip_paths; keyed by the SAME item_id so the
+    # positional flattening in isaac_lab/config.py can align files ↔ ranges.
+    clip_ranges: Dict[str, Tuple[int, int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.consumption_mode, str) or not self.consumption_mode.strip():
@@ -1334,9 +1403,136 @@ def _spec_from_dict(target_cls, payload):
                 _spec_from_dict(inner_cls, item) if isinstance(item, dict) else item
                 for item in raw
             ]
+        elif (
+            origin is dict
+            and len(args) == 2
+            and dataclasses.is_dataclass(args[1])
+            and isinstance(raw, dict)
+        ):
+            # ``Dict[str, <dataclass>]`` (e.g. ``MotionConfig.packages``) —
+            # the generic walker above only recurses plain-dataclass and
+            # list-of-dataclass fields, so without this a dict-of-dataclass
+            # would silently round-trip back as raw dicts. Reconstruct values.
+            val_cls = args[1]
+            kwargs[f.name] = {
+                k: _spec_from_dict(val_cls, v) if isinstance(v, dict) else v
+                for k, v in raw.items()
+            }
         else:
             kwargs[f.name] = raw
     return target_cls(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Training package resolution (Method A, Slice 1)
+# ---------------------------------------------------------------------------
+
+
+def _pkg_item_enabled(v: Any) -> bool:
+    """Item ``enabled`` flag; a missing key defaults True (aligns with the SB3
+    sampler / command-contract convention that an item without ``enabled`` is on)."""
+    return bool(v.get("enabled", True)) if isinstance(v, dict) else True
+
+
+def _pkg_item_package_id(v: Any) -> str:
+    """The item's authored ``package_id`` membership (empty string if absent)."""
+    return str(v.get("package_id", "")).strip() if isinstance(v, dict) else ""
+
+
+def resolve_effective_packages(motion: "MotionConfig") -> Dict[str, "TrainingPackage"]:
+    """The effective package map for a ``MotionConfig`` (Method A, Slice 1).
+
+    SINGLE source of truth for "what packages exist" — every consumer (validators,
+    compile-time lowering, UI preview) calls this and never re-derives membership.
+
+    Presence-gated: when no package layer is authored (empty ``packages`` AND no
+    training item carries a ``package_id``) one implicit default package is
+    synthesized at ``package_weight=1.0`` wrapping every enabled item — this is
+    byte-identical to pre-package behavior. Otherwise the authored packages are
+    returned after fail-loud membership validation (§8): every enabled item must
+    resolve to exactly one enabled package, and every enabled package must own at
+    least one enabled member item. Never defaults membership silently.
+    """
+    items = motion.training_items or {}
+    authored = dict(motion.packages or {})
+    any_membership = any(_pkg_item_package_id(v) for v in items.values())
+
+    if not authored and not any_membership:
+        # Implicit default: one package wrapping all enabled items.
+        return {
+            DEFAULT_PACKAGE_ID: TrainingPackage(
+                package_id=DEFAULT_PACKAGE_ID,
+                name="",
+                enabled=True,
+                package_weight=1.0,
+                reward_terms={},
+            )
+        }
+
+    if DEFAULT_PACKAGE_ID in authored:
+        raise ValueError(
+            f"package id {DEFAULT_PACKAGE_ID!r} is reserved for the implicit "
+            f"default package and may not be authored explicitly (§8 fail-loud)."
+        )
+
+    enabled_pkgs = {pid for pid, p in authored.items() if getattr(p, "enabled", True)}
+    for item_id, v in items.items():
+        if not _pkg_item_enabled(v):
+            continue
+        pid = _pkg_item_package_id(v)
+        if not pid:
+            raise ValueError(
+                f"training item {item_id!r} has no package_id but a package layer "
+                f"is authored — every enabled item must name exactly one enabled "
+                f"package (§8 fail-loud)."
+            )
+        if pid not in authored:
+            raise ValueError(
+                f"training item {item_id!r} names package {pid!r} which does not "
+                f"exist (known: {sorted(authored)}) (§8 fail-loud)."
+            )
+        if pid not in enabled_pkgs:
+            raise ValueError(
+                f"training item {item_id!r} names package {pid!r} which is "
+                f"disabled — enable the package or move the item (§8 fail-loud)."
+            )
+
+    member_counts: Dict[str, int] = {pid: 0 for pid in authored}
+    for v in items.values():
+        if _pkg_item_enabled(v):
+            pid = _pkg_item_package_id(v)
+            if pid in member_counts:
+                member_counts[pid] += 1
+    for pid, p in authored.items():
+        if getattr(p, "enabled", True) and member_counts.get(pid, 0) == 0:
+            raise ValueError(
+                f"package {pid!r} is enabled but has no enabled member items — a "
+                f"package with zero members is invalid; add items or disable it "
+                f"(§8 fail-loud)."
+            )
+    return authored
+
+
+def package_members(motion: "MotionConfig", package_id: str) -> List[str]:
+    """The enabled member item ids of ``package_id`` (implicit-default aware).
+
+    Raises if ``package_id`` is not one of the effective packages (§8 fail-loud).
+    """
+    packages = resolve_effective_packages(motion)
+    if package_id not in packages:
+        raise ValueError(
+            f"package {package_id!r} not in effective packages {sorted(packages)} "
+            f"(§8 fail-loud)."
+        )
+    items = motion.training_items or {}
+    if set(packages) == {DEFAULT_PACKAGE_ID}:
+        # Implicit default owns every enabled item (members carry no package_id).
+        return [iid for iid, v in items.items() if _pkg_item_enabled(v)]
+    return [
+        iid
+        for iid, v in items.items()
+        if _pkg_item_enabled(v) and _pkg_item_package_id(v) == package_id
+    ]
 
 
 __all__ = [
@@ -1367,6 +1563,10 @@ __all__ = [
     "validate_stage_entry_h0",
     "validate_stage_schedule_dict_h0",
     "MotionConfig",
+    "TrainingPackage",
+    "DEFAULT_PACKAGE_ID",
+    "resolve_effective_packages",
+    "package_members",
     "MotionRefConfig",
     "GaitConfig",
     "CommandCurriculumConfig",

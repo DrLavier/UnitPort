@@ -1,0 +1,10 @@
+[confirm]
+clear_body = 이 작업은 <project>/training/runs/ 아래의 모든 run 디렉터리와 _runs_/ 내의 모든 캔버스 스냅샷을 삭제합니다. 이 작업은 되돌릴 수 없습니다.
+clear_title = 모든 훈련 기록을 삭제하시겠습니까?
+
+[row]
+delete.tip = 이 run을 삭제
+
+[default]
+clear_all = 전체 지우기
+

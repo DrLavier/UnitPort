@@ -1,0 +1,72 @@
+[default]
+add_install = إضافة
+add_server = إضافة...
+already_registered_text = جذر Isaac Lab هذا مسجل بالفعل.
+already_registered_title = مسجل بالفعل
+cloud_none = لا توجد خوادم
+cloud_submit_error_title = التدريب السحابي
+cloud_summary = {n} خادم/خوادم؛ الافتراضي: {d}
+confirm_remove_text = إزالة الخادم {name}؟
+confirm_remove_title = إزالة الخادم
+confirm_uninstall_text = هذا يحذف نهائيًا تثبيت Isaac Lab الأساسي من القرص:
+	
+	{root}
+	
+	لا يمكن التراجع عن هذا. المتابعة؟
+confirm_uninstall_title = إلغاء تثبيت Isaac Lab
+edit_server = تحرير...
+error_title = خطأ
+install_missing = (مفقود)
+invalid_root_text = المجلد المحدد ليس تثبيتًا صالحًا لـ Isaac Lab (مفقود isaaclab.sh/.bat و source/).
+invalid_root_title = ليس جذرًا لـ Isaac Lab
+isaac_installs_empty = لا يوجد Isaac Lab مثبت — أضف جذر تثبيت موجود.
+isaac_installs_hint = تثبيتات Isaac Lab المسجلة
+isaac_installs_title = إصدارات Isaac Lab
+local_base_label = [الجذر]{ver}
+local_builtin = مضمّن (pip)، v{ver}
+local_ext_label = {drive} {ver}
+local_isaac_unregistered_short = غير مسجل
+local_missing = غير مثبت
+local_registered_no_module = {root} (الوحدة غير قابلة للاستيراد)
+local_unregistered = غير مسجل
+no_local_cloud = سحابي فقط
+no_local_register = تسجيل محلي…
+no_local_text = لا يوجد تثبيت Isaac Lab مسجل على هذه الآلة. هل تسجل تثبيتًا محليًا، أم تستخدم التدريب السحابي فقط؟
+no_local_title = لا يوجد تثبيت محلي لـ Isaac Lab
+pick_generic = اختر جذر تثبيت المحرك
+pick_isaac = اختر جذر تثبيت Isaac Lab
+remove_server = إزالة
+set_default = تعيين كافتراضي
+settings_hint = خوادم تدريب بنمط SSH لـ {engine}. كلمات المرور مخزنة في مخزن مفاتيح نظام التشغيل؛ لا يتم حفظ أي شيء هنا كنص صريح.
+settings_title = خوادم سحابية — {engine}
+unbind_tooltip = إلغاء الربط (الاحتفاظ بالملفات)
+uninstall_failed_text = تعذر حذف تثبيت Isaac Lab. راجع السجلات.
+uninstall_failed_title = فشل إلغاء التثبيت
+uninstall_tooltip = إلغاء التثبيت (حذف الملفات)
+local_isaac_unregistered = غير مسجَّل — اختر جذر التثبيت عبر أيقونة الترس
+local_registered_with_ver = {root} (v{ver})
+
+[server_editor]
+add = إضافة خادم
+auth = المصادقة
+auth_key = مفتاح SSH
+auth_password = كلمة المرور
+browse = تصفح...
+conda_env = بيئة Conda
+conda_env_ph = isaaclab (اختياري)
+edit = تحرير الخادم
+host = المضيف
+host_required = المضيف مطلوب.
+invalid_title = غير صالح
+key_file = ملف المفتاح
+key_required = مطلوب مسار المفتاح الخاص للمصادقة باستخدام المفتاح.
+name = الاسم المعروض
+name_required = الاسم المعروض مطلوب.
+name_taken = يوجد بالفعل خادم باسم {name}.
+password_hint = لا تُخزّن كلمات المرور هنا أبدًا — أدخلها عند الاتصال (تُحتفظ في مخزن مفاتيح نظام التشغيل).
+pick_key = اختر مفتاح SSH الخاص
+port = المنفذ
+remote_install_dir = دليل التثبيت البعيد
+remote_work_dir = دليل العمل البعيد
+user = المستخدم
+

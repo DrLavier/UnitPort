@@ -283,54 +283,47 @@ _FAMILY_PRESETS: Dict[str, List[GaitPreset]] = {
 }
 
 
-# Default sampling ranges per family — single source of truth for both
-# (a) the IsaacLab env_cfg_compiler gait command Cfg emitters
-# (_emit_uniform_gait_command_cfg / _emit_biped_gait_command_cfg) and
-# (b) the training-side CommandSchema gait-channel emitter
-# (command_schema.from_node_dict). Numbers match the 7-beta/7-gamma
-# Cfg emitter defaults: quadruped Go2-class, biped G1/H1-class.
-_FAMILY_DEFAULT_RANGES: Dict[str, Dict[str, Tuple[float, float]]] = {
-    "quadruped": {
-        "frequency": (1.5, 3.5),
-        "body_height": (0.28, 0.40),
-        "step_height": (0.03, 0.15),
-    },
-    "biped": {
-        "frequency": (1.0, 2.0),
-        "body_height": (0.65, 0.75),
-        "step_height": (0.05, 0.10),
-    },
-    "humanoid": {
-        "frequency": (1.0, 2.0),
-        "body_height": (0.65, 0.75),
-        "step_height": (0.05, 0.10),
-    },
-}
-
-
 def default_ranges_for_family(family: str) -> Dict[str, Tuple[float, float]]:
     """Return the bundled default (lo, hi) ranges for the named family.
 
     Keys: ``"frequency"`` / ``"body_height"`` / ``"step_height"``.
 
-    Aliases (humanoid) are mirrored to their target's ranges. Used by
-    both training-side ``CommandSchema`` channel emission and the
-    IsaacLab env_cfg_compiler's gait Cfg emitters as the single source
-    of truth for "what does the bundled gait look like for this
-    family". The canvas may override per-range; these are the fallback
-    defaults when the canvas didn't specify."""
-    ranges = _FAMILY_DEFAULT_RANGES.get(family)
-    if ranges is None:
+    SINGLE READ of ``registers/data/gait_commands_catalog.json``'s
+    ``default_ranges`` block (catalog 1.1.0) — the one place the numbers
+    live. Aliases (humanoid) resolve through the registry alias chain.
+    Consumed by the training-side ``CommandSchema`` channel emission, the
+    ``CommandContract`` emitter, and the IsaacLab env_cfg_compiler's gait
+    Cfg emitters. The canvas may override per-range; these are the
+    fallback defaults when the canvas didn't specify.
+
+    Raises ``KeyError`` (preserved historical API) when the family is
+    unknown to the registry or its entry declares no ``default_ranges``
+    — never substitutes another family's geometry-class values (§8).
+    """
+    from registers.gait_commands import (
+        GaitCommandValidationError,
+        get_gait_command,
+    )
+
+    try:
+        spec = get_gait_command(family)
+    except GaitCommandValidationError as exc:
         raise KeyError(
-            f"gait_presets.default_ranges_for_family: no bundled default "
-            f"ranges for family={family!r}; add a "
-            f"_FAMILY_DEFAULT_RANGES entry mirroring the registry "
-            f"phase_count for that family"
+            f"gait_presets.default_ranges_for_family: family={family!r} is "
+            f"unknown to the gait_commands registry ({exc})"
+        ) from exc
+    if spec.default_ranges is None:
+        raise KeyError(
+            f"gait_presets.default_ranges_for_family: family={family!r} "
+            f"(resolved_from={spec.resolved_from!r}) declares no "
+            f"default_ranges in gait_commands_catalog.json — add the "
+            f"block to the family entry (or the user overlay) instead of "
+            f"borrowing another family's geometry-class values"
         )
     return {
-        "frequency": ranges["frequency"],
-        "body_height": ranges["body_height"],
-        "step_height": ranges["step_height"],
+        "frequency": spec.default_ranges["frequency"],
+        "body_height": spec.default_ranges["body_height"],
+        "step_height": spec.default_ranges["step_height"],
     }
 
 

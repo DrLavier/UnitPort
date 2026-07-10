@@ -1,0 +1,72 @@
+[default]
+add_install = Adicionar
+add_server = Adicionar...
+already_registered_text = Esta raiz do Isaac Lab já está registrada.
+already_registered_title = Já registrado
+cloud_none = Sem servidores
+cloud_submit_error_title = Treinamento na nuvem
+cloud_summary = {n} servidor(es); padrão: {d}
+confirm_remove_text = Remover servidor {name}?
+confirm_remove_title = Remover servidor
+confirm_uninstall_text = Isto exclui permanentemente a instalação base do Isaac Lab do disco:
+	
+	{root}
+	
+	Isto não pode ser desfeito. Continuar?
+confirm_uninstall_title = Desinstalar Isaac Lab
+edit_server = Editar...
+error_title = Erro
+install_missing = (ausente)
+invalid_root_text = A pasta selecionada não é uma instalação válida do Isaac Lab (faltam isaaclab.sh/.bat e source/).
+invalid_root_title = Não é um diretório raiz do Isaac Lab
+isaac_installs_empty = Nenhum Isaac Lab instalado — Adicione uma raiz de instalação existente.
+isaac_installs_hint = Instalações do Isaac Lab registradas
+isaac_installs_title = Versões do Isaac Lab
+local_base_label = [Raiz]{ver}
+local_builtin = Integrado (pip), v{ver}
+local_ext_label = {drive} {ver}
+local_isaac_unregistered_short = Não registrado
+local_missing = Não instalado
+local_registered_no_module = {root} (módulo não importável)
+local_unregistered = Não registrado
+no_local_cloud = Apenas na nuvem
+no_local_register = Registrar local…
+no_local_text = Nenhuma instalação do Isaac Lab está registrada nesta máquina. Registrar uma instalação local ou usar apenas treinamento na nuvem?
+no_local_title = Nenhum Isaac Lab local
+pick_generic = Selecionar raiz de instalação do engine
+pick_isaac = Selecionar raiz de instalação do Isaac Lab
+remove_server = Remover
+set_default = Definir como padrão
+settings_hint = Servidores de treinamento no estilo SSH para {engine}. As senhas ficam no chaveiro do SO; nada aqui é persistido em texto simples.
+settings_title = Servidores na nuvem — {engine}
+unbind_tooltip = Desvincular (manter arquivos)
+uninstall_failed_text = Não foi possível excluir a instalação do Isaac Lab. Veja os logs.
+uninstall_failed_title = Falha na desinstalação
+uninstall_tooltip = Desinstalar (excluir arquivos)
+local_isaac_unregistered = Não registrado — selecione a raiz de instalação pelo ícone de engrenagem
+local_registered_with_ver = {root} (v{ver})
+
+[server_editor]
+add = Adicionar servidor
+auth = Autenticação
+auth_key = Chave SSH
+auth_password = Senha
+browse = Procurar...
+conda_env = Ambiente Conda
+conda_env_ph = isaaclab (opcional)
+edit = Editar servidor
+host = Host
+host_required = Host é obrigatório.
+invalid_title = Inválido
+key_file = Arquivo de chave
+key_required = O caminho da chave privada é obrigatório para autenticação por chave.
+name = Nome de exibição
+name_required = Nome de exibição é obrigatório.
+name_taken = Um servidor chamado {name} já existe.
+password_hint = Senhas nunca são armazenadas aqui — forneça-as no momento da conexão (persistidas no chaveiro do SO).
+pick_key = Selecionar chave privada SSH
+port = Porta
+remote_install_dir = Diretório de instalação remoto
+remote_work_dir = Diretório de trabalho remoto
+user = Usuário
+

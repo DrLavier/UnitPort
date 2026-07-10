@@ -1,0 +1,357 @@
+[active_file]
+col_status = 狀態
+col_type = 類型
+status_cloud = 雲端
+status_loaded = 已載入
+
+[actor_setting]
+init_pose.dialog_title = 初始姿勢編輯器
+init_pose.empty = 此 SKU 沒有可用的關節。
+init_pose.joints_label = 關節角度 [rad] — 範圍來自 MJCF
+init_pose.review_button = 檢視
+init_pose.unlimited_hint = (無限)
+review_pose.button = 檢視姿勢
+
+[ai_build]
+agent_setup = < 設定你的代理 >
+agent_tip = 設定或切換 AI 代理
+assistant_name = AI 助手
+banner_none = —
+cfg_f_backend = 後端
+cfg_f_curriculum = 課程
+cfg_f_device = 裝置
+cfg_f_difficulty = 難度
+cfg_f_episode = 回合長度
+cfg_f_family = 系列
+cfg_f_name = 名稱
+cfg_f_num_envs = 環境數
+cfg_f_reward_terms = 獎勵項目
+cfg_f_sku = SKU
+cfg_f_spacing = 環境間距
+cfg_f_terrain = 地形
+cfg_sec_engine = 引擎
+cfg_sec_env = 環境
+cfg_sec_ground = 訓練場
+cfg_sec_rewards = 獎勵
+cfg_sec_robot = 機器人
+checkpoint_failed = [[error:無法快照畫布 — 此次執行無法重設。]]
+checkpoint_made = [[success:已儲存檢查點 — 重設會將畫布還原到此狀態。]]
+config_empty = 目前沒有可預覽的設定。
+	描述一次訓練執行以產生設定。
+config_origin = 原點
+delete_body = 要刪除此對話及其所有歷史紀錄嗎？此操作無法還原。
+delete_convo = 刪除
+delete_title = 刪除對話
+empty_hint = 描述你想要的訓練，我會為你建立畫布。
+ev_failed = [[error:{op} 失敗 — {detail}]]
+input_placeholder = 請 AI 生成設定、腳本或訓練策略…
+json_items = 項目
+new_conversation = + 新增
+new_conversation_tip = 新對話
+newline = 按 Enter 換行
+no_checkpoint = [[warning:尚未有檢查點 — 請先發送提示。]]
+pause = 暫停
+phase_chat = 助理
+phase_complete = 正在完成結構
+phase_repair = 修復
+phase_report = 摘要
+phase_understanding = 理解
+reset = 還原畫布
+reset_tip = 將畫布還原到您上一次提示之前的檢查點。
+resume = 繼續
+retry = 重試
+retry_busy = [[warning:正在執行中 — 在重試前請先暫停或等待。]]
+retry_none = [[warning:目前沒有可重試的項目 — 請先發送提示。]]
+reverted = [[success:已將畫布還原到提示前的檢查點。]]
+run_busy = [[warning:AI Build 執行已在進行中 — 請等待其完成。]]
+run_failed = [[error:AI Build 執行失敗 — 請參閱上方訊息。]]
+save_config = 儲存設定
+search_ph = 搜尋對話…
+settings_agent_add_tip = 新增代理
+settings_agent_name = 名稱
+settings_agent_name_ph = 例如 GPT-4o
+settings_agent_new = 新增代理
+settings_agent_no_model = (無模型)
+settings_agent_remove_tip = 移除代理
+settings_agent_untitled = 未命名代理
+settings_agents_title = 代理
+settings_api_key = API 金鑰
+settings_api_key_ph = sk-…
+settings_base_url = 基本 URL
+settings_cloud = 將此 API 資訊上傳到雲端
+settings_cloud_tip = 預設為關閉。關閉時，線上同步功能不會上傳您的 API 金鑰。
+settings_env_bad = ✗ {name} 未設定，或其值 ≤ {n} 字元。
+settings_env_invalid = 環境變數必須存在，且其值需超過 {n} 個字元。
+settings_env_ok = ✓ {name} 已解析 ({n} 字元)
+settings_env_ph = 例如 OPENAI_API_KEY
+settings_incomplete = 基本 URL、API 金鑰及模型皆為必填。
+settings_intro = 註冊 AI Build 呼叫的模型連線。所選代理將成為預設；設定儲存在您的使用者設定資料夾中。
+settings_model = 模型
+settings_model_ph = 例如 gpt-4o / claude-opus-4-8
+settings_remove_body = 移除此代理註冊？此操作無法還原。
+settings_remove_title = 移除代理
+settings_save_failed = 無法寫入設定檔。請檢查日誌。
+settings_title = AI Build — API 設定
+settings_use_env = 從環境變數讀取 token
+settings_use_env_tip = 僅儲存變數名稱；token 會在執行時從環境讀取，且不會寫入磁碟。
+submit = 傳送
+title = AI 建置
+tokens_n = {n} 個 token
+tokens_total = Tokens：0
+untitled = 新對話
+user_name = 使用者
+version_busy = [[warning:有執行程序正在進行 — 在切換設定版本前請稍候。]]
+version_saved = [[success:已儲存為設定版本 {v} — 可在設定清單中選取它（或選擇 Origin 以還原）。]]
+button = AI 建置
+conv_title = 聊天
+input_title = 提示
+opacity_tip = 覆蓋不透明度
+req_title = 需求
+max_repair = 最大修復回合數
+auto_commit = 編譯無錯誤時自動儲存
+run_autosave_off = [[warning:自動儲存已關閉 — 畫布已建置但尚未儲存。請手動儲存。]]
+clear = 清除
+demo_intro = 已連線。描述您的需求，我會為您建立畫布。
+demo_place = 已放置 [[node:獎勵]] 節點
+demo_param = 將 [[param:track_lin_vel_xy]] 的權重設為 [[value:10.0]]
+demo_wire = 將 [[node:獎勵]] 接線到 [[node:行走]] 項目
+demo_param2 = 在 [[node:Actor 設定]] 上將 [[param:action_scale]] 設為 [[value:0.25]]
+demo_warning = [[warning:base_height 權重 -8.0 接近其下限 -50.0]]
+demo_error = [[error:joint_accel_penalty 2.5 超出範圍 -0.001..0 — 會使關節凍結]]
+demo_success = [[success:畫布編譯成功 — 12 個節點、18 條邊]]
+ev_place = 已放置 [[node:{node}]] 節點
+ev_remove = 已移除 [[node:{node}]] 節點
+ev_connect = 已接線 [[node:{src}]] -> [[node:{dst}]] [[param:{port}]]
+ev_disconnect = 已斷開邊 [[param:{edge}]]
+ev_set = 在 [[node:{node}]] 上將 [[param:{key}]] 設為 [[value:{value}]]
+run_block = [[info:區塊 {i}/{n} — {title}]]
+block_robot = 機器人
+block_actor_env = Actor 與環境
+block_rewards = 獎勵
+block_training = 訓練
+block_export = 匯出
+req_applied = [[info:已套用您鎖定的需求：]]
+req_no_trainer = [[warning:尚無用於訓練長度需求的 trainer 節點；代理（agent）將會套用此需求。]]
+req_no_envs = [[warning:Compute intensity 在此 backend 的 trainer 上沒有 parallel-env 控制；已跳過。]]
+req_failed = [[warning:無法套用需求 {key}：{message}]]
+report_failed = [[warning:無法生成摘要（{detail}）；畫布已建立且有效。]]
+req_robot = 機器人
+req_robot_auto = 自動（保留目前）
+req_motion = 參考動作
+req_none = 無
+req_length = 訓練長度
+req_intensity = 運算強度
+req_advanced = 進階數值 ▸
+req_iters = 最大迭代次數
+req_envs = 平行環境數
+tier_auto = 自動
+tier_short = 短
+tier_medium = 中
+tier_long = 長
+tier_light = 輕
+tier_heavy = 重
+settings_tip = API 設定
+settings_reveal = 顯示
+settings_save = 儲存
+settings_cancel = 取消
+run_design = [[info:設計 — 已鎖定 {sku} / {backend} ({fam})]]
+run_need_robot = [[error:AI Build 需要先在畫布上放置機器人和後端。新增一個機器人節點（選擇一個 SKU）並綁定後端，然後再試一次。]]
+run_no_reference = [[warning:此任務沒有相同系列的參考；將根據註冊表語義進行建構。]]
+run_building = [[info:Orchestrator — 正在建構畫布…]]
+run_repairing = [[warning:有 {n} 個阻塞問題；正在修復（第 {r} 輪）…]]
+run_compiled = [[success:畫布已編譯 — 無阻塞問題。]]
+run_exhausted = [[error:修復已耗盡 — 有 {n} 個阻塞問題；未儲存任何變更。]]
+run_issue = [[error:{message}]]
+run_connecting = [[info:正在連線至模型…]]
+run_saved = [[success:畫布已儲存至專案。]]
+run_not_saved = [[warning:畫布已建構但未自動儲存（無專案目標）— 請手動儲存。]]
+run_api_failed = [[error:Model API 呼叫失敗 — {detail}]]
+run_cancelled = [[warning:AI Build 執行已取消。]]
+group_today = 今天
+group_yesterday = 昨天
+group_week = 過去 7 天
+group_older = 更早
+chip_ppo = 產生 PPO 設定
+chip_reward = 新增獎勵函數
+chip_tune = 微調超參數
+chip_debug = 除錯訓練
+config_title = 設定
+banner_robot = 機器人
+banner_backend = 後端
+banner_task = 目前任務
+banner_target = 訓練目標
+banner_local = 本機訓練
+banner_cloud = 雲端訓練
+banner_task_more = {first} +{n} 更多…
+
+[body_mapping]
+col_current = 目前
+col_role = 角色
+no_roles = 此資產沒有身體角色
+refresh = 重新整理
+select_asset = 選擇一個 asset_id
+warn_joints = ⚠ {n} 個關節未配對 — 指派或標記為範圍外：{preview}
+label_unassigned = (未指派)
+label_out_of_scope = (超出範圍)
+
+[btn]
+node_lib.tip = 節點庫
+
+[button]
+close = 關閉
+
+[cmd_inspector]
+col_kind = 類型
+col_name = 名稱
+col_obs = 觀測維度
+col_range = 範圍
+col_source = 來源
+empty_hint = 請至少啟用一個訓練項目。
+	指令通道會自動推導。
+empty_title = 指令合約為空
+footer_cmd = 指令維度
+footer_obs = 觀測維度
+footnote_encoding = (相位通道編碼為 {layouts})
+title = 指令合約
+kind.continuous = 連續
+kind.trigger = 觸發
+kind.enum = 列舉
+source.velocity_item_union = 速度項目
+source.gait_registry = 步態註冊表
+source.skill = 技能
+layout.sin_cos = sin/cos
+unresolved.family_unknown = Robot 族群未知 — 請透過 Actor 管道連接一個 Robot 節點。
+unresolved.family_no_gait = 此 Robot 族群在 registry 中沒有 gait 指令的條目。
+unresolved.no_enabled_items = 沒有啟用的訓練項目 — 請至少啟用一項。
+unresolved.unknown_item = 此節點上的一個訓練項目在 commands registry 中找不到。
+unresolved.malformed_param = 一個節點參數格式錯誤 — 僅為預覽目的已用預設值取代。
+
+[error]
+copy.done = Canvas 錯誤報告已複製到剪貼簿。
+empty = (未回報結構化問題)
+headline.errors = Canvas 有 {e} 個問題，必須在訓練開始前修復。
+headline.mixed = Canvas 有 {e} 個錯誤和 {w} 個警告。請先修正下列錯誤後重新執行。
+headline.unknown = 畫布檢查發現問題。
+headline.warnings = 畫布有 {w} 個警告。
+hint = 下方每一筆項目都會指出畫布節點與觸發檢查的參數。打開該節點，調整數值，儲存畫布，然後再次按 ▶ 重試。
+title = 畫布檢查失敗
+
+[group]
+default_title = 群組
+
+[inline]
+col_grace = 寬限期
+col_item = 項目
+col_maxspeed = 最大速度
+col_name = 名稱
+col_param = 值
+col_scale = 比例
+col_threshold = 閾值
+col_value = 值
+col_weight = 權重
+
+[menu]
+add_node = 新增節點
+copy = 複製 (Ctrl+C)
+delete = 刪除
+disconnect_all = 斷開所有連線
+duplicate = 複製並建立副本 (Ctrl+D)
+paste_here = 在此貼上 (Ctrl+V)
+disconnect = 斷開連線
+
+[minimenu]
+placeholder = (即將推出)
+
+[obs_injected]
+critic_section = Critic（具特權）
+divider = 來自命令管線（注入）
+footer = 總觀測維度 {total} — 使用者 {user} + 注入 {injected}
+readonly = 唯讀
+
+[port]
+optional = (可選)
+
+[review_launch]
+button = 啟動審查
+
+[reward_pager]
+col_count = 獎勵數量
+col_group = 關節群組
+col_ops = 操作
+global = 全域（所有關節）
+summary = {n} 個群組
+
+[rewards]
+coverage.add_set = 新增建議集合
+coverage.banner.critical = 嚴重：一個或多個階段缺少必要的負向獎勵。訓練可能產生不良行為，例如閒置時四肢亂甩。
+coverage.banner.ok = 所有階段皆有正向與負向獎勵覆蓋。
+coverage.banner.warning = 警告：至少有一個階段缺少建議的獎勵覆蓋。
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = 階段
+coverage.col.pos = +
+coverage.col.status = 狀態
+coverage.double_click_hint = 雙擊徽章以開啟覆蓋檢查器。
+coverage.empty = 尚未設定任何獎勵項目 — 至少新增一個項目以取得覆蓋評估。
+coverage.green = 所有階段皆包含正向 + 負向獎勵覆蓋。
+coverage.inspector.title = 獎勵覆蓋檢查器
+coverage.red = 嚴重：一個或多個階段缺少必要的約束獎勵。
+coverage.title = 獎勵覆蓋
+coverage.yellow = 警告：至少有一個階段缺少建議的獎勵。
+
+[robot]
+health.counts = MJCF: {m} 個關節  ·  USD: {u} 個關節  ·  基座偏移: {off}
+health.crit = 兩種格式皆未匯出 — 請開啟 Robot Assets，並在訓練前點選 Dump MJCF / Dump USD。
+health.double_click_hint = 雙擊徽章以查看完整的關節對應表。
+health.gap = MJCF 與 USD 宣告了不同的 IR-role 集合 — 受影響：{aff}。
+health.offset_uncalibrated = (未校準)
+health.ok = MJCF 與 USD 的關節集合一致 — 兩種部署目標皆可用。
+health.single = 僅 {present} 已匯出 — 針對此機器人訓練的 bundles 將無法使用 {missing} 部署目標。
+health.title = 機器人匯出狀態
+mjcf_offset.not_applicable = 不適用
+mjcf_offset.uncalibrated = 未校準
+pd_table.auto_none = 此機器人沒有可用的建議預設值。
+pd_table.auto_tooltip = 填入官方建議的 (ωn, ζ) 與 effort/velocity 預設。解析順序：brand manifest → USD drive params (cached from Dump USD) → family defaults。
+pd_table.dialog_title = PD / 致動器
+pd_table.header = 每關節 PD 增益（kp = m_eff·ωn²）— 從 MJCF 質量矩陣即時推算。可針對群組編輯 (ωn, ζ)；kp/kd 為唯讀。
+pd_table.redump_failed = 重新匯出 USD 失敗：{error}
+pd_table.redump_tooltip = 匯出 USD 資產以更新快取的 drive params，然後從匯出值重新填入 AUTO。
+pd_table.remotized_note = 被遠端化的關節（連桿驅動）會在 Effort 中顯示其角度相依的扭矩表峰值，而非純量上限。
+pd_table.remotized_tooltip = 角度相依扭矩表峰值（遠端關節）
+pd_table.auto_button = AUTO ⤓
+pd_table.redump_button = 重新導出 USD
+
+[row]
+empty = —
+entries = {n} 筆項目
+false = 否
+ir_picker_all = 全部
+no_items = (無項目)
+preset_unselected = —
+selected = {n} 已選取
+true = 是
+bool_check = ✔
+
+[toolbar]
+collapse = 摺疊
+color = 選擇顏色（右鍵點擊重設）
+delete = 刪除
+enable = 啟用
+expand = 展開
+group = 群組
+skip = 停用
+ungroup = 取消群組
+
+[training_motion]
+add_item = + 新增訓練項目
+helper = 已啟用的項目會為導出的指令合約貢獻速度通道。
+packages.button = 訓練套件
+skills.button = 技能通道
+weight_set.button = 權重集
+weight_set.cancel = 取消
+weight_set.hint = 拖曳兩個切片之間的邊界以在它們之間移動權重；或點擊一個百分比以輸入數值（僅該項目會變更）。Apply is enabled once the total is exactly 100%%.
+weight_set.ok = 套用
+weight_set.reset = 重設為均等權重
+weight_set.title = 採樣權重
+weight_set.total = 總和
+

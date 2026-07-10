@@ -1,0 +1,61 @@
+[default]
+add_path = Aggiungi un percorso personalizzato
+add_robot = Nuovo modello
+add_tip = Registra un nuovo robot o una variante
+add_variant = Nuova variante di …
+add_variant_empty = Nessun robot base è ancora registrato. Aggiungi prima un modello.
+cascade_body = Questo robot ha varianti utente che dipendono da esso. Elimina o scollega prima le varianti.
+	
+	{detail}
+cascade_title = Impossibile eliminare
+coming_soon = Presto disponibile
+delete = Elimina
+dump = Esporta corpi / giunti
+dump_disabled = Né l'asset MJCF né l'asset USD sono disponibili (nessun file locale e nessun URL Nucleus dichiarato)
+dump_done_title = Esportazione completata
+dump_error_no_asset = Impossibile risolvere l'asset del robot per lo SKU {sku}
+dump_error_persist = Impossibile salvare i corpi scoperti per {fmt}
+dump_error_validation = Convalida fallita dopo la scrittura della mappatura {fmt}:
+	
+	{exc}
+	
+	Apri il nodo Robot nel canvas e correggi i ruoli IR dei giunti/corpi segnalati, poi riesegui l'esportazione.
+dump_format_mismatch = 
+	⚠ {larger_fmt} ha {larger_n} giunti ma {smaller_fmt} ne ha {smaller_n}. L'addestramento non è influenzato, ma {affected} non sarà disponibile per i bundle addestrati rispetto al set di giunti del lato {larger_fmt}. Se ti servono entrambi i target di deploy, rimappa l'asset {smaller_fmt} a una variante corrispondente (ad es. per G1 usa scene_with_hands.xml insieme a g1.usd) e riesegui l'esportazione.
+edit = Modifica
+edit_canonical_disabled = I robot canonici sono di sola lettura. Aggiungi invece una nuova voce utente.
+ignore_package = Ignora
+ignore_package_tip = Salta questa directory nelle future scansioni di Refresh
+inertia_calib_done = Sovrapposizione inerziale {status}: {n} override di corpo scritti in {rel}.
+inertia_calib_done_title = Calibrazione dell'inerzia completata
+inertia_calib_error_title = Calibrazione dell'inerzia fallita
+inertia_calib_ignored = {n} corpo(i) sotto la tolleranza — vedi la lista di audit ignored_bodies della sovrapposizione.
+inertia_calib_offer_body = Confronta la massa/inerzia per corpo dell'USD di addestramento con l'MJCF di MuJoCo e scrive una sovrapposizione non distruttiva (l'MJCF originale non viene mai modificato). Questo chiude il gap sim2sim IsaacLab→MuJoCo per i robot il cui MJCF include inerzia segnaposto. La raccolta dall'USD può richiedere 5–30 s.
+inertia_calib_offer_title = Calibrare l'inerzia dall'USD?
+menagerie = Menagerie…
+menagerie_tip = Sfoglia e scarica pacchetti MuJoCo Menagerie
+no_path = (nessuno)
+pick_file = Scegli un file {kind}
+pick_parent = Scegli il modello base da cui questa variante eredita:
+refresh_tip = Riscansiona il registro degli asset
+tag_placeholder = Aggiungi tag...
+view_mapping = Visualizza la mappatura dei giunti
+view_mapping_error_title = Mappatura dei giunti non disponibile
+add_robot_tip = Registra un nuovo robot
+dump_error_title = Dump non riuscito
+dump_mjcf = Esporta corpi / giunti MJCF
+dump_mjcf_disabled = Asset MJCF non disponibile localmente
+dump_usd = Esporta corpi / giunti USD
+dump_usd_disabled = Asset USD non dichiarato (nessun percorso locale e nessuna URL Nucleus)
+
+[status]
+cloud = cloud
+local = locale
+missing = mancante
+remote = remoto
+
+[tag]
+canonical = canonico
+cloud = cloud
+custom = personalizzato
+

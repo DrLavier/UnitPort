@@ -1,0 +1,23 @@
+[default]
+asset_path = Asset: {path}
+col_ir = Ruolo IR
+col_joint = Giunto fisico
+coverage_gap = ⚠ Gap tra formati — Non disponibile: {affected}
+coverage_ok = ✓ MJCF e USD concordano — entrambi i target di deploy sono disponibili
+coverage_single = Dichiarato un solo formato; controllo tra formati saltato
+height_na = Offset base-altezza: non applicabile (configurazione a formato singolo)
+height_uncalibrated = Offset base-altezza: (non calibrato — esegui Calibrate dalla scheda Robot Asset)
+height_value = Offset base-altezza (USD↔MJCF): {offset}  ·  calibrato {ts}
+legend = Colore riga: <span style='color:#4caf50'>■ corrispondente</span> · <span style='color:#ff9800'>■ orfano (solo in questo formato)</span> · <span style='color:#f44336'>■ non mappato (ruolo IR vuoto)</span> · <span style='color:#9e9e9e'>■ bucket (varie / sensore / base)</span>
+mjcf = MJCF (deploy per MuJoCo)
+no_rows = (nessun giunto esportato — clicca Dump sulla scheda Robot Asset)
+row_summary = Totale: {total}  ·  corrispondenti: {m}  ·  orfani: {o}  ·  non mappati: {u}  ·  bucket: {b}
+title = Mappatura giunti — {name} (sku={sku})
+usd = USD (IsaacSim / distribuzione su cloud)
+
+[tooltip]
+bucket = Ruolo bucket (varie / sensore* / base) — può legittimamente ripetersi o differire tra i formati; ignorato dal controllo di copertura.
+matched = Ruolo IR presente sia nelle tabelle MJCF che USD — il bundle viene distribuito correttamente.
+orphan = Ruolo IR dichiarato solo in questo formato — l'ALTRO target di deploy non rispetterà questo giunto.
+unmapped = Giunto fisico esportato ma nessun ruolo IR assegnato. Apri la tabella Robot Node Body Mapping per assegnarne uno prima dell'addestramento.
+

@@ -6,3 +6,6 @@ scalar = Scalar
 [err]
 dup_item = An item named '{name}' already exists.
 
+[review_motion]
+submitted = Review Motion has started (MuJoCo non-physical playback)…
+

@@ -1,0 +1,7 @@
+[default]
+action = 啟動雲端伺服器並執行轉儲
+body = UnitPort 需要為每台標準機器人（Unitree Go2、Boston Dynamics Spot、Unitree H1 等）提供 USD 車體拓撲，以便接觸感測器、畫布預實現與訓練驗證能可靠連接。本機轉儲流程需要本地安裝的 IsaacLab；而您目前僅設定了雲端 IsaacLab 伺服器。請先啟動您的雲端伺服器，然後按下方按鈕以遠端執行轉儲。
+dismiss = 關閉
+headline = 在此安裝中尚未轉儲標準機器人 USD 車體表。
+window_title = Cloud IsaacLab — 需要 USD 車體轉儲
+

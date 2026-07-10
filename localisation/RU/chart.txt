@@ -1,0 +1,16 @@
+[empty]
+no_visible_series = Нет видимых серий
+
+[runs]
+clear = Очистить
+empty = Нет запусков
+n_selected = 
+none_selected = Выбрать запуски
+select_all = Выбрать все
+tag.failed = [не удалось]
+tag.finished = [завершено]
+tag.running = [ВЫПОЛНЯЕТСЯ]
+
+[series]
+cmd_reward = Награда за команду
+

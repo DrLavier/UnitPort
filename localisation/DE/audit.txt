@@ -1,0 +1,23 @@
+[review]
+actor_line = {actor}
+btn_accept = Akzeptieren
+btn_reject = Ablehnen
+btn_reject_all = Alle ablehnen
+dialog_intro = Während Sie abgemeldet waren, haben andere Benutzer auf diesem Computer {n} Änderungen an Dateien in Ihrem Arbeitsbereich vorgenommen. Überprüfen Sie jede Änderung und wählen Sie Akzeptieren (deren Änderung beibehalten) oder Ablehnen (aus Ihrer Cloud-Kopie wiederherstellen).
+dialog_title = Ausstehende Änderungen durch andere Benutzer
+file_line = {path}
+op_delete = gelöscht
+op_overwrite = bearbeitet
+reject_confirm_body = Dadurch wird die vorherige Version von '{name}' aus Ihrem Cloud-Namespace abgerufen und die lokale Datei überschrieben.
+	
+	Fortfahren?
+reject_confirm_title = Aus der Cloud wiederherstellen?
+reject_failed_network = Cloud-Abruf fehlgeschlagen (Netzwerk- oder Authentifizierungsfehler): {err}
+reject_failed_no_cloud = Keine Cloud-Kopie verfügbar — Ablehnen nicht möglich. (Wurde diese Datei jemals synchronisiert?)
+time_line = {time}
+btn_accept_all = Alle akzeptieren
+btn_later = Später entscheiden
+reject_success_cloud = Aus der Cloud wiederhergestellt
+accept_confirm_body = Möchten Sie {actor}s {op} an '{name}' beibehalten? Dieser Eintrag wird aus der Überprüfungsliste entfernt.
+empty_state = Keine ausstehenden Änderungen zur Überprüfung.
+

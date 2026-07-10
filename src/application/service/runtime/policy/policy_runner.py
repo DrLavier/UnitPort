@@ -49,7 +49,12 @@ from application.training.manifest_schema import CheckpointBundle
 from .action_applier import ActionApplier
 from .bundle_loader import BundleLoader
 from .compatibility_checker import CompatibilityChecker, CompatReport, CompatStatus
-from .inference_engine import InferenceEngine, JITEngine, ONNXEngine
+from .inference_engine import (
+    InferenceEngine,
+    JITEngine,
+    ONNXEngine,
+    policy_load_dim_guard,
+)
 from .normalizer import NormalizationStats, Normalizer
 from .obs_builder import ObsBuilder
 from .command_mapping import CommandMapper, build_command_mapper
@@ -64,6 +69,40 @@ log = logging.getLogger(__name__)
 
 class IncompatibleWeightError(RuntimeError):
     """Raised when a bundle is incompatible with the current environment."""
+
+
+def assert_policy_io_dims(
+    engine: InferenceEngine,
+    *,
+    obs_dim: int,
+    action_dim: int,
+    label: str,
+) -> None:
+    """B2 — fail loud when a policy file's introspectable I/O dims disagree with
+    the manifest, BEFORE the first inference.
+
+    ``engine.io_dims()`` returns ``None`` for any axis it cannot read statically
+    (JITEngine, or a dynamic ONNX feature axis) — that axis is skipped (§8: never
+    compare against a fabricated dim; the guarded predict path is the net for
+    those). Raises :class:`IncompatibleWeightError` naming the exact disagreement.
+    """
+    got_obs, got_action = engine.io_dims()
+    mismatches: list[str] = []
+    if got_obs is not None and got_obs != int(obs_dim):
+        mismatches.append(
+            f"policy obs input dim {got_obs} != bundle.obs_dim {int(obs_dim)}"
+        )
+    if got_action is not None and got_action != int(action_dim):
+        mismatches.append(
+            f"policy action output dim {got_action} != bundle.action_dim {int(action_dim)}"
+        )
+    if mismatches:
+        raise IncompatibleWeightError(
+            f"{label} policy file I/O dims disagree with the manifest: "
+            f"{'; '.join(mismatches)}. The policy file and the manifest were "
+            f"produced from different shapes — re-export the bundle. "
+            f"(B2 load-time dimension guard.)"
+        )
 
 
 @dataclass
@@ -420,6 +459,20 @@ class PolicyRunner:
             self._engine = self._engine_for_format(bundle.policy_format)
 
         self._engine.load(bundle.policy_file)
+
+        # B2 — policy load-time dimension guard. Fail loud HERE (right after the
+        # graph is loaded, BEFORE set_recurrent so a stale recurrent contract
+        # can't mask a feed-forward obs/action mismatch) when the policy file's
+        # introspectable I/O dims disagree with the manifest. The recurrent
+        # "no h_in" mismatch is already fail-loud inside set_recurrent — this
+        # only covers the obs/action feature axes, which were never checked.
+        assert_policy_io_dims(
+            self._engine,
+            obs_dim=bundle.obs_dim,
+            action_dim=bundle.action_dim,
+            label=f"Bundle '{bundle_path}'",
+        )
+
         # 缺口① — recurrent policy: declare the GRU/LSTM contract to the engine
         # so it threads the hidden state internally. ONNXEngine self-detects
         # and cross-checks (raises on mismatch §8); JITEngine REQUIRES this
@@ -430,6 +483,29 @@ class PolicyRunner:
         if _rec is not None:
             self._engine.set_recurrent(_rec.rnn_type, _rec.hidden_size, _rec.num_layers)
         self._normalizer = self._load_bundle_normalizer(bundle)
+
+        # B1 PCW2 — normalization presence drift. The contract says the policy
+        # was trained on normalized obs, but no stats were shipped/loaded → the
+        # deploy policy sees raw (out-of-distribution) obs. WARN (not FAIL): a
+        # frozen graph can't prove it, and some bundles legitimately ship stats
+        # out-of-band. Lives HERE (not in CompatibilityChecker) because the
+        # checker runs before the normalizer is loaded.
+        _pc = getattr(_contract, "policy_contract", None) if _contract is not None else None
+        if (
+            _pc is not None
+            and getattr(_pc, "normalization_present", False)
+            and self._normalizer.is_empty()
+        ):
+            log.warning(
+                "PolicyRunner.load: bundle '%s' policy_contract declares "
+                "normalization_present=True (kind=%s) but no normalization stats "
+                "were loaded — the policy will see un-normalized (out-of-"
+                "distribution) observations. Re-export the bundle with its "
+                "normalization stats, or verify the deploy obs are already "
+                "normalized.",
+                bundle_path,
+                getattr(_pc, "normalization_kind", "?"),
+            )
 
         self._policy_id = Path(bundle_path).name
 
@@ -1063,7 +1139,12 @@ class PolicyRunner:
             )
             self._last_obs = obs
             obs_norm = self._normalizer.normalize_obs(obs)
-            raw_action = self._engine.predict(obs_norm)
+            # B2 — guarded predict: translate an opaque ONNX/torch shape error
+            # into a clear sim2sim diagnostic. The only dimension net for
+            # TorchScript (io_dims None) and dynamic-axis ONNX, where the
+            # load-time assertion above could not check the feature dim.
+            with policy_load_dim_guard(context=f"policy '{self._policy_id}'"):
+                raw_action = self._engine.predict(obs_norm)
             return self._normalizer.denormalize_action(raw_action)
         finally:
             self._env.mj_data = original_mj_data

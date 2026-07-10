@@ -1,0 +1,7 @@
+[default]
+headline = 헤디드(Headed) 학습 렌더링이 GPU BAR1 aperture를 통해 수행되고 있으며, 이번 실행에서는 너무 작거나 포화된 것처럼 보입니다. GPU device-lost error로 인해 충돌할 수 있습니다.
+title_block = 학습이 충돌할 가능성이 높음 (GPU BAR1)
+title_warn = GPU 메모리 경고 (BAR1)
+btn_continue = 그래도 계속
+btn_abort = 중단
+

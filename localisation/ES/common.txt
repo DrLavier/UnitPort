@@ -1,0 +1,6 @@
+[default]
+cancel = Cancelar
+current_canvas = lienzo actual
+empty = (ninguno)
+ok = Aceptar
+

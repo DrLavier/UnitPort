@@ -41,7 +41,21 @@ import hashlib
 from pathlib import Path
 from typing import Any, Optional
 
-from unitport_sdk import log_info, log_warning
+# WHY KEPT (CLAUDE.md §8(a) — cross-venv / optional import): this module is
+# imported from BOTH the app venv (GUI checkpoint picker, training-prepare) and
+# the Isaac Kit worker venv (il_train_launcher warm-start → runner.load →
+# load_checkpoint_safely). The Kit venv has NO PyQt6, and `unitport_sdk` pulls
+# logger → PyQt6, so a bare top-level import aborts every Kit-side warm-start
+# with "No module named 'PyQt6'". Degrade to print shims when the SDK is
+# unavailable (Kit side) and use the real loguru-backed logger app-side.
+try:
+    from unitport_sdk import log_info, log_warning
+except Exception:  # noqa: BLE001 — Kit venv: PyQt6 behind unitport_sdk is absent
+    def log_info(message: str) -> None:  # type: ignore[misc]
+        print(f"[ckpt_safety] {message}", flush=True)
+
+    def log_warning(message: str) -> None:  # type: ignore[misc]
+        print(f"[ckpt_safety][WARN] {message}", flush=True)
 
 
 def _sidecar_path(path: Path) -> Path:

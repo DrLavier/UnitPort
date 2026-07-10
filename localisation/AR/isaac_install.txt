@@ -1,0 +1,24 @@
+[btn]
+close = إغلاق
+open_log = فتح مجلد السجلات
+retry = أعد المحاولة
+switch_locate = التبديل إلى وضع تحديد الموقع
+
+[dialog]
+title = جارٍ تثبيت Isaac Lab
+
+[heading]
+error = فشل تثبيت Isaac Lab
+running = جارٍ تثبيت Isaac Lab
+success = تم تثبيت Isaac Lab
+
+[phase]
+fallback_external = التبديل إلى venv خارجي (تم اكتشاف تعارضات pip)
+preflight = جارٍ الإعداد...
+
+[status]
+error_hint = راجع السجل للحصول على التفاصيل الكاملة. يمكنك إعادة المحاولة، أو التبديل إلى البحث عن تثبيت Isaac Lab موجود.
+idle = في انتظار بدء برنامج التثبيت...
+success = تم التثبيت بنجاح في: {path}
+success_generic = اكتمل التثبيت
+

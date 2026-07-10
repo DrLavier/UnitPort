@@ -1,0 +1,25 @@
+[default]
+canvas_saved = 캔버스 저장됨: {path}
+feature_pending = 
+history_cleared = 학습 기록이 삭제됨
+history_delete_failed = 런 {} 삭제에 실패했습니다
+history_deleted = 런 {} 삭제됨
+history_loaded = 런 {}에서 캔버스 복원됨 — 저장하려면 Ctrl+S
+history_missing = 런 [{}] {}이 더 이상 디스크에 존재하지 않습니다
+history_snapshot_missing = 런 [{}] {}의 캔버스 스냅샷이 디스크에 없습니다
+no_project = 프로젝트가 로드되지 않았습니다
+policy_missing = 정책 [{}] {}가 선택되었으나 번들 경로가 디스크에 없습니다
+policy_no_project = 프로젝트가 로드되지 않았습니다
+policy_selected = 선택된 정책: [{}] {}
+ready = UnitPort 준비 완료
+template_apply_failed = 템플릿 내용 적용에 실패했습니다
+template_backend_mismatch = 템플릿 백엔드 '{tb}'가 현재 캔버스 백엔드 '{cb}'와 일치하지 않습니다
+template_loaded = 템플릿 '{name}'이 현재 캔버스에 로드됨 — 저장하려면 Ctrl+S
+template_missing = 템플릿이 디스크에 없습니다
+template_no_backend = 템플릿에 백엔드 필드가 없습니다
+template_no_canvas = 템플릿을 로드하기 전에 캔버스를 여세요
+template_no_project = 템플릿을 로드하기 전에 프로젝트와 캔버스를 여세요
+template_read_failed = 템플릿을 읽지 못했습니다
+history_no_chart = 선택된 실행: {} (차트가 준비되지 않음)
+history_selected = 실행 선택됨:
+

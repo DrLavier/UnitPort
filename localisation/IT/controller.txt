@@ -1,0 +1,58 @@
+[conflict]
+action = un'azione di sistema
+channel = un canale di comando
+msg = {input} è già associato a {owner} ({cat}). Un ingresso fisico può avere una sola associazione — rimuovi prima l'associazione lì, poi riprova.
+title = Conflitto di associazione
+trigger = un attivatore di abilità
+
+[default]
+axis_unbound = — (non assegnato)
+button_unbound = — (non assegnato)
+channel_not_bindable = — (non ancora associabile)
+invert_vy = Inverti vy
+invert_vyaw = Inverti vyaw
+reset = Reimposta
+off_hint = Input disabilitato. Seleziona Tastiera o Gamepad sopra.
+policy_channels = Canali di comando della policy
+system_actions = Pulsanti → Azioni di sistema
+system_actions_keys = Tasti → Azioni di sistema
+stale_channels = Binding salvati non presenti in questo contratto
+no_policy_hint = Nessuna policy caricata. Una skill che crei sul Training Motion node diventa un canale associabile QUI solo dopo che addestri ed esporti una policy e la selezioni in Mission Control · Simulate — un trigger è un comportamento addestrato, non solo una mappatura di tasti. I pulsanti qui sotto sono azioni di sistema (boost / estop / …): sempre disponibili, indipendenti da qualsiasi policy; per questo non si trovano sul Training Motion node.
+no_contract_hint = Questa policy non ha canali di comando — riesporta il bundle dopo aver creato comandi di velocità o una skill sul Training Motion node.
+legacy_contract_hint = La policy caricata contiene un blocco comandi legacy — riesporta il bundle per associare qui i canali di comando.
+
+[latch]
+hold = Tieni premuto (mentre è premuto)
+pulse = Impulso (premi una volta)
+unsupported = (non fornito dal lato di addestramento)
+
+[pick]
+button = Pulsante
+mode = Modalità
+
+[axis]
+left_stick_x = Stick L X
+left_stick_y = Stick L Y
+right_stick_x = Stick R X
+right_stick_y = Stick R Y
+
+[kb]
+forward = Avanti
+backward = Indietro
+strafe_left = Spostamento laterale a sinistra
+strafe_right = Spostamento laterale a destra
+yaw_left = Rotazione a sinistra
+yaw_right = Rotazione a destra
+estop = Arresto di emergenza
+boost = Potenzia
+
+[mode_btn]
+off = Disattivato
+keyboard = Tastiera
+gamepad = Gamepad
+
+[mode]
+off = Disattivato
+keyboard = Tastiera
+gamepad = Gamepad
+

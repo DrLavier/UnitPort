@@ -1,0 +1,69 @@
+[fullscreen]
+tip = Vollbild
+short = Vollbild
+
+[language]
+tip = Sprache
+short = Sprache
+
+[settings]
+tip = Einstellungen
+short = Einstellungen
+
+[update]
+tip_latest = Sie verwenden die neueste Version
+tip = Aktualisierung
+short_latest = Neueste
+short_needed = Aktualisierung
+tip_needed = Neue Version verfügbar — klicken, um sie anzuwenden
+
+[training]
+tip = Projekt- und globale Skripte
+short = Training
+title = Trainingsskripte
+
+[observations]
+tip = Voreingestellte Beobachtungsmodule
+short = Beobachtungen
+title = Beobachtungen
+
+[terminations]
+tip = Voreingestellte Beendigungsmodule
+short = Beendigungen
+title = Beendigungen
+
+[rewards]
+tip = Voreingestellte Belohnungsmodule
+short = Belohnungen
+title = Belohnungen
+
+[resources]
+tip = Drittanbieter-Bewegungsdatensätze & Policy-Bundles
+short = Ressourcen
+title = Ressourcen
+
+[controller]
+tip = Controller
+short = Controller
+title = Controller
+
+[robot_assets]
+tip = Roboter-Asset
+short = Roboter
+title = Roboter-Asset
+
+[projects]
+tip = Projektdateien
+short = Projekte
+title = Projektdateien
+
+[node_library]
+tip = Node-Bibliothek
+short = Knoten
+title = Node-Bibliothek
+
+[user]
+tip = Benutzer
+short = Benutzer
+title = Benutzer
+

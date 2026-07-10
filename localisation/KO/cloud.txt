@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = 켜져 있으면 UnitPort는 저장한 직후 변경된 워크스페이스 파일을 각각 클라우드로 푸시합니다.
+busy_pull = 클라우드에서 가져오는 중...
+busy_push = 클라우드로 푸시하는 중...
+manage_dialog_delete_confirm_body = 클라우드에서 '{name}'을(를) 영구 삭제하시겠습니까?
+manage_dialog_delete_confirm_title = 클라우드 파일 삭제
+manage_dialog_dl_conflict_body = 로컬 파일이 이미 존재합니다:
+	{path}
+	
+	어떻게 하시겠습니까?
+manage_dialog_dl_conflict_title = 파일이 존재합니다
+manage_dialog_dl_done_body = 다음 위치에 다운로드됨:
+	{path}
+manage_dialog_dl_done_title = 다운로드 완료
+manage_dialog_dl_overwrite = 덮어쓰기
+manage_dialog_dl_save_as = 다른 이름으로 저장…
+manage_dialog_dl_save_as_caption = 다운로드한 파일 저장
+manage_dialog_dl_skip = 건너뛰기
+manage_dialog_empty = 클라우드에 파일이 아직 없습니다 — Push를 시도하거나 파일을 이곳으로 끌어오세요.
+manage_dialog_folder_del_body = 클라우드에서 '{name}' 및 내부의 {n}개 파일을 모두 영구 삭제하시겠습니까?
+manage_dialog_folder_del_title = 폴더 삭제
+manage_dialog_folder_dl_all_skipped = 모든 파일이 이미 로컬에 존재합니다 — 다운로드된 항목이 없습니다.
+manage_dialog_folder_dl_body = '{name}'에 있는 {n}개의 파일을 로컬 워크스페이스로 다운로드하시겠습니까?
+manage_dialog_folder_dl_replace = 기존 파일 교체
+manage_dialog_folder_dl_skip_existing = 기존 파일 건너뛰기
+manage_dialog_folder_dl_title = 폴더 다운로드
+manage_dialog_folder_summary = {n}개 항목 · {size}
+manage_dialog_loading = 로딩 중...
+manage_dialog_not_signed_in = 클라우드 저장소를 관리하려면 먼저 로그인하세요.
+manage_dialog_op_failed_body = {phase} 실패:
+	{err}
+manage_dialog_op_failed_title = 작업 실패
+manage_dialog_oversize_body = 50 MB를 초과하는 파일은 업로드할 수 없습니다:
+	{names}
+manage_dialog_oversize_title = 파일이 너무 큽니다
+manage_dialog_quota = 사용량 {used} / {total}
+manage_dialog_title = 클라우드 저장소 관리
+manage_tooltip = 클라우드 동기화 설정 및 저장된 파일 관리
+never_synced = 안 함
+pull_tooltip = 클라우드 파일을 로컬 워크스페이스로 다운로드
+push_tooltip = 로컬 워크스페이스 파일을 클라우드로 업로드
+status_error = 동기화 실패: {msg}
+status_signed_out = 클라우드 동기화를 활성화하려면 로그인하세요.
+status_synced = {n}개 파일 동기화됨 · 마지막 동기화 {when}
+section_title = 클라우드 동기화
+push_button = 업로드
+pull_button = 다운로드
+manage_button = 관리
+manage_coming_soon = 클라우드 관리 대화상자 곧 제공됩니다.
+manage_dialog_refresh = 새로고침
+manage_dialog_close = 닫기
+manage_dialog_uploading = 업로드 중: {name}…
+manage_dialog_deleting = 삭제 중…
+manage_dialog_downloading = 다운로드 중…
+download_tooltip = 로컬 작업 공간으로 다운로드
+delete_tooltip = 클라우드에서 삭제
+folder_download_tooltip = 이 폴더의 모든 파일 다운로드
+folder_delete_tooltip = 이 폴더와 내부의 모든 파일 삭제
+auto_push_label = 자동 업로드
+status_idle = 대기 중
+status_pushing = 업로드 중... {done}/{total}
+status_pulling = 다운로드 중... {done}/{total}
+status_self_check = 클라우드에 {n}개의 항목이 있습니다.
+status_no_remote = 클라우드가 비어 있습니다
+status_size_skip = 50 MB를 초과하는 파일 {n}개를 건너뜀
+busy_self_check = 클라우드 상태 확인 중...
+done_push = {ok}/{total}개의 파일을 푸시했습니다. 건너뜀: {skipped}.
+done_pull = {ok}/{total}개의 파일을 가져왔습니다. 건너뜀: {skipped}.
+

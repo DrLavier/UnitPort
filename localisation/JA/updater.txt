@@ -1,0 +1,38 @@
+[btn]
+close = UnitPort を閉じる
+ok = OK
+skip = このバージョンをスキップ
+update_on_exit = 終了時に更新
+update_restart = 更新して再起動
+apply = 更新を適用
+later = 後で
+
+[dialog]
+title_available = 更新があります
+title_complete = 更新が適用されました
+title_latest = UnitPort は最新です
+title_progress = UnitPort を更新中
+
+[label]
+channel = チャンネル
+latest_body = 現在 UnitPort v{current} を使用しています。GitHub で新しいリリースは見つかりませんでした。
+no_release_notes = （このバージョンのリリースノートはありません）
+release_notes = リリースノート
+restart_prompt = v{version} への更新が適用されました。UnitPort を終了します。start.bat または start.sh で再起動してください。
+current_version = 現在のバージョン
+latest_version = 最新バージョン
+restarting = v{version} への更新が適用されました。UnitPort を再起動しています…
+
+[notice]
+ok = 了解
+title = 新機能
+
+[progress]
+connecting = 接続中
+checking = 更新を確認中
+downloading = ダウンロード中
+extracting = アーカイブを展開中
+merging = ファイルをマージ中
+git_fetch = タグを取得中
+git_checkout = リリースをチェックアウト中
+

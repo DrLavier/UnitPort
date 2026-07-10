@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "physics_config"
+backends = ["sb3_mujoco"]  # SB3/MuJoCo only; IL reads sim_dt from play_ground_setting
 kind = "CUSTOM"
 version = "1.0.0"
 category = "config"

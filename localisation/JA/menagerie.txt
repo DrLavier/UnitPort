@@ -1,0 +1,20 @@
+[default]
+close_btn = 閉じる
+dialog_title = MuJoCo コレクション
+download_btn = 選択したパッケージをダウンロード
+download_busy = 既にダウンロード中です。しばらくお待ちください。
+download_done = パッケージを{n}個ダウンロードしました。
+download_empty = 「ダウンロード」をクリックする前に、少なくとも1つのパッケージにチェックを入れてください。
+download_failed = ダウンロードに失敗しました: {err}
+downloading = sparse-checkout で {n} 個のパッケージを取得中…
+filter_ph = パッケージを絞り込む…
+icons_offline = アイコンの取得に失敗しましたが、キャッシュされたアイコンは引き続き表示されます。
+progress_icons = プレビューアイコンを{n}個取得中…
+refresh_btn = GitHub から更新
+refresh_busy = 既に更新中です。しばらくお待ちください。
+refresh_done = 更新しました: {n} 件のパッケージ。
+refresh_empty = GitHub が空のパッケージ一覧を返したため、スナップショットを保持します。
+refresh_failed = GitHub に接続できませんでした — バンドルされたスナップショットを保持します。
+refreshing = GitHub から最新のパッケージ一覧を取得しています…
+status_line = {installed} / {total} インストール済み · {selected} 選択済み
+

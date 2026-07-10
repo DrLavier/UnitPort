@@ -1,0 +1,20 @@
+[default]
+title = 裁剪並標註片段
+length_unknown = 片段長度未知（影格解析在後端回合處理）— 標記會以原始影格編號儲存。
+preview_robot = 預覽機器人
+preview = 在 MuJoCo 中預覽
+preview_started = 已啟動預覽（整個片段 — 範圍播放在後端回合處理）。
+range = 進 {a}  ·  出 {b}  ·  {n} 影格
+seg_name = 片段
+seg_name_ph = 例如 walk_loop
+add = 從標記新增
+col_name = 名稱
+col_tag = 標籤
+col_in = 入點
+col_out = 出點
+col_action = 
+close = 關閉
+delete = 刪除
+no_robot = 請先選擇預覽機器人。
+err_name = 必須提供片段名稱。
+

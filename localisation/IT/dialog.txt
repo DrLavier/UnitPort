@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = Impossibile aprire il menu dei ruoli IR
+joint_pose_editor_unavailable = Impossibile aprire l'editor degli angoli articolari
+pd_table_no_sku = Il Nodo Robot non ha un robot valido associato (asset_id). Seleziona prima un robot nella scheda Robot Asset.
+pd_table_unavailable = Impossibile aprire il pannello PD
+registry_preset_apply_failed = Impossibile applicare il preset
+registry_preset_picker_empty = Questa famiglia non ha preset disponibili
+registry_preset_picker_empty_detail = Per family={family} non è dichiarato alcun preset in registry={registry}.
+registry_preset_picker_unavailable = Impossibile aprire il menu dei preset
+registry_preset_picker_unknown = registry={key!r} sconosciuto; registry supportati: {keys}
+replace_canvas_text = Il caricamento del template '{tpl}' sostituirà tutti i nodi e gli archi in '{name}'. Continuare?
+replace_canvas_title = Sostituisci il contenuto del canvas
+review_pose_unavailable = Impossibile avviare Review Pose
+unsaved_text = {name} ha modifiche non salvate. Salvare prima di continuare?
+unsaved_title = Modifiche non salvate
+review_motion_no_clip = Nessuna clip di riferimento è selezionata per questo elemento di addestramento — seleziona una clip nel menu a discesa Clip prima di rivedere.
+review_motion_no_robot = Nessun nodo Robot è collegato a questa tela. La funzione Revisione movimento necessita del MJCF del robot per riprodurre il movimento di riferimento — collega prima un nodo Robot.
+review_motion_unavailable = Impossibile avviare la Revisione movimento
+

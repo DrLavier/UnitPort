@@ -107,10 +107,32 @@ def nominal_qpos(actor: Any) -> List[float]:
     return [float(x) for x in src]
 
 
+#: Inward margin (fraction of each joint's range) applied when clamping the
+#: nominal stance to a joint's MJCF limits. Absorbs the few-thousandths-rad
+#: MJCF↔USD limit rounding mismatch (e.g. the G1 inspire-hand thumb whose
+#: qpos0 1.050 sits just past its own range upper 1.0472 / the USD's 1.047)
+#: so IsaacLab's strict ``_validate_cfg`` (default pos must lie inside the USD
+#: limits) does not abort the spawned articulation. 1% is far below any
+#: locomotion joint's distance-from-limit, so the measured stance is unchanged.
+_NOMINAL_LIMIT_MARGIN: float = 0.01
+
+
 def nominal_actuator_joint_pos(actor: Any) -> dict:
     """Nominal stance angle per ACTUATOR joint (name → radians), from
-    keyframe-0/qpos0. Baked into the probe file so the Kit launcher seeds the
-    ArticulationCfg with a limit-valid default pose."""
+    keyframe-0/qpos0, **clamped to each joint's MJCF range** so the Kit
+    launcher seeds the ArticulationCfg with a genuinely limit-valid default
+    pose.
+
+    The clamp realises the long-stated intent of this function. Without it a
+    source pose that sits marginally outside a joint's range (a malformed
+    keyframe, or a joint whose USD limit is a hair tighter than the MJCF one —
+    the G1 inspire-hand thumb is both) propagates into
+    ``ArticulationCfg.init_state.joint_pos`` and aborts the self-check at
+    IsaacLab's ``_validate_cfg`` with an out-of-limits ValueError. Only limited
+    joints are clamped, with a 1% inward margin; mid-range joints (every
+    locomotion DoF) are untouched, so the PD/torque measurement stance is
+    bit-identical to before for the joints that matter.
+    """
     import mujoco
 
     m = actor.mj_model
@@ -120,7 +142,13 @@ def nominal_actuator_joint_pos(actor: Any) -> dict:
         jid = int(m.actuator_trnid[i, 0])
         nm = mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, jid) or f"act{i}"
         qadr = int(m.jnt_qposadr[jid])
-        out[nm] = float(src[qadr])
+        val = float(src[qadr])
+        if int(m.jnt_limited[jid]):
+            lo, hi = float(m.jnt_range[jid, 0]), float(m.jnt_range[jid, 1])
+            if hi > lo:
+                margin = _NOMINAL_LIMIT_MARGIN * (hi - lo)
+                val = min(max(val, lo + margin), hi - margin)
+        out[nm] = val
     return out
 
 

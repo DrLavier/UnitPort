@@ -1,0 +1,70 @@
+[coverage]
+blocked.body = Die Abdeckung der Belohnungen ist kritisch — die Policy wird wahrscheinlich unerwünschte Verhaltensweisen erlernen, wenn die betroffenen Phasen aktiv sind.
+blocked.cancel = Abbrechen
+blocked.header = Training kann nicht gestartet werden: Die Überprüfung der Reward-Abdeckung ist fehlgeschlagen.
+blocked.hint = Doppelklicken Sie auf das Abzeichen am Rewards-Knoten, um den Coverage-Inspector mit Vorschlägen zur Behebung zu öffnen.
+blocked.proceed = Trotzdem fortfahren
+blocked.title = Problem mit Reward-Abdeckung
+
+[default]
+already_running = Ein Trainingslauf ist bereits aktiv
+no_canvas = Keine Canvas geladen
+preparing = Trainingslauf wird vorbereitet (Kompilierung außerhalb des UI-Threads)…
+started = Training gestartet: run={run} backend={backend} algo={algo}
+
+[deploy_coverage]
+affected = Betroffene Deploy-Ziele:
+body = Das trainierte Bundle wird NUR auf einer Teilmenge der unterstützten Ziele bereitstellbar sein, da die MJCF- und USD-Asset-Tabellen des Roboters nicht den gleichen Gelenksatz deklarieren.
+cancel = Abbrechen
+header = Das Training erzeugt ein Bundle mit eingeschränkter Deploy-Abdeckung für Roboter ‘{name}’ (sku={sku}).
+hint = Um beide Deploy-Ziele wiederherzustellen: abbrechen, die Robot Assets-Seitenleiste öffnen, das Asset mit weniger Freiheitsgraden auf eine passende Variante umstellen (z. B. für Unitree G1 scene_with_hands.xml zusammen mit g1.usd verwenden), erneut Dumpen und dann Play erneut ausführen.
+miss_mjcf = In USD deklarierte Rollen, die in MJCF fehlen: {roles}
+miss_usd = In MJCF deklarierte Rollen, die in USD fehlen: {roles}
+proceed = Trotzdem fortfahren (spare später Rechenzeit)
+title = Eingeschränkte Deploy-Zielabdeckung
+
+[packages]
+add = Paket hinzufügen
+bad_weight = package_weight muss eine Zahl sein
+edit_rewards = Rewards bearbeiten…
+enabled = Aktiviert
+gate_missing = {s} (fehlend)
+gate_none = — keine —
+gated_by = Vom Skill abhängig
+gated_by.tip = Beschränke die Rewards dieses Pakets auf das Trigger-Fenster eines Skills — die Rewards gelten nur, solange dieser Skill aktiv ist (Abklingen nach dem Impuls). Erfordert einen Skill, der in den Skill Channels dieses Knotens erstellt wurde.
+hint = Gruppiere Items in Paketen. package_weight balanciert ein ganzes Paket neu; jedes Paket kann ein inline Reward-Set besitzen. Leer = ein implizites Standardpaket.
+membership = Item-Zugehörigkeit
+name = Name
+new_name = Paket {n}
+preview = Zusammengesetzte Reward-Vorschau (= Export)
+preview_empty = Keine Inline-Paket-Rewards. Items ohne Paket-Reward behalten ihren verkabelten Rewards-Knoten.
+remove = Entfernen
+title = Training-Pakete
+weight = package_weight
+
+[sim2sim]
+body = Die PhysX↔MuJoCo-Cross-Engine-Messung hat Dimension(en) gefunden, deren Residuum nicht konvergent (chaotisch) ist: {dims}. Domänen-Randomisierung kann diese nicht abdecken, und sim2sim reproduziert dieses Regime möglicherweise nicht zuverlässig.
+cancel = Abbrechen
+header = Die Cross-Engine-Residual-Selbstprüfung hat Roboter ‘{sku}’ beanstandet.
+hint = Trotzdem fortfahren protokolliert dies für die aktuelle Anlage — Sie werden nicht erneut gefragt, es sei denn, das Roboter-Asset ändert sich.
+proceed = Trotzdem fortfahren
+title = Nicht-konvergente sim2sim-Dimension
+
+[skills]
+add = Skill hinzufügen
+bad_id = Jeder Skill benötigt eine ID
+bad_window = Fenster muss eine positive Zahl sein
+enabled = Aktiviert
+hint = Jeder Skill ist ein diskreter Policy-Befehlskanal (ein Auslöser). Er gelangt in die Policy-Observationen und folgt dem Command-Contract; eine Policy muss trainiert werden, um darauf zu reagieren. Das Binden an eine Taste oder Schaltfläche erfolgt pro Benutzer im Controller-Panel nach dem Training — nicht hier.
+latch = Arretieren
+latch.hold = gedrückt halten (solange gedrückt)
+latch.pulse = Impuls (einmalig)
+name = Name
+new_name = Skill {n}
+preview = Ausgehende Trigger-Kanäle
+preview_empty = Keine aktivierten Skills.
+remove = Entfernen
+title = Skill-Kanäle
+window = Fenster (s)
+window.tip = Nach-Impuls-Abklingfenster: Die Trigger-Obs und das Reward-Gate gehen über diese Anzahl Sekunden von 1→0 zurück. Die Deploy-Laufzeit baut dasselbe Fenster wieder auf.
+

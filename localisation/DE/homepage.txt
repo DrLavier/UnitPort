@@ -1,0 +1,131 @@
+[community]
+current = Aktuell
+days_ago = vor {n} Tagen
+latest = Neueste
+releases_loading = Releases werden geladen…
+today = heute
+tutorial_coming_soon = Demnächst...
+tutorial_desc = Schritt-für-Schritt-Anleitungen zum Erstellen, Trainieren und Bereitstellen.
+tutorial_title = Offizielles Tutorial
+yesterday = gestern
+title = Community
+support_us = Unterstützen Sie uns
+tutorial_open = Link öffnen
+releases_unavailable = Releases konnten nicht geladen werden. Überprüfen Sie Ihre Netzwerkverbindung.
+releases_empty = Es wurden noch keine Releases veröffentlicht.
+open_page = Seite öffnen
+download = Herunterladen
+day_one = vor 1 Tag
+
+[create]
+engine_unavailable = nicht verfügbar
+error_create_failed = Konnte Projekt '{name}' nicht erstellen (der Name könnte mit einem bestehenden kollidieren — überprüfe das Log).
+error_existing_missing = Dieses Projekt ist nicht mehr auf der Festplatte — aktualisiere die Liste und wähle es erneut.
+error_invalid_canvas_name = Canvas-Name darf nur Buchstaben, Ziffern, '_' und '-' enthalten.
+error_invalid_name = Projektname darf nur Buchstaben, Ziffern, '_' und '-' enthalten.
+error_no_backend = Wähle ein Backend, bevor du erstellst.
+error_no_canvas_name = Gib einen Canvas-Namen ein (z. B. 'main').
+error_no_existing = Wähle ein vorhandenes Projekt aus der Liste oder wechsle zu 'Neues Projekt'.
+error_no_name = Gib zuerst einen Projektnamen ein.
+error_no_template = Wähle eine Vorlage (oder 'Free Build'), bevor du erstellst.
+label_backend = Backend
+label_canvas_name = Canvas-Name
+label_pick_project = Wähle ein Projekt
+label_project_name = Projektname
+label_template = Wähle eine Vorlage
+no_templates = Für dieses Backend sind keine Vorlagen verfügbar.
+placeholder_canvas = z. B. main
+placeholder_name = Neuer Projektname
+title = Neues Projekt erstellen
+btn = Canvas erstellen
+section_project = Projekt
+section_canvas = Canvas
+mode_new = Neues Projekt
+mode_existing = Ins Projekt
+
+[projects]
+btn_open_workspace = Lokalen Arbeitsbereich öffnen →
+col_canvas = Canvas
+col_project = Projekt
+col_robot = Roboter
+cross_user_audit_recorded = Zur Überprüfung durch {owner} protokolliert
+cross_user_copy_failed_body = Konnte '{name}' nicht in deinen Arbeitsbereich kopieren:\n{err}
+cross_user_copy_failed_title = Kopieren fehlgeschlagen
+cross_user_delete_warn_body = '{name}' gehört {owner}. Das Löschen wird protokolliert, damit {owner} es bei der nächsten Anmeldung prüfen oder wiederherstellen kann.\n\nTrotzdem löschen?
+cross_user_delete_warn_title = Canvas eines anderen Benutzers löschen
+cross_user_open_body = Dieser Canvas gehört {owner}. Kopiere ihn in deinen eigenen Arbeitsbereich als isolierte Sicherung, oder öffne das Original an Ort und Stelle – jede Bearbeitung/Löschung wird protokolliert, damit {owner} sie bei der nächsten Anmeldung überprüfen kann.
+cross_user_open_title = Canvas eines anderen Benutzers öffnen
+delete_confirm_body = '{name}' dauerhaft löschen?\n\nDies entfernt nur die Canvas-Datei — das Projekt selbst bleibt erhalten.
+delete_confirm_title = Canvas löschen
+delete_failed_body = Konnte '{name}' nicht löschen:
+	{err}
+delete_failed_title = Löschen fehlgeschlagen
+delete_tooltip = Diese Canvas-Datei löschen
+empty = Noch keine lokalen Arbeitsbereiche — erstellen Sie rechts Ihr erstes Projekt.
+load_tooltip = Diese Canvas-Datei öffnen
+migrate_confirm_body = Das Stammverzeichnis des Arbeitsbereichs von
+	{old}
+	nach
+	{new} verschieben?
+	
+	Alle Projekte, Canvas-Dateien und benutzerbezogenen Daten werden verschoben. Die App lädt anschließend den Arbeitsbereichszustand neu.
+migrate_confirm_title = Arbeitsbereich migrieren
+migrate_failed_body = Konnte den Arbeitsbereich nicht migrieren:
+	{err}
+migrate_failed_title = Migration fehlgeschlagen
+migrate_success_body = Das Stammverzeichnis des Arbeitsbereichs ist jetzt:
+	{path}
+migrate_success_title = Migration abgeschlossen
+migrate_title = Neues Stammverzeichnis des Arbeitsbereichs auswählen
+refresh_tooltip = Lokale Dateien aktualisieren
+reveal_tooltip = Im Ordner anzeigen
+robot_unset = —
+search_placeholder = Canvas-Dateien durchsuchen…
+snapshot_label = Snapshot:
+time_day_n = vor {n} Tagen
+time_hr_n = vor {n} Stunden
+title = Account
+view_all = Alle Arbeitsbereiche anzeigen
+refresh = Aktualisieren
+btn_migrate = Migrieren
+col_user = Benutzer
+col_engine = Engine
+col_time = Zuletzt geändert
+col_action = Aktion
+status_recent = Kürzlich
+status_idle = Leerlauf
+engine_unset = —
+engine_mixed = Gemischt ({n})
+time_min_one = vor 1 Minute
+time_hr_one = vor 1 Stunde
+btn_load = Laden
+cross_user_open_copy = In meinen Arbeitsbereich kopieren (empfohlen)
+cross_user_open_inplace = Direkt öffnen
+cross_user_open_cancel = Abbrechen
+time_just_now = gerade eben
+time_min_n = vor {n} Minuten
+time_unknown = —
+time_yesterday = gestern
+user_guest = Gast
+
+[user]
+headline_signed_out = Willkommen bei UnitPort Studio
+methods_prompt = Anmeldemethoden
+signin_prompt = Anmelden / Registrieren
+sub_signed_out = Melden Sie sich bei Ihrem Konto an, um Projekte zu synchronisieren und Cloud-Funktionen freizuschalten.
+uuid_copied_toast = UUID in die Zwischenablage kopiert
+uuid_copy_tooltip = UUID kopieren
+uuid_label = UUID: {uuid}
+welcome_back = Willkommen zurück, {name}
+welcome_sub = Verwalten Sie Ihr Konto und synchronisieren Sie Ihre Projekte geräteübergreifend.
+title = Konto
+welcome_back_title = Willkommen zurück,
+btn_google = Weiter mit Google
+btn_github = Weiter mit GitHub
+btn_email = Weiter mit E-Mail
+welcome_back_static = Willkommen zurück,
+cloud_usage_label = Cloud-Nutzung
+sign_out = Abmelden
+learn_more = Mehr erfahren
+workspace_synced = Synchronisierter Arbeitsbereich · Projekte werden in Ihr Konto gespiegelt
+

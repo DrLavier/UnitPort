@@ -399,7 +399,13 @@ class _LocalFilesRow(QFrame):
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setFixedHeight(self._ROW_HEIGHT)
 
-        engine_color = Config.get_color(_engine_color_slot(row.engine_subdir))
+        # Engine subdirs that don't resolve to a registered backend yield an
+        # empty theme slot; fall back to the default text tone so the inline
+        # stylesheet below never gets an empty color (``color: ;`` → Qt "Could
+        # not parse stylesheet", spammed on every list rebuild). §5: slot-based,
+        # the hex is only the SDK-crash-safety fallback.
+        engine_slot = _engine_color_slot(row.engine_subdir) or "main_t1"
+        engine_color = Config.get_color(engine_slot, "#D6D3C7")
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 1, 10, 1)

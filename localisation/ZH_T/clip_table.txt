@@ -1,0 +1,11 @@
+[default]
+edit_tip = 點擊以裁切 / 標註此片段
+segment_tip = 開啟此片段
+col_name = 剪輯
+col_tag = 標籤
+col_frames = 幀數
+col_duration = 持續時間
+col_segments = 片段
+col_action = 
+crop = 裁剪 / 標註
+

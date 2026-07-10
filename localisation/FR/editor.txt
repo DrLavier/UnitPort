@@ -1,8 +1,11 @@
 [dtype]
-both = Scalar/List
-list = List
-scalar = Scalar
+both = Scalaire/Liste
+list = Liste
+scalar = Scalaire
 
 [err]
-dup_item = An item named '{name}' already exists.
+dup_item = Un élément nommé '{name}' existe déjà.
+
+[review_motion]
+submitted = Relecture du mouvement lancée (non physique, via MuJoCo)…
 

@@ -1194,9 +1194,10 @@ def _populate_rewards(
       * v2 per-item path: for each ``rewards`` node, follow its
         ``reward_pipe`` outbound edges into training_motion nodes' dynamic
         ``reward_in__<item_id>`` ports. Each match contributes the rewards
-        node's ``reward_terms`` to ``rc.terms_by_item[item_id]``. A given
-        item is supplied by at most one rewards node (UI enforces
-        ``multi=False`` on item input).
+        node's ``reward_terms`` to ``rc.terms_by_item[item_id]``. The item
+        input is ``multi=True`` (see nodes.training_motion): an item may be
+        supplied by more than one rewards node, whose terms are unioned into
+        ``rc.terms_by_item[item_id]`` (later node wins on a key collision).
       * Legacy multigated path: if a ``multigated_reward`` exists, the old
         stage_0/stage_1 merge still runs to populate ``rc.terms`` /
         ``rc.stages`` — so canvases that haven't migrated to per-item
@@ -1208,7 +1209,15 @@ def _populate_rewards(
 
     ``backend`` no longer lives on the rewards node — it derives from the
     canvas-bound backend (``ir.backend`` → ``node_backend_kind``).
+
+    Training packages (Method A) with inline ``reward_terms`` are lowered here
+    by synthesising a virtual ``rewards`` node + ``reward_in__`` edges per
+    package into ``ir`` (``package_weight`` folded once, at synthesis). After
+    that the per-item collection below is package-blind — a synthetic node is
+    read exactly like a wired one. No-op when no package carries inline rewards.
     """
+    from application.training.package_synthesis import synthesize_into_ir
+    synthesize_into_ir(ir)
     rewards_nodes = [n for n in ir.nodes if n.schema_id == "rewards"]
     training_motion_ids = {
         n.id for n in ir.nodes if n.schema_id == "training_motion"
@@ -1381,17 +1390,57 @@ def _populate_motion(
         return
     items = dict(_as_json(_p(n, "training_items"), {}))
     items = _resolve_training_items(items, spec.robot)
+
+    # Gait ranges: canvas value wins; a missing param resolves through
+    # gait_presets.default_ranges_for_family — the single read of the
+    # registry default_ranges block — keyed by the robot family. Resolved
+    # only when gait is enabled; a disabled gait carries None ("not
+    # configured", no downstream reader).
+    gait_enabled = _as_bool(_p(n, "gait_enabled"), False)
+    freq_pair = _as_pair(_p(n, "gait_frequency_range"), None)
+    bh_pair = _as_pair(_p(n, "body_height_range"), None)
+    sh_pair = _as_pair(_p(n, "step_height_range"), None)
+    if gait_enabled and (freq_pair is None or bh_pair is None or sh_pair is None):
+        from application.training.isaac_lab.gait_presets import (
+            default_ranges_for_family,
+        )
+        _gait_families = list(getattr(spec.robot, "families", []) or [])
+        if not _gait_families:
+            raise RuntimeError(
+                "[spec_compiler] training_motion.gait_enabled is true but "
+                "the bound robot declares no families — gait default "
+                "ranges are family-keyed (gait_commands_catalog.json "
+                "default_ranges); fix the robot registry entry or set the "
+                "gait range params on the canvas node."
+            )
+        _reg_ranges = default_ranges_for_family(_gait_families[0])
+        freq_pair = freq_pair if freq_pair is not None else _reg_ranges["frequency"]
+        bh_pair = bh_pair if bh_pair is not None else _reg_ranges["body_height"]
+        sh_pair = sh_pair if sh_pair is not None else _reg_ranges["step_height"]
+
+    from application.training.package_synthesis import packages_from_param
     spec.motion = MotionConfig(
         training_items=items,
+        # Package layer (Method A) — reconstructed from the training_motion
+        # ``packages`` param so spec.motion.packages is authoritative for the
+        # membership validator (R_PKG1) and any spec consumer. Absent => {} =>
+        # resolve_effective_packages() yields the implicit default. The reward
+        # LOWERING reads packages off the node directly (package_synthesis);
+        # this carries them onto the spec for validation/record.
+        packages=packages_from_param(_p(n, "packages")),
+        # Skill trigger channels (Slice 2/3) — carried onto the spec for the
+        # gating validator (R_SKILL) + record. The contract emitter + IsaacLab
+        # codegen read them off the node directly.
+        skill_items=dict(_as_json(_p(n, "skill_items"), {})),
         mapping_mode=_as_str(_p(n, "mapping_mode"), "linear"),
         deadzone=_as_float(_p(n, "deadzone"), 0.10),
         curve_exponent=_as_float(_p(n, "curve_exponent"), 2.0),
         runtime_clip=_as_bool(_p(n, "runtime_clip"), True),
         gait=GaitConfig(
-            enabled=_as_bool(_p(n, "gait_enabled"), False),
-            frequency_range_hz=_as_pair(_p(n, "gait_frequency_range"), (1.5, 3.5)),
-            body_height_range_m=_as_pair(_p(n, "body_height_range"), (0.28, 0.40)),
-            step_height_range_m=_as_pair(_p(n, "step_height_range"), (0.03, 0.15)),
+            enabled=gait_enabled,
+            frequency_range_hz=freq_pair,
+            body_height_range_m=bh_pair,
+            step_height_range_m=sh_pair,
             presets=_as_str(_p(n, "gait_presets"), ""),
         ),
         resampling_time_range=_as_pair(_p(n, "resampling_time_range"), (4.0, 12.0)),
@@ -1429,16 +1478,36 @@ def _populate_motion(
     # ``resolve_pack_ref`` surfaces a clean error listing every path it
     # tried, so the user knows where to drop the missing archive file.
     clip_paths: Dict[str, str] = {}
+    clip_ranges: Dict[str, Tuple[int, int]] = {}
     for item_id, payload in items.items():
         if not (isinstance(payload, dict) and isinstance(payload.get("clip"), str)):
             continue
         raw = payload["clip"]
         if not raw:
             continue
-        if raw.startswith("pack:"):
+        # A segment clip carries an inclusive frame sub-range as a
+        # ``<base_ref>#seg=lo-hi`` suffix. Decode it here: the base ref goes
+        # through the normal pack:/absolute resolution below, and the range
+        # travels separately in ``clip_ranges`` (later a positionally-aligned
+        # plain CLI arg to the Kit worker — the ``#seg=`` encoding never crosses
+        # that no-registers boundary). A malformed suffix fails loud (§8) rather
+        # than silently training on the whole clip.
+        try:
+            from application.training.motion.segment_ref import parse_segment_ref
+            base_ref, seg_lo, seg_hi = parse_segment_ref(raw)
+        except ValueError as exc:
+            _emit_issue(ValidationIssue(
+                code=IssueCode.INVALID_MOTION_CLIP,
+                severity=Severity.ERROR,
+                node_id=n.id,
+                field=f"training_items.{item_id}.clip",
+                message=f"malformed segment ref {raw!r}: {exc}",
+            ))
+            continue
+        if base_ref.startswith("pack:"):
             try:
                 from scripts import resolve_pack_ref
-                resolved = resolve_pack_ref(raw)
+                resolved = resolve_pack_ref(base_ref)
             except ValueError as exc:
                 _emit_issue(ValidationIssue(
                     code=IssueCode.INVALID_MOTION_CLIP,
@@ -1454,12 +1523,14 @@ def _populate_motion(
                     severity=Severity.ERROR,
                     node_id=n.id,
                     field=f"training_items.{item_id}.clip",
-                    message=f"resolve_pack_ref({raw!r}) failed: {exc!r}",
+                    message=f"resolve_pack_ref({base_ref!r}) failed: {exc!r}",
                 ))
                 continue
             clip_paths[item_id] = str(resolved)
         else:
-            clip_paths[item_id] = raw
+            clip_paths[item_id] = base_ref
+        if seg_lo is not None and seg_hi is not None:
+            clip_ranges[item_id] = (seg_lo, seg_hi)
     # consumption_mode (reference-clip → AMP-discriminator vs tracking-target
     # routing) is IsaacLab-only — the SB3 MuJoCo backend cannot replay
     # reference clips and never reads spec.il.motion_ref. Requiring it on an
@@ -1523,6 +1594,7 @@ def _populate_motion(
         rsi_prob=_as_float(_p(n, "rsi_prob"), 0.0),
         rsi_joint_noise=_as_float(_p(n, "rsi_joint_noise"), 0.02),
         clip_paths=clip_paths,
+        clip_ranges=clip_ranges,
     )
 
     # FIX-F (RC-6): in amp_discriminator mode, an enabled command item with
@@ -1556,18 +1628,22 @@ def _populate_motion(
         and clip_paths
         and spec.robot.sku  # robot resolved; UNRESOLVED_ROBOT_ASSET handles the inverse
     ):
-        _validate_motion_clips(n.id, clip_paths, spec.robot)
+        _validate_motion_clips(n.id, clip_paths, spec.robot, clip_ranges)
 
 
 def _validate_motion_clips(
     node_id: str,
     clip_paths: Dict[str, str],
     robot,
+    clip_ranges: Optional[Dict[str, Tuple[int, int]]] = None,
 ) -> None:
     """Load each clip and run :func:`validate_clip_against_robot`; emit ERROR
     issues for load failures and IR-role / dof mismatches (CLAUDE.md §1.2)."""
-    from pathlib import Path
-    from application.training.motion.loaders import LoaderError, get_loader
+    from application.training.motion.loaders import (
+        LoaderError,
+        detect_motion_format,
+        get_loader,
+    )
     from application.training.motion.validator import (
         MotionValidationError,
         validate_clip_against_robot,
@@ -1576,21 +1652,20 @@ def _validate_motion_clips(
     for item_id, clip_path in clip_paths.items():
         if not clip_path:
             continue
-        suffix = Path(clip_path).suffix.lower()
-        if suffix == ".npy":
-            format_id = "unitport_npy"
-        elif suffix in (".txt", ".json"):
-            format_id = "amp_legged_gym"
-        else:
+        # Single source of truth for clip-format inference — the SAME
+        # extension→format_id map the AMP data provider uses at launch
+        # (motion/loaders.detect_motion_format), so a format supported
+        # there (e.g. .csv → lafan_unitree_g1) cannot be silently
+        # rejected here by a divergent inline suffix list.
+        try:
+            format_id = detect_motion_format(clip_path)
+        except LoaderError as exc:
             _emit_issue(ValidationIssue(
                 code=IssueCode.INVALID_MOTION_CLIP,
                 severity=Severity.ERROR,
                 node_id=node_id,
                 field=f"training_items.{item_id}.clip",
-                message=(
-                    f"clip {clip_path!r}: cannot infer format from suffix "
-                    f"{suffix!r}; expected .npy / .txt / .json"
-                ),
+                message=f"clip {clip_path!r}: {exc}",
             ))
             continue
 
@@ -1616,6 +1691,29 @@ def _validate_motion_clips(
                 message=f"clip {clip_path!r}: load failed: {exc}",
             ))
             continue
+
+        # Segment items carry an inclusive [start, end] sub-range. Validate it
+        # against the clip's true frame count NOW (submit-time), so a stale or
+        # bad range fails loud here instead of at runtime deep in the Kit worker
+        # (§8). On success, replace the clip with its slice so the robot IR
+        # validation below runs on exactly the frames that will train.
+        seg = (clip_ranges or {}).get(item_id)
+        if seg is not None:
+            lo, hi = int(seg[0]), int(seg[1])
+            try:
+                clip = clip.subrange(lo, hi)
+            except Exception as exc:  # noqa: BLE001 — surfaced as a canvas issue
+                _emit_issue(ValidationIssue(
+                    code=IssueCode.INVALID_MOTION_CLIP,
+                    severity=Severity.ERROR,
+                    node_id=node_id,
+                    field=f"training_items.{item_id}.clip",
+                    message=(
+                        f"clip {clip_path!r}: segment range [{lo}, {hi}] "
+                        f"invalid: {exc}"
+                    ),
+                ))
+                continue
 
         try:
             report = validate_clip_against_robot(clip, robot)

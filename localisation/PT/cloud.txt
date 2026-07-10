@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = Quando ativado, o UnitPort envia cada arquivo do workspace que for alterado para a nuvem pouco depois de você salvá-lo.
+busy_pull = Baixando da nuvem...
+busy_push = Enviando para a nuvem...
+manage_dialog_delete_confirm_body = Excluir '{name}' permanentemente da nuvem?
+manage_dialog_delete_confirm_title = Excluir arquivo da nuvem
+manage_dialog_dl_conflict_body = Arquivo local já existe:
+	{path}
+	
+	O que devemos fazer?
+manage_dialog_dl_conflict_title = Arquivo já existe
+manage_dialog_dl_done_body = Baixado para:
+	{path}
+manage_dialog_dl_done_title = Download concluído
+manage_dialog_dl_overwrite = Sobrescrever
+manage_dialog_dl_save_as = Salvar como…
+manage_dialog_dl_save_as_caption = Salvar arquivo baixado
+manage_dialog_dl_skip = Ignorar
+manage_dialog_empty = Ainda não há arquivos na nuvem — tente Enviar ou arraste um arquivo aqui.
+manage_dialog_folder_del_body = Excluir '{name}' e todos os {n} arquivos contidos nele permanentemente da nuvem?
+manage_dialog_folder_del_title = Excluir pasta
+manage_dialog_folder_dl_all_skipped = Todos os arquivos já existem localmente — nada foi baixado.
+manage_dialog_folder_dl_body = Baixar {n} arquivos em '{name}' para o workspace local?
+manage_dialog_folder_dl_replace = Substituir existentes
+manage_dialog_folder_dl_skip_existing = Ignorar existentes
+manage_dialog_folder_dl_title = Baixar pasta
+manage_dialog_folder_summary = {n} itens · {size}
+manage_dialog_loading = Carregando…
+manage_dialog_not_signed_in = Faça login primeiro para gerenciar o armazenamento na nuvem.
+manage_dialog_op_failed_body = {phase} falhou:
+	{err}
+manage_dialog_op_failed_title = Operação falhou
+manage_dialog_oversize_body = Arquivos com mais de 50 MB não podem ser enviados:
+	{names}
+manage_dialog_oversize_title = Arquivo muito grande
+manage_dialog_quota = Usado {used} / {total}
+manage_dialog_title = Gerenciar armazenamento na nuvem
+manage_tooltip = Gerenciar configurações de sincronização com a nuvem e arquivos armazenados
+never_synced = nunca
+pull_tooltip = Baixar arquivos da nuvem para o workspace local
+push_tooltip = Enviar arquivos do workspace local para a nuvem
+status_error = Sincronização falhou: {msg}
+status_signed_out = Faça login para habilitar a sincronização com a nuvem
+status_synced = Sincronizados {n} arquivos · última sincronização {when}
+section_title = Sincronização com a nuvem
+push_button = Enviar
+pull_button = Puxar
+manage_button = Gerenciar
+manage_coming_soon = Diálogo de gerenciamento da nuvem em breve.
+manage_dialog_refresh = Atualizar
+manage_dialog_close = Fechar
+manage_dialog_uploading = Enviando {name}…
+manage_dialog_deleting = Excluindo…
+manage_dialog_downloading = Baixando…
+download_tooltip = Baixar para o espaço de trabalho local
+delete_tooltip = Excluir da nuvem
+folder_download_tooltip = Baixar todos os arquivos desta pasta
+folder_delete_tooltip = Excluir esta pasta e todos os arquivos dentro
+auto_push_label = Envio automático
+status_idle = Ocioso
+status_pushing = Enviando... {done}/{total}
+status_pulling = Baixando... {done}/{total}
+status_self_check = A nuvem tem {n} objeto(s)
+status_no_remote = A nuvem está vazia
+status_size_skip = Ignorados {n} arquivo(s) com mais de 50 MB
+busy_self_check = Verificando o estado da nuvem...
+done_push = Enviados {ok}/{total} arquivos. Ignorados {skipped}.
+done_pull = Baixados {ok}/{total} arquivos. Ignorados {skipped}.
+

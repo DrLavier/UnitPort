@@ -1,0 +1,5 @@
+[default]
+empty = Keine Projekte gefunden
+open_folder_tip = Öffne den Projektordner im Datei-Explorer des Betriebssystems
+refresh_tip = Projektordner erneut scannen
+

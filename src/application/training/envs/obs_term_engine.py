@@ -298,6 +298,37 @@ def _command_vec(inp: MujocoObsInputs, dim: int) -> np.ndarray:
     return arr[:dim].astype(np.float32)
 
 
+def command_slice_vec(command: Any, offset: int, dim: int) -> np.ndarray:
+    """Read ``dim`` entries of the command vector starting at absolute ``offset``.
+
+    The deploy-side SSOT for a command-DERIVED obs term (a gait/skill-trigger channel
+    that lives past the front velocity trio, skill_command_path_design.md Slice 4). At
+    training the IsaacLab command term feeds the obs directly; at deploy the whole
+    command is one flat vector ordered exactly as ``deploy_contract.commands.channels``
+    (velocity trio, then gait, then triggers), so the same value sits at ``offset`` =
+    that channel's index. Short vectors zero-pad to reach the window (a channel the
+    provider hasn't driven yet reads its ``default`` 0.0). ``command is None`` raises
+    (§8 — never an implicit zero).
+    """
+    if command is None:
+        raise ValueError(
+            f"obs_term_engine.command_slice_vec: command is None but a command-slice "
+            f"obs (offset={offset}, dim={dim}) was requested — pass an explicit "
+            f"command vector (zeros for stand-still). Implicit-zero is forbidden (§8)."
+        )
+    off = int(offset)
+    d = int(dim)
+    if off < 0 or d <= 0:
+        raise ValueError(
+            f"obs_term_engine.command_slice_vec: bad offset={offset!r}/dim={dim!r}"
+        )
+    arr = np.asarray(command, dtype=np.float32).flatten()
+    end = off + d
+    if arr.shape[0] < end:
+        arr = np.pad(arr, (0, end - arr.shape[0]))
+    return arr[off:end].astype(np.float32)
+
+
 _TERM_FN = {
     "base_ang_vel": _t_base_ang_vel,
     "base_lin_vel": _t_base_lin_vel,

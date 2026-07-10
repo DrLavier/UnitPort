@@ -1,0 +1,23 @@
+[default]
+asset_path = 에셋: {path}
+col_ir = IR 역할
+col_joint = 물리적 조인트
+coverage_gap = ⚠ 크로스-포맷 차이 — 사용 불가: {affected}
+coverage_ok = ✓ MJCF와 USD가 일치 — 두 배포 대상 모두 사용 가능
+coverage_single = 형식이 하나만 선언됨; 크로스-포맷 검사 생략
+height_na = 베이스 높이 오프셋: 해당 없음 (단일 포맷 설정)
+height_uncalibrated = 베이스 높이 오프셋: (보정되지 않음 — Robot Asset 카드에서 Calibrate 실행)
+height_value = 베이스 높이 오프셋 (USD↔MJCF): {offset}  ·  보정됨 {ts}
+legend = 행 색상: <span style='color:#4caf50'>■ 일치</span> · <span style='color:#ff9800'>■ 고아(이 포맷에만 존재)</span> · <span style='color:#f44336'>■ 미매핑(IR 역할 없음)</span> · <span style='color:#9e9e9e'>■ 버킷(기타 / 센서 / 베이스)</span>
+mjcf = MJCF (MuJoCo 배포)
+no_rows = (조인트가 덤프되지 않음 — Robot Asset 카드에서 Dump 클릭)
+row_summary = 총계: {total}  ·  일치: {m}  ·  고아: {o}  ·  미매핑: {u}  ·  버킷: {b}
+title = 조인트 매핑 — {name} (sku={sku})
+usd = USD (IsaacSim / 클라우드 배포)
+
+[tooltip]
+bucket = 버킷 역할 (기타 / 센서* / 베이스) — 포맷 간에 정당하게 반복되거나 다를 수 있음; 커버리지 검사에서 무시됨.
+matched = IR 역할이 MJCF와 USD 테이블 모두에 존재함 — 번들이 정상적으로 배포됩니다.
+orphan = IR 역할이 이 포맷에서만 선언됨 — 다른 배포 대상은 이 조인트를 반영하지 않습니다.
+unmapped = 물리적 조인트는 덤프되었지만 IR 역할이 할당되지 않았습니다. 학습 전에 Robot Node Body Mapping 테이블을 열어 역할을 할당하세요.
+

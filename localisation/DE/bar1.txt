@@ -1,0 +1,7 @@
+[default]
+headline = Das Training im Headed-Modus rendert durch die GPU BAR1 Apertur, die für diesen Lauf zu klein / gesättigt wirkt. Es kann mit einem GPU device-lost error abstürzen.
+title_block = Training wahrscheinlich absturzgefährdet (GPU BAR1)
+title_warn = GPU-Speicherwarnung (BAR1)
+btn_continue = Trotzdem fortfahren
+btn_abort = Abbrechen
+

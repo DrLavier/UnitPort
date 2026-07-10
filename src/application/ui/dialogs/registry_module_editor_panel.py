@@ -30,7 +30,7 @@ clip 路径选择器 + 每项 speed/advanced 字段。本文件把 chrome 抽成
 
 入口工厂（thin wrapper）：
     ``open_reward_function_editor(parent, items, registry_id, *, kind="reward")``
-    ``open_training_motion_editor(parent, items)``
+    ``open_training_motion_editor(parent, items, *, robot_sku=None)``
 
 颜色与字体走 ``Config.get_color`` / ``Config.get_font_size``（rule §1.5），
 绝不在本文件内定义 hex 字面量。
@@ -42,7 +42,7 @@ import dataclasses
 import json
 from typing import Any, Dict, List, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QObject, Qt, QThread, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QBrush, QColor, QDoubleValidator, QFont
 from PyQt6.QtWidgets import (
     QDialog,
@@ -50,7 +50,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -160,6 +159,8 @@ def open_training_motion_editor(
     items: Dict[str, Any],
     *,
     canvas_backend: str = "sb3_mujoco",
+    robot_sku: Optional[str] = None,
+    start_new: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """打开 Training Motion 编辑器（modal）.
 
@@ -167,6 +168,13 @@ def open_training_motion_editor(
         parent: 父窗口
         items: training_motion 节点的 ``training_items`` dict
         canvas_backend: canvas 绑定的后端 kind，用作 Engine 下拉缺省值
+        robot_sku: canvas 绑定的机器人 SKU（单机器人/画布）。固定作为嵌入式
+            Clip Motion Editor 的演示机型（req 4）：内嵌渲染视图在该机型上非物理
+            回放所选 clip，并据此对下拉里"关节大量对不上"的 clip 标红
+            (danger_zone)。``None`` 时编辑器提示先连接 Robot 节点。
+        start_new: ``True`` 时（节点上的 "+ Add Training Item" 入口）打开即
+            自动新建一条草稿项并选中，用户直接开始命名——与齿轮（编辑整个
+            列表）区分开。
 
     Returns:
         ``None``（用户取消）或更新后的 items dict。
@@ -176,6 +184,8 @@ def open_training_motion_editor(
         registry_id="training_items",
         items=items,
         canvas_backend=canvas_backend,
+        robot_sku=robot_sku,
+        start_new=start_new,
         parent=parent,
     )
     if dlg.exec() != QDialog.DialogCode.Accepted:
@@ -235,10 +245,17 @@ _ENGINE_OPTIONS = ["sb3_mujoco", "isaac_lab", "newton"]
 _LABEL_INPUT_SPACING = 8     # px between "Label:" and its [input] on the same row
 _FIELD_GAP = 14              # px between sibling field groups (e.g. Title group ↔ Desc group)
 _ROW_VSPACING = 6            # px between stacked rows
-_PANE_GAP = 15               # px between left list pane and right edit pane (splitter handle)
+_PANE_GAP = 15               # px gap between the left list pane and the right edit pane
+_LIST_PANE_W = 240           # px — fixed width of the left list pane (no draggable handle)
 _BTN_W = 92
 _BTN_H = 28
 _DLG_PAD = 12
+
+# training_motion clip-picker compatibility gate: a clip whose IR roles the
+# canvas-bound robot covers below this fraction is rendered in ``danger_zone``
+# (the robot is missing "a large number" of the clip's joints, so previewing /
+# retargeting it would be garbage). See ``_clip_is_incompatible``.
+_CLIP_COMPAT_MIN_OVERLAP = 0.5
 
 
 def _apply_small_font(widget: QWidget) -> None:
@@ -252,6 +269,62 @@ def _apply_small_font(widget: QWidget) -> None:
     f = widget.font()
     f.setPixelSize(int(Config.get_font_size("size_small", 11)))
     widget.setFont(f)
+
+
+class _ClipCompatWorker(QObject):
+    """Off-thread computation of clip↔robot joint compatibility (req 3).
+
+    Parsing every motion clip to measure IR-role overlap with the bound robot
+    is heavy (numpy file loads), so it runs on a dedicated ``QThread`` instead
+    of blocking the GUI thread on Training Motion Editor open. Emits ``progress``
+    per clip and ``done`` with ``{base_ref: incompatible_bool}`` at the end.
+
+    The provider's ``clip_role_overlap`` caches its parses, so the results the
+    GUI thread later reads for colouring are effectively free.
+    """
+
+    progress = pyqtSignal(int, int)   # (done, total)
+    done = pyqtSignal(dict)           # {base_ref: incompatible}
+
+    def __init__(
+        self,
+        provider: Any,
+        robot_sku: str,
+        base_refs: List[str],
+        min_overlap: float,
+    ) -> None:
+        super().__init__()
+        self._provider = provider
+        self._robot_sku = robot_sku
+        self._base_refs = base_refs
+        self._min_overlap = float(min_overlap)
+        self._stop = False
+
+    def request_stop(self) -> None:
+        """Ask the loop to bail early (dialog closing mid-load)."""
+        self._stop = True
+
+    @pyqtSlot()
+    def run(self) -> None:
+        results: Dict[str, bool] = {}
+        total = len(self._base_refs)
+        for i, ref in enumerate(self._base_refs):
+            if self._stop:
+                break
+            incompatible = False
+            try:
+                overlap = self._provider.clip_role_overlap(ref, self._robot_sku)
+                if overlap is not None:
+                    matched, tot = overlap
+                    if tot > 0 and (matched / tot) < self._min_overlap:
+                        incompatible = True
+            except Exception as exc:  # noqa: BLE001 — resilience; provider stays loud
+                log_warning(
+                    f"[_ClipCompatWorker] compat check failed for {ref!r}: {exc!r}"
+                )
+            results[ref] = incompatible
+            self.progress.emit(i + 1, total)
+        self.done.emit(results)
 
 
 class RegistryModuleEditorPanel(QDialog):
@@ -272,11 +345,17 @@ class RegistryModuleEditorPanel(QDialog):
         canvas_backend: str = "sb3_mujoco",
         conflicting_keys: Optional[set] = None,
         robot_sku: Optional[str] = None,
+        start_new: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._kind = kind
         self._registry_id = registry_id
+        # When opened by the node's "+ Add …" affordance (as opposed to the
+        # gear = edit-the-list affordance), seed a fresh draft item on open
+        # and land the user on it, ready to name — so "Add" and "gear" are
+        # distinct actions instead of both opening the same list view.
+        self._start_new = bool(start_new)
         # Term keys flagged by reward_conflicts.compute_reward_term_conflicts —
         # rendered with danger_zone foreground in the list pane so the user
         # immediately sees which entries collide with a peer rewards node
@@ -307,6 +386,22 @@ class RegistryModuleEditorPanel(QDialog):
         import copy as _copy
         self._items: Dict[str, Any] = _copy.deepcopy(dict(items or {}))
         self._current_key: Optional[str] = None
+        # training_motion: the embedded Clip Motion Editor (right sub-column of
+        # the settings area) and a per-base-clip compatibility cache used to
+        # danger-colour clips whose IR roles the bound robot mostly lacks.
+        # Only built for kind == "training_motion"; None otherwise.
+        self._clip_editor: Optional[Any] = None
+        self._clip_compat_cache: Dict[str, bool] = {}
+        # Background clip-compat load (req 3): parsing every clip to compute
+        # joint overlap is heavy, so it runs on a worker QThread — the clip
+        # picker is disabled and the editor shows a loading page until it
+        # finishes. ``_compat_done`` is trivially True when no robot is bound
+        # (nothing to colour / preview). ``_all_base_refs`` is captured during
+        # the combo rebuild for the loader to iterate.
+        self._compat_done: bool = not bool(self._robot_sku) or kind != "training_motion"
+        self._compat_thread: Optional[QThread] = None
+        self._compat_worker: Optional["_ClipCompatWorker"] = None
+        self._all_base_refs: List[str] = []
         # Per-key edit-buffer cache — switching items NEVER discards
         # unsubmitted edits; we rehydrate the editor from this cache on
         # re-select. ``_items[key]['source']`` is the *saved* baseline,
@@ -358,7 +453,14 @@ class RegistryModuleEditorPanel(QDialog):
 
         self.setWindowTitle(_KIND_TITLES.get(kind, "Module Editor"))
         self.setModal(True)
-        self.resize(1080, 720)
+        # training_motion embeds the Clip Motion Editor (render view + timeline)
+        # in the right sub-column, so it needs a wider canvas than the code-only
+        # editors.
+        if self._kind == "training_motion":
+            self.resize(1500, 860)
+            self.setMinimumSize(1200, 720)
+        else:
+            self.resize(1080, 720)
         self._apply_chrome_style()
 
         self._build_ui()
@@ -375,6 +477,12 @@ class RegistryModuleEditorPanel(QDialog):
         else:
             self._refresh_content_panel()
 
+        # "+ Add …" entry point: seed a fresh draft and select it, so the
+        # user starts naming a new item immediately (distinct from the gear
+        # which lands on the existing list).
+        if self._start_new:
+            self._on_new_item()
+
     # ---- public ----
 
     def applied_items(self) -> Dict[str, Any]:
@@ -388,7 +496,7 @@ class RegistryModuleEditorPanel(QDialog):
 
         Buttons / labels / inputs are individually themed by their Lavi*
         widgets (each carries its own QSS). Here we only paint the dialog
-        background + the list pane + splitter handle.
+        background + the list pane.
         """
         bg = Config.get_color("bg_1", "#1E1E1E")
         bg2 = Config.get_color("bg_2", "#2A2A2A")
@@ -405,7 +513,6 @@ class RegistryModuleEditorPanel(QDialog):
             f"outline: 0; padding: 2px; }}"
             f"QListWidget::item {{ padding: 4px 6px; }}"
             f"QListWidget::item:hover {{ background: {Config.get_color('hover_2', '#4A4A4A')}; }}"
-            f"QSplitter::handle {{ background: {border}; }}"
         )
 
     def _build_ui(self) -> None:
@@ -413,18 +520,18 @@ class RegistryModuleEditorPanel(QDialog):
         root.setContentsMargins(_DLG_PAD, _DLG_PAD, _DLG_PAD, _DLG_PAD)
         root.setSpacing(_ROW_VSPACING)
 
-        # ── Splitter: left list / right content ──────────────────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        splitter.setChildrenCollapsible(False)
-        # 15px breathing room between the file list pane and the editor pane.
-        splitter.setHandleWidth(_PANE_GAP)
-        root.addWidget(splitter, 1)
-
-        # Left pane.
-        splitter.addWidget(self._build_left_pane())
-        # Right pane.
-        splitter.addWidget(self._build_right_pane())
-        splitter.setSizes([260, 820])
+        # ── Body: left list (fixed width) | right content ────────────────
+        # No draggable splitter handle between the two — the list pane is a
+        # fixed-width column (req 1). Just plain layout spacing for breathing
+        # room; the right pane takes all remaining width.
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(_PANE_GAP)
+        left = self._build_left_pane()
+        left.setFixedWidth(_LIST_PANE_W)
+        body.addWidget(left, 0)
+        body.addWidget(self._build_right_pane(), 1)
+        root.addLayout(body, 1)
 
     def _build_left_pane(self) -> QWidget:
         wrap = QFrame()
@@ -473,54 +580,63 @@ class RegistryModuleEditorPanel(QDialog):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(_ROW_VSPACING)
 
-        # Header — Title: [input]   (gap)   Desc: [input]
+        # Header — Title: [input]   (gap)   Desc: [input].
+        # Both edits are always created + wired here; where they're PLACED
+        # differs by kind: source-code kinds put them in a full-width header
+        # row above the content; training_motion instead places them at the
+        # top of its LEFT content column (req 1 — they must not span above the
+        # right-hand Clip Motion Editor). So for training_motion we build the
+        # widgets but do not add them to this outer layout.
         self._title_edit = setLineEdit()
         self._desc_edit = setLineEdit()
         _apply_small_font(self._title_edit)
         _apply_small_font(self._desc_edit)
         self._title_edit.editingFinished.connect(self._on_title_changed)
         self._desc_edit.editingFinished.connect(self._on_desc_changed)
-        title_group = self._labeled_row(
-            label_id="editor.title", label_default="Title:",
-            widget=self._title_edit, stretch=1,
-        )
-        desc_group = self._labeled_row(
-            label_id="editor.desc", label_default="Desc:",
-            widget=self._desc_edit, stretch=2,
-        )
-        hdr_row = QHBoxLayout()
-        hdr_row.setContentsMargins(0, 0, 0, 0)
-        hdr_row.setSpacing(_FIELD_GAP)
-        hdr_row.addLayout(title_group, 1)
-        hdr_row.addLayout(desc_group, 2)
-        v.addLayout(hdr_row)
 
-        # Tags — Engine: [combo]   (gap)   Family: [label].
-        # Engine combo is suppressed for ``training_motion`` because the
-        # canvas's ``backend`` is the single source of truth for that kind
-        # (param_rows.TrainingItemsRow:2550 plumbs it in as canvas_backend).
-        # Showing the dropdown would invite the user to switch a value that
-        # has no per-item effect.
-        # Family is a *read-only derived label* — ``TaskModuleItem.applicable_families``
-        # is a set, not a single choice, so a single-select combo would
-        # always misrepresent multi-family scripts. The label renders the
-        # full set (joined / collapsed to a preset name when one matches).
-        self._family_label = setText(
-            "", default="",
-            kind="content",
-            color=Config.get_color("main_c2", "#999999"),
-            size=int(Config.get_font_size("size_small", 11)),
-        )
-        fam_group = self._labeled_row(
-            label_id="editor.family", label_default="Family:",
-            widget=self._family_label, stretch=1,
-        )
-        tag_row = QHBoxLayout()
-        tag_row.setContentsMargins(0, 0, 0, 0)
-        tag_row.setSpacing(_FIELD_GAP)
         if self._kind == "training_motion":
+            # No full-width header, no Engine/Family/Variant for training_motion
+            # (Family is always blank — it has no scripts registry — and the
+            # user asked to drop it, req 2). Title/Desc are placed by
+            # ``_build_training_motion_panel`` in the left column.
             self._engine_combo = None
+            self._family_label = None
+            self._variant_combo = None
+            self._data_type_combo = None
+            self._variant_banner = None
         else:
+            title_group = self._labeled_row(
+                label_id="editor.title", label_default="Title:",
+                widget=self._title_edit, stretch=1,
+            )
+            desc_group = self._labeled_row(
+                label_id="editor.desc", label_default="Desc:",
+                widget=self._desc_edit, stretch=2,
+            )
+            hdr_row = QHBoxLayout()
+            hdr_row.setContentsMargins(0, 0, 0, 0)
+            hdr_row.setSpacing(_FIELD_GAP)
+            hdr_row.addLayout(title_group, 1)
+            hdr_row.addLayout(desc_group, 2)
+            v.addLayout(hdr_row)
+
+            # Tags — Engine: [combo]   (gap)   Family: [label].
+            # Family is a *read-only derived label* — ``applicable_families``
+            # is a set, not a single choice, so the label renders the full set
+            # (collapsed to a preset name when one matches).
+            self._family_label = setText(
+                "", default="",
+                kind="content",
+                color=Config.get_color("main_c2", "#999999"),
+                size=int(Config.get_font_size("size_small", 11)),
+            )
+            fam_group = self._labeled_row(
+                label_id="editor.family", label_default="Family:",
+                widget=self._family_label, stretch=1,
+            )
+            tag_row = QHBoxLayout()
+            tag_row.setContentsMargins(0, 0, 0, 0)
+            tag_row.setSpacing(_FIELD_GAP)
             self._engine_combo = setComboBox(_ENGINE_OPTIONS, height=24, i18n=False)
             _apply_small_font(self._engine_combo)
             self._engine_combo.setCurrentText(self._canvas_backend)
@@ -530,62 +646,56 @@ class RegistryModuleEditorPanel(QDialog):
                 widget=self._engine_combo,
             )
             tag_row.addLayout(eng_group)
-        tag_row.addLayout(fam_group)
+            tag_row.addLayout(fam_group)
 
-        # Variant dropdown — only meaningful for reward / termination /
-        # observation / discriminator kinds (training_motion has no
-        # script variants).  Populated lazily per selected key in
-        # ``_refresh_variant_combo``; family-hard-filtered against the
-        # canvas-bound robot via ``resolver.family_filter`` when
-        # ``self._robot_sku`` is set.
-        if self._kind == "observation":
-            # obs has no script variants — the Variant slot becomes Data Type,
-            # deciding the scale input shape the inline row offers per item.
-            self._data_type_combo = setComboBox(
-                [
-                    ("scalar", tr("editor.dtype.scalar", "Scalar")),
-                    ("list", tr("editor.dtype.list", "List")),
-                    ("both", tr("editor.dtype.both", "Scalar/List")),
-                ],
-                height=24, i18n=False,
-            )
-            _apply_small_font(self._data_type_combo)
-            self._data_type_combo.currentIndexChanged.connect(
-                self._on_data_type_changed
-            )
-            dt_group = self._labeled_row(
-                label_id="editor.data_type", label_default="Data Type:",
-                widget=self._data_type_combo,
-            )
-            tag_row.addLayout(dt_group)
-        elif self._kind != "training_motion":
-            self._variant_combo = setComboBox(
-                [("editor.variant.preset", "Preset")], height=24, i18n=False
-            )
-            _apply_small_font(self._variant_combo)
-            self._variant_combo.currentIndexChanged.connect(
-                self._on_variant_changed
-            )
-            var_group = self._labeled_row(
-                label_id="editor.variant", label_default="Variant:",
-                widget=self._variant_combo,
-            )
-            tag_row.addLayout(var_group)
-        tag_row.addStretch(1)
-        v.addLayout(tag_row)
+            # Variant dropdown — reward / termination / discriminator; obs
+            # replaces it with a Data Type dropdown deciding the inline row's
+            # scale shape.
+            if self._kind == "observation":
+                self._data_type_combo = setComboBox(
+                    [
+                        ("scalar", tr("editor.dtype.scalar", "Scalar")),
+                        ("list", tr("editor.dtype.list", "List")),
+                        ("both", tr("editor.dtype.both", "Scalar/List")),
+                    ],
+                    height=24, i18n=False,
+                )
+                _apply_small_font(self._data_type_combo)
+                self._data_type_combo.currentIndexChanged.connect(
+                    self._on_data_type_changed
+                )
+                dt_group = self._labeled_row(
+                    label_id="editor.data_type", label_default="Data Type:",
+                    widget=self._data_type_combo,
+                )
+                tag_row.addLayout(dt_group)
+            else:
+                self._variant_combo = setComboBox(
+                    [("editor.variant.preset", "Preset")], height=24, i18n=False
+                )
+                _apply_small_font(self._variant_combo)
+                self._variant_combo.currentIndexChanged.connect(
+                    self._on_variant_changed
+                )
+                var_group = self._labeled_row(
+                    label_id="editor.variant", label_default="Variant:",
+                    widget=self._variant_combo,
+                )
+                tag_row.addLayout(var_group)
+            tag_row.addStretch(1)
+            v.addLayout(tag_row)
 
-        # Banner row that surfaces when ``self._robot_sku`` is unset —
-        # tells the user the family hard-filter is off (so they
-        # understand why incompatible variants are still selectable).
-        if self._robot_sku is None and self._kind not in ("training_motion", "observation"):
-            self._variant_banner = setText(
-                "editor.variant.banner",
-                default="No robot bound — family filter disabled.",
-                kind="content",
-                color=Config.get_color("sub_t2"),
-                size=int(Config.get_font_size("size_small")),
-            )
-            v.addWidget(self._variant_banner)
+            # Banner row that surfaces when ``self._robot_sku`` is unset —
+            # tells the user the family hard-filter is off.
+            if self._robot_sku is None and self._kind != "observation":
+                self._variant_banner = setText(
+                    "editor.variant.banner",
+                    default="No robot bound — family filter disabled.",
+                    kind="content",
+                    color=Config.get_color("sub_t2"),
+                    size=int(Config.get_font_size("size_small")),
+                )
+                v.addWidget(self._variant_banner)
 
         # Central content panel — kind-specific.
         self._content_host = QFrame()
@@ -604,11 +714,11 @@ class RegistryModuleEditorPanel(QDialog):
             size=int(Config.get_font_size("size_small", 11)),
         )
         bottom.addWidget(self._status, 1)
-        # OK uses the highlight slot (spec="notice" — LaviButton's spec
+        # OK uses the safe_zone slot (spec="save" — LaviButton's spec
         # vocabulary maps notice→highlight, save→safe_zone, danger→danger_zone).
         self._btn_ok = setButton(
             "editor.btn.ok", _BTN_W, _BTN_H,
-            kind="border", spec="notice", default="OK",
+            kind="border", spec="save", default="OK",
         )
         self._btn_cancel = setButton(
             "editor.btn.cancel", _BTN_W, _BTN_H,
@@ -852,36 +962,50 @@ class RegistryModuleEditorPanel(QDialog):
         self._content_host_layout.addWidget(self._code_edit, 1)
 
     def _build_training_motion_panel(self) -> None:
-        # Clip dropdown — populated on every selection refresh from
-        # ``scripts.training_motion.library.list_entries`` so newly-dropped
-        # motion files under ``<USER_CONFIG_DIR>/scripts/training_motion/motions/``
-        # surface without restarting the dialog.
-        self._clip_combo = setComboBox([], height=24, i18n=False)
-        _apply_small_font(self._clip_combo)
-        self._clip_combo.currentIndexChanged.connect(self._on_clip_changed)
-        self._content_host_layout.addLayout(self._labeled_row(
-            label_id="editor.clip", label_default="Clip:",
-            widget=self._clip_combo, stretch=1,
-        ))
+        """training_motion content — two columns (§ req 2):
+
+            LEFT  = the item's fields (speed channel + Advanced JSON).
+            RIGHT = "Clip:" picker (req 3) above the embedded Clip Motion
+                    Editor (render / timeline / segment marking), which
+                    replaces the old "Review Motion" button (req 3) and drives
+                    segment add/apply back into the picker (req 5).
+        """
+        split = QHBoxLayout()
+        split.setContentsMargins(0, 0, 0, 0)
+        split.setSpacing(_FIELD_GAP)
+
+        # ── LEFT column: the item's own fields ───────────────────────────
+        left_col = QVBoxLayout()
+        left_col.setContentsMargins(0, 0, 0, 0)
+        left_col.setSpacing(_ROW_VSPACING)
+
+        # Title / Desc header — kept in the LEFT column so it never spans above
+        # the right-hand Clip Motion Editor (req 1). The edits themselves were
+        # created + wired in ``_build_right_pane``.
+        title_group = self._labeled_row(
+            label_id="editor.title", label_default="Title:",
+            widget=self._title_edit, stretch=1,
+        )
+        desc_group = self._labeled_row(
+            label_id="editor.desc", label_default="Desc:",
+            widget=self._desc_edit, stretch=1,
+        )
+        left_col.addLayout(title_group)
+        left_col.addLayout(desc_group)
 
         # §1C — Speed-channel context hint. Repopulated in
         # ``_refresh_training_motion_fields`` whenever a new item is
-        # selected. Shows: ``Channel: lin_vel_x (m/s) · template:
-        # [0.0, 1.0] · zero: [...]`` so the user can tell at a glance
-        # which channel the Speed lo/hi range controls, what units it
-        # is in, and the registry template baseline. Uses empty i18n
-        # key (per setText docstring) so the dynamic text isn't
-        # overwritten on language-switch retranslation.
+        # selected. Uses empty i18n key so the dynamic text isn't overwritten
+        # on language-switch retranslation.
         self._channel_hint = setText(
             "", default="", kind="content",
             color=Config.get_color("sub_t2", "#888888"),
             size=int(Config.get_font_size("size_small", 11)),
         )
-        self._content_host_layout.addWidget(self._channel_hint)
+        left_col.addWidget(self._channel_hint)
 
         # Speed range — plain numeric text fields with the unit moved out
-        # of the input. QDoubleValidator clamps to the same [-100, 100]
-        # range / 3-decimal resolution the previous spinboxes used.
+        # of the input. QDoubleValidator clamps to [-100, 100] / 3 decimals.
         self._speed_lo = setLineEdit()
         self._speed_hi = setLineEdit()
         _apply_small_font(self._speed_lo)
@@ -932,7 +1056,7 @@ class RegistryModuleEditorPanel(QDialog):
         spd_row.addLayout(lo_group)
         spd_row.addLayout(hi_group)
         spd_row.addStretch(1)
-        self._content_host_layout.addLayout(spd_row)
+        left_col.addLayout(spd_row)
 
         # Advanced (JSON) — section label + JSON-mode SDK editor.
         adv_lab = setText(
@@ -940,14 +1064,68 @@ class RegistryModuleEditorPanel(QDialog):
             color=Config.get_color("highlight", "#F6D393"),
             size=int(Config.get_font_size("size_small", 11)),
         )
-        self._content_host_layout.addWidget(adv_lab)
+        left_col.addWidget(adv_lab)
         self._adv_edit = CodeEditorWidget(
             parent=self._content_host,
             mode="json",
         )
         _apply_small_font(self._adv_edit)
         self._adv_edit.textChanged.connect(self._on_advanced_changed)
-        self._content_host_layout.addWidget(self._adv_edit, 1)
+        left_col.addWidget(self._adv_edit, 1)
+
+        left_wrap = QFrame()
+        left_wrap.setLayout(left_col)
+
+        # ── RIGHT column: Clip picker (req 3) + embedded Clip Motion Editor ─
+        right_col = QVBoxLayout()
+        right_col.setContentsMargins(0, 0, 0, 0)
+        right_col.setSpacing(_ROW_VSPACING)
+
+        # Clip dropdown — [(None), clip, clip↳segment, …] (req 5). Rebuilt on
+        # every selection refresh so newly-dropped / downloaded motions and
+        # freshly-cut segments surface without restarting the dialog. Height is
+        # generous (30px) so the entry text isn't vertically clipped.
+        self._clip_combo = setComboBox([], height=30, i18n=False)
+        _apply_small_font(self._clip_combo)
+        self._clip_combo.currentIndexChanged.connect(self._on_clip_changed)
+        clip_row = QHBoxLayout()
+        clip_row.setContentsMargins(0, 0, 0, 0)
+        clip_row.setSpacing(_LABEL_INPUT_SPACING)
+        clip_lab = setText(
+            "editor.clip", default="Clip:", kind="content",
+            size=int(Config.get_font_size("size_small", 11)),
+        )
+        clip_row.addWidget(clip_lab)
+        clip_row.addWidget(self._clip_combo, 1)
+        right_col.addLayout(clip_row)
+
+        # Embedded Clip Motion Editor — fixed to the canvas robot (req 4), with
+        # per-segment Apply buttons (req 5). It fully replaces the removed
+        # "Review Motion" button: the render view previews the clip on the
+        # bound robot inline (req 3). Segment add/delete → ``segmentsChanged``
+        # → rebuild the picker; Apply → ``segmentApplied`` → bind that segment.
+        from application.service.assets_browser import get_asset_browser_provider
+        from application.ui.dialogs.clip_motion_editor_widget import (
+            ClipMotionEditorWidget,
+        )
+        self._clip_editor = ClipMotionEditorWidget(
+            provider=get_asset_browser_provider(),
+            parent=self._content_host,
+            clip_ref=None,
+            show_robot_picker=False,
+            show_reference_select=True,
+            robot_sku=self._robot_sku,
+        )
+        self._clip_editor.segmentsChanged.connect(self._on_segments_changed)
+        self._clip_editor.segmentApplied.connect(self._on_segment_applied)
+        right_col.addWidget(self._clip_editor, 1)
+
+        right_wrap = QFrame()
+        right_wrap.setLayout(right_col)
+
+        split.addWidget(left_wrap, 3)
+        split.addWidget(right_wrap, 4)
+        self._content_host_layout.addLayout(split, 1)
 
     # ---- selection / refresh ----
 
@@ -1024,9 +1202,10 @@ class RegistryModuleEditorPanel(QDialog):
             else:
                 self._engine_combo.setCurrentText(self._canvas_backend)
         # Family label — purely derived from registry (set of applicable
-        # families). No per-item override: ``d["family"]`` has never been
-        # consumed downstream, so the legacy single-pick combo was dead UI.
-        self._family_label.setText(_resolve("family"))
+        # families). Dropped entirely for training_motion (req 2 — always blank
+        # there); the widget is None, so guard the update.
+        if self._family_label is not None:
+            self._family_label.setText(_resolve("family"))
 
         self._title_edit.blockSignals(False)
         self._desc_edit.blockSignals(False)
@@ -1125,13 +1304,16 @@ class RegistryModuleEditorPanel(QDialog):
     def _rebuild_clip_combo(self, current_ref: Optional[str]) -> None:
         """Re-scan the motion library and repopulate the Clip dropdown.
 
-        Mirrors DEMO's ``_rebuild_ref_combo``: ``(None)`` at the top, then
-        every ``MotionEntry`` from ``scripts.training_motion.library``
-        (SB3 library + community archives). ``userData`` holds the
-        absolute path string the downstream training pipeline consumes.
-        If ``current_ref`` doesn't match any scanned entry it is preserved
-        as a ``(custom)`` row so legacy ``pack:`` refs aren't silently
-        dropped on load.
+        ``(None)`` at the top, then every ``MotionEntry`` from
+        ``assets_browser.list_pickable_motion_entries`` — the union of the
+        shipped SB3/AMP library and downloaded ResourceManager packs
+        (HuggingFace / release / clone), so a freshly-downloaded pack is
+        pickable here without leaving the canvas. ``userData`` holds the
+        absolute path string the downstream training pipeline consumes
+        (``_populate_motion`` takes an absolute clip path verbatim and infers
+        the loader by extension). If ``current_ref`` doesn't match any
+        scanned entry it is preserved as a ``(custom)`` row so legacy
+        ``pack:`` refs aren't silently dropped on load.
         """
         self._clip_combo.blockSignals(True)
         try:
@@ -1140,13 +1322,21 @@ class RegistryModuleEditorPanel(QDialog):
 
             entries = []
             try:
-                from scripts.training_motion.library import list_entries
-                entries = list_entries(include_archives=True)
+                # Unified discovery: shipped SB3/AMP library ∪ downloaded
+                # ResourceManager packs (HuggingFace / release / clone). The
+                # library scanner alone is blind to downloaded packs whose
+                # layout it doesn't recognise (e.g. LAFAN1 *.csv), which is
+                # why HF downloads never reached this dropdown before.
+                from application.service.assets_browser import (
+                    list_pickable_motion_entries,
+                )
+                entries = list_pickable_motion_entries()
             except Exception as e:
                 log_warning(
                     f"[RegistryModuleEditorPanel] motion library scan failed: {e!r}"
                 )
 
+            base_refs: List[str] = []
             seen_refs: set = {None}
             for e in entries:
                 try:
@@ -1154,11 +1344,34 @@ class RegistryModuleEditorPanel(QDialog):
                     if ref in seen_refs:
                         continue
                     seen_refs.add(ref)
+                    base_refs.append(ref)
                     tag = (getattr(e, "task_tag", "") or "—").strip() or "—"
                     display = f"{e.robot_model} / {e.name}  [{tag}]"
                     self._clip_combo.addItem(display, userData=ref)
+                    # req 4: a clip whose IR roles the bound robot mostly lacks
+                    # is painted danger_zone. The compat verdict comes from the
+                    # cache only — it is filled by a BACKGROUND thread (req 3),
+                    # never computed synchronously here (that would block the UI
+                    # on parsing every clip). Uncached → uncoloured until the
+                    # background load finishes and recolours.
+                    incompatible = self._clip_compat_cache.get(ref, False)
+                    self._color_clip_item(self._clip_combo.count() - 1, incompatible)
+                    # Segment sub-entries: each saved [lo,hi] sub-range of this
+                    # clip is its own pickable item whose userData encodes the
+                    # range (``<ref>#seg=lo-hi``). Training then slices to that
+                    # segment — a cropped clip is trainable without a new file.
+                    for seg_ref, seg_disp in self._segment_options(ref):
+                        if seg_ref in seen_refs:
+                            continue
+                        seen_refs.add(seg_ref)
+                        self._clip_combo.addItem(seg_disp, userData=seg_ref)
+                        self._color_clip_item(
+                            self._clip_combo.count() - 1, incompatible
+                        )
                 except Exception:
                     continue
+            # Captured for the background compat loader to iterate.
+            self._all_base_refs = base_refs
 
             target_idx = 0
             if current_ref:
@@ -1177,6 +1390,162 @@ class RegistryModuleEditorPanel(QDialog):
             self._clip_combo.setCurrentIndex(target_idx)
         finally:
             self._clip_combo.blockSignals(False)
+        # Recolour the closed-state display to match the committed item.
+        try:
+            self._clip_combo.refresh_style()
+        except Exception:
+            pass
+
+    def _color_clip_item(self, index: int, danger: bool) -> None:
+        """Paint the clip-combo row at ``index`` danger_zone when ``danger``.
+
+        No-op when ``danger`` is False — the default theme foreground already
+        applies. Robust to model shape changes (never raises into the rebuild).
+        """
+        if not danger:
+            return
+        try:
+            item = self._clip_combo._src_model.item(index)  # noqa: SLF001
+            if item is not None:
+                item.setForeground(QBrush(QColor(Config.get_color("danger_zone"))))
+        except Exception:
+            pass
+
+    def _recolor_clip_combo(self) -> None:
+        """Re-apply danger_zone colouring to every combo row from the compat cache.
+
+        Called after the background loader fills the cache — repaints the
+        already-built items (base clips + their segments) without a full
+        rebuild / library rescan.
+        """
+        from application.training.motion.segment_ref import parse_segment_ref
+        for i in range(self._clip_combo.count()):
+            data = self._clip_combo.itemData(i)
+            if data is None:
+                continue
+            ref = str(data)
+            try:
+                base, _, _ = parse_segment_ref(ref)
+            except ValueError:
+                base = ref
+            self._color_clip_item(i, self._clip_compat_cache.get(base, False))
+        try:
+            self._clip_combo.refresh_style()
+        except Exception:
+            pass
+
+    # ---- background clip-compat load (req 3: never block the UI thread) ----
+
+    def _update_clip_loading_state(self) -> None:
+        """Gate the picker + editor on the background compat load.
+
+        Until the load finishes: disable the clip picker and show the editor's
+        loading page. Once done (or when there is no robot / nothing to load):
+        enable the picker and point the editor at the current clip.
+        """
+        if self._clip_editor is None:
+            return
+        if not self._compat_done:
+            self._clip_combo.setEnabled(False)
+            self._clip_editor.begin_loading()
+            self._ensure_compat_load_started()
+        else:
+            self._clip_combo.setEnabled(True)
+            self._clip_editor.end_loading()
+            self._sync_editor_to_current_clip()
+
+    def _ensure_compat_load_started(self) -> None:
+        """Kick off the background compat loader once (idempotent)."""
+        if self._compat_thread is not None:
+            return  # already running
+        if not self._robot_sku or not self._all_base_refs:
+            # Nothing to compute → finish immediately (still marshals through
+            # the same completion path so the UI unlocks).
+            self._on_compat_done({})
+            return
+        from application.service.assets_browser import get_asset_browser_provider
+        self._compat_thread = QThread(self)
+        self._compat_worker = _ClipCompatWorker(
+            get_asset_browser_provider(),
+            self._robot_sku,
+            list(self._all_base_refs),
+            _CLIP_COMPAT_MIN_OVERLAP,
+        )
+        self._compat_worker.moveToThread(self._compat_thread)
+        self._compat_thread.started.connect(self._compat_worker.run)
+        self._compat_worker.progress.connect(self._on_compat_progress)
+        self._compat_worker.done.connect(self._on_compat_done)
+        self._compat_thread.finished.connect(self._compat_worker.deleteLater)
+        self._compat_thread.finished.connect(self._compat_thread.deleteLater)
+        self._compat_thread.start()
+
+    def _on_compat_progress(self, done: int, total: int) -> None:
+        if self._clip_editor is not None:
+            self._clip_editor.set_loading_progress(done, total)
+
+    def _on_compat_done(self, results: dict) -> None:
+        """Background compat load finished — unlock the picker + editor."""
+        if isinstance(results, dict):
+            self._clip_compat_cache.update(results)
+        self._compat_done = True
+        self._stop_compat_thread()
+        # Recolour the already-built combo now that the cache is complete.
+        self._recolor_clip_combo()
+        self._clip_combo.setEnabled(True)
+        if self._clip_editor is not None:
+            self._clip_editor.end_loading()
+            self._sync_editor_to_current_clip()
+
+    def _stop_compat_thread(self) -> None:
+        """Quit + join the compat worker thread (safe to call when absent)."""
+        worker = self._compat_worker
+        thread = self._compat_thread
+        self._compat_worker = None
+        self._compat_thread = None
+        if worker is not None:
+            try:
+                worker.progress.disconnect(self._on_compat_progress)
+                worker.done.disconnect(self._on_compat_done)
+            except (TypeError, RuntimeError):
+                pass
+            worker.request_stop()
+        if thread is not None and thread.isRunning():
+            thread.quit()
+            if not thread.wait(5000):
+                log_warning(
+                    "[RegistryModuleEditorPanel] compat load thread did not stop "
+                    "within 5s during teardown."
+                )
+
+    def _segment_options(self, clip_ref: str):
+        """Yield ``(encoded_segment_ref, display)`` for each saved segment.
+
+        Segments are looked up by the SAME ``clip_ref`` the Clip Motion Editor
+        keyed them under (the library/downloaded picker deals in absolute paths,
+        which is exactly what registry motion entries — e.g. LAFAN1 — store as
+        their segment key). A per-clip lookup failure is logged and skipped so a
+        single bad clip can't blank the whole dropdown; the provider stays loud.
+        """
+        try:
+            from application.service.assets_browser import get_asset_browser_provider
+            from application.training.motion.segment_ref import build_segment_ref
+            segs = get_asset_browser_provider().list_segments(clip_ref)
+        except Exception as exc:  # noqa: BLE001 — UI resilience, provider stays loud
+            log_warning(
+                f"[RegistryModuleEditorPanel] segment scan failed for "
+                f"{clip_ref!r}: {exc!r}"
+            )
+            return
+        for s in segs:
+            try:
+                seg_ref = build_segment_ref(
+                    clip_ref, int(s.start_frame), int(s.end_frame)
+                )
+            except ValueError:
+                continue
+            tag = (getattr(s, "task_tag", "") or "").strip()
+            tag_str = f" · {tag}" if tag else ""
+            yield seg_ref, f"    ↳ {s.name}  [{s.start_frame}–{s.end_frame}]{tag_str}"
 
     def _refresh_training_motion_fields(self, meta: Dict[str, Any]) -> None:
         self._speed_lo.blockSignals(True)
@@ -1243,6 +1612,102 @@ class RegistryModuleEditorPanel(QDialog):
         self._speed_lo.blockSignals(False)
         self._speed_hi.blockSignals(False)
         self._adv_edit.blockSignals(False)
+
+        # Point the embedded Clip Motion Editor at this item's clip. The combo
+        # rebuild above committed the index with signals blocked. When the
+        # background compat load is still running the picker stays disabled and
+        # the editor shows its loading page instead (req 3); once done, the
+        # editor follows the picker (req 3).
+        self._update_clip_loading_state()
+
+    # ---- clip picker ↔ embedded editor wiring (req 3 / req 5) ----
+
+    def _sync_editor_to_current_clip(self) -> None:
+        """Load the picker's current clip (base + segment range) into the editor.
+
+        A segment ref (``<base>#seg=lo-hi``) loads its *base* clip with the
+        range pre-selected; a whole-clip ref loads the whole clip; ``(None)``
+        clears the editor. Re-selecting the same base clip is cheap (the editor
+        only moves the in/out selection — no GL worker restart).
+        """
+        if self._clip_editor is None:
+            return
+        data = self._clip_combo.currentData()
+        ref = None if data is None else str(data)
+        if not ref:
+            self._clip_editor.set_clip(None)
+            return
+        from application.training.motion.segment_ref import parse_segment_ref
+        try:
+            base, lo, hi = parse_segment_ref(ref)
+        except ValueError:
+            base, lo, hi = ref, None, None
+        sel = (lo, hi) if lo is not None and hi is not None else None
+        # ``applied_ref`` = the full current ref (segment or whole-clip base) so
+        # the editor checks + highlights the matching segment row (req 4/5).
+        self._clip_editor.set_clip(base, initial_selection=sel, applied_ref=ref)
+
+    def _on_segments_changed(self) -> None:
+        """A segment was added / cropped / deleted / relabelled in the editor.
+
+        Repopulate the picker so the new option appears (or the deleted one
+        disappears) immediately (req 5). If the item's current clip was a
+        segment that no longer exists (deleted while applied), fall back to its
+        base clip so the reference never dangles.
+        """
+        data = self._clip_combo.currentData()
+        cur = None if data is None else str(data)
+        resolved = cur
+        if cur:
+            from application.training.motion.segment_ref import (
+                has_segment_range,
+                parse_segment_ref,
+            )
+            if has_segment_range(cur) and not self._segment_ref_exists(cur):
+                base, _, _ = parse_segment_ref(cur)
+                resolved = base
+        if resolved != cur:
+            d = self._ensure_dict_entry()
+            if d is not None:
+                d["clip"] = resolved
+        self._rebuild_clip_combo(resolved)
+        self._sync_editor_to_current_clip()
+
+    def _on_segment_applied(self, seg_ref: str) -> None:
+        """User clicked a segment row's Apply button — bind it as the reference (req 5)."""
+        if not seg_ref:
+            return
+        for i in range(self._clip_combo.count()):
+            if self._clip_combo.itemData(i) == seg_ref:
+                if self._clip_combo.currentIndex() == i:
+                    # Already committed to this segment — re-bind explicitly
+                    # (setCurrentIndex would emit nothing) so the field is set
+                    # even on a repeat Apply.
+                    self._on_clip_changed()
+                else:
+                    # Selecting fires currentIndexChanged → _on_clip_changed,
+                    # which writes the clip field and syncs the editor.
+                    self._clip_combo.setCurrentIndex(i)
+                return
+        # Not yet in the picker (e.g. just-created) — rebuild to include it,
+        # then bind explicitly (rebuild commits its index with signals blocked).
+        self._rebuild_clip_combo(seg_ref)
+        d = self._ensure_dict_entry()
+        if d is not None:
+            d["clip"] = seg_ref
+        self._sync_editor_to_current_clip()
+
+    def _segment_ref_exists(self, seg_ref: str) -> bool:
+        """True iff ``seg_ref`` is still a saved segment of its base clip."""
+        from application.training.motion.segment_ref import parse_segment_ref
+        try:
+            base, _, _ = parse_segment_ref(seg_ref)
+        except ValueError:
+            return False
+        for sref, _disp in self._segment_options(base):
+            if sref == seg_ref:
+                return True
+        return False
 
     # ---- field handlers ----
 
@@ -1766,10 +2231,12 @@ class RegistryModuleEditorPanel(QDialog):
 
     def _on_clip_changed(self, *_args: Any) -> None:
         d = self._ensure_dict_entry()
-        if d is None:
-            return
         data = self._clip_combo.currentData()
-        d["clip"] = None if data is None else str(data)
+        ref = None if data is None else str(data)
+        if d is not None:
+            d["clip"] = ref
+        # The embedded Clip Motion Editor follows the picker (req 3).
+        self._sync_editor_to_current_clip()
 
     def _on_speed_changed(self) -> None:
         d = self._ensure_dict_entry()
@@ -1905,6 +2372,25 @@ class RegistryModuleEditorPanel(QDialog):
         if self._dirty_keys and not self._confirm_discard_unsaved("reject"):
             return
         super().reject()
+
+    def done(self, r: int) -> None:  # type: ignore[override]
+        """Release the embedded editor's GL render thread + compat loader on close.
+
+        Both accept() and reject() route through done(), so this is the single
+        place the background threads are guaranteed to be torn down (the dirty
+        guard in reject()/_on_accept has already run by the time we get here).
+        """
+        try:
+            self._stop_compat_thread()
+        except Exception as e:  # noqa: BLE001 — never block dialog close
+            log_warning(f"[RegistryModuleEditorPanel] compat thread teardown failed: {e!r}")
+        editor = getattr(self, "_clip_editor", None)
+        if editor is not None:
+            try:
+                editor.teardown()
+            except Exception as e:  # noqa: BLE001 — never block dialog close
+                log_warning(f"[RegistryModuleEditorPanel] clip editor teardown failed: {e!r}")
+        super().done(r)
 
     def _confirm_discard_unsaved(self, action: str) -> bool:
         """Modal "you have unsaved scripts" confirmation. True = proceed."""

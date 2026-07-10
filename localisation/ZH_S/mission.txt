@@ -1,0 +1,186 @@
+[train]
+title = 训练配置透视
+section.status = 训练状态
+section.task = 任务配置
+section.hyper = 超参数配置
+section.robot = 机器人配置
+state.idle = 未运行
+state.running = 运行中
+state.paused = 已暂停
+state.finished = 已结束
+state.failed = 失败
+field.elapsed = 已训练时间
+field.iterations = 迭代次数
+field.current_reward = 当前奖励
+field.mean_reward = 平均奖励
+field.best_reward = 最佳奖励
+field.episode_length = 回合时长
+field.fps = 帧率(FPS)
+field.task_env = 任务环境
+field.task_name = 任务名称
+field.link = 链路
+field.device = 训练设备
+btn.task_configure = 配置任务
+field.lr = 学习率
+field.batch_size = 批次大小
+field.gamma = 折扣因子
+field.total_timesteps = 总训练步数
+field.ent_coef = 熵系数
+field.seed = 随机种子
+field.num_envs = 并行环境数
+field.max_iterations = 最大迭代次数
+btn.hyper_edit = 编辑超参数
+field.training_asset = 训练资产
+field.active_files = 资源文件
+field.body_mapping = 刚体映射
+btn.start = 开始
+btn.pause = 暂停
+btn.stop = 停止
+placeholder.empty = —
+placeholder.no_canvas = 未加载画布
+placeholder.no_robot = 未加载机器人节点
+body.col_robot = 机器人
+body.col_role = 角色
+body.unassigned = (未分配)
+body.out_of_scope = (不参与)
+body.menu_unassign = 取消分配
+body.menu_oos = 标记为不参与
+body.menu_restore = 恢复 (未分配)
+
+[robot]
+status.loaded = 已加载
+status.missing = 缺失
+
+[link]
+local = 本地
+cloud = 云端
+
+[conn]
+title = 实机连接配置
+section.ros2 = ROS2 连接
+section.hardware = 机器人硬件信息
+section.sensor = 传感器状态
+field.domain_id = ROS2 域 ID
+field.middleware = 中间件
+field.address = 连接地址
+field.port = 端口
+state.disconnected = 未连接
+state.testing = 测试中…
+state.connecting = 连接中…
+state.connected = 已连接
+state.error = 错误
+btn.test = 测试连接
+btn.connect = 连接
+btn.disconnect = 断开
+field.brand = 品牌
+field.model = 型号
+field.serial = 序列号
+field.firmware = 固件版本
+field.battery = 电量
+field.temperature = 温度
+field.uptime = 运行时长
+sensor.imu = IMU
+sensor.joints = 关节状态
+sensor.lidar = 激光雷达
+sensor.camera = 相机
+sensor.torque = 力矩传感器
+sensor.battery = 电池
+level.ok = 正常
+level.warn = 警告
+level.error = 异常
+level.idle = 待命
+field.state = 连接状态
+hw.battery = 电量
+hw.no_selection = 未选择机器人
+hw.temperature = 温度
+hw.uptime = 运行时长
+btn.connecting = 连接中…
+controller.arm_pending = 机械臂遥操作将在第 6 阶段提供。
+controller.no_teleop = 此适配器未声明遥操作能力。
+controller.pid_pending = PID 调参界面将在第 6 阶段提供。
+controller.release_control = 释放控制
+controller.take_control = 取得控制
+dialog.section.domain = ROS2 域 ID
+dialog.section.ssh = SSH 凭据
+dialog.ssh.server = 服务器：{server}
+dialog.title = 连接设置
+middleware.auto_detected = ↳ 自动：{rmw}
+result.fix_tag.invasive = 高侵入
+result.fix_tag.safe = 安全
+result.head.fail = 连接未能完成。
+result.head.ok_clean = 连接就绪。未发现问题。
+result.head.ok_fixed = 连接就绪。已自动修复 {n} 个问题。
+result.head.partial = 连接已建立，但仍有 {n} 个问题需要处理。
+result.invasive.confirm = 即将在机器人上执行 {n} 项高侵入修复。这些修复可能会安装软件包或修改持久配置文件。
+	
+	操作：
+	{summary}
+	
+	是否继续？
+result.invasive.confirm.title = 确认高侵入修复
+result.meta = 自动修复尝试：{a}   已应用：{ap}   失败：{fl}   耗时：{d:.1f}s
+result.section.applied = 已应用（自动修复）
+result.section.failed = 自动修复过程中失败
+result.section.unresolved_invasive = 未解决（有高侵入修复可用——需要你的同意）
+result.section.unresolved_manual = 未解决（无自动修复——需要手动处理）
+result.section.unresolved_safe = 未解决（可安全修复；建议重试）
+result.title.fail = 连接失败
+result.title.ok = 连接就绪
+result.title.partial = 连接部分完成——建议处理
+robot.none = —
+section.controller = 控制器
+ssh.has_password = 密码✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = （无凭据）
+ssh.password = 密码
+ssh.password.placeholder = （输入密码后点击保存）
+ssh.sudo = Sudo 密码
+ssh.sudo.placeholder = （高侵入修复需要）
+ssh.user = SSH 用户
+
+[sim]
+title = 策略仿真
+section.simconfig = 仿真配置
+field.policy = 策略
+field.play_ground = 场地
+field.backend = 后端
+field.preview_physic = 物理预览
+field.preview_physic.tip = 资产预览时实时步进物理（仅重力，无关节驱动）
+btn.run = 运行
+btn.review_robot = 预览资产
+policy.empty = 无已导出的策略
+backend.empty = 无可用仿真后端
+section.init_pose = 初始姿态超控
+field.init_pose_enable = 启用初始姿态超控
+field.init_pose_enable.tip = 用下方编辑的值替代 bundle 默认姿态生成机器人
+field.init_pose_preset = 预设
+field.init_pose_base = 基座位姿 [米]
+field.init_pose_joints = 关节角度 [弧度]
+btn.edit_pose = 编辑…
+btn.save_pose = 另存为…
+btn.delete_pose = 删除
+dialog.save_pose.title = 保存初始姿态预设
+dialog.save_pose.prompt = 预设名称：
+init_pose.editor.title = 初始姿态编辑器
+init_pose.empty = 请先选择已知 SKU 的策略以编辑初始姿态。
+init_pose.custom = 自定义 (未保存)
+
+[diag]
+repair_invasive = 高侵入修复
+repair_safe = 安全修复
+ssh.context = 服务器：{server}
+	原因：{reason}
+ssh.err_empty_pw = 需要填写 SSH 密码。
+ssh.err_save = 无法保存凭据：{err}
+ssh.headline = 自动修复需要通过 SSH 访问机器人。
+ssh.pw = SSH 密码
+ssh.pw_placeholder = 必填
+ssh.sudo = Sudo 密码
+ssh.sudo_placeholder = 可选——留空时默认使用 SSH 密码
+ssh.title = 需要 SSH 凭据
+ssh.user = SSH 用户
+summary.error = 检测到错误。
+summary.pass = 所有检查均已通过。
+summary.warn = 检测到警告。
+title = 连接诊断
+

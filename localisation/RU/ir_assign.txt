@@ -1,0 +1,16 @@
+[default]
+banner = Некоторые суставы/звенья робота не были автоматически классифицированы. Назначьте им роли IR ниже, чтобы завершить настройку.
+cancel = Отмена
+col_joint = Сустав / Звено
+col_kind = Тип
+col_role = Роль IR
+confirm = Подтвердить всё
+dialog_title = Назначить роли IR для новых роботов
+kind_body = Звено
+kind_joint = Сустав
+pending_robots = Роботы в ожидании
+right_title = Сопоставление суставов — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} назначено
+status_ready = Все {n} записей назначено — готово к подтверждению.
+

@@ -1,0 +1,16 @@
+[default]
+banner = Algumas juntas/corpos do robô não puderam ser classificados automaticamente. Atribua os seus papéis IR abaixo para concluir a configuração.
+cancel = Cancelar
+col_joint = Junta / Corpo
+col_kind = Tipo
+col_role = Papel IR
+confirm = Confirmar tudo
+dialog_title = Atribuir papéis IR para novos robôs
+kind_body = Corpo
+kind_joint = Junta
+pending_robots = Robôs pendentes
+right_title = Mapeamento de juntas — {robot} ({family}, {n} entrada{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} atribuídos
+status_ready = Todas as {n} entradas atribuídas — pronto para confirmar.
+

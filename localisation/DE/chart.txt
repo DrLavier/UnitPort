@@ -1,0 +1,16 @@
+[empty]
+no_visible_series = Keine sichtbaren Serien
+
+[runs]
+clear = Leeren
+empty = Keine Läufe
+n_selected = 
+none_selected = Läufe auswählen
+select_all = Alle auswählen
+tag.failed = [fehlgeschlagen]
+tag.finished = [abgeschlossen]
+tag.running = [LAUFEND]
+
+[series]
+cmd_reward = Belohnung für Befehle
+

@@ -1,0 +1,20 @@
+[default]
+title = Ritaglia e etichetta la clip
+length_unknown = Lunghezza della clip sconosciuta (l'analisi dei frame viene eseguita nel ciclo del backend) — i marcatori vengono salvati come numeri di frame grezzi.
+preview_robot = Anteprima robot
+preview = Anteprima in MuJoCo
+preview_started = Anteprima avviata (intera clip — la riproduzione dell'intervallo viene eseguita nel ciclo del backend).
+range = In {a}  ·  Out {b}  ·  {n} fotogrammi
+seg_name = Segmento
+seg_name_ph = es. walk_loop
+add = Aggiungi dai marcatori
+col_name = Nome
+col_tag = Tag
+col_in = In
+col_out = Out
+col_action = 
+close = Chiudi
+delete = Elimina
+no_robot = Seleziona prima un robot per l'anteprima.
+err_name = Il nome del segmento è obbligatorio.
+

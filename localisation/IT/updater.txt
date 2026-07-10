@@ -1,0 +1,38 @@
+[btn]
+close = Chiudi UnitPort
+ok = OK
+skip = Ignora questa versione
+update_on_exit = Aggiorna all'uscita
+update_restart = Aggiorna e riavvia
+apply = Applica aggiornamento
+later = Più tardi
+
+[dialog]
+title_available = Aggiornamento disponibile
+title_complete = Aggiornamento applicato
+title_latest = UnitPort è aggiornato
+title_progress = Aggiornamento di UnitPort in corso
+
+[label]
+channel = Canale
+latest_body = Stai usando UnitPort v{current}. Non è stato trovato alcun rilascio più recente su GitHub.
+no_release_notes = (nessuna nota di rilascio per questa versione)
+release_notes = Note di rilascio
+restart_prompt = Aggiornamento a v{version} applicato. UnitPort si chiuderà ora — per favore rilancialo tramite start.bat o start.sh.
+current_version = Versione corrente
+latest_version = Ultima versione
+restarting = Aggiornamento a v{version} applicato. Riavvio di UnitPort…
+
+[notice]
+ok = Ho capito
+title = Novità
+
+[progress]
+connecting = Connessione in corso
+checking = Verifica aggiornamenti
+downloading = Scaricamento
+extracting = Estrazione archivio
+merging = Unione file
+git_fetch = Recupero tag
+git_checkout = Passaggio alla release
+

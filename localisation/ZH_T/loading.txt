@@ -1,0 +1,3 @@
+[install]
+in_progress = 正在安裝
+

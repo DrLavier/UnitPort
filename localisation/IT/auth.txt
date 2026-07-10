@@ -1,0 +1,58 @@
+[default]
+busy_linking = Collegamento dell'account {provider}...
+busy_oauth = In attesa della conferma del browser...
+busy_sending_reset = Invio email di reimpostazione...
+busy_signing_in = Accesso in corso...
+busy_signing_up = Creazione account in corso...
+close_button = Chiudi
+confirm_password_label = Conferma password
+continue_github = Continua con GitHub
+continue_google = Continua con Google
+continue_with = o continua con
+dialog_title = Account UnitPort
+email_label = Email
+email_placeholder = you@example.com
+error_email_rate_limited = Troppe richieste. Attendi un minuto e riprova.
+error_email_taken = Esiste già un account con questa email.
+error_empty_email = L'email è obbligatoria.
+error_empty_password = La password è obbligatoria.
+error_generic = Accesso non riuscito: {message}
+error_invalid_credentials = Email o password errati.
+error_network = Errore di rete — controlla la connessione.
+error_password_mismatch = Le password non corrispondono.
+error_password_too_short = La password deve contenere almeno 6 caratteri.
+forgot_password = Hai dimenticato la password?
+identity_conflict_body = Impossibile collegare {provider}.
+	
+	Quel account appartiene già a un altro utente UnitPort e Supabase non può unire due account esistenti.
+	
+	Puoi accedere direttamente con {provider} oppure provare con un account {provider} diverso.
+	
+	Messaggio del provider: {message}
+identity_conflict_switch = Accedi invece con {provider}
+identity_conflict_title = Identità già in uso
+info_email_confirmation = Account creato. Controlla {email} per confermare il tuo indirizzo.
+password_label = Password
+password_placeholder = almeno 6 caratteri
+sidebar_sign_in_button = Accedi
+sidebar_sign_out = Esci
+sidebar_signed_out_hint = Accedi a UnitPort
+sign_in_button = Accedi
+sign_up_button = Crea account
+tab_sign_in = Accedi
+tab_sign_up = Registrati
+restart_body_signin = Accesso eseguito come {email}. Riavvia UnitPort ora per caricare lo spazio di lavoro di questo account?
+restart_body_signout = Disconnesso. Riavvia UnitPort ora per tornare allo spazio di lavoro ospite?
+restart_button_later = Più tardi
+restart_button_now = Riavvia ora
+restart_title = Riavvio richiesto
+busy_unlinking = Scollegamento in corso...
+busy_setting_password = Aggiornamento password...
+busy_changing_email = Invio verifica...
+error_oauth_busy = Un'altra operazione di accesso è in corso. Attendere prego.
+error_single_identity_not_deletable = Impossibile scollegare l'unico metodo di accesso.
+error_identity_already_exists = Questo account è già collegato a un altro utente.
+info_email_change_pending = Email di verifica inviata. Fai clic sul link per confermare la modifica.
+info_password_updated = Password aggiornata.
+info_unlink_current_provider = Hai scollegato il metodo di accesso corrente. Potresti essere disconnesso a breve.
+

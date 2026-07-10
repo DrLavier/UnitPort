@@ -1,0 +1,12 @@
+[default]
+empty = 尚未註冊任何節點
+
+[layer]
+a = 設定
+b = 環境
+c = 訓練
+d = 匯出
+il = 模仿學習
+custom = 自訂
+tools = 工具
+

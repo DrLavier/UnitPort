@@ -33,7 +33,18 @@ import numpy as np
 import torch
 
 from application.training.motion.clip import MotionClip
-from application.training.motion.loaders import AMPLegGymLoader, mirror_motion_clip
+from application.training.motion.loaders import (
+    detect_motion_format,
+    get_loader,
+    mirror_motion_clip,
+)
+
+#: DoF of the canonical quadruped AMP layout. Sagittal-mirror augmentation
+#: (``mirror_motion_clip``) only has a 12-DoF FL/FR/RL/RR table today, so
+#: it is applied only to clips at this DoF; humanoid clips skip it with a
+#: loud one-time notice (biped sagittal mirror is a separate feature, and
+#: a silent skip would hide the missing augmentation).
+_QUADRUPED_MIRROR_DOF = 12
 
 
 # ---------------------------------------------------------------------------
@@ -427,19 +438,32 @@ def build_amp_data_from_files(
     robot_family: str,
     term_names: Sequence[str],
     device: Union[str, torch.device] = "cpu",
-    format_id: str = "amp_legged_gym",
+    format_id: str = "",
+    ranges: Optional[Sequence[Optional[Tuple[int, int]]]] = None,
     task_filter: str = "",
     task_label_overrides: Optional[dict] = None,
     mirror_augment: bool = True,
 ) -> MotionAmpData:
     """Load + validate + wrap motion files in one call.
 
-    Used by the launcher's AMP branch. Only ``amp_legged_gym`` is
-    supported for AMP consumption (``unitport_npy`` is tracking-only
-    by definition).
+    Used by the launcher's AMP branch. The loader for each file is
+    selected from its extension via :func:`detect_motion_format` (so a
+    canvas may mix robot families — Go2 ``.txt`` and G1 ``.csv`` resolve
+    to ``amp_legged_gym`` and ``lafan_unitree_g1`` respectively), unless
+    an explicit ``format_id`` override is passed (applied to every file).
+    A tracking-only format (``unitport_npy``, ``amp_obs_dim == 0``) is
+    rejected downstream by :class:`MotionAmpData` — AMP needs a clip that
+    carries a discriminator payload.
 
     Parameters
     ----------
+    format_id:
+        Optional loader override. Empty (default) → per-file detection
+        by extension. Non-empty → that loader is used for all files
+        (e.g. forcing ``amp_legged_gym`` for a degenerate-geometry
+        fixture). The pre-2026-06 quadruped-only hard gate is gone:
+        humanoid AMP formats (``lafan_unitree_g1``) are first-class.
+
     robot_sku, robot_family:
         Canonical robot SKU + primary family slug for the policy this
         AMP dataset is being prepared for. Forwarded to
@@ -472,14 +496,22 @@ def build_amp_data_from_files(
         Optional ``{filename_stem: tag}`` dict from the canvas-side
         tag table editor.  Overrides both auto-inference and manifest
         labels for the specified clips.
+    ranges:
+        Optional per-file inclusive frame sub-range, positionally aligned
+        to ``paths``. Each element is ``(lo, hi)`` → the loaded clip is
+        sliced to that segment via :meth:`MotionClip.subrange` before
+        tagging / validation / mirroring, or ``None`` → whole file. When
+        provided its length must equal ``len(paths)`` (fail-loud, §8). This
+        is how a Clip Motion Editor "segment" (a sub-range of a larger
+        capture) reaches the discriminator without a separate clip file.
     """
-    if format_id != "amp_legged_gym":
-        raise ValueError(
-            f"build_amp_data_from_files: only format_id='amp_legged_gym' can "
-            f"produce an AMP-capable dataset, got {format_id!r}."
-        )
     if not paths:
         raise ValueError("build_amp_data_from_files: at least one file is required")
+    if ranges is not None and len(ranges) != len(paths):
+        raise ValueError(
+            f"build_amp_data_from_files: ranges has {len(ranges)} entries but "
+            f"{len(paths)} files were given — must be positionally aligned."
+        )
 
     from application.training.motion.labels import resolve_task_tags
     from application.training.motion.validator import validate_clip
@@ -491,16 +523,25 @@ def build_amp_data_from_files(
     # Apply canvas-side label overrides on top of manifest + inference
     overrides = task_label_overrides or {}
 
-    loader = AMPLegGymLoader()
+    explicit_fmt = str(format_id or "").strip()
     clips: List[MotionClip] = []
-    for p in resolved_paths:
-        # Loader returns a ReferenceMotionContract; AMP consumes only
-        # the wrapped MotionClip payload. target_sku / target_family
-        # are required keyword-only — propagated from the caller's
-        # explicit ``robot_sku`` / ``robot_family`` parameters.
+    _mirror_skip_warned = False
+    for _idx, p in enumerate(resolved_paths):
+        # Per-file loader dispatch: explicit override wins, else detect
+        # from the extension. The loader returns a ReferenceMotionContract;
+        # AMP consumes only the wrapped MotionClip payload. target_sku /
+        # target_family are required keyword-only — propagated from the
+        # caller's explicit ``robot_sku`` / ``robot_family`` parameters.
+        fid = explicit_fmt or detect_motion_format(p)
+        loader = get_loader(fid)
         clip = loader.load(
             p, target_sku=robot_sku, target_family=robot_family,
         ).clip
+        # Segment slice (before tag/validate/mirror so everything downstream
+        # sees exactly the selected frames). Out-of-range fails loud (§8).
+        seg = ranges[_idx] if ranges is not None else None
+        if seg is not None:
+            clip = clip.subrange(int(seg[0]), int(seg[1]))
         # Priority: canvas override > manifest > auto-inferred (from loader)
         canvas_tag = overrides.get(clip.name, "")
         manifest_tag = tag_map.get(str(p), "")
@@ -511,9 +552,22 @@ def build_amp_data_from_files(
         validate_clip(clip)
         clips.append(clip)
         if mirror_augment:
-            mirrored = mirror_motion_clip(clip)
-            validate_clip(mirrored)
-            clips.append(mirrored)
+            if clip.dof == _QUADRUPED_MIRROR_DOF:
+                mirrored = mirror_motion_clip(clip)
+                validate_clip(mirrored)
+                clips.append(mirrored)
+            elif not _mirror_skip_warned:
+                # Loud, once-per-build: mirror augmentation has only a
+                # 12-DoF quadruped table. Skipping for other morphologies
+                # is honest (the user sees it) — NOT a silent fallback.
+                print(
+                    f"[UnitPort][AMP] mirror augmentation skipped for "
+                    f"{clip.dof}-DoF clips (sagittal mirror table is "
+                    f"quadruped-only today; biped mirror is a separate "
+                    f"feature). Training proceeds without mirrored copies.",
+                    flush=True,
+                )
+                _mirror_skip_warned = True
 
     # Apply task filter
     filter_str = (task_filter or "").strip()
@@ -569,9 +623,11 @@ def build_rsi_pool(
 
     Each row carries the six fields needed to reset an Isaac Lab
     articulation back onto the expert manifold: root pose + velocity
-    (world frame) and joint pos + vel (canonical FL/FR/RL/RR ×
-    hip/thigh/calf order — already emitted this way by the amp-legged-gym
-    loader's ``_reorder_quad_legs``).
+    (world frame) and joint pos + vel in the clip's canonical IR-role
+    order (quadruped FL/FR/RL/RR × hip/thigh/calf from the amp-legged-gym
+    loader; humanoid 29-DoF IR order from the lafan_unitree_g1 loader).
+    The RSI reset event maps these columns to physical joints via the IR
+    table, so the pool is morphology-agnostic.
 
     Root quaternion is rolled from MotionClip's ``(x, y, z, w)`` to
     Isaac Lab's ``(w, x, y, z)`` at build time so the event fn can skip
@@ -622,10 +678,11 @@ def build_rsi_pool(
             f"RSI demands a uniform joint layout across all clips."
         )
     dof = next(iter(dofs))
-    if dof != 12:
+    if dof <= 0:
         raise ValueError(
-            f"build_rsi_pool: expected 12 DoF (quadruped AMP canonical layout), "
-            f"got {dof}. Extend this function for non-quadruped assets."
+            f"build_rsi_pool: clips report dof={dof}; need a positive joint "
+            f"count. The per-clip arrays below are sized from this value, so "
+            f"it must reflect the real morphology (12 quadruped / 29 G1 / …)."
         )
 
     if rng is None:

@@ -1,0 +1,23 @@
+[review]
+actor_line = {actor}
+btn_accept = Accetta
+btn_reject = Rifiuta
+btn_reject_all = Rifiuta tutto
+dialog_intro = Mentre eri disconnesso, altri utenti su questa macchina hanno apportato {n} modifica(e) ai file della tua area di lavoro. Esamina ciascuna e scegli Accetta (mantieni la loro modifica) o Rifiuta (ripristina dalla tua copia cloud).
+dialog_title = Modifiche in sospeso da altri utenti
+file_line = {path}
+op_delete = eliminato
+op_overwrite = modificato
+reject_confirm_body = Questo recupererà la versione precedente di '{name}' dal tuo namespace cloud e sovrascriverà il file locale.
+	
+	Continuare?
+reject_confirm_title = Ripristinare dal cloud?
+reject_failed_network = Recupero dal cloud non riuscito (errore di rete o di autenticazione): {err}
+reject_failed_no_cloud = Nessuna copia nel cloud disponibile — impossibile rifiutare. (Questo file è mai stato sincronizzato?)
+time_line = {time}
+btn_accept_all = Accetta tutto
+btn_later = Decidi più tardi
+reject_success_cloud = Ripristinato dal cloud
+accept_confirm_body = Mantieni il {op} di {actor} su '{name}'? Questa voce verrà rimossa dall'elenco di revisione.
+empty_state = Nessuna modifica in attesa di revisione.
+

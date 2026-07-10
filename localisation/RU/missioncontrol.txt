@@ -1,0 +1,36 @@
+[btn]
+redo.tip = Повторить (Ctrl+Shift+Z)
+save.tip = Сохранить холст
+undo.tip = Отменить (Ctrl+Z)
+node_lib.tip = Показать/скрыть панель библиотеки узлов
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = Выберите цвет
+
+[ros2_dev_notice]
+body = Подключение ROS2 всё ещё находится в разработке. Доступны базовое соединение и управление; полный набор функций появится в более позднем релизе.
+title = Подключение ROS2 (Предварительная версия)
+
+[script]
+btn.redo.tip = Повторить (Ctrl+Shift+Z)
+btn.save.tip = Сохранить скрипт
+btn.undo.tip = Отменить (Ctrl+Z)
+
+[tooltip]
+chart_opacity = Непрозрачность наложения графика
+
+[mode]
+mission_control = Управление миссией
+ai_coding = Кодирование с ИИ
+training_canva = Canva обучения
+scripts = Скрипты
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

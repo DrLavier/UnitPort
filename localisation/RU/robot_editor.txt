@@ -1,0 +1,31 @@
+[default]
+adapter_none = (нет)
+add_family_tip = Зарегистрировать новое семейство в пользовательском оверлее
+add_joint = + Сустав
+brand_ph = например, unitree
+browse = ...
+browse_title = Выберите файл {kind}
+cancel = Отмена
+col_joint = Имя сустава
+col_role = Роль IR
+confirm_delete_body = Удалить этого робота из пользовательского слоя? Канонические записи не будут затронуты.
+confirm_delete_title = Удалить робота
+del_joint = − Сустав
+delete = Удалить
+error_required = Поля «Марка» и «Модель» обязательны.
+error_title = Некорректный ввод
+error_variant_label = Метка варианта обязательна.
+family_placeholder = Выберите семейство…
+model_ph = например, go2
+name_ph = Отображаемое имя
+path_placeholder = Относительный или абсолютный путь
+save = Сохранить
+variant_label_ph = например, Air, Pro, X, Field-Test
+add_family_btn = +
+families = Семейства
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

@@ -1,0 +1,11 @@
+[default]
+col_name = 片段
+col_tag = 标签
+col_frames = 帧数
+col_duration = 时长
+col_segments = 分段
+col_action = 
+crop = 剪裁 / 标记
+edit_tip = 剪裁 / 标记该片段
+segment_tip = 打开该分段
+

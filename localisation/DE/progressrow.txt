@@ -1,0 +1,21 @@
+[btn]
+new = Neu
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (leer)
+no_canvas = (kein Canvas)
+no_project = (kein Projekt)
+
+[target]
+cloud = Cloud
+local = Lokal
+local_ver = Lokal ({short})
+
+[tooltip]
+new = Den neuen Canvas-Auswahldialog öffnen
+start = Training starten
+stop = Training beenden
+

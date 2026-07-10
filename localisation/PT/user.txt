@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (nenhum e-mail disponível)
+email_identity_security_hint = Clique no link na sua caixa de entrada para definir ou atualizar sua senha de login. Por segurança, alterações de senha não podem ser feitas dentro do aplicativo — todas as mudanças passam por verificação por e-mail.
+email_identity_send_button = Enviar link
+email_identity_send_to = Enviaremos um link de verificação para:
+email_identity_title = Entrar por e-mail
+engines_cloud_settings = Configurar servidores em nuvem
+engines_local_settings = Configurar instalação local
+linked_account_status_linked = vinculado
+linked_account_unlink_button = Desvincular {provider}
+linked_account_unlink_confirm_title = Desvincular {provider}?
+linked_account_unlink_current_body = Você será desconectado após a desvinculação, porque este é seu método atual de login.
+linked_account_unlink_normal_body = Você não poderá mais entrar com {provider}.
+linked_account_unlink_only_body = Este é o seu único método de login. Você não pode desvinculá-lo.
+open_workspace_tip = Abrir o diretório de dados do usuário do UnitPort
+open_workspace = Abrir Espaço de Trabalho do Usuário
+linked_accounts_label = Métodos de login:
+linked_account_btn_signedout_email = E-mail: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = E-mail: (nenhum)
+linked_account_btn_unlinked_google = Google: (não vinculado)
+linked_account_btn_unlinked_github = GitHub: (não vinculado)
+workspace_email_label = Espaço de trabalho:
+workspace_email_confirm_title = Trocar o e-mail de armazenamento do espaço de trabalho?
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = O armazenamento do espaço de trabalho foi movido para {path}.
+workspace_email_failed = Não foi possível alternar o espaço de trabalho: {error}
+

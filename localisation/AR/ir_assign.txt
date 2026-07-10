@@ -1,0 +1,16 @@
+[default]
+banner = لم يتم تصنيف بعض مفاصل أو أجسام الروبوت تلقائيًا. عيّن أدوار IR الخاصة بها أدناه لإكمال الإعداد.
+cancel = إلغاء
+col_joint = مفصل / جسم
+col_kind = النوع
+col_role = دور IR
+confirm = تأكيد الكل
+dialog_title = تعيين أدوار IR للروبوتات الجديدة
+kind_body = جسم
+kind_joint = مفصل
+pending_robots = الروبوتات قيد الانتظار
+right_title = تعيين المفاصل — {robot} ({family}، {n} entr{plural})
+role_out_of_scope = 
+status_pending = تم تعيين {filled}/{total}
+status_ready = تم تعيين جميع {n} مدخلات — جاهز للتأكيد.
+

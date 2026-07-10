@@ -1,0 +1,30 @@
+[default]
+add_role = + ロール
+alias_none = (なし)
+cancel = キャンセル
+cascade_title = 削除できません
+col_category = カテゴリ
+col_id = ロールID
+col_label = ラベル
+col_position = 位置
+col_required = 必須
+confirm_delete_body = ユーザーオーバーレイファミリ {fid!r} を削除しますか？既定のファミリには影響しません。このファミリを参照しているロボットがある場合、削除はブロックされます。
+confirm_delete_title = ファミリを削除
+del_role = − ロール
+delete = 削除
+error_duplicate = ファミリID {fid!r} は既に登録されています（既定またはユーザーレイヤー）。
+error_role_duplicate = ロールID {rid!r} が複数回出現しています。
+error_role_slug = ロールID {rid!r} は [a-z][a-z0-9_]* に一致する必要があります。
+error_slug = ファミリIDは小文字のASCII文字、数字、アンダースコアのみを使用し、先頭は文字でなければなりません（例: 'quadruped_with_tail'）。
+error_title = 無効な入力
+id_ph = 例: quadruped_with_tail
+label_ph = 表示名
+save = 保存
+title_edit = ファミリを編集
+title_new = 新しいファミリを登録
+intro = カスタム IR ファミリーを登録します。ベースファミリーを選んでその役割を継承するか、下に追加の役割を加えてください — 両方は重ねられてジョイントマッピング用の単一の役割リストになります。
+id_label = ファミリーID
+label_label = ラベル
+alias_of_label = ベースファミリー（alias_of）
+roles_section = 追加ロール
+

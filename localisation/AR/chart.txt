@@ -1,0 +1,16 @@
+[empty]
+no_visible_series = لا توجد سلاسل مرئية
+
+[runs]
+clear = مسح
+empty = لا توجد تجارب
+n_selected = 
+none_selected = تحديد التجارب
+select_all = تحديد الكل
+tag.failed = [فاشل]
+tag.finished = [مكتمل]
+tag.running = [جاري]
+
+[series]
+cmd_reward = مكافأة الأمر
+

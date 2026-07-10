@@ -1,0 +1,68 @@
+[default]
+add = Online herunterladen
+add_tip = Lade einen Bewegungsdatensatz oder ein Policy-Bundle herunter
+open_folder = Ordner öffnen
+refresh_tip = custom_mods/ erneut scannen
+remove = Entfernen
+remove_confirm = Diese Ressource und ihre Dateien entfernen?
+section = Ressourcen von Drittanbietern
+remove_tip = Diesen Eintrag löschen (und das Verzeichnis auf der Festplatte)
+open_folder_tip = Den Asset-Ordner im Dateimanager anzeigen
+retry = Erneut versuchen
+empty_motion = Noch keine Bewegungsdatensätze — klicken Sie auf "Ressource hinzufügen…", um einen herunterzuladen
+empty_policy = Noch keine Policy-Bundles — klicken Sie auf "Ressource hinzufügen…", um eines herunterzuladen
+empty_model = Keine Roboter-Modelle registriert
+empty_canvas = Keine Canvas-Vorlagen gefunden
+unindexed = importiert
+classify = Klassifizieren…
+
+[dialog]
+cancel = Abbrechen
+name_label = Anzeigename (optional)
+ok = Herunterladen
+revision_placeholder = Branch / Tag / Commit / HF-Revision
+subpath_placeholder_github = z. B. datasets/mocap_motions
+subpath_placeholder_huggingface = Erlaube Muster, z. B. *.json,*.txt
+title = Ressource hinzufügen
+url_label = URL oder Repo-ID ist erforderlich.
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name (oder vollständige HF-URL)
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = Asset-Typ
+transport_label = Quelle
+revision_label = Revision (optional)
+subpath_label = Unterpfad (optional)
+
+[kind]
+canvas = Canvas
+model = Modell
+motion = Bewegung
+policy = Policy
+
+[status]
+missing = Fehlt
+local = lokal
+downloading = wird heruntergeladen
+error = fehler
+
+[card]
+source = Quelle
+revision = Revision
+subpath = Unterpfad
+downloaded_at = Heruntergeladen
+size = Größe
+package = Paket
+subdir = Unterverzeichnis
+clips = Clips
+sku = SKU
+brand = Marke
+model = Modell
+families = Familien
+backend = Backend
+path = Pfad
+
+[transport]
+github_clone = GitHub
+github_release = Release
+huggingface = HuggingFace
+

@@ -1,0 +1,23 @@
+[default]
+asset_path = 资产：{path}
+col_ir = IR 角色
+col_joint = 物理关节
+coverage_gap = ⚠ 跨格式存在缺口 —— 不可用：{affected}
+coverage_ok = ✓ MJCF 与 USD 一致 —— 两个部署目标都可用
+coverage_single = 只声明了一种格式；已跳过跨格式检查
+height_na = 基座高度偏移：不适用（单格式配置）
+height_uncalibrated = 基座高度偏移：（未校准 —— 请在 Robot Asset 卡片中运行 Calibrate）
+height_value = 基座高度偏移（USD↔MJCF）：{offset}  ·  校准时间 {ts}
+legend = 行颜色：<span style='color:#4caf50'>■ 已匹配</span> · <span style='color:#ff9800'>■ 孤立（仅此格式存在）</span> · <span style='color:#f44336'>■ 未映射（IR 角色为空）</span> · <span style='color:#9e9e9e'>■ 桶类（杂项 / 传感器 / 基座）</span>
+mjcf = MJCF（MuJoCo 部署）
+no_rows = （尚未导出任何关节 —— 请在 Robot Asset 卡片上点击 Dump）
+row_summary = 总计：{total}  ·  已匹配：{m}  ·  孤立：{o}  ·  未映射：{u}  ·  桶类：{b}
+title = 关节映射 —— {name}（sku={sku}）
+usd = USD（IsaacSim / 云端部署）
+
+[tooltip]
+bucket = 桶类角色（杂项 / sensor* / base）—— 允许在不同格式间重复或不同；覆盖检查时会忽略。
+matched = IR 角色同时存在于 MJCF 和 USD 表中 —— bundle 可正常部署。
+orphan = 该 IR 角色只在当前格式中声明 —— 另一个部署目标不会识别这个关节。
+unmapped = 已导出物理关节，但尚未分配 IR 角色。训练前请打开 Robot 节点的 Body Mapping 表进行分配。
+

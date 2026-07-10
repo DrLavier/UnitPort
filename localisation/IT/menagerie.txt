@@ -1,0 +1,20 @@
+[default]
+close_btn = Chiudi
+dialog_title = Menagerie di MuJoCo
+download_btn = Scarica selezionati
+download_busy = Download già in corso; attendere prego.
+download_done = Scaricati {n} pacchetto(i).
+download_empty = Seleziona almeno un pacchetto prima di cliccare su Scarica.
+download_failed = Download fallito: {err}
+downloading = Sparse-checkout {n} pacchetto(i)…
+filter_ph = Filtra pacchetti…
+icons_offline = Recupero icone non riuscito; le icone nella cache vengono comunque visualizzate.
+progress_icons = Recupero {n} icone di anteprima…
+refresh_btn = Aggiorna da GitHub
+refresh_busy = Aggiornamento già in corso; attendere prego.
+refresh_done = Aggiornati: {n} pacchetti.
+refresh_empty = GitHub ha restituito una lista di pacchetti vuota; verrà mantenuta l'istantanea.
+refresh_failed = Impossibile raggiungere GitHub — verrà mantenuta l'istantanea inclusa.
+refreshing = Recupero della lista dei pacchetti aggiornata da GitHub…
+status_line = {installed} / {total} installati · {selected} selezionati
+

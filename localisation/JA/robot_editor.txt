@@ -1,0 +1,31 @@
+[default]
+adapter_none = （なし）
+add_family_tip = ユーザーオーバーレイに新しいファミリーを登録する
+add_joint = + 関節
+brand_ph = 例: unitree
+browse = ...
+browse_title = {kind} ファイルを選択
+cancel = キャンセル
+col_joint = 関節名
+col_role = IR ロール
+confirm_delete_body = このユーザーレイヤーのロボットを削除しますか？公式のエントリは影響を受けません。
+confirm_delete_title = ロボットを削除
+del_joint = − 関節
+delete = 削除
+error_required = ブランドとモデルは必須です。
+error_title = 無効な入力
+error_variant_label = バリアントラベルは必須です。
+family_placeholder = ファミリーを選択…
+model_ph = 例: go2
+name_ph = 表示名
+path_placeholder = 相対または絶対パス
+save = 保存
+variant_label_ph = 例: Air, Pro, X, Field-Test
+add_family_btn = +
+families = ファミリー
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

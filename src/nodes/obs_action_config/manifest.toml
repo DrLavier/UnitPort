@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "obs_action_config"
+backends = ["sb3_mujoco"]  # SB3/MuJoCo only; IL builds obs from il_observation
 kind = "CUSTOM"
 version = "1.0.0"
 category = "config"

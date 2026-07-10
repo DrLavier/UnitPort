@@ -1,0 +1,21 @@
+[btn]
+new = Nuevo
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (vacío)
+no_canvas = (sin lienzo)
+no_project = (sin proyecto)
+
+[target]
+cloud = Nube
+local = Local
+local_ver = Local ({short})
+
+[tooltip]
+new = Abrir el selector de nuevo lienzo
+start = Iniciar entrenamiento
+stop = Detener entrenamiento
+

@@ -1,0 +1,68 @@
+[default]
+add = Scarica online
+add_tip = Scarica un dataset di motion o un pacchetto di policy
+open_folder = Apri cartella
+refresh_tip = Riscansiona custom_mods/
+remove = Rimuovi
+remove_confirm = Rimuovere questa risorsa e i suoi file?
+section = Risorse di terze parti
+remove_tip = Elimina questa voce (e l'albero sul disco)
+open_folder_tip = Mostra la cartella delle risorse nel tuo file manager
+retry = Riprova
+empty_motion = Ancora nessun dataset di movimento — fai clic su "Aggiungi risorsa…" per scaricarne uno
+empty_policy = Ancora nessun bundle di policy — fai clic su "Aggiungi risorsa…" per scaricarne uno
+empty_model = Nessun modello di robot registrato
+empty_canvas = Nessun modello canvas trovato
+unindexed = importato
+classify = Classifica…
+
+[dialog]
+cancel = Annulla
+name_label = Nome visualizzato (opzionale)
+ok = Scarica
+revision_placeholder = branch / tag / commit / revisione HF
+subpath_placeholder_github = es. datasets/mocap_motions
+subpath_placeholder_huggingface = consenti pattern, es. *.json, *.txt
+title = Aggiungi risorsa
+url_label = È richiesto l'URL o l'id del repository.
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name  (o URL HF completo)
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = Tipo di asset
+transport_label = Origine
+revision_label = Revisione (opzionale)
+subpath_label = Percorso secondario (opzionale)
+
+[kind]
+canvas = Canvas
+model = Modello
+motion = Movimento
+policy = Policy
+
+[status]
+missing = mancante
+local = locale
+downloading = scaricando
+error = errore
+
+[card]
+source = Origine
+revision = Revisione
+subpath = Percorso secondario
+downloaded_at = Scaricato
+size = Dimensione
+package = Pacchetto
+subdir = Sottodirectory
+clips = Clip
+sku = SKU
+brand = Marca
+model = Modello
+families = Famiglie
+backend = Backend
+path = Percorso
+
+[transport]
+github_clone = GitHub
+github_release = Release
+huggingface = HuggingFace
+

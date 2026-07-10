@@ -1,0 +1,23 @@
+[default]
+asset_path = Recurso: {path}
+col_ir = Papel IR
+col_joint = Articulação física
+coverage_gap = ⚠ Lacuna entre formatos — Indisponível: {affected}
+coverage_ok = ✓ MJCF e USD concordam — ambos os alvos de implantação disponíveis
+coverage_single = Apenas um formato declarado; verificação entre formatos ignorada
+height_na = Compensação de altura da base: não aplicável (configuração com um único formato)
+height_uncalibrated = Compensação de altura da base: (não calibrada — execute Calibrar no cartão Robot Asset)
+height_value = Compensação de altura da base (USD↔MJCF): {offset}  ·  calibrado {ts}
+legend = Cor da linha: <span style='color:#4caf50'>■ correspondente</span> · <span style='color:#ff9800'>■ órfã (apenas neste formato)</span> · <span style='color:#f44336'>■ não mapeada (papel IR vazio)</span> · <span style='color:#9e9e9e'>■ bucket (diverso / sensor / base)</span>
+mjcf = MJCF (implantação MuJoCo)
+no_rows = (nenhuma articulação exportada — clique em Dump no cartão Robot Asset)
+row_summary = Total: {total}  ·  correspondentes: {m}  ·  órfãs: {o}  ·  não mapeadas: {u}  ·  bucket: {b}
+title = Mapeamento de articulações — {name} (sku={sku})
+usd = USD (IsaacSim / implantação na nuvem)
+
+[tooltip]
+bucket = Papel bucket (diverso / sensor* / base) — pode repetir-se legitimamente ou diferir entre formatos; ignorado pela verificação de cobertura.
+matched = Papel IR presente tanto nas tabelas MJCF quanto USD — o bundle é implantado sem problemas.
+orphan = Papel IR declarado apenas neste formato — o OUTRO destino de implantação não reconhecerá esta articulação.
+unmapped = Articulação física exportada mas sem papel IR atribuído. Abra a tabela Robot Node Body Mapping para atribuir um antes do treinamento.
+

@@ -229,6 +229,64 @@ class MujocoReviewTask(Task):
             # the user starts driving.
             _static_default = self._review_command
 
+            # Slice 4 — skill trigger channels: read the contract's trigger
+            # channels (name + window_s) and configure the input manager's
+            # per-trigger decay envelopes, so a bound gamepad button drives the
+            # SAME decaying pulse the policy trained on (train=deploy). The live
+            # provider below threads the full contract-ordered command vector.
+            _channels: List[Dict[str, Any]] = []
+            _step_dt = 0.02
+            try:
+                _b = getattr(runner, "_bundle", None)
+                _c = getattr(_b, "deploy_contract", None) if _b is not None else None
+                _cmds = getattr(_c, "commands", None) if _c is not None else None
+                if isinstance(_cmds, dict):
+                    _channels = [
+                        ch for ch in (_cmds.get("channels") or []) if isinstance(ch, dict)
+                    ]
+                _sdt = getattr(_c, "step_dt", None) if _c is not None else None
+                if _sdt:
+                    _step_dt = float(_sdt)
+                from application.service.input.manager import (
+                    get_global_input_manager as _gim,
+                )
+                _m = _gim()
+                if _m is not None:
+                    _m.configure_skill_triggers(
+                        [
+                            {
+                                "name": ch.get("name"),
+                                "window_s": ch.get("window_s", 1.0),
+                                "supported_latch": ch.get("supported_latch"),
+                            }
+                            for ch in _channels if ch.get("kind") == "trigger"
+                        ],
+                        self._sku,
+                    )
+            except Exception as exc:
+                log_warning(f"[review/mujoco] skill trigger setup failed: {exc}")
+
+            # When the contract carries trigger channels, the static default MUST
+            # be the full contract-ordered vector so the live provider can place
+            # each trigger at its channel index — the constructor default is the
+            # bare [vx, vy, vyaw] trio (and _resolve_review_command is not wired at
+            # the call site). Caller-supplied velocity defaults are preserved.
+            # Confined to trigger canvases: non-trigger bundles keep prior behaviour.
+            if any(ch.get("kind") == "trigger" for ch in _channels):
+                _full: List[float] = []
+                for ch in _channels:
+                    try:
+                        _full.append(float(ch.get("default", 0.0)))
+                    except (TypeError, ValueError):
+                        _full.append(0.0)
+                for _i in range(min(3, len(_static_default), len(_full))):
+                    _full[_i] = float(_static_default[_i])
+                _static_default = _full
+                log_info(
+                    f"[review/mujoco] command vector widened to full contract "
+                    f"({len(_full)} dims) for skill trigger channels"
+                )
+
             def _live_command_provider() -> List[float]:
                 # WHY KEPT (Rule 1.a/c — optional runtime input device):
                 # GlobalInputManager / CommandBus is an optional
@@ -243,12 +301,25 @@ class MujocoReviewTask(Task):
                     mgr = get_global_input_manager()
                     if mgr is None:
                         return list(_static_default)
+                    # Decay the trigger envelopes one policy step (matches the
+                    # training SkillTriggerCommand per-step decay), then thread
+                    # the FULL contract-ordered command vector: velocity trio
+                    # (0-2) from the sticks, each trigger at its channel index
+                    # from its decaying envelope, other slots at their default.
+                    mgr.tick_skill_triggers(_step_dt)
                     live = mgr.get_live_values()
-                    return [
-                        float(live.get("vx", 0.0)),
-                        float(live.get("vy", 0.0)),
-                        float(live.get("vyaw", 0.0)),
-                    ]
+                    trig = mgr.skill_trigger_values()
+                    out = list(_static_default)
+                    for _i, _key in enumerate(("vx", "vy", "vyaw")):
+                        if _i < len(out):
+                            out[_i] = float(live.get(_key, out[_i]))
+                    if trig and _channels:
+                        for _i, _ch in enumerate(_channels):
+                            if _ch.get("kind") == "trigger":
+                                _nm = str(_ch.get("name", "") or "")
+                                if _nm in trig and _i < len(out):
+                                    out[_i] = float(trig[_nm])
+                    return out
                 except Exception as exc:
                     log_warning(
                         f"[review/mujoco] live command read failed "
@@ -389,25 +460,49 @@ class MujocoReviewTask(Task):
 
 
 def _resolve_review_command(runner: Any) -> Optional[list]:
-    """Read ``command_interface.fields[*].default`` from the loaded bundle.
+    """Read the bundle's per-channel command defaults, in channel order.
 
-    Returns a flat list ordered by ``obs_index`` (the policy-input layout)
-    or ``None`` if the manifest has no command_interface.
+    Source of truth is ``deploy_contract.commands`` (the v1
+    CommandContract): each channel carries a ``default`` and the channel
+    ORDER is the policy command sub-vector order, so the returned flat
+    list feeds ``run_episode(command=...)`` directly.
 
     Opt-in helper — :class:`MujocoReviewTask` no longer calls this
     automatically. Pass the returned list as ``review_command=`` to the
     Task constructor if you want the bundle's training-time default
-    command (e.g. ``vx=0.8`` forward walk). The default Review path
-    feeds ``None`` so the robot stands still until the user provides
-    explicit input.
+    command. The default Review path feeds ``None`` so the robot stands
+    still until the user provides explicit input.
+
+    Returns ``None`` when the bundle carries no command contract.
     """
     bundle = getattr(runner, "_bundle", None)
     if bundle is None:
         return None
+    commands = getattr(getattr(bundle, "deploy_contract", None), "commands", None)
+    if isinstance(commands, dict) and commands.get("contract_version") is not None:
+        defaults: list = []
+        for ch in commands.get("channels") or []:
+            if not isinstance(ch, dict):
+                continue
+            try:
+                defaults.append(float(ch.get("default", 0.0)))
+            except (TypeError, ValueError):
+                defaults.append(0.0)
+        return defaults or None
+
+    # WHY KEPT: §8(c) on-disk legacy — bundles finalized before 2026-07
+    # carried a manifest-level ``command_interface`` block (retired; the
+    # v1 CommandContract supersedes it). Read its defaults with a loud
+    # re-export directive until legacy bundles are gone.
     raw = getattr(bundle, "raw_manifest", None) or {}
     ci = raw.get("command_interface") if isinstance(raw, dict) else None
     if not isinstance(ci, dict):
         return None
+    log_warning(
+        "[review_session] bundle carries the retired 'command_interface' "
+        "manifest block and no v1 command contract — reading its defaults "
+        "for review. Re-export the bundle to embed deploy_contract.commands."
+    )
     fields = ci.get("fields")
     if not isinstance(fields, list) or not fields:
         return None

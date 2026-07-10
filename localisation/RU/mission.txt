@@ -1,0 +1,186 @@
+[conn]
+btn.connect = Подключить
+btn.connecting = Подключение…
+btn.disconnect = Отключить
+controller.arm_pending = Телеприсутствие манипулятора станет доступно на фазе 6.
+controller.no_teleop = Этот адаптер не объявляет возможность телеприсутствия.
+controller.pid_pending = Интерфейс настройки PID станет доступен на фазе 6.
+controller.release_control = Освободить управление
+controller.take_control = Взять управление
+dialog.section.domain = ID домена ROS2
+dialog.section.ssh = Учетные данные SSH
+dialog.ssh.server = Сервер: {server}
+dialog.title = Параметры подключения
+hw.battery = Заряд батареи
+hw.no_selection = Робот не выбран
+hw.temperature = Температура
+hw.uptime = Время работы
+level.error = Сбой
+level.idle = В режиме ожидания
+level.ok = Нормально
+level.warn = Предупреждение
+middleware.auto_detected = ↳ Авто: {rmw}
+result.fix_tag.invasive = инвазивный
+result.fix_tag.safe = безопасный
+result.head.fail = Не удалось установить соединение.
+result.head.ok_clean = Соединение установлено. Проблем не обнаружено.
+result.head.ok_fixed = Соединение установлено. Автоматически исправлено {n} проблем.
+result.head.partial = Соединение установлено, но требуется внимание к {n} проблемам.
+result.invasive.confirm = Собираюсь выполнить {n} инвазивных исправлений на роботе. Они могут устанавливать пакеты или изменять постоянные файлы конфигурации.
+	
+	Действия:
+	{summary}
+	
+	Продолжить?
+result.invasive.confirm.title = Подтвердить инвазивное исправление
+result.meta = Попытки авто-ремонта: {a}   Применено: {ap}   Неудачно: {fl}   Длительность: {d:.1f}s
+result.section.applied = Применено (автоматически исправлено)
+result.section.failed = Сбой при авто-ремонте
+result.section.unresolved_invasive = Не решено (доступно инвазивное исправление — требуется ваше подтверждение)
+result.section.unresolved_manual = Не решено (автоматического исправления нет — требуется ручное вмешательство)
+result.section.unresolved_safe = Не решено (возможно безопасное исправление; попробуйте повторить)
+result.title.fail = Подключение не удалось
+result.title.ok = Соединение готово
+result.title.partial = Частичное соединение — требуется действие
+robot.none = —
+section.controller = Контроллер
+ssh.has_password = pw✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (нет учетных данных)
+ssh.password = Пароль
+ssh.password.placeholder = (введите пароль и нажмите «Сохранить»)
+ssh.sudo = Пароль sudo
+ssh.sudo.placeholder = (требуется для инвазивного ремонта)
+ssh.user = SSH-пользователь
+state.connected = Подключено
+state.connecting = Подключение…
+state.disconnected = Не подключено
+state.error = Ошибка
+state.testing = Тестирование…
+title = Настройка подключения к реальному роботу
+section.ros2 = Подключение ROS2
+section.hardware = Оборудование робота
+section.sensor = Статус датчиков
+field.domain_id = ID домена ROS2
+field.middleware = Промежуточное ПО
+field.address = Адрес
+field.port = Порт
+btn.test = Проверить
+field.brand = Производитель
+field.model = Модель
+field.serial = Серийный номер
+field.firmware = Прошивка
+field.battery = Батарея
+field.temperature = Температура
+field.uptime = Время работы
+sensor.imu = IMU
+sensor.joints = Суставы
+sensor.lidar = Lidar
+sensor.camera = Камера
+sensor.torque = Крутящий момент
+sensor.battery = Батарея
+field.state = Статус подключения
+
+[diag]
+repair_invasive = Инвазивное исправление
+repair_safe = Безопасное исправление
+ssh.context = Сервер: {server}
+	Причина: {reason}
+ssh.err_empty_pw = Требуется пароль SSH.
+ssh.err_save = Не удалось сохранить учетные данные: {err}
+ssh.headline = Автовосстановление требует SSH-доступа к роботу.
+ssh.pw = Пароль SSH
+ssh.pw_placeholder = обязательно
+ssh.sudo = Пароль sudo
+ssh.sudo_placeholder = необязательно — по умолчанию используется пароль SSH, если оставить пустым
+ssh.title = Требуются SSH-учетные данные
+ssh.user = SSH-пользователь
+summary.error = Обнаружены ошибки.
+summary.pass = Все проверки пройдены.
+summary.warn = Обнаружены предупреждения.
+title = Диагностика подключения
+
+[sim]
+backend.empty = Нет симуляционного бэкенда
+dialog.save_pose.prompt = Имя пресета:
+dialog.save_pose.title = Сохранить пресет начальной позы
+field.init_pose_base = Базовая позиция [m]
+field.init_pose_enable = Переопределить начальную позу
+field.init_pose_enable.tip = Создавать робота по отредактированным значениям вместо значений по умолчанию пакета
+field.init_pose_joints = Углы суставов [rad]
+field.init_pose_preset = Пресет
+field.preview_physic = Предварительный просмотр физики
+field.preview_physic.tip = Выполнять физические шаги в реальном времени в режиме «Обзор робота» (только гравитация, без приводов)
+init_pose.editor.title = Редактор начальной позы
+init_pose.empty = Для этого SKU нет доступных суставов.
+policy.empty = Нет экспортированных политик
+title = Симуляция политики
+section.simconfig = Конфигурация симуляции
+field.policy = Политика
+field.play_ground = Площадка
+field.backend = Бэкенд
+btn.run = Запустить
+btn.review_robot = Просмотреть робота
+section.init_pose = Переопределение начальной позы
+btn.edit_pose = Редактировать…
+btn.save_pose = Сохранить как…
+btn.delete_pose = Удалить
+init_pose.custom = Пользовательское (несохранено)
+
+[train]
+body.col_robot = Робот
+body.col_role = Роль
+body.menu_oos = Пометить как вне области
+body.menu_restore = Восстановить (Не назначено)
+body.menu_unassign = Отменить назначение
+body.out_of_scope = (Вне области)
+body.unassigned = (Не назначено)
+field.body_mapping = body_mapping
+placeholder.empty = —
+placeholder.no_canvas = Холст не загружен
+placeholder.no_robot = Нет узла робота
+state.failed = Ошибка
+state.finished = Завершено
+state.idle = Не запущено
+state.paused = Приостановлено
+state.running = Выполняется
+title = Перспектива конфигурации обучения
+section.status = Статус обучения
+section.task = Конфигурация задачи
+section.hyper = Гиперпараметры
+section.robot = Конфигурация робота
+field.elapsed = Прошедшее время
+field.iterations = Итерации
+field.current_reward = Текущее вознаграждение
+field.mean_reward = Среднее вознаграждение
+field.best_reward = Лучшее вознаграждение
+field.episode_length = Средняя длина эпизода
+field.fps = FPS
+field.task_env = Бэкенд задачи
+field.task_name = Название задачи
+field.link = Ссылка
+field.device = Устройство обучения
+btn.task_configure = Настроить задачу
+field.lr = Темп обучения
+field.batch_size = Размер батча
+field.gamma = Гамма
+field.total_timesteps = Общее число шагов
+field.ent_coef = Коэффициент энтропии
+field.seed = Случайное зерно
+field.num_envs = Параллельные окружения
+field.max_iterations = Максимальное число итераций
+btn.hyper_edit = Изменить гиперпараметры
+field.training_asset = Ресурс обучения
+field.active_files = Файлы ассета
+btn.start = Запустить
+btn.pause = Приостановить
+btn.stop = Остановить
+
+[link]
+local = Локально
+cloud = Облачно
+
+[robot]
+status.loaded = Загружено
+status.missing = Отсутствует
+

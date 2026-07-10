@@ -213,6 +213,110 @@ def _resolve_per_item_obs(spec: Any) -> Optional[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def build_policy_contract_block(
+    spec: Any,
+    *,
+    policy_input_dim: int,
+    policy_output_dim: int,
+    recurrent_block: Optional[Dict[str, Any]] = None,
+    normalization_present: bool = False,
+    normalization_kind: str = "none",
+    inference_convention: str = "",
+    joint_array_format: str = "",
+    discriminator_hidden_dims: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """Assemble the B1 ``policy_contract`` snapshot dict (shared SB3 + IsaacLab).
+
+    Network arch is sourced from ``spec.algorithm.policy_net``. ``recurrent_block``
+    is the already-built ``deploy_contract["recurrent"]`` (or ``None``) so the
+    snapshot's ``recurrent_shape`` mirrors it exactly. Returns a plain dict ready
+    to drop under ``deploy_contract["policy_contract"]``; it is parsed/validated
+    by ``PolicyContractSpec.from_dict`` at load. Both producers MUST call this so
+    the two halves stay byte-aligned (CLAUDE.md §11 symmetric pair).
+    """
+    pnet = getattr(getattr(spec, "algorithm", None), "policy_net", None)
+    actor_hidden = list(getattr(pnet, "actor_hidden_dims", []) or []) if pnet else []
+    critic_hidden = list(getattr(pnet, "critic_hidden_dims", []) or []) if pnet else []
+    activation = str(getattr(pnet, "activation", "") or "") if pnet else ""
+    init_noise_std = float(getattr(pnet, "init_noise_std", 0.0) or 0.0) if pnet else 0.0
+
+    block: Dict[str, Any] = {
+        "policy_input_dim": int(policy_input_dim),
+        "policy_output_dim": int(policy_output_dim),
+    }
+    if recurrent_block:
+        block["recurrent_shape"] = {
+            "rnn_type": str(recurrent_block.get("rnn_type", "")),
+            "hidden_size": int(recurrent_block.get("hidden_size", 0)),
+            "num_layers": int(recurrent_block.get("num_layers", 0)),
+        }
+    if actor_hidden:
+        block["actor_hidden_dims"] = [int(x) for x in actor_hidden]
+    if critic_hidden:
+        block["critic_hidden_dims"] = [int(x) for x in critic_hidden]
+    if activation:
+        block["activation"] = activation
+    if init_noise_std:
+        block["init_noise_std"] = init_noise_std
+    if normalization_present:
+        block["normalization_present"] = True
+        block["normalization_kind"] = str(normalization_kind)
+    if inference_convention:
+        block["inference_convention"] = str(inference_convention)
+    if joint_array_format:
+        block["joint_array_format"] = str(joint_array_format)
+    if discriminator_hidden_dims is not None:
+        block["discriminator_hidden_dims"] = [int(x) for x in discriminator_hidden_dims]
+    return block
+
+
+def assert_policy_contract_consistent(
+    block: Dict[str, Any],
+    *,
+    manifest_obs_dim: int,
+    manifest_action_dim: int,
+    recurrent_block: Optional[Dict[str, Any]],
+    label: str,
+) -> None:
+    """Export-strict gate (B1): refuse to ship a self-inconsistent snapshot.
+
+    The load-checkable dims must equal the manifest, and ``recurrent_shape`` must
+    mirror the ``deploy_contract`` recurrent block exactly — caught BEFORE bytes
+    are written. This is the export-time strict half of the two-gate pattern
+    (mirrors ``run_calibration`` / ``_validate_deploy_contract``); the load-time
+    half lives in ``CompatibilityChecker``. Keep them separate (CLAUDE.md §10).
+    """
+    pin = int(block.get("policy_input_dim", -1))
+    pout = int(block.get("policy_output_dim", -1))
+    if pin != int(manifest_obs_dim):
+        raise ValueError(
+            f"{label}: policy_contract.policy_input_dim {pin} != manifest "
+            f"obs_dim {int(manifest_obs_dim)} (B1 export-strict gate)."
+        )
+    if pout != int(manifest_action_dim):
+        raise ValueError(
+            f"{label}: policy_contract.policy_output_dim {pout} != manifest "
+            f"action_dim {int(manifest_action_dim)} (B1 export-strict gate)."
+        )
+    rec_mirror = block.get("recurrent_shape")
+    if (recurrent_block is None) != (rec_mirror is None):
+        raise ValueError(
+            f"{label}: policy_contract.recurrent_shape presence "
+            f"({rec_mirror is not None}) disagrees with deploy_contract.recurrent "
+            f"presence ({recurrent_block is not None}) (B1 export-strict gate)."
+        )
+    if recurrent_block is not None and rec_mirror is not None:
+        if (
+            int(rec_mirror.get("hidden_size", 0)) != int(recurrent_block.get("hidden_size", 0))
+            or int(rec_mirror.get("num_layers", 0)) != int(recurrent_block.get("num_layers", 0))
+            or str(rec_mirror.get("rnn_type", "")) != str(recurrent_block.get("rnn_type", ""))
+        ):
+            raise ValueError(
+                f"{label}: policy_contract.recurrent_shape {rec_mirror} != "
+                f"deploy_contract.recurrent {recurrent_block} (B1 export-strict gate)."
+            )
+
+
 def _build_sb3_deploy_contract(
     spec: Any,
     *,
@@ -384,24 +488,25 @@ def _build_sb3_deploy_contract(
         "offset_mode": "default_joint_pos" if use_default_offset else "zero",
     }
 
-    # Deploy-side stick→velocity mapping (producer half of the runtime
-    # CommandMapper): the velocity channel ranges + mapping_mode/deadzone/
-    # curve_exponent from the Training Motion node. Best-effort — a build
-    # failure must NOT abort a trained bundle; fall back to {} (the load-time
-    # mapper then passes the stick through as a raw command and warns).
-    _commands_block: Dict[str, Any] = {}
-    try:
-        from application.training.command_schema import deploy_command_block
-        _canvas_dict = (getattr(spec, "meta", None) or {}).get("__canvas_dict__")
-        _commands_block = deploy_command_block(
-            _canvas_dict, family=str(getattr(pd_param, "family", "quadruped"))
-        )
-    except Exception as exc:  # noqa: BLE001 — telemetry mapping, never block export
-        log_warning(
-            f"[bundle_exporter] could not build deploy stick→velocity mapping "
-            f"block ({type(exc).__name__}: {exc}); bundle ships without it "
-            f"(controller stick will be used as a raw command at deploy)."
-        )
+    # Deploy-side command contract (producer half of the runtime
+    # CommandMapper): the full v1 CommandContract derived from the Training
+    # Motion node through the single shared emitter. Fail-loud (§8): an
+    # unresolved condition (unknown item, missing family, malformed param)
+    # ABORTS the export instead of shipping a bundle whose stick mapping
+    # silently disagrees with the trained envelope. {} only when the canvas
+    # has no training_motion node (presence-gated additive block). Family is
+    # sourced from spec.robot.families[0] — the same key the gait registry
+    # dispatches on; the empty-families case surfaces as FAMILY_UNKNOWN
+    # inside the emitter instead of a silent "quadruped" substitute.
+    from application.training.command_schema import (
+        deploy_command_block,
+        validate_per_item_obs_subset,
+    )
+    _canvas_dict = (getattr(spec, "meta", None) or {}).get("__canvas_dict__")
+    _families = list(getattr(getattr(spec, "robot", None), "families", []) or [])
+    _commands_block: Dict[str, Any] = deploy_command_block(
+        _canvas_dict, family=_families[0] if _families else ""
+    )
 
     # Observations — built from the SAME ``il_terms`` layout the training env
     # assembled, through the shared obs_term_engine. This is the SSOT that
@@ -488,6 +593,11 @@ def _build_sb3_deploy_contract(
             "command_ranges": per_item_obs["command_ranges"],
             "blend_width": float(per_item_obs["blend_width"]),
         }
+        # Contract assembly cross-check: the per-item obs tail and the
+        # command contract both derive from registers.commands; a channel
+        # named in per_item_obs.command_ranges that the contract does not
+        # declare means the two blocks drifted — abort the export (§8).
+        validate_per_item_obs_subset(_commands_block, contract["per_item_obs"])
     # Per-joint velocity caps (USD max_velocity by role, scalar fallback) — same
     # source as effort_arr so train (SB3 env) == deploy. Envelope engages when
     # any joint has a positive limit.
@@ -1232,6 +1342,32 @@ class BundleExporter:
                 norm_payload, indent=2, sort_keys=False
             )
             manifest["normalization"] = {"file": "normalization.json"}
+
+        # B1 — policy contract snapshot. Built HERE (after the normalization
+        # decision) because normalization_present is only known now; attached to
+        # the deploy_contract dict, which build_manifest embedded by reference.
+        # SB3 is feed-forward (no recurrent block) and trains on MuJoCo (MJCF
+        # joint order, isaac_lab obs convention) — same constants as the
+        # build_manifest call above. The strict gate refuses an inconsistent
+        # snapshot before bytes are written (CLAUDE.md §10 two-gate).
+        _sb3_policy_contract = build_policy_contract_block(
+            spec,
+            policy_input_dim=int(obs_dim),
+            policy_output_dim=int(action_dim),
+            recurrent_block=deploy_contract.get("recurrent"),
+            normalization_present=(norm_payload is not None),
+            normalization_kind="vec_normalize" if norm_payload is not None else "none",
+            inference_convention="isaac_lab",
+            joint_array_format="MJCF",
+        )
+        assert_policy_contract_consistent(
+            _sb3_policy_contract,
+            manifest_obs_dim=int(obs_dim),
+            manifest_action_dim=int(action_dim),
+            recurrent_block=deploy_contract.get("recurrent"),
+            label="[bundle_exporter] SB3 bundle",
+        )
+        deploy_contract["policy_contract"] = _sb3_policy_contract
 
         # TorchScript companion artifact (P7) — when the canvas requests it,
         # trace the same actor net to ``policy.pt`` and ship it alongside the

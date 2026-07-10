@@ -1,0 +1,16 @@
+[checkpoint]
+empty = — チェックポイントを選択
+export_desc = エクスポートされたポリシー (.onnx)。load_mode は auto-snaps により 'warm_start_actor' に設定されます。
+run_desc = Run-dir チェックポイント (.pt)。load_mode は auto-snaps により 'resume' に設定されます。
+
+[start_point]
+latest = 最新
+latest_desc = このキャンバスの最新チェックポイントから累積トレーニングを継続します。
+load = ロード
+load_desc = 現在のプロジェクト内の任意のチェックポイントまたはエクスポートされたポリシーを選択します。
+new = 新規
+new_desc = ランダム初期化でゼロからトレーニングを開始します。
+asset_desc = 登録済みのトレーニングアセットからアクターをウォームスタートします。
+latest_export = 最新のエクスポート
+latest_export_desc = ワークスペース内の最新のエクスポートバンドルから再開します。
+

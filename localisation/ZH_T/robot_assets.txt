@@ -1,0 +1,61 @@
+[default]
+add_path = 新增自訂路徑
+add_robot = 新模型
+add_tip = 註冊新的機器人或變體
+add_variant = … 的新變體
+add_variant_empty = 尚未註冊任何基礎機器人。請先新增模型。
+cascade_body = 此機器人有使用者變體依賴於它。請先刪除或解除變體關聯。
+	
+	{detail}
+cascade_title = 無法刪除
+coming_soon = 即將推出
+delete = 刪除
+dump = 匯出剛體 / 關節
+dump_disabled = MJCF 與 USD 資產都不可用（沒有本機檔案，且未宣告 Nucleus URL）
+dump_done_title = 匯出完成
+dump_error_no_asset = 無法為 SKU {sku} 解析機器人資產
+dump_error_persist = 無法將為 {fmt} 偵測到的剛體持久化
+dump_error_validation = 在寫入 {fmt} 對應後驗證失敗：
+	
+	{exc}
+	
+	開啟畫布上的 Robot 節點並修正標記的關節/剛體 IR 角色，然後重新匯出。
+dump_format_mismatch = 
+	⚠ {larger_fmt} 有 {larger_n} 個關節，但 {smaller_fmt} 只有 {smaller_n} 個。訓練不受影響，但 {affected} 將無法用於針對 {larger_fmt} 端關節集合訓練的套件。如果你需要兩個部署目標，請將 {smaller_fmt} 資產重新指向相配的變體（例如對於 G1，將 scene_with_hands.xml 與 g1.usd 一起使用）並重新匯出。
+edit = 編輯
+edit_canonical_disabled = 正規機器人為唯讀。請改為新增一個使用者條目。
+ignore_package = 忽略
+ignore_package_tip = 在未來的刷新掃描中略過此目錄
+inertia_calib_done = 慣性覆蓋 {status}：已將 {n} 個剛體覆寫寫入 {rel}。
+inertia_calib_done_title = 慣性校準完成
+inertia_calib_error_title = 慣性校準失敗
+inertia_calib_ignored = {n} 個剛體低於容差 — 請參閱覆蓋層的 ignored_bodies 審核清單。
+inertia_calib_offer_body = 將訓練用 USD 的每個剛體質量 / 慣性與 MuJoCo 的 MJCF 進行比對，並寫入一個非破壞性的覆蓋（原始 MJCF 絕不會被更改）。這可消除 IsaacLab→MuJoCo 的 sim2sim 差異，適用於其 MJCF 隨附占位慣性的機器人。USD 採集可能需要 5–30 s。
+inertia_calib_offer_title = 要從 USD 校準慣性嗎？
+menagerie = 收藏集…
+menagerie_tip = 瀏覽並下載 MuJoCo Menagerie 套件
+no_path = (無)
+pick_file = 選擇一個 {kind} 檔案
+pick_parent = 選擇此變體繼承的基礎模型：
+refresh_tip = 重新掃描資產註冊表
+tag_placeholder = 新增標籤...
+view_mapping = 檢視關節映射
+view_mapping_error_title = 關節映射不可用
+add_robot_tip = 註冊新機器人
+dump_error_title = 匯出失敗
+dump_mjcf = 匯出 MJCF 剛體 / 關節
+dump_mjcf_disabled = 本機沒有 MJCF 資產可用
+dump_usd = 匯出 USD 剛體 / 關節
+dump_usd_disabled = USD 資產未宣告 (沒有本機路徑且沒有 Nucleus URL)
+
+[status]
+cloud = 雲端
+local = 本機
+missing = 缺少
+remote = 遠端
+
+[tag]
+canonical = 正規
+cloud = 雲端
+custom = 自訂
+

@@ -1,0 +1,61 @@
+[default]
+add_path = Benutzerdefinierten Pfad hinzufügen
+add_robot = Neues Modell
+add_tip = Einen neuen Roboter oder eine Variante registrieren
+add_variant = Neue Variante von …
+add_variant_empty = Noch keine Basisroboter registriert. Fügen Sie zuerst ein Modell hinzu.
+cascade_body = Dieser Roboter hat Benutzervarianten, die von ihm abhängen. Löschen oder entkoppeln Sie zuerst die Varianten.
+	
+	{detail}
+cascade_title = Kann nicht gelöscht werden
+coming_soon = Bald verfügbar
+delete = Löschen
+dump = Körper/Gelenke exportieren
+dump_disabled = Weder MJCF- noch USD-Asset ist verfügbar (keine lokale Datei und keine Nucleus-URL angegeben)
+dump_done_title = Export abgeschlossen
+dump_error_no_asset = Roboter-Asset für SKU {sku} kann nicht aufgelöst werden
+dump_error_persist = Die gefundenen Körper für {fmt} konnten nicht gespeichert werden
+dump_error_validation = Validierung nach Schreiben der {fmt}-Zuordnung fehlgeschlagen:
+	
+	{exc}
+	
+	Öffnen Sie den Canvas-Robot-Knoten und beheben Sie die markierten Gelenk-/Körper-IR-Rollen, dann erneut dumpen.
+dump_format_mismatch = 
+	⚠ {larger_fmt} hat {larger_n} Gelenke, aber {smaller_fmt} hat {smaller_n}. Das Training ist nicht betroffen, aber {affected} wird für Bundles, die gegen den {larger_fmt}-seitigen Gelenksatz trainiert wurden, nicht verfügbar sein. Wenn Sie beide Deploy-Ziele benötigen, verweisen Sie das Asset {smaller_fmt} auf eine passende Variante (z. B. für G1: verwenden Sie scene_with_hands.xml neben g1.usd) und führen Sie anschließend erneut einen Dump durch.
+edit = Bearbeiten
+edit_canonical_disabled = Kanonische Roboter sind schreibgeschützt. Fügen Sie stattdessen einen neuen Benutzereintrag hinzu.
+ignore_package = Ignorieren
+ignore_package_tip = Dieses Verzeichnis bei zukünftigen Refresh-Durchläufen überspringen
+inertia_calib_done = Trägheits-Overlay {status}: {n} Körperüberschreibung(en) in {rel} geschrieben.
+inertia_calib_done_title = Trägheitskalibrierung abgeschlossen
+inertia_calib_error_title = Trägheitskalibrierung fehlgeschlagen
+inertia_calib_ignored = {n} Körper unterhalb der Toleranz — siehe die ignored_bodies-Auditliste des Overlays.
+inertia_calib_offer_body = Vergleichen Sie die pro-Körper-Massen/-Trägheiten der Trainings-USD mit dem MuJoCo MJCF und schreiben Sie ein nicht-destruktives Overlay (die originale MJCF wird niemals verändert). Das schließt die IsaacLab→MuJoCo sim2sim-Lücke für Roboter, deren MJCF Platzhalter-Trägheitswerte enthält. Das USD-Erfassen kann 5–30 s dauern.
+inertia_calib_offer_title = Trägheitswerte aus USD kalibrieren?
+menagerie = Menagerie…
+menagerie_tip = MuJoCo Menagerie-Pakete durchsuchen und herunterladen
+no_path = (keine)
+pick_file = Wählen Sie eine {kind}-Datei
+pick_parent = Wählen Sie das Basismodell, von dem diese Variante erbt:
+refresh_tip = Asset-Registry neu scannen
+tag_placeholder = Tag hinzufügen...
+view_mapping = Gelenkzuordnung anzeigen
+view_mapping_error_title = Gelenkzuordnung nicht verfügbar
+add_robot_tip = Neuen Roboter registrieren
+dump_error_title = Dump fehlgeschlagen
+dump_mjcf = MJCF-Körper / -Gelenke ausgeben
+dump_mjcf_disabled = MJCF-Asset lokal nicht verfügbar
+dump_usd = USD-Körper / -Gelenke ausgeben
+dump_usd_disabled = USD-Asset nicht deklariert (kein lokaler Pfad und keine Nucleus-URL)
+
+[status]
+cloud = Cloud
+local = Lokal
+missing = Fehlend
+remote = Remote
+
+[tag]
+canonical = Kanonisch
+cloud = Cloud
+custom = Benutzerdefiniert
+

@@ -1,0 +1,11 @@
+[default]
+title = Classer la ressource
+hint = Choisissez le type de ressource et la famille de robot cible. Votre choix est enregistré pour être appliqué par le backend.
+kind = Type de ressource
+family = Famille de robot
+family_any = (toutes)
+ok = Enregistrer
+cancel = Annuler
+recorded = Classification enregistrée. Elle n'est pas encore appliquée — la phase backend routera la ressource vers le bon registre.
+err_kind = Choisissez un type de ressource.
+

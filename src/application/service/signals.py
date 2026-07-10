@@ -57,6 +57,16 @@ class AppSignals(QObject):
     # 附加信息（rtt/error msg 等），UI 可选消费。
     connection_state_changed = pyqtSignal(str, dict)   # (state, info)
 
+    # SYSTEM channel — unconditional estop (skill_command_path_design.md §4.1).
+    # A bound estop key/button fires this; it NEVER enters the CommandBus / the
+    # policy command vector (that would be a soft velocity-zero, not preemption).
+    # Emitted by GlobalInputManager (gamepad button / keyboard Esc). Consumers:
+    # SessionController (cancels the live-sim/review task) and ConnectionController
+    # Card (adapter.disable_teleop for deploy). ``source`` = "gamepad"/"keyboard"/…
+    # for logging. Emitted cross-thread from the gamepad poll thread → Qt marshals
+    # to the receivers' (GUI) thread via QueuedConnection; no manual invokeMethod.
+    system_estop = pyqtSignal(str)                     # (source)
+
     # 传感器健康 — sensor_health model 对每项传感器 emit 一次。
     # name ∈ {"imu","joints","lidar","camera","torque","battery"}；
     # level ∈ {"ok","warn","error","idle"}。
@@ -124,6 +134,26 @@ class AppSignals(QObject):
     # 画布拓扑变化（节点增 / 减 / 切换文件）— CanvasPage 在 spawn / despawn / set_file_id
     # 之后 emit。mission_panel 卡片用此信号触发动态 trainer 发现重建超参面板。
     canvas_topology_changed = pyqtSignal(str)         # canvas_file_id（'' = 未关联）
+
+    # 画布连线变化（边的建立 / 断开）— ConnectionItem attach/disconnect 经
+    # CanvasScene.notify_edge_changed → CanvasPage._emit_edge_changed 转发。
+    # canvas_topology_changed 只覆盖节点增删/加载，不覆盖边；订阅方：
+    # CommandContractModel（Command Pipe 契约预览随 actor-pipe / command-pipe
+    # 接线实时重算）。批量加载期间静默，from_workflow_dict 末尾的
+    # topology_changed 作为收尾信号。
+    canvas_edge_changed = pyqtSignal(str)             # canvas_file_id（'' = 未关联）
+
+    # 策略回放启动（MuJoCo live sim）— policy_simulation_card 在提交
+    # MujocoReviewTask 时 emit。payload = (robot_sku, deploy_contract.commands
+    # dict | None)。订阅方：ControllerPanel（按契约通道渲染遥控绑定区并
+    # 安装 per-SKU 轴路由）。
+    policy_review_started = pyqtSignal(str, object)   # (sku, commands block)
+
+    # 当前选中策略的命令契约变更 — PolicySimulationCard._on_policy_changed 在下拉
+    # 选中/初选/取消时触发,广播 (sku, deploy_contract.commands | None)，与 live-review
+    # 是否在跑无关。订阅方：ControllerPanel（常驻渲染契约通道绑定区 + 装 per-SKU 路由）。
+    # policy_review_started 保留不动（review 启动时另发一次，两者数据一致）。
+    policy_contract_changed = pyqtSignal(str, object)  # (sku, commands block | None)
 
     # 当前项目切换 — MainWindow._bind_project 在解析到新的 ProjectInfo 后通过
     # ``application.service.projects.store.set_current_project_info`` 触发。

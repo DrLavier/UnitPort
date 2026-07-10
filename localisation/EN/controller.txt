@@ -3,6 +3,32 @@ invert_vy = Invert vy
 invert_vyaw = Invert vyaw
 reset = Reset
 off_hint = Input disabled. Pick Keyboard or Gamepad above.
+axis_unbound = — (unbound)
+button_unbound = — (unbound)
+channel_not_bindable = — (not bindable yet)
+policy_channels = Policy Command Channels
+system_actions = Buttons → System Actions
+system_actions_keys = Keys → System Actions
+stale_channels = Saved bindings not in this contract
+no_policy_hint = No policy loaded. A skill you author on the Training Motion node becomes a bindable channel HERE only after you train + export a policy and select it in Mission Control · Simulate — a trigger is a trained behavior, not just a key mapping. The buttons below are system actions (boost / estop / …): always available, separate from any policy, which is why they are not on the Training Motion node.
+no_contract_hint = This policy has no command channels — re-export the bundle after authoring velocity commands or a skill on the Training Motion node.
+legacy_contract_hint = Loaded policy carries a legacy commands block — re-export the bundle to bind command channels here.
+
+[pick]
+button = Button
+mode = Mode
+
+[latch]
+pulse = Pulse (press once)
+hold = Hold (while held)
+unsupported = (training side didn't provide)
+
+[conflict]
+title = Binding conflict
+msg = {input} is already bound to {owner} ({cat}). One physical input serves one binding — unbind it there first, then try again.
+action = a system action
+trigger = a skill trigger
+channel = a command channel
 
 [mode]
 off = Off
@@ -23,3 +49,10 @@ yaw_left = Yaw left
 yaw_right = Yaw right
 estop = Emergency stop
 boost = Boost
+
+[axis]
+left_stick_x = Stick L X
+left_stick_y = Stick L Y
+right_stick_x = Stick R X
+right_stick_y = Stick R Y
+

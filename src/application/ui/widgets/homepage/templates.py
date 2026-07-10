@@ -10,9 +10,13 @@ filter templates by the user's currently-picked backend without reading
 each JSON to verify its ``backend`` field.
 
 Synthetic entries:
-    * Exactly one ``<Blank>`` entry per backend — represents an empty
-      canvas with no nodes/edges. ``template_path`` is empty for this
-      entry; the host treats that as "use the default seed".
+    * Exactly one custom entry per backend (shown as 'Free Build'). Its
+      seed is the shipped default starter canvas at
+      ``application/ui/canvas/defaults/<backend_id>/default.canvas.json``
+      when that file exists — so the entry opens a sensible pre-wired
+      default graph rather than an empty scene. When the backend ships
+      no default file the entry keeps an empty ``template_path`` and the
+      host writes an empty canvas.
 
 The filename stem (``[IssacLab] Go2_PPO`` → "Go2_PPO" + subtitle
 "IssacLab · Go2 · PPO") is preserved for the file-template title — the
@@ -41,12 +45,12 @@ _FNAME_RE = re.compile(
 
 @dataclass(frozen=True)
 class Template:
-    template_path: str   # absolute .canvas.json path; "" means blank canvas
-    title: str           # display name (stem-derived, or "<Blank>")
-    subtitle: str        # "<engine_tag> · <robot> · <algo>" / "Empty canvas"
+    template_path: str   # absolute .canvas.json path; "" => host writes empty
+    title: str           # display name (stem-derived, or "Free Build")
+    subtitle: str        # "<engine_tag> · <robot> · <algo>" / seed descriptor
     engine_id: str       # canvas backend id, e.g. "isaac_lab" / "sb3_mujoco"
     icon_name: str       # Assets.find_icon stem; "" => no icon
-    is_blank: bool       # True when template_path == ""
+    is_blank: bool       # True for the synthetic custom / 'Free Build' entry
 
 
 def _templates_root() -> Path:
@@ -79,12 +83,41 @@ def _parse_filename(fname: str) -> tuple[str, str]:
     return body, subtitle
 
 
+def _default_seed_path(backend_id: str) -> Optional[Path]:
+    """Absolute path to the shipped default starter canvas for ``backend_id``,
+    or ``None`` when the backend ships no default on disk.
+
+    Location: ``<app>/ui/canvas/defaults/<backend_id>/default.canvas.json``
+    (resolved off :data:`Paths.APP_ROOT`, NOT ``custom_mods`` — these are
+    engine defaults bundled with the source tree). This is the seed used by
+    the synthetic 'Free Build' / custom entry so a fresh canvas starts from
+    a sensible pre-wired graph instead of an empty scene.
+    """
+    if not backend_id:
+        return None
+    p = (
+        Paths.APP_ROOT / "ui" / "canvas" / "defaults"
+        / backend_id / "default.canvas.json"
+    )
+    return p if p.is_file() else None
+
+
 def _blank(backend_id: str) -> Template:
-    """Synthetic blank template for the given backend — shown as 'Free Build'."""
+    """Synthetic 'custom' entry for the given backend — shown as 'Free Build'.
+
+    Seeds from the shipped default starter canvas
+    (``defaults/<backend_id>/default.canvas.json``) when present, so the
+    entry opens a pre-wired default graph. Falls back to an empty
+    ``template_path`` (host writes an empty canvas) only when the backend
+    ships no default file. ``is_blank`` stays ``True`` either way so the
+    create card keeps this as the single non-file custom slot (icon /
+    partition / default selection unchanged).
+    """
+    seed = _default_seed_path(backend_id)
     return Template(
-        template_path="",
+        template_path=str(seed) if seed is not None else "",
         title="Free Build",
-        subtitle="Empty canvas",
+        subtitle="Default template" if seed is not None else "Empty canvas",
         engine_id=backend_id,
         icon_name="icon_node",
         is_blank=True,

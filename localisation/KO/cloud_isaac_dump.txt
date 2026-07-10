@@ -1,0 +1,7 @@
+[default]
+action = 클라우드 서버 시작 및 덤프 실행
+body = UnitPort는 모든 표준 로봇(Unitree Go2, Boston Dynamics Spot, Unitree H1 등)에 대해 USD 바디 토폴로지가 필요합니다. 이는 접촉 센서, 캔버스 사전 실현(canvas pre-realization) 및 학습 검증이 안정적으로 연결되도록 하기 위함입니다. 로컬 덤프 경로는 로컬 IsaacLab 설치가 필요하지만, 현재 구성된 것은 클라우드 IsaacLab 서버뿐입니다. 클라우드 서버를 시작한 다음 아래 버튼을 클릭하여 덤프를 원격으로 실행하세요.
+dismiss = 닫기
+headline = 이 설치에는 표준 로봇 USD 바디 테이블이 덤프되어 있지 않습니다.
+window_title = Cloud IsaacLab — USD 바디 덤프 필요
+

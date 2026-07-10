@@ -1,0 +1,20 @@
+[default]
+close_btn = 關閉
+dialog_title = MuJoCo 範例集
+download_btn = 下載所選
+download_busy = 已在下載中，請稍候。
+download_done = 已下載 {n} 個套件。
+download_empty = 請至少勾選一個套件後再點選下載。
+download_failed = 下載失敗：{err}
+downloading = Sparse-checkout {n} 個套件…
+filter_ph = 篩選套件…
+icons_offline = 圖示抓取失敗；快取的圖示仍會顯示。
+progress_icons = 正在抓取 {n} 個預覽圖示…
+refresh_btn = 從 GitHub 重新整理
+refresh_busy = 已在重新整理，請稍候。
+refresh_done = 已重新整理：{n} 個套件。
+refresh_empty = GitHub 回傳了空的套件清單；保留快照。
+refresh_failed = 無法連線到 GitHub — 保留隨附的快照。
+refreshing = 正在從 GitHub 抓取即時套件清單…
+status_line = {installed} / {total} 已安裝 · {selected} 已選
+

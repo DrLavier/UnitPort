@@ -1,0 +1,20 @@
+[default]
+close_btn = 关闭
+dialog_title = MuJoCo 资源库
+download_btn = 下载所选项
+download_busy = 已在下载中，请稍候。
+download_done = 已下载 {n} 个包。
+download_empty = 点击“下载”前至少勾选一个包。
+download_failed = 下载失败：{err}
+downloading = 正在稀疏检出 {n} 个包…
+filter_ph = 筛选包…
+icons_offline = 图标拉取失败；仍将显示缓存图标。
+progress_icons = 正在获取 {n} 个预览图标…
+refresh_btn = 从 GitHub 刷新
+refresh_busy = 已在刷新中，请稍候。
+refresh_done = 已刷新：{n} 个包。
+refresh_empty = GitHub 返回空包列表；保留当前快照。
+refresh_failed = 无法连接 GitHub —— 保留内置快照。
+refreshing = 正在从 GitHub 获取最新包列表…
+status_line = 已安装 {installed} / {total} · 已选择 {selected}
+

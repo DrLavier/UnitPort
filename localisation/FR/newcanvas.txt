@@ -12,3 +12,4 @@ no_project_name = Saisissez un nom de projet à sélectionner ou à créer
 [placeholder]
 canvas = ex. main
 project = Tapez pour rechercher des projets
+

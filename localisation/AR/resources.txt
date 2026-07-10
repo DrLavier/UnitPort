@@ -1,0 +1,68 @@
+[default]
+add = تنزيل عبر الإنترنت
+add_tip = تنزيل مجموعة بيانات الحركة أو حزمة السياسات
+open_folder = فتح المجلد
+refresh_tip = إعادة فحص custom_mods/
+remove = إزالة
+remove_confirm = هل ترغب في إزالة هذا المورد وملفاته؟
+section = موارد طرف ثالث
+remove_tip = حذف هذا الإدخال (وشجرة الملفات على القرص)
+open_folder_tip = إظهار مجلد العنصر في مدير الملفات الخاص بك
+retry = إعادة المحاولة
+empty_motion = لا توجد مجموعات بيانات للحركة بعد — انقر "إضافة مورد…" لتنزيل واحدة
+empty_policy = لا توجد حزم سياسات بعد — انقر "إضافة مورد…" لتنزيل واحدة
+empty_model = لا توجد نماذج روبوت مسجلة
+empty_canvas = لم يتم العثور على قوالب Canvas
+unindexed = مستورد
+classify = تصنيف…
+
+[dialog]
+cancel = إلغاء
+name_label = اسم العرض (اختياري)
+ok = تنزيل
+revision_placeholder = الفرع / الوسم / الالتزام / مراجعة HF
+subpath_placeholder_github = مثلاً datasets/mocap_motions
+subpath_placeholder_huggingface = السماح بالأنماط، مثلاً *.json,*.txt
+title = إضافة مورد
+url_label = مطلوب URL أو معرف المستودع.
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name  (أو عنوان HF الكامل)
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = نوع الأصل
+transport_label = المصدر
+revision_label = المراجعة (اختياري)
+subpath_label = مسار فرعي (اختياري)
+
+[kind]
+canvas = Canvas
+model = نموذج
+motion = حركة
+policy = سياسة
+
+[status]
+missing = مفقود
+local = محلي
+downloading = جارٍ التنزيل
+error = خطأ
+
+[card]
+source = المصدر
+revision = المراجعة
+subpath = مسار فرعي
+downloaded_at = تم التنزيل
+size = الحجم
+package = الحزمة
+subdir = دليل فرعي
+clips = مقاطع
+sku = SKU
+brand = العلامة التجارية
+model = النموذج
+families = العائلات
+backend = الواجهة الخلفية
+path = المسار
+
+[transport]
+github_clone = GitHub
+github_release = إصدار
+huggingface = HuggingFace
+

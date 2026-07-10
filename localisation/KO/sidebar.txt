@@ -1,0 +1,69 @@
+[fullscreen]
+tip = 전체 화면
+short = 전체 화면
+
+[language]
+tip = 언어
+short = 언어
+
+[settings]
+tip = 설정
+short = 설정
+
+[update]
+tip_latest = 최신 버전을 사용 중입니다
+tip = 업데이트
+short_latest = 최신
+short_needed = 업데이트
+tip_needed = 새 버전 사용 가능 — 적용하려면 클릭하세요
+
+[training]
+tip = 프로젝트 + 전역 스크립트
+short = 학습
+title = 학습 스크립트
+
+[observations]
+tip = 관측 프리셋 모듈
+short = 관측
+title = 관측
+
+[terminations]
+tip = 종료 프리셋 모듈
+short = 종료
+title = 종료
+
+[rewards]
+tip = 보상 프리셋 모듈
+short = 보상
+title = 보상
+
+[resources]
+tip = 타사 모션 데이터셋 및 정책 번들
+short = 리소스
+title = 리소스
+
+[controller]
+tip = 컨트롤러
+short = 컨트롤러
+title = 컨트롤러
+
+[robot_assets]
+tip = 로봇 자산
+short = 로봇
+title = 로봇 자산
+
+[projects]
+tip = 프로젝트 파일
+short = 프로젝트
+title = 프로젝트 파일
+
+[node_library]
+tip = 노드 라이브러리
+short = 노드
+title = 노드 라이브러리
+
+[user]
+tip = 사용자
+short = 사용자
+title = 사용자
+

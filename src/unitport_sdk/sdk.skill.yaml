@@ -372,6 +372,23 @@ storage:
 
     (any other) Logs an error ("unknown channel: ...") and returns False.
 
+  persist_observer: |
+    Storage.register_persist_observer(fn | None)
+        Dependency-inverted hook fired by DataManager.write AFTER any successful
+        write whose target resolves under Paths.USER_CONFIG_DIR (the single
+        on-disk funnel: Storage.push(local), direct save_data for canvas/project
+        files, and Config._flush for user.ini all pass through it). fn receives
+        the target's USER_CONFIG_DIR-relative posix path (e.g. "user.ini",
+        "projects/foo/canvas/main.canvas.json"), on whatever thread performed
+        the write. Contract: fn MUST be cheap + non-blocking (enqueue/kick only,
+        never network I/O inline) so it does not stall the write path; any
+        exception it raises is swallowed so a misbehaving observer can never
+        turn a successful persist into a reported failure. Targets outside
+        USER_CONFIG_DIR are never reported. The app wires this at bootstrap to
+        AutoSyncController.notify_persist so cloud auto-sync follows the user's
+        saves at persist-time (debounced) instead of batching on exit. The SDK
+        stays frozen: it does not import application code.
+
   module_alias: |
     Top-level shortcut:
       push_data == Storage.push   # mirrors load_data / read_data / save_data style
@@ -902,9 +919,9 @@ recipes:
     title = I18nLabel("app.title", default="My App")
     i18n_bind(window, "setWindowTitle", "app.title", default="My App")
 
-    I18n.set_language("ZH")                  # Fires language_changed → all bound widgets re-translate
+    I18n.set_language("ZH_S")                # Fires language_changed → all bound widgets re-translate
     log_info(f"available: {I18n.available_languages()}")
-    I18n.export_template("ZH", merge=True)   # Dump every tr() key collected from code into ZH.txt
+    I18n.export_template("ZH_S", merge=True)  # Dump every tr() key collected from code into ZH_S/*.txt
 
   resolve_asset: |
     from unitport_sdk import Assets

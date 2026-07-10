@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = IR ロールメニューを開けません
+joint_pose_editor_unavailable = ジョイント角度エディタを開けません
+pd_table_no_sku = Robot Node に有効なロボットがバインドされていません (asset_id)。先に Robot Asset カードでロボットを選択してください。
+pd_table_unavailable = PD パネルを開けません
+registry_preset_apply_failed = Preset の適用に失敗しました
+registry_preset_picker_empty = このファミリーには利用可能な preset がありません
+registry_preset_picker_empty_detail = family={family} は registry={registry} において preset として宣言されていません。
+registry_preset_picker_unavailable = Preset メニューを開けません
+registry_preset_picker_unknown = 不明な registry={key!r}。サポートされている registry: {keys}
+replace_canvas_text = テンプレート '{tpl}' を読み込むと、'{name}' のすべてのノードとエッジが置き換えられます。続行しますか？
+replace_canvas_title = キャンバスの内容を置き換える
+review_pose_unavailable = Review Pose を起動できません
+unsaved_text = {name} に未保存の変更があります。続行する前に保存しますか？
+unsaved_title = 未保存の変更
+review_motion_no_clip = このトレーニング項目には参照クリップが選択されていません — レビューする前にClipドロップダウンでクリップを選択してください。
+review_motion_no_robot = このキャンバスにRobot nodeがバインドされていません。Review Motionでは参照モーションを再生するためにロボットのMJCFが必要です — まずRobot nodeを接続してください。
+review_motion_unavailable = Review Motionを開始できません
+

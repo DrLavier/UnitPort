@@ -1,0 +1,7 @@
+[default]
+action = Avvia il server cloud ed esegui il dump
+body = UnitPort necessita della topologia del corpo in formato USD per ogni robot standard (Unitree Go2, Boston Dynamics Spot, Unitree H1, ecc.) affinché i sensori di contatto, la pre-realizzazione del canvas e la validazione dell'addestramento possano collegarsi in modo affidabile. Il percorso di dump locale richiede un'installazione locale di IsaacLab; hai configurato solo server IsaacLab cloud. Avvia il tuo server cloud, poi fai clic sul pulsante sottostante per eseguire il dump da remoto.
+dismiss = Chiudi
+headline = Le tabelle del corpo in formato USD dei robot standard non sono state esportate in questa installazione.
+window_title = Cloud IsaacLab — È necessario eseguire il dump dei corpi USD
+

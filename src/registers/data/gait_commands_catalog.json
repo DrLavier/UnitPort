@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema": "gait_commands/catalog",
-  "_doc": "Per-family parameterised gait command spec. Each entry describes how the env-cfg compiler should emit the gait CommandTerm class for that family: command_dim is the per-env command vector width; phase_count is the number of per-foot phase channels embedded in command[:, 1:1+phase_count]; phase_obs_dim is the sin/cos-encoded obs term width (= 2 * phase_count); obs_layout is the ordered list of obs sub-terms emitted to the policy group (frequency:N / phase_sin_cos:N / body_height:N / step_height:N) used as a documentation pin and for byte-identity assertions. phase_names is the ordered tuple of leg labels keyed by phase index (quadruped: FL/FR/RL/RR; biped: L/R). humanoid declares alias_of: biped (data identity), mirroring the five-layer alignment already present in ir_canonical, pd_groups_definitions, symmetry_catalog, pd_calibration_canaries, and amp_obs_templates -- six layers in total. Manipulator / wheeled / generic intentionally have no entry: gait commands are legged-only by construction, and the families_catalog soft warning (G6) surfaces the omission. User overlays at <USER_CONFIG_DIR>/registers/gait_commands_custom.json can add new families or override existing ones; the same L1-L7 schema rules apply at merge time. Quadruped values are factory-pinned to UniformGaitCommand's existing layout (command_dim=7 from torch.zeros((n, 7)); phase_count=4 from command[:, 1:5]; phase_obs_dim=8 from sin/cos of 4 phases) -- altering them is a R6 byte-identity break for the reverse-registration done in the next segment.",
+  "_doc": "Per-family parameterised gait command spec. Each entry describes how the env-cfg compiler should emit the gait CommandTerm class for that family: command_dim is the per-env command vector width; phase_count is the number of per-foot phase channels embedded in command[:, 1:1+phase_count]; phase_obs_dim is the sin/cos-encoded obs term width (= 2 * phase_count); obs_layout is the ordered list of obs sub-terms emitted to the policy group (frequency:N / phase_sin_cos:N / body_height:N / step_height:N) used as a documentation pin and for byte-identity assertions. phase_names is the ordered tuple of leg labels keyed by phase index (quadruped: FL/FR/RL/RR; biped: L/R). default_ranges (added in 1.1.0) is the SINGLE source of the per-family default sampling ranges {frequency, body_height, step_height} = [lo, hi] -- consumed via gait_presets.default_ranges_for_family by the env-cfg compiler Cfg emitters, the CommandSchema builders, and the CommandContract emitter; geometry-class values (quadruped: Go2-class, biped: G1/H1-class). It is optional per entry (a family without it fail-louds at default_ranges_for_family time) and forbidden on alias entries. humanoid declares alias_of: biped (data identity), mirroring the five-layer alignment already present in ir_canonical, pd_groups_definitions, symmetry_catalog, pd_calibration_canaries, and amp_obs_templates -- six layers in total. Manipulator / wheeled / generic intentionally have no entry: gait commands are legged-only by construction, and the families_catalog soft warning (G6) surfaces the omission. User overlays at <USER_CONFIG_DIR>/registers/gait_commands_custom.json can add new families or override existing ones; the same L1-L8 schema rules apply at merge time. Quadruped values are factory-pinned to UniformGaitCommand's existing layout (command_dim=7 from torch.zeros((n, 7)); phase_count=4 from command[:, 1:5]; phase_obs_dim=8 from sin/cos of 4 phases) -- altering them is a R6 byte-identity break for the reverse-registration done in the next segment.",
   "families": {
     "quadruped": {
       "class_name": "UniformGaitCommand",
@@ -14,7 +14,12 @@
         "body_height:1",
         "step_height:1"
       ],
-      "phase_names": ["fl", "fr", "rl", "rr"]
+      "phase_names": ["fl", "fr", "rl", "rr"],
+      "default_ranges": {
+        "frequency": [1.5, 3.5],
+        "body_height": [0.28, 0.40],
+        "step_height": [0.03, 0.15]
+      }
     },
     "biped": {
       "class_name": "BipedGaitCommand",
@@ -27,7 +32,12 @@
         "body_height:1",
         "step_height:1"
       ],
-      "phase_names": ["L", "R"]
+      "phase_names": ["L", "R"],
+      "default_ranges": {
+        "frequency": [1.0, 2.0],
+        "body_height": [0.65, 0.75],
+        "step_height": [0.05, 0.10]
+      }
     },
     "humanoid": {
       "alias_of": "biped"

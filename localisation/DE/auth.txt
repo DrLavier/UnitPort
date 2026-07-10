@@ -1,0 +1,58 @@
+[default]
+busy_linking = Verknüpfe {provider}-Konto...
+busy_oauth = Warte auf Bestätigung im Browser...
+busy_sending_reset = Sende Zurücksetzungs-E-Mail...
+busy_signing_in = Anmeldung...
+busy_signing_up = Konto wird erstellt...
+close_button = Schließen
+confirm_password_label = Passwort bestätigen
+continue_github = Mit GitHub fortfahren
+continue_google = Mit Google fortfahren
+continue_with = oder fortfahren mit
+dialog_title = UnitPort-Konto
+email_label = E-Mail
+email_placeholder = you@example.com
+error_email_rate_limited = Zu viele Anfragen. Bitte warten Sie eine Minute und versuchen Sie es erneut.
+error_email_taken = Ein Konto mit dieser E-Mail existiert bereits.
+error_empty_email = E-Mail ist erforderlich.
+error_empty_password = Passwort ist erforderlich.
+error_generic = Anmeldung fehlgeschlagen: {message}
+error_invalid_credentials = E-Mail oder Passwort ist falsch.
+error_network = Netzwerkfehler — überprüfen Sie Ihre Verbindung.
+error_password_mismatch = Passwörter stimmen nicht überein.
+error_password_too_short = Passwort muss mindestens 6 Zeichen lang sein.
+forgot_password = Passwort vergessen?
+identity_conflict_body = Konnte {provider} nicht verknüpfen.
+	
+	Dieses Konto gehört bereits zu einem separaten UnitPort-Benutzer, und Supabase kann nicht zwei bestehende Konten zusammenführen.
+	
+	Sie können sich stattdessen direkt mit {provider} anmelden oder ein anderes {provider}-Konto verwenden.
+	
+	Anbieter-Nachricht: {message}
+identity_conflict_switch = Stattdessen mit {provider} anmelden
+identity_conflict_title = Identität bereits in Verwendung
+info_email_confirmation = Konto erstellt. Prüfen Sie {email}, um Ihre Adresse zu bestätigen.
+password_label = Passwort
+password_placeholder = mindestens 6 Zeichen
+sidebar_sign_in_button = Anmelden
+sidebar_sign_out = Abmelden
+sidebar_signed_out_hint = Bei UnitPort anmelden
+sign_in_button = Anmelden
+sign_up_button = Konto erstellen
+tab_sign_in = Anmelden
+tab_sign_up = Registrieren
+restart_body_signin = Angemeldet als {email}. UnitPort jetzt neu starten, um den Arbeitsbereich dieses Kontos zu laden?
+restart_body_signout = Abgemeldet. UnitPort jetzt neu starten, um zum Gast-Arbeitsbereich zurückzukehren?
+restart_button_later = Später
+restart_button_now = Jetzt neu starten
+restart_title = Neustart erforderlich
+busy_unlinking = Verknüpfung wird aufgehoben...
+busy_setting_password = Passwort wird aktualisiert...
+busy_changing_email = Verifizierung wird gesendet...
+error_oauth_busy = Eine andere Anmeldeaktion ist noch ausstehend. Bitte warten.
+error_single_identity_not_deletable = Die einzige Anmeldemethode kann nicht entfernt werden.
+error_identity_already_exists = Dieses Konto ist bereits mit einem anderen Benutzer verknüpft.
+info_email_change_pending = Verifizierungs-E-Mail gesendet. Klicken Sie auf den Link, um die Änderung zu bestätigen.
+info_password_updated = Passwort aktualisiert.
+info_unlink_current_provider = Sie haben Ihre aktuelle Anmeldemethode entfernt. Sie werden möglicherweise in Kürze abgemeldet.
+

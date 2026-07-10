@@ -1,0 +1,58 @@
+[conflict]
+action = uma ação do sistema
+channel = um canal de comandos
+msg = {input} já está vinculado a {owner} ({cat}). Uma entrada física só pode ter uma vinculação — desfaça a ligação lá primeiro e tente novamente.
+title = Conflito de vinculação
+trigger = um gatilho de habilidade
+
+[default]
+axis_unbound = — (não vinculado)
+button_unbound = — (não vinculado)
+channel_not_bindable = — (ainda não vinculável)
+invert_vy = Inverter vy
+invert_vyaw = Inverter vyaw
+reset = Redefinir
+off_hint = Entrada desativada. Selecione Teclado ou Gamepad acima.
+policy_channels = Canais de Comando da Política
+system_actions = Botões → Ações do Sistema
+system_actions_keys = Teclas → Ações do Sistema
+stale_channels = Associações salvas não presentes neste contrato
+no_policy_hint = Nenhuma política carregada. Uma habilidade que você criar no Training Motion node torna-se um canal vinculável AQUI somente depois de você treinar + exportar uma política e selecioná-la em Mission Control · Simulate — um gatilho é um comportamento treinado, não apenas um mapeamento de tecla. Os botões abaixo são ações do sistema (boost / estop / …): sempre disponíveis, separadas de qualquer política, por isso não estão no Training Motion node.
+no_contract_hint = Esta política não tem canais de comando — reexporte o bundle após criar comandos de velocidade ou uma habilidade no Training Motion node.
+legacy_contract_hint = A política carregada contém um bloco de comandos legado — reexporte o bundle para vincular os canais de comando aqui.
+
+[latch]
+hold = Manter (enquanto pressionado)
+pulse = Pulso (pressione uma vez)
+unsupported = (o lado do treinamento não forneceu)
+
+[pick]
+button = Botão
+mode = Modo
+
+[axis]
+left_stick_x = Stick L X
+left_stick_y = Stick L Y
+right_stick_x = Stick R X
+right_stick_y = Stick R Y
+
+[kb]
+forward = Frente
+backward = Para trás
+strafe_left = Deslocar para a esquerda
+strafe_right = Deslocar para a direita
+yaw_left = Virar à esquerda
+yaw_right = Virar à direita
+estop = Parada de emergência
+boost = Boost
+
+[mode_btn]
+off = Desligado
+keyboard = Teclado
+gamepad = Gamepad
+
+[mode]
+off = Desligado
+keyboard = Teclado
+gamepad = Gamepad
+

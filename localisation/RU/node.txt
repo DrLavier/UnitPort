@@ -1,0 +1,543 @@
+[export]
+compat.no_connection = Нет подключенной стартовой точки — подключите train_pipe, чтобы заполнить
+compat.title = Совместимость стартовой точки
+manifest.exists_warn = ⚠ существует
+manifest.open = Открыть
+manifest.placeholder = <НОВОЕ>
+manifest.status.exists = Существует
+manifest.status.planned = Запланировано
+display = Экспорт
+desc = Bundle + экспорт ONNX/TorchScript + просмотр сцены
+param.bundle_name = Имя Bundle
+param.version = Версия
+param.include_onnx = Включить ONNX
+param.include_torchscript = Включить TorchScript
+param.include_normalization = Включить статистику нормализации
+param.bundle_targets = Цели бандла
+param.export_target = Цель экспорта
+param.export_onnx = [устаревшее] ONNX
+param.export_torchscript = [устаревшее] TS
+param.include_norm_stats = [устаревшее] Norm
+param.overwrite = Перезаписать
+param.review_backend = Бэкенд обзора
+param.review_scene_id = Сцена обзора
+param.review_launch = Запуск обзора
+param.auto_import = Автоимпорт
+param.output_files = Выходные файлы
+param.start_point_compat = Совместимость начальной точки
+compat.field.framework = Фреймворк
+compat.field.action_dim = Размерность действия
+compat.field.decimation = Децимация
+compat.field.joint_order = Порядок суставов
+port.train_pipe = Канал обучения
+port.eval_config = Конфигурация оценки
+port.bundle_path = Путь бандла
+
+[rewards]
+covered_lane = покрыто Unconditional
+empty_lane = нет вознаграждения — фаза недостаточно ограничена
+display = Награды
+desc = Конфигурация компонента вознаграждения (SB3 / Isaac Lab)
+param.backend = Бэкенд
+param.reward_terms = Компоненты вознаграждения
+param.std = Std
+param.threshold = Порог
+port.actor_pipe = Канал актёра
+port.command_pipe = Канал команд
+port.total_reward = Общее вознаграждение
+
+[example]
+print_hello.display = Напечатать «Привет»
+print_hello.desc = Шаблон стартера узла сообщества — объявляет один строковый параметр; использует выполнение passthrough по умолчанию.
+print_hello.param.message = Сообщение
+
+[vis_check]
+display = Визуальная проверка
+desc = Визуальная проверка корректности / предпросмотр
+param.trigger_mode = Режим срабатывания
+param.vis_start_step = Шаг начала визуализации
+param.vis_interval_steps = Интервал визуализации
+param.num_vis_checks = Число визуализаций
+param.vis_episodes = Эпизоды визуализации
+param.deterministic = Детерминированный
+port.vis_check = Визуальная проверка
+
+[training_motion]
+display = Обучающее движение
+desc = Эталонное движение + команды + программа обучения
+param.training_items = Элементы обучения
+param.mapping_mode = Режим сопоставления
+param.deadzone = Мёртвая зона
+param.curve_exponent = Экспонента кривой
+param.runtime_clip = Обрезка времени выполнения
+param.gait_enabled = Походка включена
+param.gait_frequency_range = Частота походки
+param.body_height_range = Высота корпуса
+param.step_height_range = Высота шага
+param.gait_presets = Предустановки походки
+param.resampling_time_range = Время пересэмплирования
+param.cmd_step_change_prob = Вероятность смены команды
+param.gain_lin_forward = Ограничение скорости вперед
+param.gain_lin_backward = Ограничение скорости назад
+param.gain_lin_lateral = Поперечная скорость
+param.gain_yaw = Ограничение скорости рыскания
+param.reference_state_init_enabled = AMP RSI вкл.
+param.rsi_prob = Вероятность RSI
+param.rsi_joint_noise = Шум суставов RSI
+param.consumption_mode = Режим потребления
+param.phase_mode = Режим фазы
+param.motion_fps = FPS движения
+param.random_start_phase = Случ. нач. фазы
+param.command_curriculum_enabled = Адаптация команд вкл.
+param.command_curriculum_start = Старт адаптации команд
+param.command_curriculum_end = Конец адаптации команд
+param.command_curriculum_ramp_iters = Рамп адаптации команд
+port.command_pipe = Командный канал
+port.reference_motion_config = Конфиг опорного движения
+
+[train]
+display = Обучение
+desc = Верхнеуровневый элемент обучения
+port.env_config = Настройки среды
+port.algo_config = Настройки алгоритма
+port.eval_config = Настройки оценки
+port.train_config = Настройки обучения
+port.train_pipe = Пайплайн обучения
+port.vis_check = Проверка визуализации
+
+[terminations]
+display = Завершения
+desc = Условия завершения
+param.backend = Бэкенд
+param.termination_conditions = Условия завершения
+param.termination_curriculum_enabled = Курс завершения: вкл.
+param.termination_curriculum_start = Курс завершения: старт
+param.termination_curriculum_end = Курс завершения: конец
+param.termination_curriculum_ramp_iters = Разгон курса завершения
+port.termination_config = Настройки завершения
+
+[task_config]
+display = Конфигурация задачи
+desc = Определение задачи RL
+param.task_type = Тип задачи
+param.command_mode = Режим команд
+param.target_lin_vel_x = Целевая Vx
+param.target_lin_vel_y = Целевая Vy
+param.target_ang_vel_z = Целевая Wz
+param.curriculum = Учебная программа
+param.success_threshold = Порог успеха
+param.truncation_max_steps = Шаги усечения
+param.curriculum_schedule = График обучения
+param.resampling_time_range = Время пересэмплирования
+port.total_reward = Общая награда
+port.termination_config = Настройки завершения
+port.task_config = Настройки задачи
+
+[stage_switch]
+display = Переключатель этапов
+desc = Переключатель многоступенчатой учебной программы
+param.stages_config = Конфигурация этапов
+param.checkpoint_strategy = Стратегия CKPT
+port.stage_0 = Этап 0
+port.stage_1 = Этап 1
+port.stage_2 = Этап 2
+port.stage_3 = Этап 3
+port.stage_4 = Этап 4
+port.stage_5 = Этап 5
+port.train_pipe = Канал обучения
+
+[robot]
+display = Робот
+desc = Ассет робота + сопоставление тел + параметризация PD
+param.asset_id = ID ассета
+param.active_override = Переопределение активности
+param.body_mapping = Сопоставление тел
+param.pd_param_mode = Режим PD
+param.pd_groups = Группы PD
+param.pd_effort_limit = Предел усилия
+param.pd_velocity_limit = Предел скорости
+param.pd_resolve_at_reset = Пересчитать при сбросе
+param.pd_calibration_blocking = Блокировать при сбое калибровки
+param.pd_skip_calibration = Пропустить калибровку
+port.robot_pipe = Канал робота
+
+[play_ground_setting]
+display = Игровая площадка
+desc = Сцена + арена + трение + скан высот
+param.scene_id = ID сцены
+param.scene_type = Тип сцены
+param.custom_terrain_path = Файл рельефа
+param.custom_terrain_vertical_scale = Вертикальный масштаб
+param.gravity_z = Гравитация Z
+param.arena_extent_x = Размер арены X
+param.arena_extent_y = Размер арены Y
+param.friction_static = Статическое трение
+param.friction_dynamic = Динамическое трение
+param.curriculum_enabled = Куррикулум включен
+param.difficulty_levels = Уровни сложности
+param.height_scan_enabled = Скан высот включен
+param.scan_resolution = Разрешение скана
+param.scan_size_x = Размер скана X
+param.scan_size_y = Размер скана Y
+param.sim_dt = Sim Dt
+param.gpu_max_rigid_contact_count = GPU контакты
+param.gpu_max_rigid_patch_count = GPU патчи
+port.scene_pipe = Scene Pipe
+
+[physics_config]
+display = Конфигурация физики
+desc = Sim dt + control dt + решатель
+param.sim_dt = Sim Dt
+param.control_dt = Control Dt
+param.episode_max_steps = Макс шагов эпизода
+param.action_type = Тип действия
+port.robot_pipe = Robot Pipe
+port.robot_spec = Robot Spec
+port.physics_config = Physics Config
+
+[obs_action_config]
+display = Конфигурация наблюдений/действий
+desc = Компоненты наблюдений и сопоставление действий
+param.contract_preset = Пресет контракта
+param.obs_components = Компоненты наблюдений
+param.obs_clip_range = Диапазон обрезки наблюдений
+param.frame_stack = Стек кадров
+param.action_type = Тип действия
+param.action_scale = Масштаб действия
+param.action_clip = Обрезка действия
+port.obs_action_config = Конфигурация наблюдений/действий
+
+[multigated_reward]
+display = Селективная награда
+desc = Многоступенчатый маршрутизатор селективных наград
+param.max_step_stage0 = Шаги этапа 0
+param.reward_threshold_ratio = Порог награды
+param.min_ep_window = Мин. окно эпизода
+param.plateau_window = Окно плато
+param.plateau_eps = Плато ε
+param.blend_steps = Шаги смешивания
+param.stage_behavior = Поведение этапа
+param.ep_reward_window = Окно награды эпизода
+param.stage1_ratio = Коэффициент этапа 1
+port.stage_0 = Этап 0
+port.stage_1 = Этап 1
+port.total_reward = Общая награда
+port.total_steps = Всего шагов
+
+[joint_init]
+display = Инициализация суставов
+desc = Начальные углы по каждому суставу
+param.angles = Углы
+port.joint_init = Инициализация суставов
+
+[init_pose]
+display = Начальная поза
+desc = Начальная поза (RSI / ключевой кадр)
+param.mode = Режим
+param.noise_scale = Масштаб шума
+param.base_height = Базовая высота
+param.keyframe_name = Название ключевого кадра
+param.custom_qpos = Пользовательский Qpos
+param.rsi_prob = Вероятность RSI
+param.rsi_sample_mode = Выборка RSI
+port.init_pose_config = Конфигурация начальной позы
+
+[il_ppo_trainer]
+display = IL PPO тренер
+desc = Тренер Isaac Lab PPO/AMP_PPO
+param.training_mode = Режим обучения
+param.num_envs = Число окружений
+param.max_iterations = Макс. итераций
+param.num_steps_per_env = Шагов / окружение
+param.num_learning_epochs = Эпохи обучения
+param.num_minibatches = Минибатчи
+param.learning_rate = Скорость обучения
+param.discount_factor = Дисконт γ
+param.gae_lambda = GAE λ
+param.clip_param = Клип ε
+param.entropy_coef = Коэф. энтропии
+param.value_loss_coef = Потери value
+param.max_grad_norm = Макс. норма градиента
+param.schedule = Расписание LR
+param.desired_kl = Желаемый KL
+param.save_interval = Интервал сохранения
+param.seed = Сид
+param.headless = Без графического интерфейса
+param.amp_reward_coef = Коэффициент награды AMP
+param.task_reward_lerp = Лерп награды задачи
+param.disc_grad_penalty = Градиентный штраф
+param.disc_label_smoothing = Сглаживание меток
+param.amp_replay_buffer_size = Буфер воспроизведения
+param.num_preload_transitions = Предзагрузка переходов
+param.disc_lr = Скорость обучения дискриминатора
+param.lerp_schedule = Расписание лерпа
+param.lerp_schedule_json = JSON расписания лерпа
+param.entropy_schedule_enabled = Включить расписание энтропии
+param.entropy_schedule_start = Начало расписания энтропии
+param.entropy_schedule_end = Конец расписания энтропии
+param.entropy_schedule_ramp_iters = Рамп расписания энтропии
+port.policy = Политика
+port.total_reward = Суммарная награда
+port.termination_config = Конфигурация завершения
+port.domain_rand_config = Конфигурация доменной рандомизации
+port.obs_vector = Вектор наблюдений
+port.scene_pipe = Пайплайн сцены
+port.checkpoint = Контрольная точка
+port.reference_motion_config = Конфигурация эталонного движения
+port.init_pose_config = Конфигурация начальной позы
+port.discriminator_config = Конфигурация дискриминатора
+port.train_pipe = Пайплайн обучения
+port.training_metrics = Метрики обучения
+
+[il_policy_network]
+display = Сеть IL-политики
+desc = MLP актор-критик для Isaac Lab
+param.actor_hidden_dims = Скрытые слои актёра
+param.critic_hidden_dims = Скрытые слои критика
+param.activation = Активация
+param.init_noise_std = Начальное std шума (direct, 1.0=std 1.0)
+param.disc_hidden_dims = Скрытые (Disc)
+port.obs_vector = Вектор наблюдений
+port.policy = Политика
+
+[il_observation]
+param.command_injected_obs = Внедрённые наблюдения (канал команд)
+display = IL-наблюдение
+desc = Термины наблюдений Isaac Lab + учебная программа
+param.obs_terms = Поля наблюдений
+param.critic_privileged_terms = Привилегии критика
+param.enable_corruption = Включить шум
+param.corruption_noise_std = Std шума
+param.obs_noise_curriculum_enabled = Курс шума вкл.
+param.obs_noise_curriculum_start = Начало шума
+param.obs_noise_curriculum_end = Конец курса шума
+param.obs_noise_curriculum_ramp_iters = Разгон курса шума
+port.actor_pipe = Канал актёра
+port.command_pipe = Канал команд
+port.obs_vector = Вектор наблюдений
+
+[eval_config]
+display = Конфиг оценки
+desc = Эпизоды оценки + запись видео
+param.eval_episodes = Эпизоды оценки
+param.deterministic = Детерминированный
+param.success_threshold = Порог успеха
+param.record_video = Запись видео
+param.eval_interval = Интервал оценки
+param.save_best_model = Сохранить лучший
+param.video_dir = Каталог видео
+port.eval_config = Конфиг оценки
+
+[env_assembler]
+display = Сборщик сред
+desc = Собирает vec env-обёртки + step_fn
+param.n_envs = N сред
+param.vec_type = Тип Vec
+param.obs_normalize = Норм. наблюдений
+param.reward_normalize = Норм. награды
+param.clip_obs = Обрез. наблюдений
+param.clip_reward = Обрез. награды
+param.action_clip_range = Огранич. действий
+param.enable_monitor = Включить монитор
+param.time_limit_override = Ограничение времени
+param.eval_disable_rand = Отключить рандомизацию (оценка)
+port.actor_pipe = Канал актёра
+port.scene_pipe = Канал сцены
+port.command_pipe = Канал команд
+port.physics_config = Конфиг физики
+port.task_config = Конфиг задачи
+port.obs_action_config = Конфиг наблюд./действ.
+port.domain_rand_config = Конфиг DR
+port.reference_motion_config = Конфиг реф. движения
+port.init_pose_config = Конфиг нач. позы
+port.env_config = Конфиг среды
+
+[domain_rand]
+display = Рандомизация домена
+desc = Рандомизация домена (backend-gated SB3 / Isaac Lab)
+param.backend = Бэкенд
+param.rand_schedule = График рандомизации
+param.rand_schedule_start_step = Шаг начала DR
+param.rand_schedule_end_step = Шаг окончания DR
+param.enabled = Включено
+param.mass_range = Диапазон массы
+param.friction_range = Диапазон трения
+param.motor_strength_range = Сила мотора
+param.joint_damping_range = Демпфирование суставов
+param.obs_noise_std = Std шума наблюдений
+param.push_robot = Толчок робота
+param.push_interval_steps = Интервал толчков
+param.push_force_range = Сила толчка
+param.enable_friction_rand = Рандомизация трения
+param.friction_mode = Режим трения
+param.static_friction_range = Статическое трение
+param.dynamic_friction_range = Динамическое трение
+param.restitution_range = Коэффициент восстановления
+param.enable_mass_rand = Рандомизация массы
+param.mass_mode = Режим массы
+param.mass_operation = Операция над массой
+param.mass_target_body = Целевое тело
+param.mass_offset_range = Смещение массы
+param.enable_external_push = Внешний толчок
+param.push_mode = Режим толчка
+param.push_interval_range_s = Интервал толчка s
+param.push_velocity_x_range = Диапазон Vx толчка
+param.push_velocity_y_range = Диапазон Vy толчка
+param.enable_init_pose_rand = Рандомизация начальной позы
+param.init_pose_mode = Режим начальной позы
+param.init_pos_x_range = Диапазон начального X
+param.init_pos_y_range = Диапазон начального Y
+param.init_yaw_range = Диапазон начального yaw
+param.enable_joint_noise = Шум суставов
+param.joint_noise_mode = Режим шума суставов
+param.joint_pos_noise = Шум положения сустава
+param.joint_vel_noise = Шум скорости сустава
+port.actor_pipe = Канал актёра
+port.domain_rand_config = Конфиг DR
+
+[discriminator]
+display = Дискриминатор
+desc = Дискриминатор AMP + формирование награды
+param.disc_modules = Модули дискриминатора
+param.disc_hidden_dims = Скрытые слои дискриминатора
+param.amp_reward_coef = Коэффициент награды AMP
+param.task_reward_lerp = Интерполяция награды задачи
+param.lerp_schedule = График интерполяции
+param.lerp_schedule_json = JSON графика интерполяции
+param.disc_lr = LR дискриминатора
+param.disc_grad_penalty = Штраф за градиент
+param.disc_label_smoothing = Сглаживание меток
+param.amp_replay_buffer_size = Replay буфер
+param.num_preload_transitions = Предзагрузка переходов
+param.amp_obs_fields = Поля наблюдений AMP
+param.auto_inject_ref_obs = Вставлять эталонные наблюдения
+param.disc_logit_clamp_max = Ограничение логитов
+param.reward_clamp_per_step = Ограничение награды
+param.policy_std_clamp_max = Макс Std Clamp
+port.reference_motion_config = Конфигурация эталонного движения
+port.discriminator_config = Конфигурация дискриминатора
+
+[base_asset]
+display = Базовый ассет
+desc = Базовый ассет робота + начальная точка
+param.start_point = Начальная точка
+param.asset_id = ID ассета
+param.checkpoint_file = Файл контрольной точки
+param.load_mode = Режим загрузки
+port.checkpoint = Контрольная точка
+
+[amp_trainer]
+display = Тренер AMP
+desc = Тренер Isaac Lab AMP_PPO (псевдоним IL PPO Trainer в режиме AMP_PPO)
+param.training_mode = Режим обучения
+param.num_envs = Кол-во сред
+param.max_iterations = Макс. итераций
+param.num_steps_per_env = Шагов / среда
+param.num_learning_epochs = Эпох обучения
+param.num_minibatches = Минибатчи
+param.learning_rate = Скорость обучения
+param.discount_factor = Дисконт γ
+param.gae_lambda = GAE λ
+param.clip_param = Клиппинг ε
+param.entropy_coef = Коэф. энтропии
+param.value_loss_coef = Потери value
+param.max_grad_norm = Макс. норма градиента
+param.schedule = Расписание LR
+param.desired_kl = Желаемый KL
+param.save_interval = Интервал сохранения
+param.seed = Seed
+param.headless = Headless
+param.amp_reward_coef = Коэффициент вознаграждения AMP
+param.task_reward_lerp = Lerp награды задачи
+param.disc_grad_penalty = Штраф градиента
+param.disc_label_smoothing = Сглаживание меток
+param.amp_replay_buffer_size = Буфер реплея
+param.num_preload_transitions = Предзагрузка переходов
+param.disc_lr = Скорость обучения дискриминатора
+param.lerp_schedule = Расписание Lerp
+param.lerp_schedule_json = Расписание Lerp (JSON)
+param.entropy_schedule_enabled = График энтропии: включен
+param.entropy_schedule_start = Начало графика энтропии
+param.entropy_schedule_end = Окончание графика энтропии
+param.entropy_schedule_ramp_iters = Разгон графика энтропии
+port.policy = Политика
+port.total_reward = Общая награда
+port.termination_config = Параметры завершения
+port.domain_rand_config = Конфигурация рандомизации домена
+port.obs_vector = Вектор наблюдений
+port.scene_pipe = Пайплайн сцены
+port.checkpoint = Контрольная точка
+port.reference_motion_config = Конфигурация эталонного движения
+port.init_pose_config = Конфигурация начальной позы
+port.discriminator_config = Конфигурация дискриминатора
+port.train_pipe = Пайплайн обучения
+port.training_metrics = Метрики обучения
+
+[algorithm_config]
+display = Конфигурация алгоритма
+desc = Алгоритм RL + буфер + расписание
+param.algorithm = Алгоритм
+param.total_timesteps = Всего шагов
+param.learning_rate = Скорость обучения
+param.batch_size = Размер батча
+param.gamma = Гамма
+param.seed = Seed
+param.device = Устройство
+param.hidden_dim_1 = Размер скрытого слоя 1
+param.hidden_dim_2 = Размер скрытого слоя 2
+param.activation = Активация
+param.ent_coef = Коэфф. энтропии
+param.checkpoint_interval = Интервал чекпойнтов
+param.resume_mode = Режим возобновления
+param.policy_id_out = ID выходной политики
+param.gae_lambda = GAE λ
+param.n_steps = [PPO] n_steps
+param.n_epochs = [PPO] n_epochs
+param.lr_schedule = Расписание LR
+param.gradient_steps = Шаги градиента
+param.tau = Тау
+param.target_entropy = Целевая энтропия
+param.buffer_size_mode = Режим буфера
+param.buffer_size = Размер буфера
+param.learning_starts = Начало обучения
+param.use_per = Использовать PER
+param.per_alpha = PER α
+param.per_beta = PER β
+param.collapse_guard = Защита от схлопывания
+param.collapse_threshold = Порог схлопывания
+param.collapse_patience = Терпение
+param.collapse_lr_factor = LR при схлопывании
+param.collapse_max_rollbacks = Макс. откатов
+port.checkpoint = Контрольная точка
+port.total_steps = Всего шагов
+port.algo_config = Настройки алгоритма
+
+[actor_setting]
+display = Настройка актёра
+desc = Блок актёра: начальная поза / контакты / приводы / пространство действий / план обучения
+param.init_pos_x = Начальная позиция X
+param.init_pos_y = Начальная позиция Y
+param.init_pos_z = Начальная позиция Z
+param.init_joint_angles = Начальные углы суставов
+param.contact_body_names = Контактные тела
+param.contact_history_length = История контактов
+param.contact_track_air_time = Отслеживать время в воздухе
+param.stiffness = Жесткость
+param.damping = Демпфирование
+param.effort_limit = Ограничение усилия
+param.velocity_limit = Ограничение скорости
+param.action_joint_names_expr = Управляемые суставы
+param.action_scale = Масштаб действия
+param.action_use_default_offset = Смещение по умолчанию
+param.action_scale_curriculum_enabled = Курс масштаба: вкл
+param.action_scale_curriculum_start = Начало курса
+param.action_scale_curriculum_end = Конец курса
+param.action_scale_curriculum_ramp_iters = Разгон курса
+port.robot_pipe = Канал робота
+port.joint_init = Инициализация суставов
+port.actor_pipe = Канал актёра
+
+[note]
+display = Заметка
+desc = Карточка аннотации Canvas (не выполняется). Содержит заголовок и многострочный текст для комментариев в Canvas.
+

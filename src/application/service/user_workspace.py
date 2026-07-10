@@ -439,6 +439,45 @@ def machine_config_dir() -> Path:
 _MACHINE_LOCALE_FILENAME = "locale.ini"
 
 
+# ---------------------------------------------------------------------------
+# Legacy locale-code migration.
+#
+# The 2026-07 multi-language expansion recoded the simplified-Chinese
+# directory ``ZH`` -> ``ZH_S`` so it reads symmetrically against the new
+# ``ZH_T`` (traditional) template. Any device- or account-level preference
+# persisted under an old code is migrated to the canonical code at the boot
+# reconciliation boundary (``apply_machine_locale_preference``), which
+# rewrites BOTH persistence sinks (WORKSPACE/locale.ini AND
+# user.ini[Localisation].lang) so the legacy value disappears for good.
+#
+# WHY KEPT (CLAUDE.md §8(c) on-disk legacy compatibility): existing installs
+# hold ``ZH`` on disk; loading it verbatim would resolve to a now-missing
+# ``localisation/ZH/`` directory and silently fall back to English. The
+# migration WARNs loudly and self-heals. Remove this table once no install
+# can still carry a pre-rename locale value.
+_LEGACY_LOCALE_ALIASES: Dict[str, str] = {"ZH": "ZH_S"}
+
+
+def canonical_locale_code(code: Optional[str]) -> Optional[str]:
+    """Map a persisted locale code through the legacy-rename table.
+
+    Returns the canonical code (unchanged when already canonical). ``None``
+    / blank passes through untouched. Emits a loud WARN the first time a
+    legacy code is seen so the migration is never silent (§8).
+    """
+    if not code:
+        return code
+    code = code.strip()
+    canon = _LEGACY_LOCALE_ALIASES.get(code)
+    if canon is not None and canon != code:
+        log_warning(
+            f"[workspace] migrating legacy locale code {code!r} -> {canon!r} "
+            f"(re-export localisation templates if this recurs)"
+        )
+        return canon
+    return code
+
+
 def _machine_locale_path() -> Optional[Path]:
     """Return ``WORKSPACE/locale.ini`` or ``None`` when workspace unset.
 
@@ -466,7 +505,7 @@ def read_machine_locale() -> Optional[str]:
         cp.read(path, encoding="utf-8")
         if cp.has_option("Localisation", "lang"):
             val = cp.get("Localisation", "lang").strip()
-            return val or None
+            return canonical_locale_code(val) or None
     except Exception as exc:                                      # pragma: no cover
         log_warning(f"[workspace] read_machine_locale failed: {exc}")
     return None
@@ -534,7 +573,7 @@ def apply_machine_locale_preference() -> None:
         log_warning(f"[workspace] apply_machine_locale_preference: I18n unavailable ({exc})")
         return
 
-    saved = read_machine_locale()
+    saved = read_machine_locale()  # already canonicalised (legacy -> canonical)
     if saved:
         current = I18n.get_language()
         if current != saved:
@@ -546,10 +585,20 @@ def apply_machine_locale_preference() -> None:
                 I18n.set_language(saved)
             except Exception as exc:                              # pragma: no cover
                 log_warning(f"[workspace] I18n.set_language failed: {exc}")
+        # Rewrite the on-disk machine file so a legacy code stored there is
+        # replaced by its canonical form (idempotent no-op once canonical).
+        write_machine_locale(saved)
         return
 
-    # No machine-level file yet — seed it from whatever the SDK loaded.
-    current = I18n.get_language()
+    # No machine-level file yet — seed it from whatever the SDK loaded,
+    # migrating any legacy code still lingering in the account-level
+    # user.ini so the persisted value matches the on-disk directory layout.
+    current = canonical_locale_code(I18n.get_language())
+    if current and current != I18n.get_language():
+        try:
+            I18n.set_language(current)
+        except Exception as exc:                                  # pragma: no cover
+            log_warning(f"[workspace] I18n.set_language failed: {exc}")
     if current:
         write_machine_locale(current)
 
@@ -1525,6 +1574,7 @@ __all__ = [
     "read_machine_locale",
     "write_machine_locale",
     "apply_machine_locale_preference",
+    "canonical_locale_code",
     "reload_paths",
     "reload_workspace_data",
     "set_user_workspace",

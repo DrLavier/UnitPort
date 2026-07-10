@@ -1,0 +1,11 @@
+[dtype]
+both = Скаляр/Список
+list = Список
+scalar = Скаляр
+
+[err]
+dup_item = Элемент с именем '{name}' уже существует.
+
+[review_motion]
+submitted = Review Motion запущен (нефизическое воспроизведение MuJoCo)…
+

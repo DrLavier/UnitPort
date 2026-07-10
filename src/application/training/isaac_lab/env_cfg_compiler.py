@@ -1539,6 +1539,114 @@ def unitport_item_mask(base_fn, item_indices_to_match):
 '''
 
 
+# skill_command_path_design.md Slice 3 — one trigger command term per skill.
+# A single decaying scalar in [0, 1]: on a randomised resample it fires to 1.0 with
+# probability trigger_prob, then decays linearly to 0 over window_s seconds. The SAME
+# scalar serves the policy obs (the skill-window phase) AND the reward gate (post-pulse
+# window with decay). Randomised resampling_time_range IS the curriculum — the trigger
+# fires at varied times so the policy learns the conditional (trigger -> skill) mapping.
+_SKILL_TRIGGER_COMMAND_INLINE = '''
+# =======================================================================
+# UnitPort — skill trigger command term (skill_command_path_design.md Slice 3)
+# =======================================================================
+import torch as _skill_trig_torch
+
+from isaaclab.managers import CommandTerm as _UnitportSkillCommandTerm
+from isaaclab.managers import CommandTermCfg as _UnitportSkillCommandTermCfg
+
+
+class SkillTriggerCommand(_UnitportSkillCommandTerm):
+    """One trigger channel: a decaying pulse in [0, 1] (obs + reward-gate envelope)."""
+
+    cfg: "SkillTriggerCommandCfg"
+
+    def __init__(self, cfg, env):
+        super().__init__(cfg, env)
+        self._command = _skill_trig_torch.zeros((env.num_envs, 1), device=env.device)
+
+    @property
+    def command(self):
+        return self._command
+
+    def _resample_command(self, env_ids):
+        cfg = self.cfg
+        device = self._command.device
+        n = env_ids.numel() if hasattr(env_ids, "numel") else len(env_ids)
+        fire = (_skill_trig_torch.rand(n, device=device) < float(cfg.trigger_prob)).float()
+        # 1.0 fires the skill window; 0.0 = a no-skill window (learn to stay grounded).
+        self._command[env_ids, 0] = fire
+
+    def _update_command(self):
+        # Linear decay 1 -> 0 over window_s seconds (the post-pulse window + decay).
+        dt = self._env.step_dt
+        w = max(float(self.cfg.window_s), 1e-6)
+        self._command[:, 0] = _skill_trig_torch.clamp(
+            self._command[:, 0] - dt / w, min=0.0
+        )
+
+    def _update_metrics(self):
+        pass
+
+
+def _unitport_skill_trigger_obs(env, command_name="skill_trigger"):
+    return env.command_manager.get_term(command_name).command[:, 0:1]
+
+
+@configclass
+class SkillTriggerCommandCfg(_UnitportSkillCommandTermCfg):
+    class_type: type = SkillTriggerCommand
+
+    asset_name: str = "robot"
+    window_s: float = 1.0        # post-pulse window length (obs + reward-gate decay), s
+    trigger_prob: float = 0.5    # P(fire) at each randomised resample
+# =======================================================================
+'''
+
+
+# skill_command_path_design.md Slice 3 — reward gate keyed on a skill trigger.
+# Multiply a reward by the trigger's decaying envelope ``command[:, 0]`` in [0, 1]
+# (the post-pulse window with decay) so a skill package's reward is on only within the
+# window. Signature-preserved (Isaac Lab's RewardManager inspects the func); PASSTHROUGH
+# (return base, NOT zero) if the command term is missing — never silently kill the
+# reward (CLAUDE.md §8). Composes inside unitport_item_mask at the emit site.
+_TRIGGER_GATE_HELPER_INLINE = '''
+# =======================================================================
+# UnitPort — skill trigger reward gate (skill_command_path_design.md Slice 3)
+# =======================================================================
+def unitport_trigger_gate(base_fn, command_name):
+    import functools as _tg_functools
+    import inspect as _tg_inspect
+
+    def _core(env, *args, **kwargs):
+        base = base_fn(env, *args, **kwargs)
+        try:
+            envelope = env.command_manager.get_term(command_name).command[:, 0]
+        except Exception:
+            return base
+        return base * envelope
+
+    try:
+        sig = _tg_inspect.signature(base_fn)
+        if not list(sig.parameters.values()):
+            raise ValueError("base reward has no parameters (need at least env)")
+
+        def wrapped(*call_args, **call_kwargs):
+            bound = sig.bind(*call_args, **call_kwargs)
+            bound.apply_defaults()
+            return _core(*bound.args, **bound.kwargs)
+
+        wrapped.__signature__ = sig
+        wrapped = _tg_functools.wraps(base_fn)(wrapped)
+        return wrapped
+    except (TypeError, ValueError):
+        @_tg_functools.wraps(base_fn)
+        def fallback(env, *args, **kwargs):
+            return _core(env, *args, **kwargs)
+        return fallback
+# =======================================================================
+'''
+
+
 class IsaacLabConfigCompiler:
     """Compiles a UnitPort IL node graph into an Isaac Lab Python config file.
 
@@ -1582,6 +1690,13 @@ class IsaacLabConfigCompiler:
         # Stashed by ``_terminations_cfg`` → emitted as ``unitport_terminations``
         # in the deploy_meta.json sidecar (per-condition grace_period_s audit).
         self._stashed_termination_meta: Optional[Dict[str, Any]] = None
+        # Training-package (Method A) reward lowering: synthesise a virtual
+        # ``rewards`` node + ``reward_in__`` edges per inline-reward package into
+        # the graph BEFORE _parse so _rewards_cfg reads packages via the existing
+        # fanout path (package_weight folded once, at synthesis). Returns the
+        # graph unchanged when no package carries inline rewards (byte-identical).
+        from application.training.package_synthesis import synthesize_into_graph
+        self._graph = synthesize_into_graph(self._graph)
         self._parse()
 
     @property
@@ -2467,6 +2582,14 @@ class IsaacLabConfigCompiler:
                 _GAIT_INLINE_BY_CLASS[gait_spec.class_name].splitlines()
             )
             lines.append("")
+        # Slice 3 — the skill trigger command term class (once) when any skill exists,
+        # and the reward-gate helper when any package is trigger-gated.
+        if self._has_skill_triggers():
+            lines.extend(_SKILL_TRIGGER_COMMAND_INLINE.splitlines())
+            lines.append("")
+        if self._scan_rewards_for_trigger_gate():
+            lines.extend(_TRIGGER_GATE_HELPER_INLINE.splitlines())
+            lines.append("")
         # Module-level UNITPORT_TERRAIN_CFG must precede SceneCfg, which
         # references it (rough canvases only; flat emits nothing).
         lines += self._terrain_generator_literal()
@@ -2629,6 +2752,25 @@ class IsaacLabConfigCompiler:
                         if cfg.history_length is not None else None
                     ),
                 }
+        # Slice 4 — record the compiler-injected skill trigger obs terms (dim 1,
+        # appended after the user terms in _emit_obs_group) so _compute_obs_layout
+        # keeps them (they carry no _OBS_TERM_DIM_TABLE entry and would otherwise be
+        # silently skipped → short deploy obs). The deploy ObsBuilder computes each
+        # {sid}_trigger from the command vector at that channel's index (command_slice).
+        # NOTE: gait obs terms are still NOT recorded here (pre-existing gap); a
+        # canvas with BOTH gait and a skill trigger would misalign the trigger obs
+        # offset, so that combination is fail-loud at validation (R_SKILL2), not
+        # silently emitted.
+        skill_names = [sid for sid, _ in self._skill_trigger_items()]
+        if skill_names:
+            for gname in groups:
+                for sid in skill_names:
+                    groups[gname][f"{sid}_trigger"] = {
+                        "dim": 1,
+                        "scale": None,
+                        "clip": None,
+                        "history_length": None,
+                    }
         out: Dict[str, Any] = {
             "schema_version": DEPLOY_META_SCHEMA_VERSION,
             "generated_by": "IsaacLabConfigCompiler",
@@ -3604,7 +3746,12 @@ class IsaacLabConfigCompiler:
                 cbn_roles = []
             if not isinstance(cbn_roles, list):
                 cbn_roles = []
-            cbn_bodies = self._resolve_bodies(*[str(r) for r in cbn_roles])
+            # strict=True: an explicit contact body not on this robot fails loud
+            # (§1.8) instead of being silently dropped. Wildcards ('.*'/'*') are
+            # skipped by _resolve_bodies, so the "all" default is unaffected.
+            cbn_bodies = self._resolve_bodies(
+                *[str(r) for r in cbn_roles], strict=True
+            )
             if cbn_bodies:
                 # Alternation regex: prim_path matches /Robot/<body> for
                 # any picked body. IsaacLab's prim_path regex engine
@@ -3724,6 +3871,8 @@ class IsaacLabConfigCompiler:
         obs_spec = self._resolve_gait_spec()
         if obs_spec is not None:
             gait_terms = list(_GAIT_OBS_TERMS_BY_CLASS[obs_spec.class_name])
+        # Slice 3 — skill trigger obs terms, compiler-injected into both groups.
+        skill_terms = self._skill_trigger_obs_terms() or None
 
         self._resolved_obs_terms_by_group: Dict[str, Dict[str, _PerTermObsConfig]] = (
             getattr(self, "_resolved_obs_terms_by_group", {}) or {}
@@ -3740,6 +3889,7 @@ class IsaacLabConfigCompiler:
             has_height_scanner=has_height_scanner,
             enable_corruption=enable_noise, apply_noise=apply_noise,
             noise_std=noise_std, gait_terms=gait_terms,
+            skill_terms=skill_terms,
         )
 
         # CRITIC group (privileged, training-only) = policy ∪ critic_privileged_terms.
@@ -3762,6 +3912,7 @@ class IsaacLabConfigCompiler:
                 has_height_scanner=has_height_scanner,
                 enable_corruption=False, apply_noise=False,
                 noise_std=noise_std, gait_terms=gait_terms,
+                skill_terms=skill_terms,
             )
 
         lines += ["", ""]
@@ -3779,6 +3930,7 @@ class IsaacLabConfigCompiler:
         apply_noise: bool,
         noise_std: float,
         gait_terms: Optional[List[str]],
+        skill_terms: Optional[List[str]] = None,
     ) -> None:
         """Emit one ``class <class_name>Cfg(ObsGroup)`` + its ``attr: Cfg = Cfg()``.
 
@@ -3831,6 +3983,9 @@ class IsaacLabConfigCompiler:
 
         if gait_terms is not None:
             lines.extend(gait_terms)
+        # Slice 3 — skill trigger obs terms, appended to BOTH groups (critic superset).
+        if skill_terms:
+            lines.extend(skill_terms)
 
         lines.append("")
         lines.append(f"    {attr_name}: {class_name} = {class_name}()")
@@ -3924,6 +4079,78 @@ class IsaacLabConfigCompiler:
         lines += ["", ""]
         return lines
 
+    # ----- skill trigger channels (skill_command_path_design.md Slice 3) ---
+
+    def _skill_trigger_items(self) -> List[Tuple[str, dict]]:
+        """(skill_id, entry) for each ENABLED trigger skill on the training_motion node.
+
+        ``skill_id`` IS the command-term NAME (== the Slice-2 trigger contract channel
+        name), so one string threads the command term, its obs term, and the reward gate.
+        Trigger-only for now (enum reserved). Absent skill_items => [] (byte-identical).
+        """
+        tm_ids = self._find_by_type("training_motion")
+        if not tm_ids:
+            return []
+        raw = (self._params.get(tm_ids[0], {}) or {}).get("skill_items")
+        if isinstance(raw, str):
+            import json as _json_sk
+            raw = _json_sk.loads(raw) if raw.strip() else {}
+        if not isinstance(raw, dict):
+            return []
+        out: List[Tuple[str, dict]] = []
+        for sid, sk in raw.items():
+            s = str(sid).strip()
+            if not s or not isinstance(sk, dict):
+                continue
+            if not bool(sk.get("enabled", True)):
+                continue
+            if str(sk.get("kind", "trigger")).strip().lower() != "trigger":
+                continue  # enum reserved for a later slice
+            out.append((s, sk))
+        return out
+
+    def _has_skill_triggers(self) -> bool:
+        return bool(self._skill_trigger_items())
+
+    def _skill_trigger_obs_terms(self) -> List[str]:
+        """One compiler-injected ObsTerm line per trigger skill — appended to BOTH obs
+        groups (like gait), since there is no user-authored skill obs term."""
+        return [
+            f'        {sid}_trigger = ObsTerm('
+            f'func=_unitport_skill_trigger_obs, '
+            f'params={{"command_name": "{sid}"}})'
+            for sid, _sk in self._skill_trigger_items()
+        ]
+
+    def _emit_skill_trigger_command_cfg(self, sid: str, sk: dict, resample: str) -> List[str]:
+        """CommandsCfg field lines for one skill trigger command term (attr = NAME = sid)."""
+        def _f(key: str, default: float) -> float:
+            v = sk.get(key)
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return float(default)
+        window_s = _f("window_s", 1.0)
+        trigger_prob = min(1.0, max(0.0, _f("trigger_prob", 0.5)))
+        return [
+            f"    {sid} = SkillTriggerCommandCfg(",
+            '        asset_name="robot",',
+            f"        window_s={window_s},",
+            f"        trigger_prob={trigger_prob},",
+            f"        resampling_time_range={resample},",
+            f"        debug_vis=False,",
+            f"    )",
+        ]
+
+    def _scan_rewards_for_trigger_gate(self) -> bool:
+        """True iff any rewards node carries a non-empty ``skill_gate`` param (a skill
+        package's reward gated on a trigger) — drives the gate-helper preamble emit."""
+        for rid in self._find_by_type("rewards"):
+            g = (self._params.get(rid, {}) or {}).get("skill_gate")
+            if g and str(g).strip():
+                return True
+        return False
+
     def _commands_cfg(self) -> List[str]:
         lines = ["@configclass", "class CommandsCfg:", '    """Command configuration."""', ""]
         # Training Commands is the single source for velocity + gait
@@ -4015,6 +4242,13 @@ class IsaacLabConfigCompiler:
             if cfg_spec is not None:
                 emitter = _GAIT_CFG_EMITTERS[cfg_spec.class_name]
                 lines.extend(emitter(self, str(resample)))
+            # Slice 3 — one skill trigger command term per enabled skill_item.
+            # Attr name = skill_id = command-manager NAME (== the obs term's and the
+            # reward gate's command_name). The randomised resample is the curriculum.
+            for _sid, _sk in self._skill_trigger_items():
+                lines.extend(
+                    self._emit_skill_trigger_command_cfg(_sid, _sk, str(resample))
+                )
         lines += ["", ""]
         return lines
 
@@ -4095,12 +4329,23 @@ class IsaacLabConfigCompiler:
                 if len(item_indices) == 1
                 else f"({indices_literal})"
             )
+            # Slice 3 — a skill-gated package's synthetic rewards node carries a
+            # ``skill_gate`` param (= the trigger command NAME). Compose the trigger
+            # window gate INSIDE the item mask so the term is on only within the
+            # trigger's decaying post-pulse window. Empty => no gate (byte-identical).
+            gate_name = str(
+                (self._params.get(rid, {}) or {}).get("skill_gate", "") or ""
+            ).strip()
             # 缺口③ — iterate ALL reward pages (Global + joint pages). Group-page
             # terms carry their joint filter in params_str + a unique field_base.
             for func, field_base, w, params_str, _applies in self._resolve_reward_emit_terms(rid):
                 mdp_module, mdp_func = self._reward_func_ref(func)
                 func_ref = f"{mdp_module}.{mdp_func}" if mdp_module else mdp_func
-                wrapped = f"unitport_item_mask({func_ref}, {mask_args})"
+                gated_ref = (
+                    f"unitport_trigger_gate({func_ref}, {gate_name!r})"
+                    if gate_name else func_ref
+                )
+                wrapped = f"unitport_item_mask({gated_ref}, {mask_args})"
                 # Field-name disambiguation: same field across multiple
                 # rewards nodes → suffix subsequent ones with ``__n<rid>``.
                 field = field_base if field_base not in seen_field_names else f"{field_base}__n{rid}"
@@ -6204,34 +6449,62 @@ class IsaacLabConfigCompiler:
             ),
         )
 
-    def _resolve_bodies(self, *role_or_categories: str) -> List[str]:
+    def _resolve_bodies(
+        self, *role_or_categories: str, strict: bool = False
+    ) -> List[str]:
         """Return all body names for the given roles/categories.
 
         Combines results from multiple categories (e.g.
         ``_resolve_bodies("base", "thighs")`` for illegal_contact).
-        Deduplicates while preserving order.
+        Deduplicates while preserving order. Wildcards (``.*`` / ``*``) are
+        pass-through "all" tokens — the caller expands them, so they are never
+        treated as unresolved.
+
+        ``strict=True`` (used for the user-picked ``contact_body_names``) fails
+        LOUD when an explicit, non-wildcard role/category resolves to NO body on
+        this robot — such a role would otherwise be silently dropped (§1.8). The
+        default (``strict=False``, illegal_contact's family-category path) keeps
+        the lenient skip so its own ``fallback_re`` can take over.
         """
         try:
             mapper = self._get_body_ir_mapper()
         except Exception:
+            if strict:
+                raise
             return []
         out: List[str] = []
         seen: set = set()
+        unresolved: List[str] = []
         for key in role_or_categories:
+            if str(key) in (".*", "*"):
+                continue  # wildcard = "all"; expanded by the caller, never unresolved
+            bodies: List[str] = []
             # Try as a role id first
             role = mapper.get(key)
-            if role and role.body and role.body not in seen:
-                out.append(str(role.body))
-                seen.add(role.body)
+            if role and role.body:
+                bodies = [str(role.body)]
+            else:
+                # Fall back to category
+                try:
+                    bodies = [str(b) for b in mapper.get_category_bodies(key) if b]
+                except Exception:
+                    bodies = []
+            if not bodies:
+                unresolved.append(str(key))
                 continue
-            # Fall back to category
-            try:
-                for b in mapper.get_category_bodies(key):
-                    if b and b not in seen:
-                        out.append(str(b))
-                        seen.add(b)
-            except Exception:
-                pass
+            for b in bodies:
+                if b not in seen:
+                    out.append(b)
+                    seen.add(b)
+        if strict and unresolved:
+            raise CanvasConfigError(
+                reason=(
+                    f"actor_setting.contact_body_names references body role(s) "
+                    f"{unresolved} that the selected robot does not expose — an "
+                    f"unknown contact body would be silently dropped (§1.8). Pick "
+                    f"only body roles the Robot node exposes, or '.*' for all."
+                ),
+            )
         return out
 
     def _reward_extra_params_from_node(self, nid: str, func_key: str, payload: Any = None) -> str:

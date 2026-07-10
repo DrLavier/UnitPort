@@ -1,0 +1,20 @@
+[default]
+title = Recortar & rotular clipe
+length_unknown = Comprimento do clipe desconhecido (frame parsing occurs na rodada do backend) — os marcadores são salvos como números brutos de frame.
+preview_robot = Pré-visualizar robô
+preview = Pré-visualizar no MuJoCo
+preview_started = Pré-visualização iniciada (clipe inteiro — a reprodução do intervalo ocorre na rodada do backend).
+range = Entrada {a}  ·  Saída {b}  ·  {n} quadros
+seg_name = Segmento
+seg_name_ph = ex.: walk_loop
+add = Adicionar a partir dos marcadores
+col_name = Nome
+col_tag = Etiqueta
+col_in = Entrada
+col_out = Saída
+col_action = 
+close = Fechar
+delete = Excluir
+no_robot = Escolha primeiro um robô para pré-visualização.
+err_name = O nome do segmento é obrigatório.
+

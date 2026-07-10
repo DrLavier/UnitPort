@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (keine E-Mail verfügbar)
+email_identity_security_hint = Klicken Sie auf den Link in Ihrem Posteingang, um Ihr Anmeldepasswort festzulegen oder zu aktualisieren. Aus Sicherheitsgründen können Passwortänderungen nicht innerhalb der App vorgenommen werden — alle Änderungen erfolgen über eine E-Mail-Verifizierung.
+email_identity_send_button = Link senden
+email_identity_send_to = Wir senden einen Verifizierungslink an:
+email_identity_title = E-Mail-Anmeldung
+engines_cloud_settings = Cloud-Server konfigurieren
+engines_local_settings = Lokale Installation konfigurieren
+linked_account_status_linked = verknüpft
+linked_account_unlink_button = Verknüpfung mit {provider} aufheben
+linked_account_unlink_confirm_title = Verknüpfung mit {provider} aufheben?
+linked_account_unlink_current_body = Sie werden nach dem Aufheben der Verknüpfung abgemeldet, da dies Ihre aktuelle Anmeldemethode ist.
+linked_account_unlink_normal_body = Sie können sich nicht mehr mit {provider} anmelden.
+linked_account_unlink_only_body = Dies ist Ihre einzige Anmeldemethode. Sie können die Verknüpfung nicht aufheben.
+open_workspace_tip = UnitPort-Benutzerdatenverzeichnis öffnen
+open_workspace = Benutzerarbeitsbereich öffnen
+linked_accounts_label = Anmeldemethoden:
+linked_account_btn_signedout_email = E-Mail: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = E-Mail: (keine)
+linked_account_btn_unlinked_google = Google: (nicht verknüpft)
+linked_account_btn_unlinked_github = GitHub: (nicht verknüpft)
+workspace_email_label = Arbeitsbereich:
+workspace_email_confirm_title = E-Mail für den Arbeitsbereichsspeicher wechseln?
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = Der Speicher des Arbeitsbereichs wurde nach {path} verschoben.
+workspace_email_failed = Konnte den Arbeitsbereich nicht wechseln: {error}
+

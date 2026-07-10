@@ -1,0 +1,186 @@
+[conn]
+btn.connect = Conectar
+btn.connecting = Conectando…
+btn.disconnect = Desconectar
+controller.arm_pending = Teleop do braço chega na Fase 6.
+controller.no_teleop = Este adaptador não declara capacidade de teleoperação.
+controller.pid_pending = A UI de ajuste de PID chega na Fase 6.
+controller.release_control = Liberar controle
+controller.take_control = Assumir controle
+dialog.section.domain = ID do domínio ROS2
+dialog.section.ssh = Credenciais SSH
+dialog.ssh.server = Servidor: {server}
+dialog.title = Configurações de conexão
+hw.battery = Bateria
+hw.no_selection = Robô não selecionado
+hw.temperature = Temperatura
+hw.uptime = Tempo de atividade
+level.error = Anomalia
+level.idle = Em espera
+level.ok = Normal
+level.warn = Aviso
+middleware.auto_detected = ↳ Automático: {rmw}
+result.fix_tag.invasive = invasivo
+result.fix_tag.safe = seguro
+result.head.fail = Não foi possível concluir a conexão.
+result.head.ok_clean = Conexão pronta. Nenhum problema encontrado.
+result.head.ok_fixed = Conexão pronta. {n} problema(s) corrigido(s) automaticamente.
+result.head.partial = Conexão ativa, mas {n} problema(s) precisam de atenção.
+result.invasive.confirm = Prestes a executar {n} reparo(s) invasivo(s) no robô. Estes podem instalar pacotes ou modificar arquivos de configuração persistentes.
+	
+	Ações:
+	{summary}
+	
+	Prosseguir?
+result.invasive.confirm.title = Confirmar reparo invasivo
+result.meta = Tentativas de auto-reparo: {a}   Aplicados: {ap}   Falhados: {fl}   Duração: {d:.1f}s
+result.section.applied = Aplicado (corrigido automaticamente)
+result.section.failed = Falhou durante o auto-reparo
+result.section.unresolved_invasive = Não resolvido (correção invasiva disponível — necessita do seu consentimento)
+result.section.unresolved_manual = Não resolvido (sem correção automática — ação manual necessária)
+result.section.unresolved_safe = Não resolvido (corrigível de forma segura; considere Repetir)
+result.title.fail = Falha na conexão
+result.title.ok = Conexão pronta
+result.title.partial = Conexão parcial — Ação sugerida
+robot.none = —
+section.controller = Controlador
+ssh.has_password = pw✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (sem credenciais)
+ssh.password = Senha
+ssh.password.placeholder = (digite a senha e pressione Salvar)
+ssh.sudo = Senha do sudo
+ssh.sudo.placeholder = (necessária para reparos invasivos)
+ssh.user = Usuário SSH
+state.connected = Conectado
+state.connecting = Conectando…
+state.disconnected = Desconectado
+state.error = Erro
+state.testing = Testando…
+title = Configuração de conexão com o robô
+section.ros2 = Conexão ROS2
+section.hardware = Hardware do Robô
+section.sensor = Status do Sensor
+field.domain_id = ID de Domínio ROS2
+field.middleware = Middleware
+field.address = Endereço
+field.port = Porta
+btn.test = Testar
+field.brand = Marca
+field.model = Modelo
+field.serial = Número de Série
+field.firmware = Firmware
+field.battery = Bateria
+field.temperature = Temperatura
+field.uptime = Tempo de atividade
+sensor.imu = IMU
+sensor.joints = Articulações
+sensor.lidar = Lidar
+sensor.camera = Câmera
+sensor.torque = Torque
+sensor.battery = Bateria
+field.state = Estado da conexão
+
+[diag]
+repair_invasive = Correção invasiva
+repair_safe = Correção segura
+ssh.context = Servidor: {server}
+	Motivo: {reason}
+ssh.err_empty_pw = A senha SSH é obrigatória.
+ssh.err_save = Não foi possível salvar as credenciais: {err}
+ssh.headline = A recuperação automática necessita de acesso SSH ao robô.
+ssh.pw = Senha SSH
+ssh.pw_placeholder = obrigatório
+ssh.sudo = Senha do sudo
+ssh.sudo_placeholder = opcional — por padrão usa a senha SSH se em branco
+ssh.title = Credenciais SSH necessárias
+ssh.user = Usuário SSH
+summary.error = Erros detectados.
+summary.pass = Todas as verificações passaram.
+summary.warn = Avisos detectados.
+title = Diagnóstico de Conexão
+
+[sim]
+backend.empty = Nenhum backend de simulação
+dialog.save_pose.prompt = Nome do preset:
+dialog.save_pose.title = Salvar preset de pose inicial
+field.init_pose_base = Posição da base [m]
+field.init_pose_enable = Substituir pose inicial
+field.init_pose_enable.tip = Gerar o robô a partir dos valores editados em vez dos padrões do bundle
+field.init_pose_joints = Ângulos das juntas [rad]
+field.init_pose_preset = Predefinição
+field.preview_physic = Pré-visualizar física
+field.preview_physic.tip = Executar física em tempo real durante Revisar Robô (apenas gravidade, sem atuadores)
+init_pose.editor.title = Editor de Pose Inicial
+init_pose.empty = Nenhuma articulação disponível para este SKU.
+policy.empty = Nenhuma política exportada
+title = Simulação de Política
+section.simconfig = Configuração de Simulação
+field.policy = Política
+field.play_ground = Playground
+field.backend = Back-end
+btn.run = Executar
+btn.review_robot = Revisar Robô
+section.init_pose = Substituição da Pose Inicial
+btn.edit_pose = Editar…
+btn.save_pose = Salvar Como…
+btn.delete_pose = Excluir
+init_pose.custom = Personalizado (não salvo)
+
+[train]
+body.col_robot = Robô
+body.col_role = Função
+body.menu_oos = Marcar como fora de escopo
+body.menu_restore = Restaurar (Não atribuído)
+body.menu_unassign = Desatribuir
+body.out_of_scope = (Fora do escopo)
+body.unassigned = (Não atribuído)
+field.body_mapping = body_mapping
+placeholder.empty = —
+placeholder.no_canvas = Canvas não carregado
+placeholder.no_robot = Nenhum nó de robô
+state.failed = Falhou
+state.finished = Concluído
+state.idle = Não em execução
+state.paused = Pausado
+state.running = Em execução
+title = Visão geral da configuração de treinamento
+section.status = Status de Treinamento
+section.task = Configuração da Tarefa
+section.hyper = Hiperparâmetros
+section.robot = Configuração do Robô
+field.elapsed = Tempo Decorrido
+field.iterations = Iterações
+field.current_reward = Recompensa Atual
+field.mean_reward = Recompensa Média
+field.best_reward = Melhor Recompensa
+field.episode_length = Duração Média do Episódio
+field.fps = FPS
+field.task_env = Back-end da Tarefa
+field.task_name = Nome da Tarefa
+field.link = Link
+field.device = Dispositivo de Treino
+btn.task_configure = Configurar Tarefa
+field.lr = Taxa de Aprendizado
+field.batch_size = Tamanho do Lote
+field.gamma = Gamma
+field.total_timesteps = Total de Timesteps
+field.ent_coef = Coeficiente de Entropia
+field.seed = Semente Aleatória
+field.num_envs = Ambientes Paralelos
+field.max_iterations = Iterações Máximas
+btn.hyper_edit = Editar Hiperparâmetros
+field.training_asset = Ativo de Treinamento
+field.active_files = Arquivos do Ativo
+btn.start = Iniciar
+btn.pause = Pausar
+btn.stop = Parar
+
+[link]
+local = Local
+cloud = Nuvem
+
+[robot]
+status.loaded = Carregado
+status.missing = Ausente
+

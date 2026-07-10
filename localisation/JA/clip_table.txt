@@ -1,0 +1,11 @@
+[default]
+edit_tip = このクリップをトリミング / ラベル付けするにはクリックしてください
+segment_tip = このセグメントを開く
+col_name = クリップ
+col_tag = タグ
+col_frames = フレーム
+col_duration = 再生時間
+col_segments = セグメント
+col_action = 
+crop = トリミング / ラベル
+

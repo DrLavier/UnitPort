@@ -1,0 +1,10 @@
+[confirm]
+clear_body = Dadurch werden alle Run-Verzeichnisse unter <project>/training/runs/ und alle Canvas-Snapshots in _runs_/ gelöscht. Dies kann nicht rückgängig gemacht werden.
+clear_title = Die gesamte Trainingshistorie löschen?
+
+[row]
+delete.tip = Diesen Run löschen
+
+[default]
+clear_all = Alle löschen
+

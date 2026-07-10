@@ -19,7 +19,7 @@ from __future__ import annotations
 from abc import ABC
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # =============================================================================
@@ -98,7 +98,27 @@ class ParamSpec:
 NODE_MANIFEST_SCHEMA = "unitport.node/v1"
 
 
+# Canonical canvas node render-width contract (scene units).
+#
+# ``NODE_MIN_WIDTH`` is BOTH the default render width of an ordinary node AND the
+# hard floor every node must respect — the shared value the producer (this
+# manifest schema) and the consumer (``ui.canvas.items.NodeItem``) agree on.
+# Historically the canvas rendered every node at this exact fixed width; it is now
+# the *minimum*. A node manifest MAY declare a larger ``width`` (see
+# ``NodeManifest.width``) so a specialised node can render wider — it may only
+# widen past this floor, never below it. The pixel value lives here (not only in
+# the renderer) so ``from_dict`` can reject a below-floor declaration up front
+# (§8 fail-loud) instead of the renderer silently clamping a manifest bug.
+NODE_MIN_WIDTH = 324.0
+
+
 _VALID_LAYERS = ("A", "B", "C", "D", "IL", "TOOLS")
+
+# Canvas backend (engine) ids a node may declare applicability to via
+# ``manifest.backends``. Engine ids (NOT brand strings, §1) — the same two the
+# reward/termination registries key on. Empty ``backends`` = universal (offered
+# on every backend); a non-empty list restricts the node to those engines.
+_KNOWN_BACKENDS = ("isaac_lab", "sb3_mujoco")
 
 
 @dataclass
@@ -107,7 +127,8 @@ class NodeManifest:
 
     必填: ``schema`` / ``id`` / ``kind`` / ``version``
     选填: ``category`` / ``layer`` / ``display_name_key`` / ``description_key`` /
-          ``icon`` / ``inputs`` / ``outputs`` / ``parameters``
+          ``icon`` / ``inputs`` / ``outputs`` / ``parameters`` / ``backends`` /
+          ``is_trainer`` / ``width``（特化节点声明更宽的画布渲染宽度,见 ``width`` 字段）
 
     ``schema`` 字段固定为 ``"unitport.node/v1"``；后续破坏性升级走 v2 路径。
 
@@ -131,6 +152,24 @@ class NodeManifest:
     # 上动态发现 trainer 节点，再从其 ParamSpec.meta 收集带 mission_expose=True
     # 的字段；rule §1.1：core 不写死任何具体 trainer schema 名。
     is_trainer: bool = False
+    # Backend (engine) applicability. Empty = universal (offered on every
+    # backend). A non-empty subset of ``_KNOWN_BACKENDS`` restricts the node to
+    # those engines — e.g. ``["sb3_mujoco"]`` for the SB3 trainer/env nodes, so
+    # an isaac_lab run never sees them (mirrors reward/termination ``backends``).
+    backends: Tuple[str, ...] = ()
+    # Declared canvas render width (scene units). ``None`` → the node renders at
+    # the default/floor ``NODE_MIN_WIDTH``. A specialised node may declare a
+    # larger value to render wider; ``from_dict`` rejects any value below
+    # ``NODE_MIN_WIDTH`` (§8). Consumed only by ``ui.canvas.items.NodeItem`` — it
+    # does not participate in IR/compile semantics, purely a layout hint.
+    width: Optional[float] = None
+
+    def applies_to_backend(self, backend: str) -> bool:
+        """True if this node is offered for ``backend``.
+
+        Universal (empty ``backends``) applies everywhere; otherwise the node is
+        offered only when ``backend`` is in its declared set."""
+        return not self.backends or str(backend) in self.backends
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "NodeManifest":
@@ -168,6 +207,39 @@ class NodeManifest:
                 )
             layer = layer_norm or None
 
+        backends_raw = data.get("backends") or []
+        if not isinstance(backends_raw, (list, tuple)):
+            raise ValueError(
+                f"manifest.backends must be a list, got {type(backends_raw).__name__}"
+            )
+        backends: Tuple[str, ...] = tuple(str(b).strip() for b in backends_raw if str(b).strip())
+        unknown = [b for b in backends if b not in _KNOWN_BACKENDS]
+        if unknown:
+            # Fail loud (§8): a typo'd backend id would silently hide the node on
+            # the real backend — reject the manifest instead.
+            raise ValueError(
+                f"manifest.backends {unknown} not in {list(_KNOWN_BACKENDS)}"
+            )
+
+        width_raw = data.get("width")
+        width: Optional[float] = None
+        if width_raw is not None:
+            # ``bool`` is an ``int`` subclass — exclude it explicitly so a stray
+            # ``width = true`` is rejected rather than silently read as 1.0.
+            if isinstance(width_raw, bool) or not isinstance(width_raw, (int, float)):
+                raise ValueError(
+                    f"manifest.width must be a number, got {type(width_raw).__name__}"
+                )
+            width = float(width_raw)
+            if width < NODE_MIN_WIDTH:
+                # Fail loud (§8): a node may only widen PAST the floor. A sub-floor
+                # declaration is a manifest authoring bug — reject it here rather
+                # than let the renderer silently clamp it up.
+                raise ValueError(
+                    f"manifest.width {width} < minimum {NODE_MIN_WIDTH}; "
+                    f"a node may only widen past the floor, never below it"
+                )
+
         return cls(
             schema=schema,
             id=node_id,
@@ -182,6 +254,8 @@ class NodeManifest:
             outputs=[_port_from_dict(p) for p in (data.get("outputs") or [])],
             parameters=[_param_from_dict(p) for p in (data.get("parameters") or [])],
             is_trainer=bool(data.get("is_trainer", False)),
+            backends=backends,
+            width=width,
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -200,6 +274,8 @@ class NodeManifest:
             "outputs": [_port_to_dict(p) for p in self.outputs],
             "parameters": [_param_to_dict(p) for p in self.parameters],
             "is_trainer": self.is_trainer,
+            "backends": list(self.backends),
+            "width": self.width,
         }
 
 

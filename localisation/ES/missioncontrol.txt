@@ -1,0 +1,36 @@
+[btn]
+redo.tip = Rehacer (Ctrl+Shift+Z)
+save.tip = Guardar lienzo
+undo.tip = Deshacer (Ctrl+Z)
+node_lib.tip = Alternar panel de biblioteca de nodos
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = Selecciona un color
+
+[ros2_dev_notice]
+body = La conexión ROS2 todavía está en desarrollo. La conexión y el control básicos están disponibles; el conjunto de funciones completo llegará en una versión posterior.
+title = Conexión ROS2 (Vista previa)
+
+[script]
+btn.redo.tip = Rehacer (Ctrl+Shift+Z)
+btn.save.tip = Guardar script
+btn.undo.tip = Deshacer (Ctrl+Z)
+
+[tooltip]
+chart_opacity = Opacidad de la superposición del gráfico
+
+[mode]
+mission_control = Control de misión
+ai_coding = Programación con IA
+training_canva = Canvas de entrenamiento
+scripts = Scripts
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

@@ -1,0 +1,31 @@
+[default]
+adapter_none = (nenhum)
+add_family_tip = Registrar uma nova família na sobreposição do usuário
+add_joint = + Articulação
+brand_ph = ex.: unitree
+browse = ...
+browse_title = Selecionar arquivo {kind}
+cancel = Cancelar
+col_joint = Nome da articulação
+col_role = Função IR
+confirm_delete_body = Remover este robô da camada de usuário? As entradas canônicas não são afetadas.
+confirm_delete_title = Excluir robô
+del_joint = − Articulação
+delete = Excluir
+error_required = Marca e Modelo são obrigatórios.
+error_title = Entrada inválida
+error_variant_label = Rótulo da variante é obrigatório.
+family_placeholder = Selecionar família…
+model_ph = ex.: go2
+name_ph = Nome de exibição
+path_placeholder = Caminho relativo ou absoluto
+save = Salvar
+variant_label_ph = ex.: Air, Pro, X, Field-Test
+add_family_btn = +
+families = Famílias
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

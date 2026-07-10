@@ -1,0 +1,70 @@
+[coverage]
+blocked.body = La copertura delle ricompense è critica — la policy probabilmente imparerà comportamenti indesiderati quando le fasi interessate sono attive.
+blocked.cancel = Annulla
+blocked.header = Impossibile avviare l'addestramento: la verifica della copertura delle ricompense è fallita.
+blocked.hint = Fare doppio clic sul badge del nodo Rewards per aprire il Coverage Inspector e visualizzare i suggerimenti per le correzioni.
+blocked.proceed = Continua comunque
+blocked.title = Problema di copertura delle ricompense
+
+[default]
+already_running = È già in corso un training
+no_canvas = Nessuna canvas caricata
+preparing = Preparazione dell'esecuzione di training (compilazione al di fuori del thread UI)…
+started = Addestramento avviato: run={run} backend={backend} algo={algo}
+
+[deploy_coverage]
+affected = Destinazioni di deploy interessate:
+body = Il bundle addestrato sarà distribuibile SOLO a un sottoinsieme dei target supportati, perché le tabelle degli asset MJCF e USD del robot non dichiarano lo stesso insieme di giunti.
+cancel = Annulla
+header = L'addestramento produrrà un bundle con copertura di deploy ridotta per il robot ‘{name}’ (sku={sku}).
+hint = Per ripristinare entrambe le destinazioni di deploy: annulla, apri la barra laterale Robot Assets, ripunta l'asset a minor numero di DOF su una variante corrispondente (es. per Unitree G1 usa scene_with_hands.xml insieme a g1.usd), esegui nuovamente Dump, poi rilancia Play.
+miss_mjcf = Ruoli dichiarati in USD ma mancanti in MJCF: {roles}
+miss_usd = Ruoli dichiarati in MJCF ma mancanti in USD: {roles}
+proceed = Procedi comunque (per non sprecare risorse di calcolo più tardi)
+title = Copertura dei target di deploy ridotta
+
+[packages]
+add = Aggiungi pacchetto
+bad_weight = package_weight deve essere un numero
+edit_rewards = Modifica ricompense…
+enabled = Abilitato
+gate_missing = {s} (mancante)
+gate_none = — nessuno —
+gated_by = Vincolato alla skill
+gated_by.tip = Restringi le ricompense di questo pacchetto alla finestra di trigger di una skill — le ricompense vengono conteggiate solo mentre quella skill è attiva (decadimento post-pulsazione). Richiede una skill creata nei Skill Channels di questo nodo.
+hint = Raggruppa gli elementi in pacchetti. package_weight riequilibra un intero pacchetto; ogni pacchetto può avere un set di ricompense inline. Vuoto = un pacchetto predefinito implicito.
+membership = Appartenenza degli elementi
+name = Nome
+new_name = Pacchetto {n}
+preview = Anteprima della ricompensa composta (= esportazione)
+preview_empty = Nessuna ricompensa inline di pacchetto. Gli elementi senza ricompensa di pacchetto mantengono il loro nodo Rewards connesso.
+remove = Rimuovi
+title = Pacchetti di training
+weight = package_weight
+
+[sim2sim]
+body = La misurazione cross-engine PhysX↔MuJoCo ha rilevato dimensioni il cui residuo non converge (caotico): {dims}. La randomizzazione del dominio non può coprirle e la sim2sim potrebbe non riprodurre fedelmente questo regime.
+cancel = Annulla
+header = L'auto-check del residuo cross-engine ha segnalato il robot ‘{sku}’.
+hint = Procedi registra questo per il plant corrente — non ti verrà chiesto di nuovo a meno che l'asset del robot non cambi.
+proceed = Procedi comunque
+title = Dimensione sim2sim non convergente
+
+[skills]
+add = Aggiungi skill
+bad_id = Ogni skill richiede un ID
+bad_window = La finestra deve essere un numero positivo
+enabled = Abilitato
+hint = Ogni skill è un canale discreto di comando della policy (un trigger). Entra nelle osservazioni della policy e rispetta il contratto di comando; una policy deve essere addestrata per rispondervi. L'assegnazione a un tasto o a un pulsante viene fatta per utente nel pannello Controller dopo l'addestramento — non qui.
+latch = Bloccaggio
+latch.hold = mantieni (mentre premuto)
+latch.pulse = impulso (a singolo evento)
+name = Nome
+new_name = abilità {n}
+preview = Canali trigger emessi
+preview_empty = Nessuna skill abilitata.
+remove = Rimuovi
+title = Canali skill
+window = Finestra (s)
+window.tip = Finestra di decadimento post-impulso: le osservazioni del trigger e il gate di ricompensa decadono da 1→0 in questo numero di secondi. Il runtime di deploy ricostruisce la stessa finestra.
+

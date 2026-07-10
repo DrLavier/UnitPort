@@ -1,0 +1,357 @@
+[active_file]
+col_status = Статус
+col_type = Тип
+status_cloud = Облако
+status_loaded = Загружено
+
+[actor_setting]
+init_pose.dialog_title = Редактор начальной позы
+init_pose.empty = Для этого SKU нет доступных суставов.
+init_pose.joints_label = Углы суставов [rad] — диапазон из MJCF
+init_pose.review_button = Обзор
+init_pose.unlimited_hint = (неограничено)
+review_pose.button = Просмотр позы
+
+[ai_build]
+agent_setup = < Настройте агента >
+agent_tip = Настроить или переключить ИИ-агента
+assistant_name = Помощник ИИ
+banner_none = —
+cfg_f_backend = Бэкенд
+cfg_f_curriculum = Программа обучения
+cfg_f_device = Устройство
+cfg_f_difficulty = Сложность
+cfg_f_episode = Длина эпизода
+cfg_f_family = Семейство
+cfg_f_name = Имя
+cfg_f_num_envs = Число сред
+cfg_f_reward_terms = Компоненты вознаграждения
+cfg_f_sku = SKU
+cfg_f_spacing = Интервал между средами
+cfg_f_terrain = Местность
+cfg_sec_engine = Движок
+cfg_sec_env = Среда
+cfg_sec_ground = Тренировочная площадка
+cfg_sec_rewards = Вознаграждения
+cfg_sec_robot = Робот
+checkpoint_failed = [[error:Не удалось сделать снимок холста — Сброс недоступен для этого запуска.]]
+checkpoint_made = [[success:Контрольная точка сохранена — Сброс возвращает холст к этой точке.]]
+config_empty = Пока нет конфигурации для предварительного просмотра.
+	Опишите тренировочный прогон, чтобы сгенерировать её.
+config_origin = Источник
+delete_body = Удалить этот разговор и его историю? Это действие нельзя отменить.
+delete_convo = Удалить
+delete_title = Удалить разговор
+empty_hint = Опишите тренировку, которую вы хотите, и я построю холст.
+ev_failed = [[error:{op} не выполнено — {detail}]]
+input_placeholder = Попросите ИИ сгенерировать конфигурации, скрипты или стратегии обучения…
+json_items = Элементы
+new_conversation = + Новый
+new_conversation_tip = Новый диалог
+newline = Enter — новая строка
+no_checkpoint = [[warning:Пока нет контрольной точки — сначала отправьте запрос.]]
+pause = Пауза
+phase_chat = Ассистент
+phase_complete = Завершение структуры
+phase_repair = Исправить
+phase_report = Сводка
+phase_understanding = Понимание
+reset = Откатить холст
+reset_tip = Откатить холст до контрольной точки, созданной перед последним запросом.
+resume = Возобновить
+retry = Повторить
+retry_busy = [[warning:Идет выполнение — приостановите или подождите перед повторной попыткой.]]
+retry_none = [[warning:Пока нечего повторять — сначала отправьте запрос.]]
+reverted = [[success:Холст откатан до контрольной точки, сделанной до запроса.]]
+run_busy = [[warning:Запуск AI Build уже выполняется — дождитесь его завершения.]]
+run_failed = [[error:Запуск AI Build не удался — см. сообщения выше.]]
+save_config = Сохранить конфигурацию
+search_ph = Поиск диалогов…
+settings_agent_add_tip = Добавить агента
+settings_agent_name = Имя
+settings_agent_name_ph = например, GPT-4o
+settings_agent_new = Новый агент
+settings_agent_no_model = (модель не указана)
+settings_agent_remove_tip = Удалить агента
+settings_agent_untitled = Агент без названия
+settings_agents_title = Агенты
+settings_api_key = API-ключ
+settings_api_key_ph = sk-…
+settings_base_url = Базовый URL
+settings_cloud = Загрузить эти данные API в облако
+settings_cloud_tip = По умолчанию отключено. Пока опция отключена, функция онлайн‑синхронизации никогда не загружает ваш API-ключ.
+settings_env_bad = ✗ {name} не задано, или его значение ≤ {n} символов.
+settings_env_invalid = Переменная окружения должна существовать и содержать значение длиной более {n} символов.
+settings_env_ok = ✓ {name} определено ({n} символов)
+settings_env_ph = например, OPENAI_API_KEY
+settings_incomplete = Базовый URL, API-ключ и модель обязательны.
+settings_intro = Зарегистрируйте подключение(я) модели, которые использует AI Build. Выбранный агент станет агентом по умолчанию; настройки сохраняются в вашей папке конфигурации пользователя.
+settings_model = Модель
+settings_model_ph = например gpt-4o / claude-opus-4-8
+settings_remove_body = Удалить регистрацию этого агента? Это действие нельзя отменить.
+settings_remove_title = Удалить агента
+settings_save_failed = Не удалось записать файл настроек. Проверьте журнал.
+settings_title = AI Build — параметры API
+settings_use_env = Читать токен из переменной окружения
+settings_use_env_tip = Хранится только имя переменной NAME; токен читается из окружения во время выполнения и никогда не записывается на диск.
+submit = Отправить
+title = AI Build
+tokens_n = {n} токенов
+tokens_total = Токены: 0
+untitled = Новый разговор
+user_name = Пользователь
+version_busy = [[warning:Идёт запуск — подождите перед переключением версий конфигурации.]]
+version_saved = [[success:Сохранено как версия конфигурации {v} — выберите её (или Origin, чтобы откатиться) в списке конфигураций.]]
+button = AI Build
+conv_title = Чаты
+input_title = Подсказка
+opacity_tip = Непрозрачность наложения
+req_title = Требования
+max_repair = Максимальное число раундов ремонта
+auto_commit = Автосохранение при успешной компиляции
+run_autosave_off = [[warning:Автосохранение отключено — холст был построен, но не сохранён. Сохраните его вручную.]]
+clear = Очистить
+demo_intro = Подключено. Опишите, что вы хотите, и я построю канвас.
+demo_place = Размещён узел [[node:Rewards]]
+demo_param = Установлен вес [[param:track_lin_vel_xy]] = [[value:10.0]]
+demo_wire = Подключён узел [[node:Rewards]] к элементу [[node:walk]]
+demo_param2 = Установлено [[param:action_scale]] = [[value:0.25]] в [[node:Actor Setting]]
+demo_warning = [[warning:base_height weight -8.0 близко к своему нижнему пределу -50.0]]
+demo_error = [[error:joint_accel_penalty 2.5 вне диапазона -0.001..0 — заморозит суставы]]
+demo_success = [[success:Канвас успешно скомпилирован — 12 узлов, 18 связей]]
+ev_place = Размещён узел [[node:{node}]]
+ev_remove = Удалён узел [[node:{node}]]
+ev_connect = Соединён [[node:{src}]] -> [[node:{dst}]] [[param:{port}]]
+ev_disconnect = Отключено ребро [[param:{edge}]]
+ev_set = Установлено [[param:{key}]] = [[value:{value}]] на [[node:{node}]]
+run_block = [[info:Блок {i}/{n} — {title}]]
+block_robot = Робот
+block_actor_env = Агент и окружение
+block_rewards = Награды
+block_training = Обучение
+block_export = Экспорт
+req_applied = [[info:Применены ваши заблокированные требования:]]
+req_no_trainer = [[warning:Пока нет узла тренера для требования длины обучения; оно будет применено агентом.]]
+req_no_envs = [[warning:Интенсивность вычислений не имеет регулятора parallel-env для тренера этого бэкенда; пропущено.]]
+req_failed = [[warning:Не удалось применить требование {key}: {message}]]
+report_failed = [[warning:Не удалось сформировать сводку ({detail}); канвас создан и действителен.]]
+req_robot = Робот
+req_robot_auto = Авто (оставить текущее)
+req_motion = Эталонное движение
+req_none = Нет
+req_length = Длина обучения
+req_intensity = Интенсивность вычислений
+req_advanced = Расширенные параметры ▸
+req_iters = Максимальное число итераций
+req_envs = Параллельные среды
+tier_auto = Авто
+tier_short = Короткая
+tier_medium = Средняя
+tier_long = Длинная
+tier_light = Лёгкая
+tier_heavy = Тяжёлая
+settings_tip = Настройки API
+settings_reveal = Показать
+settings_save = Сохранить
+settings_cancel = Отмена
+run_design = [[info:Дизайн — заблокирован {sku} / {backend} ({fam})]]
+run_need_robot = [[error:AI Build требует, чтобы на canvas сначала были робот и backend. Добавьте узел-робота (выберите SKU) и привяжите backend, затем попробуйте снова.]]
+run_no_reference = [[warning:Нет ссылок на устройство той же семьи для этой задачи; сборка выполняется по семантике реестра.]]
+run_building = [[info:Orchestrator — собирает canvas…]]
+run_repairing = [[warning:{n} блокирующая(их) проблема(ы); восстановление (раунд {r})…]]
+run_compiled = [[success:Canvas скомпилирован — блокирующих проблем нет.]]
+run_exhausted = [[error:Восстановление исчерпано — {n} блокирующих проблем; ничего не было сохранено.]]
+run_issue = [[error:{message}]]
+run_connecting = [[info:Подключение к модели…]]
+run_saved = [[success:Canvas сохранён в проекте.]]
+run_not_saved = [[warning:Canvas собран, но не сохранён автоматически (нет целевого проекта) — сохраните вручную.]]
+run_api_failed = [[error:Вызов API модели не удался — {detail}]]
+run_cancelled = [[warning:Выполнение AI Build было отменено.]]
+group_today = Сегодня
+group_yesterday = Вчера
+group_week = Последние 7 дней
+group_older = Ранее
+chip_ppo = Сгенерировать конфигурацию PPO
+chip_reward = Добавить функцию вознаграждения
+chip_tune = Настроить гиперпараметры
+chip_debug = Отладить обучение
+config_title = Конфигурация
+banner_robot = Робот
+banner_backend = Backend
+banner_task = Текущая задача
+banner_target = Цель обучения
+banner_local = Локальное обучение
+banner_cloud = Облачное обучение
+banner_task_more = {first} +{n} ещё…
+
+[body_mapping]
+col_current = Текущий
+col_role = Роль
+no_roles = У этого ассета нет ролей тела
+refresh = Обновить
+select_asset = Выберите asset_id
+warn_joints = ⚠ {n} сустав(ов) не сопоставлены — назначьте их или отметьте как не входящие в область: {preview}
+label_unassigned = (Не назначено)
+label_out_of_scope = (Вне области)
+
+[btn]
+node_lib.tip = Библиотека узлов
+
+[button]
+close = Закрыть
+
+[cmd_inspector]
+col_kind = Тип
+col_name = Имя
+col_obs = Размеры наблюдений
+col_range = Диапазон
+col_source = Источник
+empty_hint = Включите как минимум один элемент обучения.
+	Каналы команд выводятся автоматически.
+empty_title = Контракт команд пуст
+footer_cmd = Размеры команд
+footer_obs = Размеры наблюдений
+footnote_encoding = (фазовые каналы закодированы как {layouts})
+title = Контракт команд
+kind.continuous = непрерывный
+kind.trigger = триггер
+kind.enum = перечисление
+source.velocity_item_union = элементы скорости
+source.gait_registry = реестр походок
+source.skill = навык
+layout.sin_cos = sin/cos
+unresolved.family_unknown = Семейство Robot неизвестно — подключите узел Robot через канал Actor.
+unresolved.family_no_gait = У этого семейства роботов нет записи команды gait в реестре.
+unresolved.no_enabled_items = Нет включённых элементов обучения — включите хотя бы один элемент.
+unresolved.unknown_item = Элемент обучения на этом узле отсутствует в реестре команд.
+unresolved.malformed_param = Параметр узла имеет неверный формат — для предварительного просмотра был подставлен параметр по умолчанию.
+
+[error]
+copy.done = Отчёт об ошибках Canvas скопирован в буфер обмена.
+empty = (структурированных проблем не обнаружено)
+headline.errors = В Canvas обнаружено {e} проблема(ы), которые необходимо исправить перед началом обучения.
+headline.mixed = В Canvas обнаружено {e} ошибок и {w} предупреждений. Исправьте ошибки ниже и запустите снова.
+headline.unknown = Проверка холста выявила проблему.
+headline.warnings = На холсте {w} предупреждение(й).
+hint = Каждая запись ниже указывает на узел холста и параметр, который вызвал проверку. Откройте узел, отредактируйте значение, сохраните холст и попробуйте ▶ снова.
+title = Проверка холста не пройдена
+
+[group]
+default_title = Группа
+
+[inline]
+col_grace = Буфер
+col_item = Элемент
+col_maxspeed = Макс. скорость
+col_name = Имя
+col_param = Значение
+col_scale = Масштаб
+col_threshold = Порог
+col_value = Значение
+col_weight = Вес
+
+[menu]
+add_node = Добавить узел
+copy = Копировать (Ctrl+C)
+delete = Удалить
+disconnect_all = Отключить все связи
+duplicate = Дублировать (Ctrl+D)
+paste_here = Вставить здесь (Ctrl+V)
+disconnect = Отключить
+
+[minimenu]
+placeholder = (скоро)
+
+[obs_injected]
+critic_section = Критик (привилегированный)
+divider = Из канала команд (внедрено)
+footer = Общая размерность наблюдений {total} — Пользователь {user} + Внедрено {injected}
+readonly = Только для чтения
+
+[port]
+optional = (необязательно)
+
+[review_launch]
+button = Проверка запуска
+
+[reward_pager]
+col_count = Количество наград
+col_group = Группа суставов
+col_ops = Операции
+global = Глобально (все суставы)
+summary = {n} групп
+
+[rewards]
+coverage.add_set = Добавить рекомендуемый набор
+coverage.banner.critical = Критично: в одной или нескольких фазах отсутствует обязательная отрицательная награда. В результате обучение может привести к нежелательному поведению, например к бесцельному размахиванию конечностями.
+coverage.banner.ok = Во всех фазах есть покрытие как положительными, так и отрицательными наградами.
+coverage.banner.warning = Предупреждение: по крайней мере в одной фазе отсутствует рекомендуемое покрытие наград.
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = Фаза
+coverage.col.pos = +
+coverage.col.status = Статус
+coverage.double_click_hint = Дважды щёлкните по значку, чтобы открыть инспектор покрытия.
+coverage.empty = Не настроено ни одного элемента вознаграждения — добавьте хотя бы один элемент, чтобы получить оценку покрытия.
+coverage.green = Во всех фазах есть покрытие как положительных, так и отрицательных вознаграждений.
+coverage.inspector.title = Инспектор покрытия вознаграждений
+coverage.red = Критично: в одной или нескольких фазах отсутствует требуемое ограничительное вознаграждение.
+coverage.title = Покрытие вознаграждений
+coverage.yellow = Внимание: по крайней мере в одной фазе отсутствует рекомендованное вознаграждение.
+
+[robot]
+health.counts = MJCF: {m} суставов  ·  USD: {u} суставов  ·  смещение базы: {off}
+health.crit = Ни один из форматов не был выгружен — откройте Robot Assets и нажмите Dump MJCF / Dump USD перед обучением.
+health.double_click_hint = Дважды щёлкните значок, чтобы открыть полную таблицу соответствия суставов.
+health.gap = MJCF и USD объявляют разные наборы IR-role — затронуто: {aff}.
+health.offset_uncalibrated = (не откалибровано)
+health.ok = MJCF и USD согласованы по набору суставов — оба целевых варианта развертывания доступны.
+health.single = Выгружен только {present} — цель развертывания {missing} будет недоступна для пакетов, обученных на этом роботе.
+health.title = Состояние выгрузки робота
+mjcf_offset.not_applicable = не применимо
+mjcf_offset.uncalibrated = не откалибровано
+pd_table.auto_none = Для этого робота нет рекомендованного пресета.
+pd_table.auto_tooltip = Заполните официально рекомендуемый пресет (ωn, ζ) + усилие/скорость. Порядок определения: манифест бренда → параметры привода USD (кэшируются из Dump USD) → значения по умолчанию семейства.
+pd_table.dialog_title = PD / Привод
+pd_table.header = Коэффициенты PD для каждого сустава (kp = m_eff·ωn²) — вычисляются в реальном времени из матрицы масс MJCF. Редактируйте (ωn, ζ) по группам; kp/kd доступны только для чтения.
+pd_table.redump_failed = Повторная выгрузка USD не удалась: {error}
+pd_table.redump_tooltip = Выгрузите USD-ассет, чтобы обновить кэшированные параметры привода, затем заново заполните AUTO значениями из выгрузки.
+pd_table.remotized_note = Ремотизированные суставы (связанные через тяги) показывают пик таблицы крутящего момента, зависящий от угла, в поле Effort, а не скалярный лимит.
+pd_table.remotized_tooltip = Пик таблицы крутящего момента, зависящий от угла (ремотизированный сустав)
+pd_table.auto_button = AUTO ⤓
+pd_table.redump_button = Пересоздать USD
+
+[row]
+empty = —
+entries = {n} записей
+false = Ложь
+ir_picker_all = Все
+no_items = (нет элементов)
+preset_unselected = —
+selected = {n} выбрано
+true = Истина
+bool_check = ✔
+
+[toolbar]
+collapse = Свернуть
+color = Выбрать цвет (правый клик — сброс)
+delete = Удалить
+enable = Включить
+expand = Развернуть
+group = Группировать
+skip = Отключить
+ungroup = Разгруппировать
+
+[training_motion]
+add_item = + Добавить элемент обучения
+helper = Включённые элементы добавляют каналы скорости в производный контракт команд.
+packages.button = Пакеты обучения
+skills.button = Каналы навыков
+weight_set.button = Набор весов
+weight_set.cancel = Отмена
+weight_set.hint = Перетащите границу между двумя сегментами, чтобы перераспределить веса; или щёлкните по проценту, чтобы ввести его вручную (изменится только этот элемент). Кнопка «Применить» становится доступна, когда сумма равна ровно 100%%.
+weight_set.ok = Применить
+weight_set.reset = Сбросить до равномерного распределения
+weight_set.title = Веса выборки
+weight_set.total = Итого
+

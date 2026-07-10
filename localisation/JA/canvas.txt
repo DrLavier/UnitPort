@@ -1,0 +1,357 @@
+[active_file]
+col_status = ステータス
+col_type = タイプ
+status_cloud = クラウド
+status_loaded = 読み込み済み
+
+[actor_setting]
+init_pose.dialog_title = 初期ポーズエディタ
+init_pose.empty = このSKUでは利用可能なジョイントがありません。
+init_pose.joints_label = 関節角度 [rad] — MJCF の範囲
+init_pose.review_button = レビュー
+init_pose.unlimited_hint = (無制限)
+review_pose.button = ポーズをレビュー
+
+[ai_build]
+agent_setup = < エージェントを設定 >
+agent_tip = AIエージェントを設定または切り替える
+assistant_name = AIアシスタント
+banner_none = —
+cfg_f_backend = バックエンド
+cfg_f_curriculum = カリキュラム
+cfg_f_device = デバイス
+cfg_f_difficulty = 難易度
+cfg_f_episode = エピソード長
+cfg_f_family = ファミリー
+cfg_f_name = 名前
+cfg_f_num_envs = 環境数
+cfg_f_reward_terms = 報酬項目
+cfg_f_sku = SKU
+cfg_f_spacing = 環境間隔
+cfg_f_terrain = 地形
+cfg_sec_engine = エンジン
+cfg_sec_env = 環境
+cfg_sec_ground = トレーニンググラウンド
+cfg_sec_rewards = 報酬
+cfg_sec_robot = ロボット
+checkpoint_failed = [[error:キャンバスのスナップショットを作成できませんでした — この実行ではリセットは利用できません。]]
+checkpoint_made = [[success:チェックポイントが保存されました — リセットはキャンバスをこの時点に戻します。]]
+config_empty = まだプレビューする設定はありません。
+	トレーニング実行の内容を記述すると、設定を生成します。
+config_origin = 原点
+delete_body = この会話とその履歴を削除しますか？この操作は元に戻せません。
+delete_convo = 削除
+delete_title = 会話を削除
+empty_hint = 希望するトレーニング内容を説明してください。キャンバスを作成します。
+ev_failed = [[error:{op} が失敗しました — {detail}]]
+input_placeholder = AIに設定、スクリプト、またはトレーニング戦略を生成させてください…
+json_items = 項目
+new_conversation = + 新規
+new_conversation_tip = 新規会話
+newline = Enterで改行
+no_checkpoint = [[warning:チェックポイントがまだありません — まずプロンプトを送信してください。]]
+pause = 一時停止
+phase_chat = アシスタント
+phase_complete = 構造を補完中
+phase_repair = 修復
+phase_report = 要約
+phase_understanding = 理解
+reset = キャンバスを元に戻す
+reset_tip = キャンバスを最後のプロンプトの前に取得されたチェックポイントの状態に戻します。
+resume = 再開
+retry = 再試行
+retry_busy = [[warning:実行中です — 再試行する前に一時停止するか、完了を待ってください。]]
+retry_none = [[warning:まだ再試行するものがありません — まずプロンプトを送信してください。]]
+reverted = [[success:キャンバスをプロンプト前のチェックポイントに戻しました。]]
+run_busy = [[warning:AI Build の実行は既に進行中です — 完了するまでお待ちください。]]
+run_failed = [[error:AI Build の実行に失敗しました — 上のメッセージを確認してください。]]
+save_config = 設定を保存
+search_ph = 会話を検索…
+settings_agent_add_tip = エージェントを追加
+settings_agent_name = 名前
+settings_agent_name_ph = 例：GPT-4o
+settings_agent_new = 新しいエージェント
+settings_agent_no_model = (モデルなし)
+settings_agent_remove_tip = エージェントを削除
+settings_agent_untitled = 無題のエージェント
+settings_agents_title = エージェント
+settings_api_key = APIキー
+settings_api_key_ph = sk-…
+settings_base_url = ベースURL
+settings_cloud = このAPI情報をクラウドにアップロードする
+settings_cloud_tip = デフォルトではオフです。オフの場合、オンライン同期機能はAPIキーをアップロードしません。
+settings_env_bad = ✗ {name} が設定されていない、またはその値が {n} 文字以下です。
+settings_env_invalid = 環境変数は存在し、{n} 文字より長い値を持っている必要があります。
+settings_env_ok = ✓ {name} 解決済み（{n} 文字）
+settings_env_ph = 例：OPENAI_API_KEY
+settings_incomplete = ベースURL、APIキー、モデルはいずれも必須です。
+settings_intro = AI Build が呼び出すモデル接続を登録します。選択したエージェントがデフォルトになり、設定はユーザーの設定フォルダに保存されます。
+settings_model = モデル
+settings_model_ph = 例: gpt-4o / claude-opus-4-8
+settings_remove_body = このエージェント登録を削除しますか？この操作は元に戻せません。
+settings_remove_title = エージェントを削除
+settings_save_failed = 設定ファイルを書き込めませんでした。ログを確認してください。
+settings_title = AI Build — API 設定
+settings_use_env = 環境変数からトークンを読み込む
+settings_use_env_tip = 変数 NAME のみを保存します。トークンは実行時に環境から読み込まれ、ディスクには決して書き込まれません。
+submit = 送信
+title = AI ビルド
+tokens_n = {n} トークン
+tokens_total = トークン: 0
+untitled = 新しい会話
+user_name = ユーザー
+version_busy = [[warning:実行中です — 設定バージョンを切り替える前にお待ちください。]]
+version_saved = [[success:設定バージョン {v} として保存しました — 設定リストで選択するか、元に戻すには Origin を選んでください。]]
+button = AI ビルド
+conv_title = チャット
+input_title = プロンプト
+opacity_tip = オーバーレイ不透明度
+req_title = 要件
+max_repair = 最大修復ラウンド数
+auto_commit = クリーンコンパイル時に自動保存
+run_autosave_off = [[warning:Auto-save is off — the canvas was built but not saved. Save it manually.]]
+clear = クリア
+demo_intro = 接続しました。やりたいことを説明してください。キャンバスを作成します。
+demo_place = 配置しました：[[node:Rewards]]ノード
+demo_param = [[param:track_lin_vel_xy]] の重みを [[value:10.0]] に設定しました
+demo_wire = [[node:Rewards]] を [[node:walk]] アイテムに接続しました
+demo_param2 = [[node:Actor Setting]] 上の [[param:action_scale]] を [[value:0.25]] に設定しました
+demo_warning = [[warning:base_height の重み -8.0 は下限 -50.0 に近い]]
+demo_error = [[error:joint_accel_penalty 2.5 は範囲 -0.001..0 を外れています — 関節が固定される可能性があります]]
+demo_success = [[success:Canvas compiled successfully — 12 ノード、18 エッジ]]
+ev_place = [[node:{node}]]ノードを配置しました
+ev_remove = [[node:{node}]]ノードを削除しました
+ev_connect = [[node:{src}]] -> [[node:{dst}]] [[param:{port}]] を配線しました
+ev_disconnect = エッジ [[param:{edge}]] の接続を切断しました
+ev_set = [[node:{node}]] 上の [[param:{key}]] を [[value:{value}]] に設定しました
+run_block = [[info:Block {i}/{n} — {title}]]
+block_robot = ロボット
+block_actor_env = アクターと環境
+block_rewards = 報酬
+block_training = トレーニング
+block_export = エクスポート
+req_applied = [[info:ロックされた要件を適用しました：]]
+req_no_trainer = [[warning:training-length の要件に対応する trainer ノードがまだありません；エージェントによって適用されます。]]
+req_no_envs = [[warning:Compute intensity はこのバックエンドの trainer に parallel-env の設定がないためスキップされました。]]
+req_failed = [[warning:要件 {key} を適用できませんでした: {message}]]
+report_failed = [[warning:サマリーを生成できませんでした ({detail})；キャンバスは作成され、有効です。]]
+req_robot = ロボット
+req_robot_auto = 自動（現在の設定を維持）
+req_motion = 参照モーション
+req_none = なし
+req_length = トレーニング長
+req_intensity = 計算強度
+req_advanced = 詳細な数値 ▸
+req_iters = 最大反復回数
+req_envs = 並列環境数
+tier_auto = 自動
+tier_short = 短
+tier_medium = 中
+tier_long = 長
+tier_light = 軽量
+tier_heavy = ヘビー
+settings_tip = API設定
+settings_reveal = 表示
+settings_save = 保存
+settings_cancel = キャンセル
+run_design = [[info:Design — ロック済み {sku} / {backend} ({fam})]]
+run_need_robot = [[error:AI Build はまずキャンバス上にロボットとバックエンドが必要です。ロボットノードを追加（SKUを選択）し、バックエンドを割り当ててから再試行してください。]]
+run_no_reference = [[warning:このタスクには同一ファミリーの参照がありません。レジストリの仕様に基づいて構築しています。]]
+run_building = [[info:Orchestrator — キャンバスを構築中…]]
+run_repairing = [[warning:{n} 件のブロッキング問題；修復中（ラウンド {r}）…]]
+run_compiled = [[success:キャンバスをコンパイルしました — ブロッキング問題はありません。]]
+run_exhausted = [[error:修復の試行が尽きました — {n} 件のブロッキング問題があり、何も永続化されませんでした。]]
+run_issue = [[error:{message}]]
+run_connecting = [[info:モデルに接続しています…]]
+run_saved = [[success:キャンバスをプロジェクトに保存しました。]]
+run_not_saved = [[warning:キャンバスはビルドされましたが自動保存されませんでした（プロジェクトターゲットがありません）— 手動で保存してください。]]
+run_api_failed = [[error:モデルAPI呼び出しが失敗しました — {detail}]]
+run_cancelled = [[warning:AI Build の実行はキャンセルされました。]]
+group_today = 今日
+group_yesterday = 昨日
+group_week = 過去7日間
+group_older = それ以前
+chip_ppo = PPO設定を生成
+chip_reward = 報酬関数を追加
+chip_tune = ハイパーパラメータを調整
+chip_debug = トレーニングをデバッグ
+config_title = 設定
+banner_robot = ロボット
+banner_backend = バックエンド
+banner_task = 現在のタスク
+banner_target = トレーニング目標
+banner_local = ローカルトレーニング
+banner_cloud = クラウドトレーニング
+banner_task_more = {first} +{n} 件…
+
+[body_mapping]
+col_current = 現在
+col_role = 役割
+no_roles = このアセットにはボディの役割がありません
+refresh = 更新
+select_asset = asset_id を選択
+warn_joints = ⚠ {n} 個のジョイントが一致していません — 割り当てるか対象外としてマークしてください: {preview}
+label_unassigned = (未割り当て)
+label_out_of_scope = (範囲外)
+
+[btn]
+node_lib.tip = ノードライブラリ
+
+[button]
+close = 閉じる
+
+[cmd_inspector]
+col_kind = 種類
+col_name = 名前
+col_obs = 観測次元
+col_range = 範囲
+col_source = ソース
+empty_hint = 少なくとも1つのトレーニング項目を有効にしてください。
+	コマンドチャネルは自動的に導出されます。
+empty_title = コマンド契約が空です
+footer_cmd = コマンド次元
+footer_obs = 観測次元
+footnote_encoding = （位相チャネルは {layouts} としてエンコードされます）
+title = コマンド契約
+kind.continuous = 連続
+kind.trigger = トリガー
+kind.enum = 列挙
+source.velocity_item_union = 速度項目
+source.gait_registry = 歩行レジストリ
+source.skill = スキル
+layout.sin_cos = sin/cos
+unresolved.family_unknown = ロボットファミリーが不明です — Actorパイプを通じてRobotノードを接続してください。
+unresolved.family_no_gait = このロボットファミリーはレジストリに歩行コマンドのエントリがありません。
+unresolved.no_enabled_items = 有効なトレーニング項目がありません。少なくとも1つ以上有効にしてください。
+unresolved.unknown_item = このノードのトレーニング項目がコマンドレジストリに見つかりません。
+unresolved.malformed_param = ノードのパラメータが不正です — プレビュー用にデフォルト値が代わりに使用されました。
+
+[error]
+copy.done = Canvas のエラー報告をクリップボードにコピーしました。
+empty = （構造化された問題は報告されていません）
+headline.errors = Canvas に {e} 件の問題があり、トレーニングを開始する前に修正する必要があります。
+headline.mixed = Canvas に {e} 件のエラーと {w} 件の警告があります。以下のエラーを修正して再実行してください。
+headline.unknown = キャンバスチェックで問題が報告されました。
+headline.warnings = キャンバスに{w}件の警告があります。
+hint = 以下の各エントリは、キャンバス内のノードと、チェックを引き起こしたパラメータを指しています。ノードを開いて値を調整し、キャンバスを保存してから ▶ をもう一度実行してください。
+title = キャンバスチェックに失敗しました
+
+[group]
+default_title = グループ
+
+[inline]
+col_grace = 猶予
+col_item = 項目
+col_maxspeed = 最大速度
+col_name = 名前
+col_param = 値
+col_scale = スケール
+col_threshold = 閾値
+col_value = 値
+col_weight = 重み
+
+[menu]
+add_node = ノードを追加
+copy = コピー (Ctrl+C)
+delete = 削除
+disconnect_all = すべてのエッジを切断
+duplicate = 複製 (Ctrl+D)
+paste_here = ここに貼り付け (Ctrl+V)
+disconnect = 切断
+
+[minimenu]
+placeholder = （近日対応）
+
+[obs_injected]
+critic_section = Critic（特権）
+divider = コマンドパイプ経由（注入）
+footer = 総観測次元 {total} — ユーザ {user} + 注入 {injected}
+readonly = 読み取り専用
+
+[port]
+optional = (任意)
+
+[review_launch]
+button = 起動のレビュー
+
+[reward_pager]
+col_count = 報酬の数
+col_group = ジョイントグループ
+col_ops = 操作
+global = グローバル（全ジョイント）
+summary = {n} グループ
+
+[rewards]
+coverage.add_set = 推奨セットを追加
+coverage.banner.critical = 重大: 1つ以上のフェーズで必須の負の報酬が欠けています。トレーニングにより、手足の無意味な暴れなどの望ましくない挙動が発生する可能性があります。
+coverage.banner.ok = すべてのフェーズは正の報酬と負の報酬の両方がカバーされています。
+coverage.banner.warning = 警告: 少なくとも1つのフェーズで推奨される報酬カバレッジが不足しています。
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = フェーズ
+coverage.col.pos = +
+coverage.col.status = ステータス
+coverage.double_click_hint = バッジをダブルクリックしてカバレッジインスペクタを開いてください。
+coverage.empty = 報酬項目が設定されていません — カバレッジ評価を行うには少なくとも1つの項目を追加してください。
+coverage.green = すべてのフェーズに正と負の報酬カバレッジがあります。
+coverage.inspector.title = 報酬カバレッジインスペクタ
+coverage.red = 重大: 1つ以上のフェーズで必須の制約報酬が欠落しています。
+coverage.title = 報酬カバレッジ
+coverage.yellow = 警告: 少なくとも1つのフェーズで推奨される報酬が欠けています。
+
+[robot]
+health.counts = MJCF: {m} 関節  ·  USD: {u} 関節  ·  ベースオフセット: {off}
+health.crit = どちらのフォーマットもダンプされていません — Robot Assets を開き、トレーニング前に Dump MJCF / Dump USD をクリックしてください。
+health.double_click_hint = バッジをダブルクリックすると、完全な関節マッピング表が表示されます。
+health.gap = MJCF と USD が異なる IR-role セットを宣言しています — 影響を受けるもの: {aff}。
+health.offset_uncalibrated = (キャリブレーションされていません)
+health.ok = MJCF と USD が関節セットで一致しています — 両方のデプロイ対象が利用可能です。
+health.single = {present} のみがダンプされています — {missing} のデプロイ対象は、このロボットに対して訓練されたバンドルでは利用できなくなります。
+health.title = ロボットダンプの状態
+mjcf_offset.not_applicable = 該当なし
+mjcf_offset.uncalibrated = 未較正
+pd_table.auto_none = このロボットに推奨プリセットはありません。
+pd_table.auto_tooltip = 公式推奨の (ωn, ζ) と effort/velocity プリセットで埋めてください。解決順序: brand manifest → USD drive params (Dump USD からキャッシュ) → family defaults。
+pd_table.dialog_title = PD / アクチュエータ
+pd_table.header = 各関節のPDゲイン (kp = m_eff·ωn²) — MJCF の質量行列からライブで導出されます。グループごとに (ωn, ζ) を編集します; kp/kd は読み取り専用です。
+pd_table.redump_failed = USD の再ダンプに失敗しました: {error}
+pd_table.redump_tooltip = USD アセットをダンプしてキャッシュされた drive params を更新し、ダンプした値から AUTO を再設定してください。
+pd_table.remotized_note = リモート化された関節（リンク駆動）は、スカラー上限ではなく角度依存のトルクテーブルのピークを Effort に表示します。
+pd_table.remotized_tooltip = 角度依存トルクテーブルのピーク（リモート化関節）
+pd_table.auto_button = AUTO ⤓
+pd_table.redump_button = USD を再ダンプ
+
+[row]
+empty = —
+entries = {n} 件
+false = 偽
+ir_picker_all = すべて
+no_items = (アイテムなし)
+preset_unselected = —
+selected = {n} 選択済み
+true = 真
+bool_check = ✔
+
+[toolbar]
+collapse = 折りたたむ
+color = 色を選択（右クリックでリセット）
+delete = 削除
+enable = 有効化
+expand = 展開
+group = グループ化
+skip = 無効化
+ungroup = グループ解除
+
+[training_motion]
+add_item = + トレーニングアイテムを追加
+helper = 有効なアイテムは、導出されたコマンド契約に速度チャネルを提供します。
+packages.button = トレーニングパッケージ
+skills.button = スキルチャンネル
+weight_set.button = 重みセット
+weight_set.cancel = キャンセル
+weight_set.hint = 2つのスライス間の境界をドラッグして重みを移動できます。あるいはパーセンテージをクリックして直接入力してください（その項目のみが変更されます）。Apply is enabled once the total is exactly 100%%.
+weight_set.ok = 適用
+weight_set.reset = 均等にリセット
+weight_set.title = サンプリング重み
+weight_set.total = 合計
+

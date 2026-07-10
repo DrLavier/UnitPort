@@ -1,0 +1,11 @@
+[dtype]
+both = Escalar/Lista
+list = Lista
+scalar = Escalar
+
+[err]
+dup_item = Ya existe un elemento llamado '{name}'.
+
+[review_motion]
+submitted = Review Motion ha comenzado (reproducción no física en MuJoCo)…
+

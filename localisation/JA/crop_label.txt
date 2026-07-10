@@ -1,0 +1,20 @@
+[default]
+title = クリップのトリミングとラベル付け
+length_unknown = クリップの長さは不明です（フレーム解析はバックエンドのラウンドで行われます） — マーカーは生のフレーム番号として保存されます。
+preview_robot = ロボットをプレビュー
+preview = MuJoCoでプレビュー
+preview_started = プレビューを開始しました（クリップ全体 — 範囲再生はバックエンドのラウンドで行われます）。
+range = In {a}  ·  Out {b}  ·  {n} フレーム
+seg_name = セグメント
+seg_name_ph = 例: walk_loop
+add = マーカーから追加
+col_name = 名前
+col_tag = タグ
+col_in = In
+col_out = Out
+col_action = 
+close = 閉じる
+delete = 削除
+no_robot = まずプレビュー用のロボットを選んでください。
+err_name = セグメント名は必須です。
+

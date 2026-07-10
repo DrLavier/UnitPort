@@ -1,0 +1,61 @@
+[default]
+add_path = カスタムパスを追加
+add_robot = 新しいモデル
+add_tip = 新しいロボットまたはバリアントを登録
+add_variant = …の新しいバリアント
+add_variant_empty = ベースロボットはまだ登録されていません。まずモデルを追加してください。
+cascade_body = このロボットには依存するユーザーバリアントがあります。まずバリアントを削除するか切り離してください。
+	
+	{detail}
+cascade_title = 削除できません
+coming_soon = 近日対応予定
+delete = 削除
+dump = ボディ / ジョイントをダンプ
+dump_disabled = MJCFもUSDアセットも利用できません（ローカルファイルもNucleus URLも宣言されていません）
+dump_done_title = ダンプ完了
+dump_error_no_asset = SKU {sku} のロボットアセットを解決できません
+dump_error_persist = {fmt} 用に発見されたボディを永続化できませんでした
+dump_error_validation = {fmt} マッピングを書き込んだ後の検証に失敗しました：
+	
+	{exc}
+	
+	Canvas の Robot ノードを開き、フラグが付いているジョイント/ボディの IR ロールを修正してから、再度ダンプしてください。
+dump_format_mismatch = 
+	⚠ {larger_fmt} は {larger_n} 個のジョイントを持っていますが、{smaller_fmt} は {smaller_n} 個です。トレーニングそのものには影響しませんが、{affected} は {larger_fmt}-側のジョイントセットで学習されたバンドルでは利用できなくなります。両方のデプロイターゲットが必要な場合は、{smaller_fmt} アセットを一致するバリアント（例：G1 の場合、g1.usd と並べて scene_with_hands.xml を使用）に向け直し、再ダンプしてください。
+edit = 編集
+edit_canonical_disabled = カノニカルなロボットは読み取り専用です。代わりに新しいユーザーエントリを追加してください。
+ignore_package = 無視
+ignore_package_tip = 今後のリフレッシュ走査でこのディレクトリをスキップする
+inertia_calib_done = 慣性オーバーレイ {status}: {n} 個のボディ上書きが {rel} に書き込まれました。
+inertia_calib_done_title = 慣性較正が完了しました
+inertia_calib_error_title = 慣性較正に失敗しました
+inertia_calib_ignored = {n} 個のボディが許容値を下回りました — オーバーレイの ignored_bodies 監査リストを参照してください。
+inertia_calib_offer_body = トレーニング用 USD の各ボディの質量／慣性を MuJoCo の MJCF と比較し、非破壊的なオーバーレイを書き込みます（元の MJCF は変更されません）。これは、MJCF がプレースホルダ慣性を含むロボットに対して IsaacLab→MuJoCo の sim2sim ギャップを埋めます。USD の収集には 5–30 s かかる場合があります。
+inertia_calib_offer_title = USD から慣性を較正しますか？
+menagerie = コレクション…
+menagerie_tip = MuJoCo Menagerie パッケージを参照してダウンロード
+no_path = (なし)
+pick_file = {kind} ファイルを選択
+pick_parent = このバリアントが継承するベースモデルを選択：
+refresh_tip = アセットレジストリを再スキャン
+tag_placeholder = タグを追加...
+view_mapping = ジョイントマッピングを表示
+view_mapping_error_title = ジョイントマッピングは利用できません
+add_robot_tip = 新しいロボットを登録
+dump_error_title = ダンプに失敗しました
+dump_mjcf = MJCF のボディ / ジョイントをダンプ
+dump_mjcf_disabled = ローカルにMJCFアセットがありません
+dump_usd = USDのボディ／ジョイントをダンプ
+dump_usd_disabled = USDアセットが宣言されていません（ローカルパスもNucleusのURLもありません）
+
+[status]
+cloud = クラウド
+local = ローカル
+missing = 見つかりません
+remote = リモート
+
+[tag]
+canonical = カノニカル
+cloud = クラウド
+custom = カスタム
+

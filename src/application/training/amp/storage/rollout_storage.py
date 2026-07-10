@@ -138,19 +138,33 @@ class RolloutStorage:
         # Wrap GRU into a one-tuple to make the storage code uniform.
         hid_a = hidden_states[0] if isinstance(hidden_states[0], tuple) else (hidden_states[0],)
         hid_c = hidden_states[1] if isinstance(hidden_states[1], tuple) else (hidden_states[1],)
+        # Asymmetric recurrence: the AMP actor-critic uses a NON-recurrent
+        # critic by design (R5) — ``get_hidden_states()`` returns
+        # ``(actor_hidden, None)``. Only the actor carries memory, so never
+        # allocate / copy critic hidden buffers when its state is absent (a
+        # ``None`` entry has no ``.shape`` — the historical crash). The
+        # recurrent mini-batch generator yields ``None`` for the critic side,
+        # and the critic's ``evaluate`` ignores ``hidden_states``.
+        has_critic = all(h is not None for h in hid_c)
 
         if self.saved_hidden_states_a is None:
             self.saved_hidden_states_a = [
                 torch.zeros(self.observations.shape[0], *hid_a[i].shape, device=self.device)
                 for i in range(len(hid_a))
             ]
-            self.saved_hidden_states_c = [
-                torch.zeros(self.observations.shape[0], *hid_c[i].shape, device=self.device)
-                for i in range(len(hid_c))
-            ]
+            self.saved_hidden_states_c = (
+                [
+                    torch.zeros(self.observations.shape[0], *hid_c[i].shape, device=self.device)
+                    for i in range(len(hid_c))
+                ]
+                if has_critic
+                else None
+            )
         for i in range(len(hid_a)):
             self.saved_hidden_states_a[i][self.step].copy_(hid_a[i])
-            self.saved_hidden_states_c[i][self.step].copy_(hid_c[i])
+        if self.saved_hidden_states_c is not None:
+            for i in range(len(hid_c)):
+                self.saved_hidden_states_c[i][self.step].copy_(hid_c[i])
 
     # ------------------------------------------------------------------
     # Reset
@@ -296,14 +310,19 @@ class RolloutStorage:
                     .contiguous()
                     for saved_hidden_states in self.saved_hidden_states_a
                 ]
-                hid_c_batch = [
-                    saved_hidden_states.permute(2, 0, 1, 3)[last_was_done][first_traj:last_traj]
-                    .transpose(1, 0)
-                    .contiguous()
-                    for saved_hidden_states in self.saved_hidden_states_c
-                ]
                 hid_a_batch = hid_a_batch[0] if len(hid_a_batch) == 1 else hid_a_batch
-                hid_c_batch = hid_c_batch[0] if len(hid_c_batch) == 1 else hid_a_batch
+                # Non-recurrent critic (R5): no saved critic hidden states →
+                # yield None. The critic's evaluate() ignores hidden_states.
+                if self.saved_hidden_states_c is not None:
+                    hid_c_batch = [
+                        saved_hidden_states.permute(2, 0, 1, 3)[last_was_done][first_traj:last_traj]
+                        .transpose(1, 0)
+                        .contiguous()
+                        for saved_hidden_states in self.saved_hidden_states_c
+                    ]
+                    hid_c_batch = hid_c_batch[0] if len(hid_c_batch) == 1 else hid_c_batch
+                else:
+                    hid_c_batch = None
 
                 yield (
                     obs_batch,

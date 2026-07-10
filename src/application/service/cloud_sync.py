@@ -55,6 +55,11 @@ from unitport_sdk import (
     log_warning,
 )
 
+from application.service.ai_orchestration.api_config import (
+    API_CONFIG_REL as _API_CONFIG_REL,
+    is_api_cloud_upload_enabled as _api_cloud_upload_enabled,
+)
+
 
 # ---------------------------------------------------------------------------
 # Spec constants — mirror of storage-sync.spec.yaml § 3-4. Edit BOTH files
@@ -86,6 +91,12 @@ _INCLUDE_GLOBS: Tuple[str, ...] = (
     "projects/*/training/configs/**",
     "projects/*/training/exported/**",
     "projects/*/training/runs/**",
+    # AI-orchestration LLM connection settings. It IS in the include set so the
+    # dialog's "upload to cloud" switch can enable sync, but the file carries an
+    # authoritative content marker (``upload_to_cloud``) that defaults OFF —
+    # ``_cloud_upload_allowed`` blocks the push unless the user opted in, so the
+    # API key never leaves the machine by default.
+    "ai_orchestration/api_config.json",
 )
 
 _EXCLUDE_GLOBS: Tuple[str, ...] = (
@@ -332,13 +343,12 @@ class CloudSyncService(QObject):
         ``plan.skipped_unchanged``. This is what keeps Push from re-uploading
         bytes the cloud already holds.
 
-        When ``since_mtime`` is provided (typically the process start
-        wall-clock), files whose ``st_mtime`` predates it are skipped first
-        (also counted in ``skipped_unchanged``). This is the contract used
-        by the exit auto-push hook so a quit only considers what the current
-        session touched. Manual Push (UserPanel button → CloudSyncTask)
-        leaves ``since_mtime`` unset so it considers the full include set —
-        but it still only uploads the files that actually differ.
+        When ``since_mtime`` is provided, files whose ``st_mtime`` predates it
+        are skipped first (also counted in ``skipped_unchanged``). Manual Push
+        (UserPanel button → CloudSyncTask) leaves ``since_mtime`` unset so it
+        considers the full include set — but it still only uploads the files
+        that actually differ. Persist-time auto-sync does not use this walk at
+        all; it plans a targeted delta via :meth:`plan_push_paths`.
 
         The diff trusts the local sync-state as the record of cloud content
         (no per-push remote listing — that's a request we avoid). In the
@@ -361,6 +371,9 @@ class CloudSyncService(QObject):
                 continue
             if not _matches_any(rel_posix, _INCLUDE_GLOBS):
                 continue
+            if not _cloud_upload_allowed(rel_posix):
+                plan.skipped_excluded += 1
+                continue
             included.append(rel_posix)
 
         # 2. Apply runs_topn pruning across the runs subtree.
@@ -370,79 +383,142 @@ class CloudSyncService(QObject):
         # 3. Build entries, applying per-file transforms / size limit /
         #    content diff.
         for rel_posix in kept:
-            absolute = base / Path(*rel_posix.split("/"))
-            try:
-                st = absolute.stat()
-            except OSError:
-                continue
-            # mtime cutoff — skip anything untouched since the cutoff
-            # before we burn cycles on transforms / size checks.
-            if since_mtime is not None and st.st_mtime < since_mtime:
-                plan.skipped_unchanged += 1
-                continue
-
-            ext = absolute.suffix.lower()
-            prior = files_state.get(rel_posix)
-            is_user_ini = rel_posix == "user.ini"
-            is_engines = fnmatch.fnmatch(rel_posix, "engines/*.json")
-
-            # Fast unchanged check for plain (non-transform) files: identical
-            # (size, mtime) to the last sync ⇒ content already in the cloud ⇒
-            # skip without reading/hashing the file. Transform files store the
-            # *transformed* size in state, so their st_size never matches —
-            # they fall through to the md5 compare below (they're tiny).
-            if prior and not is_user_ini and not is_engines:
-                if (
-                    int(st.st_size) == int(prior.get("size", -1))
-                    and float(st.st_mtime) == float(prior.get("local_mtime", -1.0))
-                ):
-                    plan.skipped_unchanged += 1
-                    continue
-
-            # Build the exact bytes that would be uploaded so we can both
-            # size-check and content-diff them. transforms may rewrite the
-            # body before upload.
-            body_override: Optional[bytes] = None
-            if is_user_ini:
-                body_override = self._transform_user_ini_split(absolute)
-                if body_override is None:
-                    # All sections were excluded; nothing to upload.
-                    continue
-                payload = body_override
-            elif is_engines:
-                body_override = self._transform_engines_strip_local(absolute)
-                if body_override is None:
-                    continue
-                payload = body_override
-            else:
-                try:
-                    payload = absolute.read_bytes()
-                except OSError:
-                    continue
-            size = len(payload)
-
-            # Content diff: the recorded etag is the md5 we last uploaded for
-            # this key, i.e. the cloud's current content. Equal ⇒ no-op push.
-            digest = hashlib.md5(payload, usedforsecurity=False).hexdigest()
-            if prior and digest == str(prior.get("etag", "")):
-                plan.skipped_unchanged += 1
-                continue
-
-            if size > self._size_limit_bytes:
-                plan.skipped_oversize.append(rel_posix)
-                continue
-
-            plan.entries.append(PlanEntry(
-                local_path=absolute,
-                rel_path=rel_posix,
-                cloud_key=rel_posix,
-                size=size,
-                content_type=_CONTENT_TYPE_BY_EXT.get(
-                    ext, "application/octet-stream",
-                ),
-                body_override=body_override,
-            ))
+            entry = self._build_push_entry(
+                base, rel_posix, files_state, plan, since_mtime=since_mtime,
+            )
+            if entry is not None:
+                plan.entries.append(entry)
         return plan
+
+    def plan_push_paths(self, rel_paths: Iterable[str]) -> SyncPlan:
+        """Build a push plan restricted to an explicit set of rel-paths.
+
+        The persist-time auto-sync path uses this: instead of walking the whole
+        USER_CONFIG_DIR it plans exactly the files the user just touched. Each
+        rel goes through the SAME gates as Manual Push —
+        :func:`is_syncable_rel` (include/exclude/marker), then
+        :meth:`_build_push_entry` (transforms → size limit → content-diff
+        against sync-state) — so a targeted push is byte-for-byte consistent
+        with what a full ``plan_push`` would have produced for those files, and
+        privacy transforms (user.ini section filter, engines local-strip) are
+        never bypassed.
+
+        Runs-topN pruning is intentionally NOT applied here: that transform is a
+        full-sync bandwidth optimisation that ranks whole run directories, which
+        has no meaning for a "these N files just changed" delta. A run file the
+        user just wrote is by definition recent and belongs on the wire.
+        """
+        plan = SyncPlan(phase="push")
+        base = self._base_dir()
+        if base is None:
+            return plan
+        files_state: dict = dict(self._load_state().get("files", {}) or {})
+        seen: set = set()
+        for raw in rel_paths:
+            rel_posix = str(raw).replace("\\", "/").lstrip("/")
+            if not rel_posix or rel_posix in seen:
+                continue
+            seen.add(rel_posix)
+            if not is_syncable_rel(rel_posix):
+                plan.skipped_excluded += 1
+                continue
+            entry = self._build_push_entry(base, rel_posix, files_state, plan)
+            if entry is not None:
+                plan.entries.append(entry)
+        return plan
+
+    def _build_push_entry(
+        self,
+        base: Path,
+        rel_posix: str,
+        files_state: dict,
+        plan: SyncPlan,
+        *,
+        since_mtime: Optional[float] = None,
+    ) -> Optional[PlanEntry]:
+        """Turn ONE already-included rel-path into a push :class:`PlanEntry`.
+
+        Applies (in order): optional ``since_mtime`` cutoff, fast
+        (size, mtime) unchanged skip, per-file transforms (user.ini split /
+        engines local-strip), size-limit gate, and the content-diff against the
+        recorded etag. Returns the entry to upload, or ``None`` when the file is
+        skipped (updating the relevant ``plan.skipped_*`` counter). Shared by
+        the full-walk ``plan_push`` and the targeted ``plan_push_paths`` so both
+        stay in lock-step. Assumes ``rel_posix`` already passed the
+        include/exclude/marker gate.
+        """
+        absolute = base / Path(*rel_posix.split("/"))
+        try:
+            st = absolute.stat()
+        except OSError:
+            return None
+        # mtime cutoff — skip anything untouched since the cutoff
+        # before we burn cycles on transforms / size checks.
+        if since_mtime is not None and st.st_mtime < since_mtime:
+            plan.skipped_unchanged += 1
+            return None
+
+        ext = absolute.suffix.lower()
+        prior = files_state.get(rel_posix)
+        is_user_ini = rel_posix == "user.ini"
+        is_engines = fnmatch.fnmatch(rel_posix, "engines/*.json")
+
+        # Fast unchanged check for plain (non-transform) files: identical
+        # (size, mtime) to the last sync ⇒ content already in the cloud ⇒
+        # skip without reading/hashing the file. Transform files store the
+        # *transformed* size in state, so their st_size never matches —
+        # they fall through to the md5 compare below (they're tiny).
+        if prior and not is_user_ini and not is_engines:
+            if (
+                int(st.st_size) == int(prior.get("size", -1))
+                and float(st.st_mtime) == float(prior.get("local_mtime", -1.0))
+            ):
+                plan.skipped_unchanged += 1
+                return None
+
+        # Build the exact bytes that would be uploaded so we can both
+        # size-check and content-diff them. transforms may rewrite the
+        # body before upload.
+        body_override: Optional[bytes] = None
+        if is_user_ini:
+            body_override = self._transform_user_ini_split(absolute)
+            if body_override is None:
+                # All sections were excluded; nothing to upload.
+                return None
+            payload = body_override
+        elif is_engines:
+            body_override = self._transform_engines_strip_local(absolute)
+            if body_override is None:
+                return None
+            payload = body_override
+        else:
+            try:
+                payload = absolute.read_bytes()
+            except OSError:
+                return None
+        size = len(payload)
+
+        # Content diff: the recorded etag is the md5 we last uploaded for
+        # this key, i.e. the cloud's current content. Equal ⇒ no-op push.
+        digest = hashlib.md5(payload, usedforsecurity=False).hexdigest()
+        if prior and digest == str(prior.get("etag", "")):
+            plan.skipped_unchanged += 1
+            return None
+
+        if size > self._size_limit_bytes:
+            plan.skipped_oversize.append(rel_posix)
+            return None
+
+        return PlanEntry(
+            local_path=absolute,
+            rel_path=rel_posix,
+            cloud_key=rel_posix,
+            size=size,
+            content_type=_CONTENT_TYPE_BY_EXT.get(
+                ext, "application/octet-stream",
+            ),
+            body_override=body_override,
+        )
 
     def plan_pull(self) -> SyncPlan:
         """List the remote prefix and turn each *differing* object into a
@@ -1084,6 +1160,43 @@ def _matches_any(rel_posix: str, patterns: Iterable[str]) -> bool:
     return any(fnmatch.fnmatch(rel_posix, p) for p in patterns)
 
 
+def _cloud_upload_allowed(rel_posix: str) -> bool:
+    """Per-file cloud-upload gate for marker-protected files.
+
+    The AI-orchestration API config holds a secret (the LLM API key). It is in
+    the include set so the dialog's switch CAN enable sync, but the file's own
+    ``upload_to_cloud`` marker is authoritative and defaults OFF: an API key
+    never leaves the machine unless the user opts in. Any other file is allowed.
+    """
+    if rel_posix == _API_CONFIG_REL:
+        if not _api_cloud_upload_enabled():
+            log_info(
+                "[cloud_sync] AI API config kept local "
+                "(upload-to-cloud switch is off)"
+            )
+            return False
+    return True
+
+
+def is_syncable_rel(rel_posix: str) -> bool:
+    """Single source of truth for "does this USER_CONFIG_DIR file get synced?".
+
+    Composes the same include/exclude/marker gates the bulk ``plan_push`` walk
+    applies, as a pure boolean over one rel-path. Used by the persist-time
+    auto-sync controller (to drop non-syncable writes before they ever enqueue)
+    and by :meth:`CloudSyncService.plan_push_paths` (to filter a targeted push
+    set) so the two paths can never diverge from Manual Push's include set.
+    ``rel_posix`` must already be a USER_CONFIG_DIR-relative posix path.
+    """
+    if _matches_any(rel_posix, _EXCLUDE_GLOBS):
+        return False
+    if not _matches_any(rel_posix, _INCLUDE_GLOBS):
+        return False
+    if not _cloud_upload_allowed(rel_posix):
+        return False
+    return True
+
+
 def _run_dir_for(rel_posix: str) -> Optional[Tuple[str, str]]:
     """If ``rel_posix`` is under projects/*/training/runs/<engine>/<run>/...,
     return ``(<projects/*/training/runs/<engine>>, <run>)``; else None."""
@@ -1133,4 +1246,5 @@ __all__ = [
     "SyncPlan",
     "PlanEntry",
     "get_cloud_sync_service",
+    "is_syncable_rel",
 ]

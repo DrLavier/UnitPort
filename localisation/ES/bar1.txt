@@ -1,0 +1,7 @@
+[default]
+headline = El entrenamiento con interfaz gráfica (headed) renderiza a través de la apertura BAR1 de la GPU, la cual parece demasiado pequeña o saturada para esta ejecución. Puede fallar con un error 'GPU device-lost'.
+title_block = Probable fallo del entrenamiento (GPU BAR1)
+title_warn = Advertencia de memoria de GPU (BAR1)
+btn_continue = Continuar de todos modos
+btn_abort = Abortar
+

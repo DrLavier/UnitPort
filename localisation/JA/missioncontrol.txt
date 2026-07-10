@@ -1,0 +1,36 @@
+[btn]
+redo.tip = やり直し (Ctrl+Shift+Z)
+save.tip = キャンバスを保存
+undo.tip = 元に戻す (Ctrl+Z)
+node_lib.tip = ノードライブラリパネルの表示切替
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = 色を選択
+
+[ros2_dev_notice]
+body = ROS2 接続はまだ開発中です。基本的な接続と制御は利用できます。完全な機能セットは後のリリースで提供されます。
+title = ROS2 接続 (プレビュー)
+
+[script]
+btn.redo.tip = やり直し (Ctrl+Shift+Z)
+btn.save.tip = スクリプトを保存
+btn.undo.tip = 元に戻す (Ctrl+Z)
+
+[tooltip]
+chart_opacity = チャートオーバーレイの不透明度
+
+[mode]
+mission_control = ミッションコントロール
+ai_coding = AIコーディング
+training_canva = トレーニングキャンバス
+scripts = スクリプト
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

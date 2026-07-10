@@ -1,0 +1,20 @@
+[default]
+close_btn = Schließen
+dialog_title = MuJoCo-Sammlung
+download_btn = Ausgewählte herunterladen
+download_busy = Der Download läuft bereits. Bitte warten.
+download_done = Es wurden {n} Paket(e) heruntergeladen.
+download_empty = Wählen Sie mindestens ein Paket aus, bevor Sie auf Herunterladen klicken.
+download_failed = Download fehlgeschlagen: {err}
+downloading = Sparse-Checkout von {n} Paket(en)…
+filter_ph = Pakete filtern…
+icons_offline = Icon-Abruf fehlgeschlagen; zwischengespeicherte Icons werden weiterhin angezeigt.
+progress_icons = Hole {n} Vorschau-Icons…
+refresh_btn = Von GitHub aktualisieren
+refresh_busy = Aktualisierung läuft bereits; bitte warten.
+refresh_done = Aktualisiert: {n} Pakete.
+refresh_empty = GitHub lieferte eine leere Paketliste; Snapshot wird beibehalten.
+refresh_failed = GitHub konnte nicht erreicht werden — der gebündelte Snapshot wird beibehalten.
+refreshing = Hole die aktuelle Paketliste von GitHub…
+status_line = {installed} / {total} installiert · {selected} ausgewählt
+

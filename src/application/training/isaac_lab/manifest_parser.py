@@ -5,8 +5,10 @@
 
 Isaac Lab's play.py export produces an ``env.yaml`` that describes the full
 environment configuration.  This module extracts the information needed to
-create a reactive SkillManifest with correct observation layout, action
-config, and command_interface.
+create a reactive SkillManifest with correct observation layout and action
+config. (The retired ``command_interface`` sub-contract is superseded by
+``deploy_contract.commands`` — the v1 CommandContract emitted in
+``application/training/command_schema.py``.)
 
 Public API
 ----------
@@ -68,8 +70,6 @@ _IsaacLabEnvYamlLoader.add_constructor(
 
 from application.training.isaac_lab.skill_manifest import (
     ActionSpaceType,
-    CommandField,
-    CommandInterface,
     InferenceBackend,
     Postcondition,
     Precondition,
@@ -131,8 +131,9 @@ def parse_isaac_lab_env_yaml(
     Returns
     -------
     SkillManifest
-        A v2 manifest with ``execution_mode="reactive"`` and
-        ``command_interface`` populated from the observation layout.
+        A v2 manifest with ``execution_mode="reactive"``. (Command
+        channel data ships in ``deploy_contract.commands`` — the v1
+        CommandContract — not on the manifest.)
 
     Raises
     ------
@@ -313,13 +314,6 @@ def parse_isaac_lab_env_yaml(
         )
     control_freq = 1.0 / control_dt
 
-    # --- command interface ---
-    command_fields = _build_command_fields(cmd_cfg, command_start_idx)
-    cmd_interface = CommandInterface(
-        type="velocity_2d",
-        fields=tuple(command_fields),
-    ) if command_fields else None
-
     # --- joint mapping ---
     # Was: identity-mapped regex patterns (.*L_hip_joint → .*L_hip_joint).
     # Now: brand_package supplies the IR-canonical mapping. Keys are
@@ -386,7 +380,13 @@ def parse_isaac_lab_env_yaml(
             for t in obs_terms_meta
         },
         "action": action_spec_dict,
-        "commands": _extract_commands_spec(cmd_cfg),
+        # commands: SINGLE producer is command_schema.deploy_command_block
+        # (the v1 CommandContract), written by bundle_finalizer when the
+        # spec carries a canvas. The parser-side env.yaml range forward
+        # (_extract_commands_spec, {"base_velocity": ...}) was retired
+        # 2026-07: it had zero readers and polluted the key with a
+        # non-contract shape.
+        "commands": {},
         "base_body_name": base_body_name,
         "robot_sku": "",  # filled by bundle_finalizer from spec.robot.sku
     }
@@ -413,7 +413,6 @@ def parse_isaac_lab_env_yaml(
         model_path=model_path,
         normalize_obs=False,
         normalizer_path=None,
-        command_interface=cmd_interface,
         training_source=f"isaac_lab_{task_name}" if task_name else "isaac_lab",
         description=f"Isaac Lab policy: {task_name}",
         tags=tags,
@@ -1172,28 +1171,6 @@ def _extract_base_body_name(raw: Dict[str, Any]) -> str:
     )
 
 
-def _extract_commands_spec(cmd_cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """Forward env.yaml command ranges into the DeployContract.commands dict.
-
-    DeployContract.commands is a free-form dict (deploy_contract.py:300)
-    — we use it as the runtime contract's record of velocity-2D bounds so
-    PolicyRunner / live input layers can clamp user commands consistently
-    with training. Empty / missing input → empty dict (deploy_contract.py
-    accepts that). Each declared range is forwarded as ``[lo, hi]``.
-    """
-    if not cmd_cfg:
-        return {}
-    ranges = cmd_cfg.get("ranges", cmd_cfg)
-    if not isinstance(ranges, dict):
-        return {}
-    forwarded: Dict[str, List[float]] = {}
-    for key in ("lin_vel_x", "lin_vel_y", "ang_vel_z", "heading"):
-        val = ranges.get(key)
-        if isinstance(val, (list, tuple)) and len(val) >= 2:
-            forwarded[key] = [float(val[0]), float(val[1])]
-    return {"base_velocity": forwarded} if forwarded else {}
-
-
 def _build_default_joint_pos_list(
     expanded: Dict[str, float],
     physical_joint_order: List[str],
@@ -1212,52 +1189,6 @@ def _build_default_joint_pos_list(
             f"did not cover the full physical joint list."
         )
     return [float(expanded[j]) for j in physical_joint_order]
-
-
-# ---------------------------------------------------------------------------
-# Command field builder
-# ---------------------------------------------------------------------------
-
-def _build_command_fields(
-    cmd_cfg: Dict[str, Any],
-    command_start_idx: int,
-) -> List[CommandField]:
-    """Build CommandField list from command config and obs layout."""
-    if command_start_idx < 0:
-        return []
-
-    # Extract ranges from command config
-    ranges = cmd_cfg.get("ranges", cmd_cfg)
-    lin_vel_x = _to_range(ranges.get("lin_vel_x", [-1.0, 1.0]))
-    lin_vel_y = _to_range(ranges.get("lin_vel_y", [-0.5, 0.5]))
-    ang_vel_z = _to_range(ranges.get("ang_vel_z", [-1.0, 1.0]))
-
-    # vx default: use 40% of the positive range bound so the policy
-    # gets a gentle forward-walk command when no live input is active.
-    # Hardcoding 0.0 caused the downstream compat layer's
-    # setdefault("vx", 0.5) to be a no-op, silently zeroing commands.
-    vx_default = round(max(0.0, float(lin_vel_x[1]) * 0.4), 2)
-
-    return [
-        CommandField(
-            name="vx",
-            obs_index=command_start_idx,
-            range=lin_vel_x,
-            default=vx_default,
-        ),
-        CommandField(
-            name="vy",
-            obs_index=command_start_idx + 1,
-            range=lin_vel_y,
-            default=0.0,
-        ),
-        CommandField(
-            name="vyaw",
-            obs_index=command_start_idx + 2,
-            range=ang_vel_z,
-            default=0.0,
-        ),
-    ]
 
 
 # ---------------------------------------------------------------------------

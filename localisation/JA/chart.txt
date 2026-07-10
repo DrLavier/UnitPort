@@ -1,0 +1,16 @@
+[empty]
+no_visible_series = 表示される系列がありません
+
+[runs]
+clear = クリア
+empty = 実行がありません
+n_selected = 
+none_selected = ランを選択
+select_all = すべて選択
+tag.failed = [失敗]
+tag.finished = [完了]
+tag.running = [進行中]
+
+[series]
+cmd_reward = コマンド報酬
+

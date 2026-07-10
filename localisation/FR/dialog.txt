@@ -3,6 +3,9 @@ ir_role_picker_unavailable = Impossible d'ouvrir le sélecteur de rôles IR
 joint_pose_editor_unavailable = Impossible d'ouvrir l'éditeur d'angles articulaires
 replace_canvas_text = Le chargement du modèle '{tpl}' remplacera tous les nœuds et arêtes dans '{name}'. Continuer ?
 replace_canvas_title = Remplacer le contenu du canevas
+review_motion_no_clip = Aucun clip de référence n'est sélectionné pour cet item d'entraînement — choisissez un clip dans la liste Clip avant de prévisualiser.
+review_motion_no_robot = Aucun nœud Robot n'est associé à ce canevas. Review Motion a besoin du MJCF du robot pour rejouer le mouvement de référence — connectez d'abord un nœud Robot.
+review_motion_unavailable = Impossible de lancer Review Motion
 review_pose_unavailable = Impossible de lancer Review Pose
 unsaved_text = {name} contient des modifications non enregistrées. Enregistrer avant de continuer ?
 unsaved_title = Modifications non enregistrées
@@ -12,5 +15,5 @@ registry_preset_apply_failed = Échec de l'application du préréglage
 registry_preset_picker_empty = Cette famille n'a aucun préréglage disponible
 registry_preset_picker_empty_detail = family={family} ne déclare aucun préréglage dans registry={registry}.
 registry_preset_picker_unavailable = Impossible d'ouvrir le menu des préréglages
-registry_preset_picker_unknown = registry={key!r} inconnu ; registries pris en charge : {keys}
+registry_preset_picker_unknown = registry={key!r} inconnu ; registres pris en charge : {keys}
 

@@ -1,0 +1,69 @@
+[fullscreen]
+tip = Tela cheia
+short = Tela cheia
+
+[language]
+tip = Idioma
+short = Idioma
+
+[settings]
+tip = Configurações
+short = Configurações
+
+[update]
+tip_latest = Você está na versão mais recente
+tip = Atualizar
+short_latest = Mais recente
+short_needed = Atualizar
+tip_needed = Nova versão disponível — clique para aplicar
+
+[training]
+tip = Scripts do projeto + globais
+short = Treinamento
+title = Scripts de treinamento
+
+[observations]
+tip = Módulos de observação predefinidos
+short = Observações
+title = Observações
+
+[terminations]
+tip = Módulos de terminação predefinidos
+short = Terminações
+title = Terminações
+
+[rewards]
+tip = Módulos de recompensa predefinidos
+short = Recompensas
+title = Recompensas
+
+[resources]
+tip = Conjuntos de dados de movimento de terceiros e pacotes de políticas
+short = Recursos
+title = Recursos
+
+[controller]
+tip = Controlador
+short = Controlador
+title = Controlador
+
+[robot_assets]
+tip = Ativo de robô
+short = Robôs
+title = Ativo de robô
+
+[projects]
+tip = Arquivos do projeto
+short = Projetos
+title = Arquivos do projeto
+
+[node_library]
+tip = Biblioteca de nós
+short = Nós
+title = Biblioteca de nós
+
+[user]
+tip = Usuário
+short = Usuário
+title = Usuário
+

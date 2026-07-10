@@ -1,0 +1,17 @@
+[banner]
+hash_mismatch = ADVERTENCIA: El texto incluido difiere del SHA256 verificado por UnitPort en el momento de la compilación. Revise la fuente upstream antes de aceptar.
+
+[body]
+missing = (texto de la licencia no encontrado — la instalación está bloqueada hasta que se entregue el texto)
+
+[btn]
+accept = Aceptar y continuar
+reject = Rechazar
+
+[checkbox]
+i_accept = He leído y acepto los términos anteriores
+
+[dialog]
+intro = La instalación de Isaac Lab descargará Isaac Sim 5.x y ejecutará el instalador oficial isaaclab en su nombre. Revise los acuerdos a continuación; debe aceptar cada pestaña antes de continuar. Puede cancelar y usar la opción 'Ubicar instalación existente' si prefiere instalar manualmente.
+title = Revise y acepte las licencias antes de instalar Isaac Lab
+

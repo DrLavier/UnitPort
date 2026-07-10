@@ -16,13 +16,70 @@ JITEngine costs nothing if you only deploy ONNX bundles.
 """
 from __future__ import annotations
 
+import contextlib
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
 # torch is an optional dependency; imported lazily inside JITEngine methods.
+
+
+# Substrings that mark an opaque tensor shape/dimension mismatch raised by
+# onnxruntime or torch. Used by policy_load_dim_guard to recognise the class
+# of error worth re-labelling (UniLab's marker set + onnxruntime/torch phrasing).
+_DIM_MISMATCH_MARKERS: Tuple[str, ...] = (
+    "size mismatch",
+    "copying a param",
+    "shape",
+    "dimension",
+    "dimensions",
+    "expected",
+    "invalid argument",
+    "index out of range",
+    "out of bounds",
+    "mat1 and mat2",
+    "broadcast",
+)
+
+
+@contextlib.contextmanager
+def policy_load_dim_guard(*, context: str):
+    """Re-raise an opaque tensor shape mismatch as a clear sim2sim diagnostic.
+
+    onnxruntime and torch both surface a policy I/O dimension mismatch as a
+    generic ``RuntimeError`` / ``ValueError`` whose text mentions a shape or
+    dimension. Catch only those and re-raise as ``IncompatibleWeightError`` so
+    the failure names the likely cause (policy file vs bundle obs/action dim
+    drift) instead of an inscrutable backend error surfacing at the first
+    inference step. Any non-matching error propagates unchanged (§8 — never
+    swallow the unexpected). Mirrors UniLab's ``policy_load_dim_guard``.
+
+    This is the only dimension safety net for TorchScript policies (whose I/O
+    dims cannot be introspected at load) and defense-in-depth for ONNX graphs
+    with dynamic feature axes.
+
+    Catches the broad ``Exception`` (onnxruntime's ``InvalidArgument`` subclasses
+    ``Exception`` directly, NOT ``RuntimeError``/``ValueError``) but stays a
+    transparent re-labeler: an error whose text does not look like a dim
+    mismatch is re-raised unchanged, so nothing is ever swallowed (§8).
+    """
+    try:
+        yield
+    except Exception as exc:
+        if not any(marker in str(exc).lower() for marker in _DIM_MISMATCH_MARKERS):
+            raise
+        # Lazy local import: inference_engine is a leaf module (policy_runner
+        # imports it, not the reverse) — a top-level import would cycle.
+        from .policy_runner import IncompatibleWeightError
+
+        raise IncompatibleWeightError(
+            f"{context}: policy I/O dimension mismatch at inference time "
+            f"(underlying: {exc}). The policy file and the bundle manifest were "
+            f"produced from different observation/action shapes — re-export the "
+            f"bundle. (B2 guarded-predict dimension guard.)"
+        ) from exc
 
 
 class InferenceEngine(ABC):
@@ -62,6 +119,18 @@ class InferenceEngine(ABC):
         cross-checks here; JITEngine REQUIRES this (TorchScript inputs are
         unnamed) to allocate state and thread it. No-op for feed-forward.
         """
+
+    def io_dims(self) -> Tuple[Optional[int], Optional[int]]:
+        """Return ``(obs_input_dim, action_output_dim)`` when introspectable.
+
+        Used by the load-time dimension guard (B2) to fail loud BEFORE the
+        first inference when the policy file's I/O shapes disagree with the
+        bundle manifest. Returns ``None`` for any axis that cannot be read
+        statically (a dynamic ONNX axis, or any TorchScript input — its inputs
+        are unnamed/unintrospectable). §8: ``None`` is an honest "unknown",
+        never a fabricated dimension. Base default is ``(None, None)``.
+        """
+        return (None, None)
 
 
 class ONNXEngine(InferenceEngine):
@@ -169,6 +238,44 @@ class ONNXEngine(InferenceEngine):
                     f"{tuple(arr.shape)} (layers={arr.shape[0]}, hidden={arr.shape[2]}). "
                     f"Bundle is inconsistent — re-export."
                 )
+
+    def io_dims(self) -> Tuple[Optional[int], Optional[int]]:
+        """Read the obs-input and action-output feature dims from the graph.
+
+        Returns ``None`` for an axis whose last dimension is dynamic
+        (onnxruntime reports dynamic axes as ``str``/``None``, static ones as
+        ``int``). §8: a dynamic axis is reported as ``None``, never coerced to a
+        number — unlike the batch axis in :meth:`load`, where coercing to 1 is
+        correct because the batch is genuinely 1.
+        """
+        if self._session is None:
+            raise RuntimeError(
+                "ONNXEngine.io_dims() called before load(). Call load() first."
+            )
+
+        def _static_last_axis(shape: Any) -> Optional[int]:
+            if not shape:
+                return None
+            last = shape[-1]
+            return int(last) if isinstance(last, int) else None
+
+        obs_meta = next(
+            (i for i in self._session.get_inputs() if i.name == self._input_name),
+            None,
+        )
+        obs_dim = _static_last_axis(obs_meta.shape) if obs_meta is not None else None
+
+        # Prefer the output named "action" (recurrent graph); else the first
+        # output — mirrors predict()'s ``out_map.get("action", outputs[0])``.
+        outputs = self._session.get_outputs()
+        action_meta = next((o for o in outputs if o.name == "action"), None)
+        if action_meta is None and outputs:
+            action_meta = outputs[0]
+        action_dim = (
+            _static_last_axis(action_meta.shape) if action_meta is not None else None
+        )
+
+        return (obs_dim, action_dim)
 
     def predict(self, obs: np.ndarray) -> np.ndarray:
         """Run inference on a single (unbatched) observation vector.
@@ -324,3 +431,9 @@ class JITEngine(InferenceEngine):
             self._h[:, m, :] = 0.0
         if self._c is not None:
             self._c[:, m, :] = 0.0
+
+    def io_dims(self) -> Tuple[Optional[int], Optional[int]]:
+        # WHY: TorchScript inputs are unnamed and carry no static shape
+        # metadata, so I/O feature dims cannot be introspected at load. Return
+        # (None, None); policy_load_dim_guard around predict() is the safety net.
+        return (None, None)

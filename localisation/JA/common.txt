@@ -1,0 +1,6 @@
+[default]
+cancel = キャンセル
+current_canvas = 現在のキャンバス
+empty = （なし）
+ok = OK
+

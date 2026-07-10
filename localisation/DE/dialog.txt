@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = Konnte IR-Rollenmenü nicht öffnen
+joint_pose_editor_unavailable = Konnte Gelenkwinkel-Editor nicht öffnen
+pd_table_no_sku = Der Robot-Knoten hat keinen gültigen Roboter gebunden (asset_id). Wählen Sie zuerst einen Roboter in der Robot Asset-Karte aus.
+pd_table_unavailable = Konnte PD-Panel nicht öffnen
+registry_preset_apply_failed = Anwendung des Presets fehlgeschlagen
+registry_preset_picker_empty = Für diese Familie sind keine Presets verfügbar
+registry_preset_picker_empty_detail = family={family} ist in registry={registry} nicht als Preset deklariert.
+registry_preset_picker_unavailable = Konnte Preset-Menü nicht öffnen
+registry_preset_picker_unknown = Unbekannte Registry={key!r}; unterstützte Registries: {keys}
+replace_canvas_text = Das Laden der Vorlage '{tpl}' wird alle Knoten und Kanten in '{name}' ersetzen. Fortfahren?
+replace_canvas_title = Canvas-Inhalt ersetzen
+review_pose_unavailable = Konnte Review Pose nicht starten
+unsaved_text = {name} hat ungespeicherte Änderungen. Vor dem Fortfahren speichern?
+unsaved_title = Ungespeicherte Änderungen
+review_motion_no_clip = Für dieses Trainingselement ist kein Referenzclip ausgewählt — wähle im Clip-Dropdown einen Clip aus, bevor du die Überprüfung startest.
+review_motion_no_robot = Kein Robot node ist an dieses Canvas gebunden. Review Motion benötigt das robot MJCF, um die Referenzbewegung abzuspielen — verbinde zuerst einen Robot node.
+review_motion_unavailable = Review Motion kann nicht gestartet werden
+

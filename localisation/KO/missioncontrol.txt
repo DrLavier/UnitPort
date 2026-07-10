@@ -1,0 +1,36 @@
+[btn]
+redo.tip = 다시 실행 (Ctrl+Shift+Z)
+save.tip = 캔버스 저장
+undo.tip = 실행 취소 (Ctrl+Z)
+node_lib.tip = 노드 라이브러리 패널 전환
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = 색상 선택
+
+[ros2_dev_notice]
+body = ROS2 연결 기능은 아직 개발 중입니다. 기본 연결 및 제어는 이용할 수 있으며, 전체 기능 세트는 이후 릴리스에서 제공될 예정입니다.
+title = ROS2 연결(미리보기)
+
+[script]
+btn.redo.tip = 다시 실행 (Ctrl+Shift+Z)
+btn.save.tip = 스크립트 저장
+btn.undo.tip = 실행 취소 (Ctrl+Z)
+
+[tooltip]
+chart_opacity = 차트 오버레이 불투명도
+
+[mode]
+mission_control = 미션 컨트롤
+ai_coding = AI 코딩
+training_canva = 학습 캔버스
+scripts = 스크립트
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

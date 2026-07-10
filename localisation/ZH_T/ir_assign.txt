@@ -1,0 +1,16 @@
+[default]
+banner = 某些機器人關節/連結未能自動分類。請在下方為它們指派 IR 角色以完成設定。
+cancel = 取消
+col_joint = 關節 / 連結
+col_kind = 類型
+col_role = IR 角色
+confirm = 全部確認
+dialog_title = 為新機器人指派 IR 角色
+kind_body = 連結
+kind_joint = 關節
+pending_robots = 待處理機器人
+right_title = 關節映射 — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} 已指派
+status_ready = 所有 {n} 個項目已指派 — 準備確認。
+

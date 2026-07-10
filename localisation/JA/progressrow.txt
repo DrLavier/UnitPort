@@ -1,0 +1,21 @@
+[btn]
+new = 新規
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (空)
+no_canvas = (キャンバスなし)
+no_project = (プロジェクトなし)
+
+[target]
+cloud = クラウド
+local = ローカル
+local_ver = ローカル ({short})
+
+[tooltip]
+new = 新しいキャンバスピッカーを開く
+start = トレーニングを開始
+stop = トレーニングを停止
+

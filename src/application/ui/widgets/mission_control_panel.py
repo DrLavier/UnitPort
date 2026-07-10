@@ -96,6 +96,7 @@ from application.ui.widgets.training_config_card import (
 # Mode constants
 # ---------------------------------------------------------------------------
 MODE_MISSION_CONTROL = "mission_control"
+MODE_AI_CODING = "ai_coding"
 MODE_TRAINING_CANVA = "training_canva"
 MODE_SCRIPTS = "scripts"
 
@@ -103,14 +104,28 @@ MODE_SCRIPTS = "scripts"
 # re-translates each segment on ``language_changed``. The mode-constant
 # string is recovered from the index via ``_MODE_KEYS``; the emitted
 # ``key`` field of ``current_changed`` is the i18n key, not the mode.
+# ``AI Coding`` sits between Mission Control and Training Canva — selecting
+# it opens the AI Build overlay (see ``_apply_mode``); it replaces the old
+# floating "AI: [switch]" toggle that used to live left of the tab slider.
 _MODE_OPTIONS = [
     ("missioncontrol.mode.mission_control", "Mission Control"),
+    ("missioncontrol.mode.ai_coding",       "AI Coding"),
     ("missioncontrol.mode.training_canva",  "Training Canva"),
     ("missioncontrol.mode.scripts",         "Scripts"),
 ]
-_MODE_KEYS = [MODE_MISSION_CONTROL, MODE_TRAINING_CANVA, MODE_SCRIPTS]
+_MODE_KEYS = [
+    MODE_MISSION_CONTROL,
+    MODE_AI_CODING,
+    MODE_TRAINING_CANVA,
+    MODE_SCRIPTS,
+]
 
-_VALID_MODES = frozenset({MODE_MISSION_CONTROL, MODE_TRAINING_CANVA, MODE_SCRIPTS})
+_VALID_MODES = frozenset({
+    MODE_MISSION_CONTROL,
+    MODE_AI_CODING,
+    MODE_TRAINING_CANVA,
+    MODE_SCRIPTS,
+})
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +237,10 @@ class MissionControlPanel(QWidget):
         # ---- widget slots ------------------------------------------
         self._top_row_host: Optional[QFrame] = None
         self._mode_switch: Optional[SliderSwitch] = None
+        # Set by ``_apply_mode`` when entering AI Coding is refused by the AI
+        # Build entry gate (no saved LLM connection + settings dialog cancelled);
+        # ``_on_mode_switch_changed`` reads it to revert the tab selection.
+        self._ai_gate_refused: bool = False
         self._run_source_selector: Optional[RunSourceSelector] = None
         self._opacity_icon: Optional[QLabel] = None
         self._opacity_slider: Optional[QSlider] = None
@@ -442,13 +461,15 @@ class MissionControlPanel(QWidget):
         top_row.addStretch(1)
 
         # Mode switch — right-aligned, hidden until a canvas file is loaded.
-        # 3-way (Mission Control | Training Canva | Scripts). min_segment_width
-        # dropped from 120→92 so three segments still fit the top row at
-        # reasonable window widths; drop further if clipping shows up.
+        # 4-way (Mission Control | AI Coding | Training Canva | Scripts).
+        # Selecting AI Coding opens the AI Build overlay (see ``_apply_mode``);
+        # this replaced the old floating "AI: [switch]" toggle. min_segment_width
+        # dropped to 84 so four segments still fit the top row at reasonable
+        # window widths; drop further if clipping shows up.
         self._mode_switch = SliderSwitch(
             _MODE_OPTIONS,
             height=30,
-            min_segment_width=92,
+            min_segment_width=84,
             parent=self._top_row_host,
         )
         try:
@@ -893,6 +914,20 @@ class MissionControlPanel(QWidget):
         sw.setCurrentIndex(new_idx, animated=True, emit=True)
         return True
 
+    def _set_mode_switch_index(self, mode: str) -> None:
+        """Move the SliderSwitch to ``mode``'s segment WITHOUT re-emitting.
+
+        Used to snap the tab selection back when a mode change is refused
+        (e.g. the AI Coding entry gate) so the UI and ``_mode`` stay in sync.
+        """
+        if self._mode_switch is None:
+            return
+        try:
+            idx = _MODE_KEYS.index(mode)
+        except ValueError:
+            idx = 0
+        self._mode_switch.setCurrentIndex(idx, animated=False, emit=False)
+
     def _on_mode_switch_changed(self, index: int, _key: str) -> None:
         # The SliderSwitch's emitted ``_key`` is the i18n key
         # (``missioncontrol.mode.*``) since the segments are i18n-bound.
@@ -903,9 +938,23 @@ class MissionControlPanel(QWidget):
             new_mode = MODE_MISSION_CONTROL
         if new_mode == self._mode:
             return
+        prev_mode = self._mode
         self._mode = new_mode
         self._save_mode(new_mode)
+        # ``_apply_mode`` drives the AI Build overlay open when entering AI
+        # Coding. If the entry gate refuses (no saved LLM connection and the
+        # settings dialog was cancelled) it sets ``_ai_gate_refused``; snap the
+        # tab back to the previous mode and re-apply so the UI never lands in a
+        # broken "AI Coding tab selected, no overlay" state.
         self._apply_mode()
+        if self._ai_gate_refused:
+            self._ai_gate_refused = False
+            self._mode = prev_mode
+            self._save_mode(prev_mode)
+            self._set_mode_switch_index(prev_mode)
+            self._apply_mode()
+            self.mode_changed.emit(prev_mode)
+            return
         self.mode_changed.emit(new_mode)
 
     def _apply_mode(self) -> None:
@@ -932,11 +981,14 @@ class MissionControlPanel(QWidget):
         if self._applying_mode:
             return
         self._applying_mode = True
+        # Cleared each apply; set below if the AI Coding entry gate refuses.
+        self._ai_gate_refused = False
         try:
             for _ in range(2):
                 eff_mode = self._effective_mode()
                 canvas_loaded = self._canvas_loaded_id is not None
                 is_mc = eff_mode == MODE_MISSION_CONTROL
+                is_ai_coding = eff_mode == MODE_AI_CODING
                 is_tc = eff_mode == MODE_TRAINING_CANVA
                 is_scripts = eff_mode == MODE_SCRIPTS
 
@@ -963,7 +1015,10 @@ class MissionControlPanel(QWidget):
                         self._CONTENT_SCRIPT if is_scripts else self._CONTENT_CANVAS
                     )
 
-                compact = is_tc and canvas_loaded
+                # Both AI Coding and Training Canva expose the canvas below the
+                # top_row strip (compact overlay); AI Coding additionally floats
+                # the AI Build mask over that canvas area (driven below).
+                compact = (is_tc or is_ai_coding) and canvas_loaded
                 splitter_visible = canvas_loaded and not compact
                 if self._v_splitter is not None:
                     self._v_splitter.setVisible(splitter_visible)
@@ -984,6 +1039,24 @@ class MissionControlPanel(QWidget):
                 if compact != self._is_compact_state:
                     self._is_compact_state = compact
                     self.overlay_compact_changed.emit(compact)
+
+                # AI Build overlay follows the tab: AI Coding opens it (over the
+                # now-compact canvas), every other mode collapses it so the mask
+                # can't bleed over MC / Scripts / TC. Driven AFTER the compact
+                # emit so the host masks the correct (top_row-inset) rect.
+                # Opening gates on a saved LLM connection — a refusal flags
+                # ``_ai_gate_refused`` for ``_on_mode_switch_changed`` to revert.
+                if self._external_canvas is not None:
+                    canvas = self._external_canvas
+                    want_ai = is_ai_coding and canvas_loaded
+                    is_open = bool(
+                        getattr(canvas, "is_ai_build_open", lambda: False)()
+                    )
+                    if want_ai and not is_open and not self._ai_gate_refused:
+                        if not bool(canvas.set_ai_build_overlay_open(True)):
+                            self._ai_gate_refused = True
+                    elif not want_ai and is_open:
+                        canvas.set_ai_build_overlay_open(False)
 
                 # If the sync flipped canvas-loaded state, run once more
                 # to refresh the stale visibility decisions above.
@@ -1019,8 +1092,10 @@ class MissionControlPanel(QWidget):
         # short-circuits).
         if self._tc_tools is not None:
             self._tc_tools.set_canvas(canvas)
+        # The AI Build overlay is now driven by the AI Coding tab (see
+        # ``_apply_mode``); the page owns the overlay entry gate + geometry.
         # Apply current state to the freshly-wired canvas (interactive /
-        # minimap / library card visibility).
+        # minimap / library card visibility, and the overlay open/collapse).
         self._apply_mode()
 
     def bind_run_buttons(self, start_btn, stop_btn) -> None:
@@ -1114,8 +1189,7 @@ class MissionControlPanel(QWidget):
         if self._mode != MODE_TRAINING_CANVA:
             self._mode = MODE_TRAINING_CANVA
             self._save_mode(MODE_TRAINING_CANVA)
-            if self._mode_switch is not None:
-                self._mode_switch.setCurrentIndex(1, animated=False, emit=False)
+            self._set_mode_switch_index(MODE_TRAINING_CANVA)
             self.mode_changed.emit(MODE_TRAINING_CANVA)
 
     def notify_project_loaded(self) -> None:
@@ -1138,8 +1212,7 @@ class MissionControlPanel(QWidget):
             return
         self._mode = MODE_MISSION_CONTROL
         self._save_mode(MODE_MISSION_CONTROL)
-        if self._mode_switch is not None:
-            self._mode_switch.setCurrentIndex(0, animated=False, emit=False)
+        self._set_mode_switch_index(MODE_MISSION_CONTROL)
         self._apply_mode()
         self.mode_changed.emit(MODE_MISSION_CONTROL)
 

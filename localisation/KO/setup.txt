@@ -1,0 +1,85 @@
+[backend]
+cb_isaac = Isaac Lab 통합 활성화
+cb_isaac_tip = Isaac Lab은 NVIDIA Isaac Sim을 통해 GPU 가속 시뮬레이션을 제공합니다. 지금 설치하거나 기존 설치 경로를 지정할 수 있습니다.
+cb_loco = loco-mujoco 참조 모션 라이브러리 다운로드
+cb_loco_tip = 보행 훈련을 위한 커뮤니티 참조 모션 라이브러리입니다. github.com/robfiras/loco-mujoco에서 클론됩니다.
+cb_mujoco = MuJoCo 설치 (pip 패키지)
+cb_mujoco_tip = MuJoCo 기반 시뮬레이션 및 훈련에 필요합니다.
+cb_ros2 = ROS2 지원 설치
+cb_ros2_tip = ROS2 기반 브랜드(예: Unitree Go2, Mangdang Mini Pupper, …)를 활성화합니다. 네이티브 ROS2 Humble 설치가 있으면 재사용하고, 없으면 Docker 브리지 이미지를 빌드합니다.
+cloud_auth = 인증:
+cloud_auth_key = SSH 키
+cloud_auth_pwd = 비밀번호
+cloud_hint = 원격 GPU 서버의 SSH 연결 정보를 입력하세요. Isaac Lab은 SSH + SFTP로 설치됩니다.
+cloud_host = 호스트:
+cloud_key_file = 키 파일:
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	요구사항: Ubuntu 22.04+, NVIDIA GPU, CUDA 12.x, 약 30 GB 디스크
+cloud_password = 비밀번호:
+cloud_port = 포트:
+cloud_remote_path = 원격 경로:
+cloud_server_name = 서버 이름:
+cloud_user = 사용자 이름:
+custom_mod_already_installed = (이미 설치됨)
+custom_mod_required_suffix = ({templates}에 필요)
+custom_mod_required_tip = 다음 canvas 템플릿에서 필요합니다: {templates}. 나열된 템플릿을 사용할 계획이 없다면 선택 해제하세요 — 그렇지 않으면 템플릿이 로드되지 않습니다.
+custom_mods_hint = 커뮤니티 참조 모션/AMP 리포지토리로, 각각 custom_mods/motions/에 shallow-clone됩니다. 'required'로 표시된 항목은 함께 제공되는 canvas 템플릿에서 필요하므로 체크를 해제하지 마세요 — 그렇지 않으면 템플릿이 로드되지 않습니다.
+group_custom_mods = 참조 모션 라이브러리
+group_isaac = Isaac Lab (NVIDIA)
+group_mujoco = MuJoCo
+group_ros2 = ROS2
+hint = 훈련과 실행을 위한 시뮬레이션 백엔드를 구성합니다. 설정 속도를 높이려면 필요하지 않은 항목의 선택을 해제하세요.
+install_hint = 설치 디렉터리를 선택하세요. Isaac Lab과 Isaac Sim은 이 디렉터리 내에 전용 venv로 설치됩니다.
+install_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	디스크: 약 30 GB | 요구사항: CUDA 12.x 드라이버가 설치된 NVIDIA GPU
+isaac_install_dir_ph = 설치 디렉터리 ...
+isaac_invalid = 이 경로에서 Isaac Lab을 확인할 수 없습니다 -- isaaclab.sh/bat 또는 source/ 디렉터리가 필요합니다
+isaac_locate_dir_ph = Isaac Lab 루트 디렉터리 ...
+isaac_valid = 유효한 Isaac Lab 설치가 감지되었습니다
+rb_isaac_cloud = 원격 Linux 서버에 Isaac Lab 배포 (SSH)
+rb_isaac_install = Isaac Lab + Isaac Sim 설치 (처음부터)
+rb_isaac_locate = 기존 Isaac Lab 설치 위치 찾기
+ros2_note = 네이티브 ROS2 설치를 자동으로 감지합니다(가능하면 Humble). 설치가 없으면 UnitPort Docker 브리지 이미지가 대신 빌드됩니다 — 이 경우 Docker Desktop / Docker Engine이 실행 중이어야 합니다.
+title = 백엔드 환경
+
+[data_dir]
+btn_browse = 찾아보기 ...
+hint = Choose where UnitPort stores all per-user data: projects, exported policies, login tokens, telemetry caches, downloaded engines, and the user.ini overlay. The application install folder is never written to at runtime, so this directory is what survives across redeploys / git pulls. You must pick an absolute path — there is no built-in default.
+label_dir = UserConfig 디렉터리:
+note = 이 경로는 WORKSPACE 루트입니다: 계정별 폴더가 그 하위에 위치합니다(로그인한 사용자 당 하나 및 _guest/ 포함). 충분한 여유 공간이 있는 절대 경로를 선택하세요(엔진 다운로드는 30 GB를 초과할 수 있습니다).
+placeholder = 절대 경로를 선택하세요 (예: D:\UnitPort)
+status_custom_create = 워크스페이스 위치 — {path}에 생성됩니다
+status_custom_exists = 워크스페이스 위치 — 이미 {path}에 존재합니다
+status_invalid = 유효하지 않은 경로
+status_relative = 경로는 절대 경로여야 합니다(값: {path}).
+status_required = 필수 — 워크스페이스 루트에 대한 절대 경로를 선택하세요.
+title = 데이터 디렉터리
+btn_reset = 기본값으로 재설정
+status_default = 기본 위치 사용 중.
+
+[language]
+hint = UnitPort의 기본 언어를 선택하세요. 사이드바에서 나중에 변경할 수 있습니다.
+ok = 계속
+title = 언어 선택
+
+[menagerie]
+btn_deselect_all = 모두 선택 해제
+btn_refresh = GitHub에서 새로 고침
+btn_select_all = 모두 선택
+hint = mujoco_menagerie에서 필요한 로봇 모델을 선택하세요. UnitPort에서 지원하는 모델은 미리 선택되어 있습니다. 나머지는 선택 사항입니다.
+loading = GitHub에서 모델 목록을 불러오는 중 …
+title = MuJoCo Menagerie 모델
+
+[sdk]
+hint = 다운로드할 로봇 SDK 패키지를 선택하세요. 체크된 항목만 클론됩니다. 추가 패키지는 나중에 설정에서 설치할 수 있습니다.
+title = SDK 패키지
+
+[wizard]
+btn_back = 뒤로
+btn_finish = 완료
+btn_next = 다음
+btn_skip = 설정 건너뛰기
+header_subtitle = 설치할 구성 요소를 선택하세요. 이후 설정에서 변경할 수 있습니다.
+header_title = UnitPort 설정
+window_title = UnitPort — 사용자 지정 설정
+

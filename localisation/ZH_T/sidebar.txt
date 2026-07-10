@@ -1,0 +1,69 @@
+[fullscreen]
+tip = 全螢幕
+short = 全螢幕
+
+[language]
+tip = 語言
+short = 語言
+
+[settings]
+tip = 設定
+short = 設定
+
+[update]
+tip_latest = 您目前為最新版本
+tip = 更新
+short_latest = 最新
+short_needed = 更新
+tip_needed = 有新版本可用 — 點擊以套用
+
+[training]
+tip = 專案與全域腳本
+short = 訓練
+title = 訓練腳本
+
+[observations]
+tip = 觀察預設模組
+short = 觀察
+title = 觀察
+
+[terminations]
+tip = 終止預設模組
+short = 終止條件
+title = 終止條件
+
+[rewards]
+tip = 獎勵預設模組
+short = 獎勵
+title = 獎勵
+
+[resources]
+tip = 第三方動作資料集與策略套件
+short = 資源
+title = 資源
+
+[controller]
+tip = 控制器
+short = 控制器
+title = 控制器
+
+[robot_assets]
+tip = 機器人資產
+short = 機器人
+title = 機器人資產
+
+[projects]
+tip = 專案檔案
+short = 專案
+title = 專案檔案
+
+[node_library]
+tip = 節點庫
+short = 節點
+title = 節點庫
+
+[user]
+tip = 使用者
+short = 使用者
+title = 使用者
+

@@ -1,0 +1,11 @@
+[default]
+edit_tip = Klicken, um diesen Clip zuzuschneiden / zu kennzeichnen
+segment_tip = Dieses Segment öffnen
+col_name = Clip
+col_tag = Tag
+col_frames = Frames
+col_duration = Dauer
+col_segments = Segmente
+col_action = 
+crop = Zuschneiden / Beschriften
+

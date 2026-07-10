@@ -1,16 +1,19 @@
 [default]
-ir_role_picker_unavailable = 无法打开 IR 角色选单
-joint_pose_editor_unavailable = 无法打开关节角度编辑器
+ir_role_picker_unavailable = Cannot open IR role menu
+joint_pose_editor_unavailable = Cannot open joint angle editor
 replace_canvas_text = Loading template '{tpl}' will replace all nodes and edges in '{name}'. Continue?
 replace_canvas_title = Replace canvas content
-review_pose_unavailable = 无法启动 Review Pose
+review_motion_no_clip = No reference clip is selected for this training item — pick a clip in the Clip dropdown before reviewing.
+review_motion_no_robot = No Robot node is bound to this canvas. Review Motion needs the robot MJCF to replay the reference motion — connect a Robot node first.
+review_motion_unavailable = Cannot start Review Motion
+review_pose_unavailable = Cannot start Review Pose
 unsaved_text = {name} has unsaved changes. Save before continuing?
 unsaved_title = Unsaved changes
 pd_table_no_sku = The Robot Node has no valid robot bound (asset_id). Select a robot in the Robot Asset card first.
 pd_table_unavailable = Cannot open PD panel
-registry_preset_apply_failed = Preset 应用失败
-registry_preset_picker_empty = 该家族没有可选 preset
-registry_preset_picker_empty_detail = family={family} 在 registry={registry} 里没有声明 preset。
-registry_preset_picker_unavailable = 无法打开 Preset 选单
-registry_preset_picker_unknown = 未知 registry={key!r}；支持的 registry: {keys}
+registry_preset_apply_failed = Failed to apply Preset
+registry_preset_picker_empty = This family has no available presets
+registry_preset_picker_empty_detail = family={family} has no declared preset in registry={registry}.
+registry_preset_picker_unavailable = Cannot open Preset menu
+registry_preset_picker_unknown = Unknown registry={key!r}; supported registries: {keys}
 

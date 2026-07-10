@@ -1,0 +1,11 @@
+[default]
+title = 资产归类
+hint = 选择资产类型与目标机器人家族。你的选择会被记录,等后端轮接入后生效。
+kind = 资产类型
+family = 机器人家族
+family_any = (任意)
+ok = 记录
+cancel = 取消
+recorded = 已记录归类。尚未生效 — 后端轮会把资产路由进正确的注册表。
+err_kind = 请选择资产类型。
+

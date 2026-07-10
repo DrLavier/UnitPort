@@ -1,0 +1,23 @@
+[default]
+asset_path = 資產：{path}
+col_ir = IR 角色
+col_joint = 實體關節
+coverage_gap = ⚠ 跨格式差異 — 不可用：{affected}
+coverage_ok = ✓ MJCF 與 USD 一致 — 兩個部署目標皆可用
+coverage_single = 只宣告了一種格式；跳過跨格式檢查
+height_na = 基底高度偏移：不適用（單一格式設定）
+height_uncalibrated = 基底高度偏移：（未校準 — 在機器人資產卡片上執行「校準」）
+height_value = 基底高度偏移（USD↔MJCF）：{offset}  ·  已校準 {ts}
+legend = 列顏色：<span style='color:#4caf50'>■ 已對應</span> · <span style='color:#ff9800'>■ 孤立（僅此格式）</span> · <span style='color:#f44336'>■ 未映射（IR 角色為空）</span> · <span style='color:#9e9e9e'>■ 雜項（感測器 / 基座）</span>
+mjcf = MJCF (MuJoCo 部署)
+no_rows = (未匯出關節 — 在機器人資產卡片上點選 Dump)
+row_summary = 總計：{total}  ·  已對應：{m}  ·  孤立：{o}  ·  未映射：{u}  ·  雜項：{b}
+title = 關節對應 — {name} (sku={sku})
+usd = USD (IsaacSim / 雲端部署)
+
+[tooltip]
+bucket = Bucket 角色（雜項 / 感測器* / 底座）— 在格式間合法地重複或不同；被覆蓋率檢查忽略。
+matched = IR 角色同時存在於 MJCF 與 USD 表格中 — 套件可順利部署。
+orphan = IR 角色僅在此格式中宣告 — 另一部署目標不會套用此關節。
+unmapped = 已匯出實體關節但未指派 IR 角色。請開啟機器人節點本體對應表，並在訓練前指派一個。
+

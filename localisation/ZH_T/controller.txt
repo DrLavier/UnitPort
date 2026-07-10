@@ -1,0 +1,58 @@
+[conflict]
+action = 系統動作
+channel = 指令通道
+msg = {input} 已經綁定到 {owner}（{cat}）。一個實體輸入僅能有一個綁定 — 請先在那裡解除綁定，然後再試一次。
+title = 綁定衝突
+trigger = 技能觸發
+
+[default]
+axis_unbound = —（未綁定）
+button_unbound = —（未綁定）
+channel_not_bindable = —（尚不可綁定）
+invert_vy = 反轉 vy
+invert_vyaw = 反轉 vyaw
+reset = 重置
+off_hint = 輸入已停用。請在上方選擇「鍵盤」或「遊戲手把」。
+policy_channels = 策略命令通道
+system_actions = 按鈕 → 系統動作
+system_actions_keys = 按鍵 → 系統動作
+stale_channels = 已儲存的綁定不屬於此合約
+no_policy_hint = 未載入任何策略。在 Training Motion 節點上建立的技能，只有在你訓練並匯出策略，然後在 Mission Control · Simulate 中選取後，才會在此處成為可綁定的通道 — 觸發器代表經訓練的行為，而非僅是按鍵對應。下方按鈕為系統動作（增壓 / 急停 / …）：它們始終可用，與任何策略分離，這也是它們不放在 Training Motion 節點上的原因。
+no_contract_hint = 此策略沒有命令通道 — 在 Training Motion 節點上撰寫速度命令或技能後，請重新匯出 bundle。
+legacy_contract_hint = 已載入的策略包含舊版 commands 區塊 — 請重新匯出 bundle 以在此綁定命令通道。
+
+[latch]
+hold = 按住（按住時）
+pulse = 短按（按一次）
+unsupported = （訓練端未提供）
+
+[pick]
+button = 按鈕
+mode = 模式
+
+[axis]
+left_stick_x = 左搖桿 X
+left_stick_y = 左搖桿 Y
+right_stick_x = 右搖桿 X
+right_stick_y = 右搖桿 Y
+
+[kb]
+forward = 前進
+backward = 後退
+strafe_left = 向左平移
+strafe_right = 向右平移
+yaw_left = 向左偏航
+yaw_right = 向右偏航
+estop = 緊急停止
+boost = 增壓
+
+[mode_btn]
+off = 關閉
+keyboard = 鍵盤
+gamepad = 遊戲手把
+
+[mode]
+off = 關閉
+keyboard = 鍵盤
+gamepad = 遊戲手把
+

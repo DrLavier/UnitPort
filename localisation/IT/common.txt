@@ -1,0 +1,6 @@
+[default]
+cancel = Annulla
+current_canvas = area di lavoro corrente
+empty = (nessuno)
+ok = OK
+

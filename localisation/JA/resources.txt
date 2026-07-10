@@ -1,0 +1,68 @@
+[default]
+add = オンラインでダウンロード
+add_tip = モーションデータセットまたはポリシーバンドルをダウンロードする
+open_folder = フォルダーを開く
+refresh_tip = custom_mods/ を再スキャン
+remove = 削除
+remove_confirm = このリソースとそのファイルを削除しますか？
+section = サードパーティのリソース
+remove_tip = この項目を削除します（ディスク上のツリーも含む）
+open_folder_tip = ファイルマネージャでアセットフォルダを表示
+retry = 再試行
+empty_motion = モーションデータセットはまだありません — 「リソースを追加…」をクリックしてダウンロードしてください
+empty_policy = ポリシーバンドルはまだありません — 「リソースを追加…」をクリックしてダウンロードしてください
+empty_model = 登録されたロボットモデルがありません
+empty_canvas = キャンバステンプレートが見つかりません
+unindexed = インポート済み
+classify = 分類…
+
+[dialog]
+cancel = キャンセル
+name_label = 表示名（任意）
+ok = ダウンロード
+revision_placeholder = ブランチ / タグ / コミット / HF リビジョン
+subpath_placeholder_github = 例：datasets/mocap_motions
+subpath_placeholder_huggingface = 許可するパターン（例: *.json, *.txt）
+title = リソースを追加
+url_label = URL またはリポジトリIDが必要です。
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name（または完全な HF URL）
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = アセット種別
+transport_label = ソース
+revision_label = リビジョン（任意）
+subpath_label = サブパス（任意）
+
+[kind]
+canvas = キャンバス
+model = モデル
+motion = モーション
+policy = ポリシー
+
+[status]
+missing = 見つかりません
+local = ローカル
+downloading = ダウンロード中
+error = エラー
+
+[card]
+source = ソース
+revision = リビジョン
+subpath = サブパス
+downloaded_at = ダウンロード済み
+size = サイズ
+package = パッケージ
+subdir = サブディレクトリ
+clips = クリップ
+sku = SKU
+brand = ブランド
+model = モデル
+families = ファミリー
+backend = バックエンド
+path = パス
+
+[transport]
+github_clone = GitHub
+github_release = リリース
+huggingface = HuggingFace
+

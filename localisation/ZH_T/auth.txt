@@ -1,0 +1,58 @@
+[default]
+busy_linking = 正在連結 {provider} 帳戶...
+busy_oauth = 等待瀏覽器確認...
+busy_sending_reset = 正在傳送重設郵件...
+busy_signing_in = 正在登入...
+busy_signing_up = 正在建立帳戶...
+close_button = 關閉
+confirm_password_label = 確認密碼
+continue_github = 使用 GitHub 繼續
+continue_google = 使用 Google 繼續
+continue_with = 或使用其他方式繼續
+dialog_title = UnitPort 帳戶
+email_label = 電子郵件
+email_placeholder = you@example.com
+error_email_rate_limited = 請求過多。請等一分鐘後再試。
+error_email_taken = 已有使用該電子郵件的帳戶。
+error_empty_email = 電子郵件為必填項。
+error_empty_password = 密碼為必填項。
+error_generic = 登入失敗：{message}
+error_invalid_credentials = 電子郵件或密碼不正確。
+error_network = 網路錯誤 — 請檢查您的連線。
+error_password_mismatch = 密碼不一致。
+error_password_too_short = 密碼至少要有 6 個字元。
+forgot_password = 忘記密碼？
+identity_conflict_body = 無法連結 {provider}。
+	
+	該帳戶已屬於另一位 UnitPort 使用者，Supabase 無法合併兩個已存在的帳戶。
+	
+	您可以改為直接使用 {provider} 登入，或嘗試其他 {provider} 帳戶。
+	
+	提供者訊息：{message}
+identity_conflict_switch = 改為使用 {provider} 登入
+identity_conflict_title = 此身份已在使用中。
+info_email_confirmation = 帳戶已建立。請檢查 {email} 以確認您的地址。
+password_label = 密碼
+password_placeholder = 至少 6 個字元
+sidebar_sign_in_button = 登入
+sidebar_sign_out = 登出
+sidebar_signed_out_hint = 登入 UnitPort
+sign_in_button = 登入
+sign_up_button = 建立帳戶
+tab_sign_in = 登入
+tab_sign_up = 註冊
+restart_body_signin = 已以 {email} 登入。現在重新啟動 UnitPort 以載入此帳戶的工作區嗎？
+restart_body_signout = 已登出。現在重新啟動 UnitPort 以回到訪客工作區嗎？
+restart_button_later = 稍後
+restart_button_now = 立即重新啟動
+restart_title = 需要重新啟動
+busy_unlinking = 正在解除連結...
+busy_setting_password = 正在更新密碼...
+busy_changing_email = 正在傳送驗證...
+error_oauth_busy = 另一個登入操作正在進行中，請稍候。
+error_single_identity_not_deletable = 無法解除唯一登入方式的連結。
+error_identity_already_exists = 此帳戶已連結至其他使用者。
+info_email_change_pending = 驗證郵件已寄出。請點擊郵件中的連結以確認變更。
+info_password_updated = 密碼已更新。
+info_unlink_current_provider = 您已取消連結目前的登入方式。您可能很快會被登出。
+

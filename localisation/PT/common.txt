@@ -1,0 +1,6 @@
+[default]
+cancel = Cancelar
+current_canvas = tela atual
+empty = (nenhum)
+ok = OK
+

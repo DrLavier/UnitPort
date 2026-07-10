@@ -1,0 +1,7 @@
+[default]
+headline = التصيير أثناء التدريب بوضع العرض (headed) يمر عبر فتحة GPU BAR1، التي تبدو ضيّقة/مشبعة لهذه الجلسة. قد يتسبّب ذلك في تعطل مع خطأ device-lost على GPU.
+title_block = من المرجح أن يتعطل التدريب (GPU BAR1)
+title_warn = تحذير ذاكرة GPU (BAR1)
+btn_continue = المتابعة على أي حال
+btn_abort = إلغاء
+

@@ -403,6 +403,129 @@ class PerItemObsSpec:
 
 
 @dataclass
+class PolicyContractSpec:
+    """Policy-defining contract snapshot (B1, adapted from UniLab's contract_snapshot).
+
+    Makes the bundle self-describing for every field that defines the policy's
+    I/O and network, so a deploy / sim2sim runtime can fail loud on the
+    load-checkable mismatches and WARN on non-load-checkable drift instead of
+    silently replaying an out-of-distribution policy. Additive +
+    version-orthogonal: parsed whenever present; absent ⇒ a legacy bundle
+    predating B1 → the load gate skips with a WARN + re-export directive
+    (CLAUDE.md §8(c)). schema_version stays 2 (gated on presence, not version).
+
+    Two tiers, mirroring UniLab's DENYLIST / WARNING split:
+      * load-checkable (CompatibilityChecker FAILs on mismatch): ``policy_input_dim``
+        (== bundle.obs_dim), ``policy_output_dim`` (== bundle.action_dim),
+        ``recurrent_shape`` (mirrors ``DeployContract.recurrent``).
+      * informational (the loader WARNs on drift — a frozen ONNX/TS graph can't
+        be introspected for these): network arch, normalization descriptor,
+        ``inference_convention`` / ``joint_array_format`` (mirror of the manifest
+        top-level), AMP discriminator dims.
+    """
+
+    # — load-checkable (FAIL tier) —
+    policy_input_dim: int
+    policy_output_dim: int
+    recurrent_shape: Optional[Dict[str, Any]] = None  # {rnn_type, hidden_size, num_layers}
+
+    # — informational (WARN tier) —
+    actor_hidden_dims: List[int] = field(default_factory=list)
+    critic_hidden_dims: List[int] = field(default_factory=list)
+    activation: str = ""
+    init_noise_std: float = 0.0
+    normalization_present: bool = False
+    normalization_kind: str = "none"  # "vec_normalize" | "rsl_rl_obs_norm" | "none"
+    inference_convention: str = ""
+    joint_array_format: str = ""
+    discriminator_hidden_dims: Optional[List[int]] = None
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "PolicyContractSpec":
+        if not isinstance(raw, dict):
+            raise ValueError(
+                f"deploy_contract.policy_contract: expected dict, got {type(raw).__name__}"
+            )
+        # The load-checkable dims are required + must be positive — a snapshot
+        # that can't actually be checked is worse than none (§8).
+        try:
+            policy_input_dim = int(raw["policy_input_dim"])
+            policy_output_dim = int(raw["policy_output_dim"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "deploy_contract.policy_contract: policy_input_dim and "
+                "policy_output_dim are required positive ints"
+            ) from exc
+        if policy_input_dim <= 0 or policy_output_dim <= 0:
+            raise ValueError(
+                f"deploy_contract.policy_contract: policy_input_dim "
+                f"({policy_input_dim}) and policy_output_dim ({policy_output_dim}) "
+                f"must be positive"
+            )
+        rec_raw = raw.get("recurrent_shape")
+        recurrent_shape: Optional[Dict[str, Any]] = None
+        if rec_raw is not None:
+            if not isinstance(rec_raw, dict):
+                raise ValueError(
+                    "deploy_contract.policy_contract.recurrent_shape: expected dict"
+                )
+            recurrent_shape = {
+                "rnn_type": str(rec_raw.get("rnn_type", "")).strip().lower(),
+                "hidden_size": int(rec_raw.get("hidden_size", 0)),
+                "num_layers": int(rec_raw.get("num_layers", 0)),
+            }
+        disc_raw = raw.get("discriminator_hidden_dims")
+        return cls(
+            policy_input_dim=policy_input_dim,
+            policy_output_dim=policy_output_dim,
+            recurrent_shape=recurrent_shape,
+            actor_hidden_dims=[int(x) for x in (raw.get("actor_hidden_dims") or [])],
+            critic_hidden_dims=[int(x) for x in (raw.get("critic_hidden_dims") or [])],
+            activation=str(raw.get("activation", "") or ""),
+            init_noise_std=float(raw.get("init_noise_std", 0.0) or 0.0),
+            normalization_present=bool(raw.get("normalization_present", False)),
+            normalization_kind=str(raw.get("normalization_kind", "none") or "none"),
+            inference_convention=str(raw.get("inference_convention", "") or ""),
+            joint_array_format=str(raw.get("joint_array_format", "") or ""),
+            discriminator_hidden_dims=(
+                [int(x) for x in disc_raw] if isinstance(disc_raw, list) else None
+            ),
+        )
+
+    def to_dict(self) -> dict:
+        out: Dict[str, Any] = {
+            "policy_input_dim": int(self.policy_input_dim),
+            "policy_output_dim": int(self.policy_output_dim),
+        }
+        if self.recurrent_shape is not None:
+            out["recurrent_shape"] = {
+                "rnn_type": str(self.recurrent_shape.get("rnn_type", "")),
+                "hidden_size": int(self.recurrent_shape.get("hidden_size", 0)),
+                "num_layers": int(self.recurrent_shape.get("num_layers", 0)),
+            }
+        if self.actor_hidden_dims:
+            out["actor_hidden_dims"] = [int(x) for x in self.actor_hidden_dims]
+        if self.critic_hidden_dims:
+            out["critic_hidden_dims"] = [int(x) for x in self.critic_hidden_dims]
+        if self.activation:
+            out["activation"] = str(self.activation)
+        if self.init_noise_std:
+            out["init_noise_std"] = float(self.init_noise_std)
+        if self.normalization_present:
+            out["normalization_present"] = True
+            out["normalization_kind"] = str(self.normalization_kind)
+        if self.inference_convention:
+            out["inference_convention"] = str(self.inference_convention)
+        if self.joint_array_format:
+            out["joint_array_format"] = str(self.joint_array_format)
+        if self.discriminator_hidden_dims is not None:
+            out["discriminator_hidden_dims"] = [
+                int(x) for x in self.discriminator_hidden_dims
+            ]
+        return out
+
+
+@dataclass
 class DeployContract:
     """Single source of truth for sim2sim deployment numerics.
 
@@ -518,6 +641,12 @@ class DeployContract:
     # schema_version stays 2 (gated on presence, not version).
     articulation_joint_order: Optional[List[str]] = None
     joint_order_source: Optional[str] = None
+    # B1 — policy-defining contract snapshot. Self-describes the policy I/O dims
+    # + network arch + normalization + convention mirrors so the load gate can
+    # fail loud on dim mismatches and WARN on drift. Additive + version-
+    # orthogonal (gated on presence): absent ⇒ legacy bundle predating B1 → the
+    # load gate skips with a re-export WARN. schema_version stays 2.
+    policy_contract: Optional["PolicyContractSpec"] = None
 
     # ------------------------------------------------------------------
     # Construction
@@ -728,6 +857,35 @@ class DeployContract:
                 f"deploy_contract.commands: expected dict, "
                 f"got {type(commands_raw).__name__}"
             )
+        if commands_raw:
+            if "contract_version" in commands_raw:
+                # v1 command contract — validate strictly (a present-but-
+                # broken contract is an export bug, mirroring
+                # build_command_mapper's stance) and cross-check against the
+                # per-item obs tail so the two blocks cannot drift after a
+                # hand edit. Storage stays the raw dict: the CommandMapper
+                # and the controller binding panel read it directly.
+                from application.training.command_schema import (
+                    CommandContract as _CommandContract,
+                    validate_per_item_obs_subset as _validate_pio_subset,
+                )
+                _CommandContract.from_dict(commands_raw)
+                pio_raw = raw.get("per_item_obs")
+                if isinstance(pio_raw, dict):
+                    _validate_pio_subset(commands_raw, pio_raw)
+            else:
+                # WHY KEPT: §8(c) on-disk legacy — bundles exported before
+                # the v1 CommandContract carry the 6-key velocity-only
+                # channel entries. The CommandMapper consumes them
+                # unchanged (velocity-only v0 contract); everything the v1
+                # block adds (defaults, sources, obs encodings, suggested
+                # bindings) is absent, so contract-driven UI degrades.
+                log.warning(
+                    "DeployContract.from_dict: legacy velocity-only "
+                    "'commands' block (no contract_version) — loading as a "
+                    "v0 contract. Re-export the bundle to embed the full "
+                    "v1 command contract."
+                )
 
         base_body_name = str(raw.get("base_body_name", "") or "")
 
@@ -1203,6 +1361,12 @@ class DeployContract:
                 str(raw["joint_order_source"])
                 if raw.get("joint_order_source") is not None else None
             ),
+            # B1 — policy contract snapshot (additive + version-orthogonal):
+            # parsed whenever present; a corrupt block raises (§8).
+            policy_contract=(
+                PolicyContractSpec.from_dict(raw["policy_contract"])
+                if raw.get("policy_contract") is not None else None
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -1268,6 +1432,8 @@ class DeployContract:
             out["articulation_joint_order"] = list(self.articulation_joint_order)
         if self.joint_order_source is not None:
             out["joint_order_source"] = str(self.joint_order_source)
+        if self.policy_contract is not None:
+            out["policy_contract"] = self.policy_contract.to_dict()
         return out
 
     # ------------------------------------------------------------------

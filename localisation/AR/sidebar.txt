@@ -1,0 +1,69 @@
+[fullscreen]
+tip = ملء الشاشة
+short = ملء الشاشة
+
+[language]
+tip = اللغة
+short = اللغة
+
+[settings]
+tip = الإعدادات
+short = الإعدادات
+
+[update]
+tip_latest = أنت على أحدث إصدار
+tip = تحديث
+short_latest = الأحدث
+short_needed = تحديث
+tip_needed = إصدار جديد متوفر — انقر لتطبيقه
+
+[training]
+tip = سكريبتات المشروع + سكريبتات عالمية
+short = التدريب
+title = نصوص التدريب
+
+[observations]
+tip = وحدات إعداد الملاحظات المسبقة
+short = الملاحظات
+title = الملاحظات
+
+[terminations]
+tip = وحدات إعداد الإنهاء المسبقة
+short = إنهاءات
+title = إنهاءات
+
+[rewards]
+tip = وحدات إعداد المكافآت المسبقة
+short = المكافآت
+title = المكافآت
+
+[resources]
+tip = مجموعات بيانات الحركة من طرف ثالث وحزم السياسات
+short = الموارد
+title = الموارد
+
+[controller]
+tip = المتحكم
+short = المتحكم
+title = المتحكم
+
+[robot_assets]
+tip = أصل الروبوت
+short = الروبوتات
+title = أصل الروبوت
+
+[projects]
+tip = ملفات المشروع
+short = المشاريع
+title = ملفات المشروع
+
+[node_library]
+tip = مكتبة العقد
+short = العقد
+title = مكتبة العقد
+
+[user]
+tip = المستخدم
+short = المستخدم
+title = المستخدم
+

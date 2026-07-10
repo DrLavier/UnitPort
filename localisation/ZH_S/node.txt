@@ -1,0 +1,543 @@
+[note]
+display = 注释
+desc = 画布注释卡片(不执行)。包含标题 + 多行正文,用于在画布上做注释标注。
+
+[actor_setting]
+display = 角色设置
+desc = 角色模块：初始姿态 / 接触 / 执行器 / 动作空间 / 课程
+param.init_pos_x = 初始 X 位置
+param.init_pos_y = 初始 Y 位置
+param.init_pos_z = 初始 Z 位置
+param.init_joint_angles = 初始关节角
+param.contact_body_names = 接触 body
+param.contact_history_length = 接触历史长度
+param.contact_track_air_time = 追踪空中时间
+param.stiffness = 刚度
+param.damping = 阻尼
+param.effort_limit = 扭矩上限
+param.velocity_limit = 速度上限
+param.action_joint_names_expr = 动作关节
+param.action_scale = 动作缩放
+param.action_use_default_offset = 默认 offset
+param.action_scale_curriculum_enabled = 启用缩放课程
+param.action_scale_curriculum_start = 课程起始
+param.action_scale_curriculum_end = 课程结束
+param.action_scale_curriculum_ramp_iters = 课程迭代数
+port.robot_pipe = 机器人管线
+port.joint_init = 关节初始化
+port.actor_pipe = 角色管线
+
+[algorithm_config]
+display = 算法配置
+desc = 强化学习算法 + 缓冲区 + 调度
+param.algorithm = 算法
+param.total_timesteps = 总训练步数
+param.learning_rate = 学习率
+param.batch_size = 批大小
+param.gamma = 折扣因子 γ
+param.seed = 随机种子
+param.device = 设备
+param.hidden_dim_1 = 隐藏层 1 维度
+param.hidden_dim_2 = 隐藏层 2 维度
+param.activation = 激活函数
+param.ent_coef = 熵系数
+param.checkpoint_interval = 检查点间隔
+param.resume_mode = 恢复模式
+param.policy_id_out = 输出策略 id
+param.gae_lambda = [PPO] GAE λ
+param.n_steps = [PPO] n_steps
+param.n_epochs = [PPO] n_epochs
+param.lr_schedule = [PPO] 学习率调度
+param.gradient_steps = [Off] 梯度步数
+param.tau = [Off] 软更新 τ
+param.target_entropy = [SAC] 目标熵
+param.buffer_size_mode = [Off] Buf 模式
+param.buffer_size = [Off] Buf 容量
+param.learning_starts = [Off] 学习起始
+param.use_per = [Off] 启用 PER
+param.per_alpha = [PER] α
+param.per_beta = [PER] β
+param.collapse_guard = 崩溃保护
+param.collapse_threshold = 崩溃阈值
+param.collapse_patience = 崩溃容忍 epoch
+param.collapse_lr_factor = 崩溃后 LR 乘子
+param.collapse_max_rollbacks = 最大回滚次数
+port.checkpoint = 检查点
+port.total_steps = 总步数
+port.algo_config = 算法配置
+
+[amp_trainer]
+display = AMP 训练器
+desc = Isaac Lab AMP_PPO 训练器（IL PPO Trainer 在 AMP_PPO 模式下的别名）
+param.training_mode = 训练模式
+param.num_envs = 并行 env
+param.max_iterations = 最大迭代
+param.num_steps_per_env = 每 env 步数
+param.num_learning_epochs = PPO 学习轮次
+param.num_minibatches = PPO 小批次数
+param.learning_rate = 学习率
+param.discount_factor = 折扣因子 γ
+param.gae_lambda = GAE λ
+param.clip_param = PPO clip ε
+param.entropy_coef = 熵系数
+param.value_loss_coef = 价值损失权重
+param.max_grad_norm = 梯度裁剪上限
+param.schedule = 学习率调度
+param.desired_kl = 自适应 KL 目标
+param.save_interval = 检查点间隔
+param.seed = 随机种子
+param.headless = 无头模式
+param.amp_reward_coef = [AMP] 奖励权重
+param.task_reward_lerp = [AMP] 奖励插值
+param.disc_grad_penalty = [AMP] 梯度惩罚
+param.disc_label_smoothing = [AMP] 标签平滑
+param.amp_replay_buffer_size = [AMP] 回放容量
+param.num_preload_transitions = [AMP] 预加载数
+param.disc_lr = [AMP] 判别器 学习率
+param.lerp_schedule = [AMP] 线性插值预设
+param.lerp_schedule_json = [AMP] 线性插值 JSON
+param.entropy_schedule_enabled = 启用熵退火
+param.entropy_schedule_start = 熵起始值
+param.entropy_schedule_end = 熵终值
+param.entropy_schedule_ramp_iters = 熵退火迭代次数
+port.policy = 策略
+port.total_reward = 总奖励
+port.termination_config = 终止配置
+port.domain_rand_config = 域随机化配置
+port.obs_vector = 观测向量
+port.scene_pipe = 场景管线
+port.checkpoint = 检查点
+port.reference_motion_config = 参考动作配置
+port.init_pose_config = 初始姿态配置
+port.discriminator_config = 判别器配置
+port.train_pipe = 训练管线
+port.training_metrics = 训练指标
+
+[base_asset]
+display = 基础资产
+desc = 机器人基础资产与起始点
+param.start_point = 起点令牌
+param.asset_id = 资产 ID
+param.checkpoint_file = 检查点路径
+param.load_mode = 加载模式
+port.checkpoint = 检查点
+
+[discriminator]
+display = 判别器
+desc = AMP 判别器网络与奖励塑形
+param.disc_modules = 判别器模块
+param.disc_hidden_dims = 判别器隐藏维度
+param.amp_reward_coef = AMP 奖励权重
+param.task_reward_lerp = 奖励插值
+param.lerp_schedule = lerp 预设
+param.lerp_schedule_json = lerp JSON
+param.disc_lr = 判别器 LR
+param.disc_grad_penalty = 梯度惩罚
+param.disc_label_smoothing = 判别器标签平滑
+param.amp_replay_buffer_size = AMP 回放容量
+param.num_preload_transitions = 预加载数
+param.amp_obs_fields = AMP 观测字段
+param.auto_inject_ref_obs = 注入参考观测
+param.disc_logit_clamp_max = logit 上限
+param.reward_clamp_per_step = reward 上限
+param.policy_std_clamp_max = 策略 std 上限
+port.reference_motion_config = 参考动作配置
+port.discriminator_config = 判别器配置
+
+[domain_rand]
+display = 域随机化
+desc = 域随机化（受后端限制：SB3 / Isaac Lab）
+param.backend = 训练后端
+param.rand_schedule = DR 强度调度
+param.rand_schedule_start_step = DR 起始全局步
+param.rand_schedule_end_step = DR 满强度全局步
+param.enabled = [SB3] 启用
+param.mass_range = [SB3] 质量范围
+param.friction_range = [SB3] 摩擦范围
+param.motor_strength_range = [SB3] 扭矩缩放
+param.joint_damping_range = [SB3] 阻尼缩放
+param.obs_noise_std = [SB3] 噪声 std
+param.push_robot = [SB3] 推扰启用
+param.push_interval_steps = [SB3] 推扰间隔
+param.push_force_range = [SB3] 推扰力范围
+param.enable_friction_rand = [IL] 摩擦随机化
+param.friction_mode = [IL] 摩擦触发模式
+param.static_friction_range = [IL] 静摩擦范围
+param.dynamic_friction_range = [IL] 动摩擦范围
+param.restitution_range = [IL] 弹性范围
+param.enable_mass_rand = [IL] 质量随机化
+param.mass_mode = [IL] 质量触发模式
+param.mass_operation = [IL] 质量操作
+param.mass_target_body = [IL] 目标 body
+param.mass_offset_range = [IL] 质量偏移
+param.enable_external_push = [IL] 外力推扰
+param.push_mode = [IL] 推扰触发模式
+param.push_interval_range_s = [IL] 推扰间隔 s
+param.push_velocity_x_range = [IL] 推扰 Vx
+param.push_velocity_y_range = [IL] 推扰 Vy
+param.enable_init_pose_rand = [IL] 初始位姿随机
+param.init_pose_mode = [IL] 位姿触发模式
+param.init_pos_x_range = [IL] 初始 X 范围
+param.init_pos_y_range = [IL] 初始 Y 范围
+param.init_yaw_range = [IL] Yaw 范围
+param.enable_joint_noise = [IL] 关节噪声
+param.joint_noise_mode = [IL] 关节噪声模式
+param.joint_pos_noise = [IL] 关节位置噪声
+param.joint_vel_noise = [IL] 关节速度噪声
+port.actor_pipe = 角色管线
+port.domain_rand_config = 域随机化配置
+
+[env_assembler]
+display = 环境组装器
+desc = 组装向量环境包装器和 step_fn
+param.n_envs = 并行 env 数
+param.vec_type = 向量化类型
+param.obs_normalize = 观测归一化
+param.reward_normalize = 奖励归一化
+param.clip_obs = 观测裁剪
+param.clip_reward = 奖励裁剪
+param.action_clip_range = 动作裁剪范围
+param.enable_monitor = 启用 Monitor
+param.time_limit_override = 时限覆盖
+param.eval_disable_rand = 评估禁用 DR
+port.actor_pipe = 角色管线
+port.scene_pipe = 场景管线
+port.command_pipe = 指令管线
+port.physics_config = 物理配置
+port.task_config = 任务配置
+port.obs_action_config = 观测/动作配置
+port.domain_rand_config = 域随机化配置
+port.reference_motion_config = 参考动作配置
+port.init_pose_config = 初始姿态配置
+port.env_config = 环境配置
+
+[eval_config]
+display = 评估配置
+desc = 评估回合数 + 视频录制器
+param.eval_episodes = 评估回合数
+param.deterministic = 确定性策略
+param.success_threshold = 成功阈值
+param.record_video = 录制视频
+param.eval_interval = 评估间隔步数
+param.save_best_model = 保存最佳模型
+param.video_dir = 视频输出目录
+port.eval_config = 评估配置
+
+[export]
+display = 导出
+desc = 打包 + ONNX/TorchScript 导出 + 场景检查
+param.bundle_name = bundle 名
+param.version = 版本
+param.include_onnx = 包含 ONNX
+param.include_torchscript = 包含 TorchScript
+param.include_normalization = 包含归一化
+param.bundle_targets = 导出目标
+param.export_target = [遗留] 导出目标
+param.export_onnx = [遗留] ONNX
+param.export_torchscript = [遗留] TS
+param.include_norm_stats = [遗留] Norm
+param.overwrite = 覆盖同名 bundle
+param.review_backend = 复盘后端
+param.review_scene_id = 复盘场景
+param.review_launch = 复盘启动
+param.auto_import = 自动导入
+param.output_files = 输出文件清单
+param.start_point_compat = 起点兼容性
+manifest.exists_warn = ⚠ 已存在
+manifest.status.exists = 已生成
+manifest.status.planned = 计划中
+manifest.open = 打开
+manifest.placeholder = <未命名>
+compat.title = 起点兼容性
+compat.field.framework = 框架
+compat.field.action_dim = 动作维度
+compat.field.decimation = 降采样倍数
+compat.field.joint_order = 关节顺序
+compat.no_connection = 未连接起点
+port.train_pipe = 训练管线
+port.eval_config = 评估配置
+port.bundle_path = 包路径
+
+[il_observation]
+param.command_injected_obs = 注入观测（命令管道）
+display = IL 观测
+desc = Isaac Lab 观测项与课程
+param.obs_terms = 观测项
+param.critic_privileged_terms = Critic 特权项
+param.enable_corruption = 启用观测噪声
+param.corruption_noise_std = 噪声标准差
+param.obs_noise_curriculum_enabled = 启用噪声课程
+param.obs_noise_curriculum_start = 课程起始倍率
+param.obs_noise_curriculum_end = 课程终止倍率
+param.obs_noise_curriculum_ramp_iters = 课程迭代数
+port.actor_pipe = 角色管线
+port.command_pipe = 指令管线
+port.obs_vector = 观测向量
+
+[il_policy_network]
+display = IL 策略网络
+desc = Isaac Lab MLP actor-critic 网络
+param.actor_hidden_dims = actor 隐藏维
+param.critic_hidden_dims = critic 隐藏维
+param.activation = 激活函数
+param.init_noise_std = 初始动作噪声 std(直接值,1.0=std 1.0)
+param.disc_hidden_dims = [Legacy] 隐藏维
+port.obs_vector = 观测向量
+port.policy = 策略
+
+[il_ppo_trainer]
+display = IL PPO 训练器
+desc = Isaac Lab PPO/AMP_PPO 训练器
+param.training_mode = 训练模式
+param.num_envs = 并行 env
+param.max_iterations = 最大迭代
+param.num_steps_per_env = 每 env 步数
+param.num_learning_epochs = PPO 学习轮次
+param.num_minibatches = PPO 小批次数
+param.learning_rate = 学习率
+param.discount_factor = 折扣因子 γ
+param.gae_lambda = GAE λ
+param.clip_param = PPO clip ε
+param.entropy_coef = 熵系数
+param.value_loss_coef = 价值损失权重
+param.max_grad_norm = 梯度裁剪上限
+param.schedule = 学习率调度
+param.desired_kl = 自适应 KL 目标
+param.save_interval = 检查点间隔
+param.seed = 随机种子
+param.headless = 无头模式
+param.amp_reward_coef = [AMP] 奖励权重
+param.task_reward_lerp = [AMP] 奖励插值
+param.disc_grad_penalty = [AMP] 梯度惩罚
+param.disc_label_smoothing = [AMP] 标签平滑
+param.amp_replay_buffer_size = [AMP] 回放容量
+param.num_preload_transitions = [AMP] 预加载数
+param.disc_lr = [AMP] 判别器 LR
+param.lerp_schedule = [AMP] lerp 预设
+param.lerp_schedule_json = [AMP] lerp JSON
+param.entropy_schedule_enabled = 启用熵退火
+param.entropy_schedule_start = 熵起始值
+param.entropy_schedule_end = 熵终值
+param.entropy_schedule_ramp_iters = 熵退火 iter
+port.policy = 策略
+port.total_reward = 总奖励
+port.termination_config = 终止配置
+port.domain_rand_config = 域随机化配置
+port.obs_vector = 观测向量
+port.scene_pipe = 场景管线
+port.checkpoint = 检查点
+port.reference_motion_config = 参考动作配置
+port.init_pose_config = 初始姿态配置
+port.discriminator_config = 判别器配置
+port.train_pipe = 训练管线
+port.training_metrics = 训练指标
+
+[init_pose]
+display = 初始姿态
+desc = 初始姿态（RSI / 关键帧）
+param.mode = 起始姿态模式
+param.noise_scale = 噪声幅度 (rad)
+param.base_height = 底盘高度
+param.keyframe_name = MJCF 关键帧名
+param.custom_qpos = 自定义 qpos
+param.rsi_prob = RSI 概率
+param.rsi_sample_mode = RSI 采样模式
+port.init_pose_config = 初始姿态配置
+
+[joint_init]
+display = 关节初始化
+desc = 各关节初始角度
+param.angles = 关节名 → 角度
+port.joint_init = 关节初始化
+
+[multigated_reward]
+display = 多门控奖励
+desc = 多阶段门控奖励路由器
+param.max_step_stage0 = 阶段 0 超时
+param.reward_threshold_ratio = 切换阈值比例
+param.min_ep_window = 最小回合窗口
+param.plateau_window = 稳定性窗口
+param.plateau_eps = 稳定性 ε
+param.blend_steps = 切换混合步数
+param.stage_behavior = 阶段行为
+param.ep_reward_window = 回合 reward 窗口
+param.stage1_ratio = 阶段 1 比例
+port.stage_0 = 阶段 0
+port.stage_1 = 阶段 1
+port.total_reward = 总奖励
+port.total_steps = 总步数
+
+[obs_action_config]
+display = 观测/动作配置
+desc = 观测组件 + 动作映射
+param.contract_preset = 契约预设
+param.obs_components = 观测组件
+param.obs_clip_range = 观测裁剪范围
+param.frame_stack = 帧栈深度
+param.action_type = 动作类型
+param.action_scale = 动作缩放
+param.action_clip = 动作裁剪上限
+port.obs_action_config = 观测/动作配置
+
+[physics_config]
+display = 物理配置
+desc = 仿真 dt + 控制 dt + 求解器
+param.sim_dt = 物理步长 (s)
+param.control_dt = 控制步长 (s)
+param.episode_max_steps = 回合最大步数
+param.action_type = 动作类型
+port.robot_pipe = 机器人管线
+port.robot_spec = 机器人规格
+port.physics_config = 物理配置
+
+[play_ground_setting]
+display = 场地设置
+desc = 场景 + 场地 + 摩擦 + 高度扫描
+param.scene_id = 场景 id
+param.scene_type = 场景类型
+param.custom_terrain_path = 地形高度图
+param.custom_terrain_vertical_scale = 高度量化步长
+param.gravity_z = 重力 Z 分量
+param.arena_extent_x = 竞技场 X 范围
+param.arena_extent_y = 竞技场 Y 范围
+param.friction_static = 静摩擦
+param.friction_dynamic = 动摩擦
+param.curriculum_enabled = 启用地形课程
+param.difficulty_levels = 课程难度层数
+param.height_scan_enabled = 启用高度扫描
+param.scan_resolution = 扫描分辨率（m）
+param.scan_size_x = 扫描区域 X（m）
+param.scan_size_y = 扫描区域 Y（m）
+param.sim_dt = 物理步长（s）
+param.gpu_max_rigid_contact_count = GPU 最大接触数
+param.gpu_max_rigid_patch_count = GPU 最大接触片
+port.scene_pipe = 场景管线
+
+[rewards]
+display = 奖励
+desc = 奖励项配置（SB3 / Isaac Lab）
+param.backend = 训练后端
+param.reward_terms = 奖励项字典
+param.std = 全局 std
+param.threshold = 全局 threshold
+port.actor_pipe = 角色管线
+port.command_pipe = 指令管线
+port.total_reward = 总奖励
+covered_lane = 已由 Unconditional 覆盖
+empty_lane = 无奖励——该阶段约束不足
+
+[robot]
+display = 机器人
+desc = 机器人资产 + body 映射 + PD 参数化
+param.asset_id = 资产 id
+param.active_override = 格式覆盖
+param.body_mapping = body→IR 映射
+param.pd_param_mode = PD 模式
+param.pd_groups = PD 关节组
+param.pd_effort_limit = 扭矩上限
+param.pd_velocity_limit = 速度上限
+param.pd_resolve_at_reset = Reset 时重算
+param.pd_calibration_blocking = 校准失败阻断
+param.pd_skip_calibration = 跳过校准
+port.robot_pipe = 机器人管线
+
+[stage_switch]
+display = 阶段切换
+desc = 多阶段课程切换
+param.stages_config = 阶段调度
+param.checkpoint_strategy = 检查点策略
+port.stage_0 = 阶段 0
+port.stage_1 = 阶段 1
+port.stage_2 = 阶段 2
+port.stage_3 = 阶段 3
+port.stage_4 = 阶段 4
+port.stage_5 = 阶段 5
+port.train_pipe = 训练管线
+
+[task_config]
+display = 任务配置
+desc = 强化学习任务定义
+param.task_type = 任务类型
+param.command_mode = 命令模式
+param.target_lin_vel_x = 目标 Vx
+param.target_lin_vel_y = 目标 Vy
+param.target_ang_vel_z = 目标 Wz
+param.curriculum = 启用课程
+param.success_threshold = 成功阈值
+param.truncation_max_steps = 截断最大步数
+param.curriculum_schedule = 课程调度
+param.resampling_time_range = 重采样时间窗
+port.total_reward = 总奖励
+port.termination_config = 终止配置
+port.task_config = 任务配置
+
+[terminations]
+display = 终止条件
+desc = 终止条件
+param.backend = 后端
+param.termination_conditions = 终止条件
+param.termination_curriculum_enabled = 启用终止课程
+param.termination_curriculum_start = 课程起始阈值
+param.termination_curriculum_end = 课程终止阈值
+param.termination_curriculum_ramp_iters = 课程迭代数
+port.termination_config = 终止配置
+
+[train]
+display = 训练
+desc = 顶层训练入口
+port.env_config = 环境配置
+port.algo_config = 算法配置
+port.eval_config = 评估配置
+port.train_config = 训练配置
+port.train_pipe = 训练管线
+port.vis_check = 可视化检查
+
+[training_motion]
+display = 训练动作
+desc = 参考动作 + 指令 + 课程
+param.training_items = 训练项字典
+param.mapping_mode = 命令映射模式
+param.deadzone = 死区
+param.curve_exponent = 曲线指数
+param.runtime_clip = 运行时裁剪
+param.gait_enabled = 启用步态
+param.gait_frequency_range = 步频范围（Hz）
+param.body_height_range = 身体高度范围
+param.step_height_range = 抬腿高度范围
+param.gait_presets = 步态预设
+param.resampling_time_range = 重采样时间范围
+param.cmd_step_change_prob = 每步切换概率
+param.gain_lin_forward = 前进速度上限
+param.gain_lin_backward = 后退速度上限
+param.gain_lin_lateral = 侧向速度上限
+param.gain_yaw = 偏航速度上限
+param.reference_state_init_enabled = 启用 AMP RSI
+param.rsi_prob = RSI 触发概率
+param.rsi_joint_noise = RSI 关节噪声
+param.consumption_mode = 消费模式
+param.phase_mode = 相位模式
+param.motion_fps = 动作片段 FPS
+param.random_start_phase = 随机起始相位
+param.command_curriculum_enabled = 启用命令课程
+param.command_curriculum_start = 课程起始倍率
+param.command_curriculum_end = 课程终止倍率
+param.command_curriculum_ramp_iters = 课程外层迭代
+port.command_pipe = 指令管线
+port.reference_motion_config = 参考动作配置
+
+[vis_check]
+display = 可视化检查
+desc = 可视化合理性检查 / 预览
+param.trigger_mode = 触发模式
+param.vis_start_step = 起始步
+param.vis_interval_steps = 间隔步
+param.num_vis_checks = 总检查次数
+param.vis_episodes = 每次回合数
+param.deterministic = 确定性策略
+port.vis_check = 可视化检查
+
+[example]
+print_hello.display = 示例 hello
+print_hello.desc = 三方节点起步样例 —— 声明一个字符串参数，沿用 BaseNode.execute 默认 passthrough。
+print_hello.param.message = 要打印的消息
+

@@ -1,0 +1,11 @@
+[dtype]
+both = 標量/列表
+list = 列表
+scalar = 標量
+
+[err]
+dup_item = 已存在一個名為 '{name}' 的項目。
+
+[review_motion]
+submitted = Review Motion 已開始（MuJoCo 非物理回放）…
+

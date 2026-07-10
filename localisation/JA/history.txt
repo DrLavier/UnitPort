@@ -1,0 +1,10 @@
+[confirm]
+clear_body = これは <project>/training/runs/ 以下のすべての run ディレクトリと _runs_/ 内のすべての canvas スナップショットを削除します。 この操作は取り消せません。
+clear_title = すべてのトレーニング履歴を消去しますか？
+
+[row]
+delete.tip = この実行を削除
+
+[default]
+clear_all = すべてクリア
+

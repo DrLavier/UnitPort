@@ -1,0 +1,23 @@
+[review]
+actor_line = {actor}
+btn_accept = 수락
+btn_reject = 거부
+btn_reject_all = 모두 거부
+dialog_intro = 로그아웃되어 있는 동안 이 컴퓨터의 다른 사용자가 워크스페이스의 파일을 {n}건 변경했습니다. 각 항목을 검토하고 수락(그들의 변경 유지) 또는 거부(클라우드 복사본에서 복원) 중 하나를 선택하세요.
+dialog_title = 다른 사용자의 보류 중인 변경 사항
+file_line = {path}
+op_delete = 삭제됨
+op_overwrite = 수정됨
+reject_confirm_body = 이 작업은 클라우드 네임스페이스에서 '{name}'의 이전 버전을 가져와 로컬 파일을 덮어씁니다.
+	
+	계속하시겠습니까?
+reject_confirm_title = 클라우드에서 복원하시겠습니까?
+reject_failed_network = 클라우드 가져오기 실패(네트워크 또는 인증 오류): {err}
+reject_failed_no_cloud = 클라우드 복사본이 없습니다 — 거부할 수 없습니다. (이 파일이 한 번이라도 동기화된 적이 있나요?)
+time_line = {time}
+btn_accept_all = 모두 수락
+btn_later = 나중에 결정
+reject_success_cloud = 클라우드에서 복원됨
+accept_confirm_body = {actor}의 {op}을(를) '{name}'에 유지하시겠습니까? 이 항목은 검토 목록에서 제거됩니다.
+empty_state = 검토할 보류 중인 변경 사항이 없습니다.
+

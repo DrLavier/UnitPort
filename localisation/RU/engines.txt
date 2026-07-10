@@ -1,0 +1,72 @@
+[default]
+add_install = Добавить
+add_server = Добавить...
+already_registered_text = Этот корень Isaac Lab уже зарегистрирован.
+already_registered_title = Уже зарегистрировано
+cloud_none = Нет серверов
+cloud_submit_error_title = Обучение в облаке
+cloud_summary = {n} сервер(ов); по умолчанию: {d}
+confirm_remove_text = Удалить сервер {name}?
+confirm_remove_title = Удалить сервер
+confirm_uninstall_text = Это безвозвратно удалит базовую установку Isaac Lab с диска:
+	
+	{root}
+	
+	Это действие нельзя отменить. Продолжить?
+confirm_uninstall_title = Удалить Isaac Lab
+edit_server = Изменить...
+error_title = Ошибка
+install_missing = (отсутствует)
+invalid_root_text = Выбранная папка не является корректной установкой Isaac Lab (отсутствуют isaaclab.sh/.bat и source/).
+invalid_root_title = Не является корнем Isaac Lab
+isaac_installs_empty = Isaac Lab не установлен — добавьте существующий корень установки.
+isaac_installs_hint = Зарегистрированные установки Isaac Lab
+isaac_installs_title = Версии Isaac Lab
+local_base_label = [Корень]{ver}
+local_builtin = Встроено (pip), v{ver}
+local_ext_label = {drive} {ver}
+local_isaac_unregistered_short = Не зарегистрировано
+local_missing = Не установлено
+local_registered_no_module = {root} (модуль не импортируется)
+local_unregistered = Не зарегистрировано
+no_local_cloud = Только в облаке
+no_local_register = Зарегистрировать локальную установку…
+no_local_text = На этом компьютере не зарегистрирована ни одна установка Isaac Lab. Зарегистрировать локальную установку или использовать только облачное обучение?
+no_local_title = Нет локальной установки Isaac Lab
+pick_generic = Выберите корень установки движка
+pick_isaac = Выберите корень установки Isaac Lab
+remove_server = Удалить
+set_default = Сделать по умолчанию
+settings_hint = Серверы обучения по SSH для {engine}. Пароли хранятся в системном хранилище ключей; здесь ничего не сохраняется в открытом виде.
+settings_title = Облачные серверы — {engine}
+unbind_tooltip = Отвязать (сохранить файлы)
+uninstall_failed_text = Не удалось удалить установку Isaac Lab. См. журналы.
+uninstall_failed_title = Не удалось удалить
+uninstall_tooltip = Удалить (удалить файлы)
+local_isaac_unregistered = Не зарегистрировано — выберите корневую папку установки через значок шестерёнки
+local_registered_with_ver = {root} (v{ver})
+
+[server_editor]
+add = Добавить сервер
+auth = Аутентификация
+auth_key = SSH-ключ
+auth_password = Пароль
+browse = Обзор...
+conda_env = Окружение Conda
+conda_env_ph = isaaclab (необязательно)
+edit = Редактировать сервер
+host = Хост
+host_required = Хост обязателен.
+invalid_title = Неверно
+key_file = Файл ключа
+key_required = Для аутентификации по ключу требуется путь к приватному ключу.
+name = Отображаемое имя
+name_required = Отображаемое имя обязательно.
+name_taken = Сервер с именем {name} уже существует.
+password_hint = Пароли здесь не сохраняются — вводите их при подключении (они сохраняются в системном хранилище ключей ОС).
+pick_key = Выбрать приватный SSH-ключ
+port = Порт
+remote_install_dir = Удалённый каталог установки
+remote_work_dir = Удалённый рабочий каталог
+user = Пользователь
+

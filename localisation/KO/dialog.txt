@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = IR 역할 메뉴를 열 수 없습니다
+joint_pose_editor_unavailable = 관절 각도 편집기를 열 수 없습니다
+pd_table_no_sku = 로봇 노드에 유효한 로봇이 연결되어 있지 않습니다 (asset_id). 먼저 로봇 에셋 카드에서 로봇을 선택하세요.
+pd_table_unavailable = PD 패널을 열 수 없습니다
+registry_preset_apply_failed = 프리셋 적용에 실패했습니다
+registry_preset_picker_empty = 해당 패밀리에 선택 가능한 프리셋이 없습니다
+registry_preset_picker_empty_detail = family={family}은 registry={registry}에 preset으로 선언되어 있지 않습니다.
+registry_preset_picker_unavailable = 프리셋 메뉴를 열 수 없습니다
+registry_preset_picker_unknown = 알 수 없는 registry={key!r}입니다. 지원되는 registry: {keys}
+replace_canvas_text = '{tpl}' 템플릿을 불러오면 '{name}'의 모든 노드와 엣지가 교체됩니다. 계속하시겠습니까?
+replace_canvas_title = 캔버스 내용 교체
+review_pose_unavailable = Review Pose를 시작할 수 없습니다
+unsaved_text = {name}에 저장되지 않은 변경 사항이 있습니다. 계속하기 전에 저장하시겠습니까?
+unsaved_title = 저장되지 않은 변경 사항
+review_motion_no_clip = 이 훈련 항목에 참조 클립이 선택되지 않았습니다 — 검토하기 전에 Clip 드롭다운에서 클립을 선택하세요.
+review_motion_no_robot = 이 캔버스에 Robot 노드가 바인딩되어 있지 않습니다. 모션 검토는 레퍼런스 모션을 재생하기 위해 로봇 MJCF가 필요합니다 — 먼저 Robot 노드를 연결하세요.
+review_motion_unavailable = 모션 검토를 시작할 수 없습니다
+

@@ -1,0 +1,72 @@
+[default]
+add_install = 추가
+add_server = 추가...
+already_registered_text = 이 Isaac Lab 루트는 이미 등록되어 있습니다.
+already_registered_title = 이미 등록됨
+cloud_none = 서버 없음
+cloud_submit_error_title = 클라우드 훈련
+cloud_summary = {n}개의 서버; 기본값: {d}
+confirm_remove_text = 서버 {name}을(를) 제거하시겠습니까?
+confirm_remove_title = 서버 제거
+confirm_uninstall_text = 이 작업은 디스크에서 기본 Isaac Lab 설치를 영구적으로 삭제합니다:
+	
+	{root}
+	
+	이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?
+confirm_uninstall_title = Isaac Lab 제거
+edit_server = 편집...
+error_title = 오류
+install_missing = (없음)
+invalid_root_text = 선택한 폴더는 유효한 Isaac Lab 설치가 아닙니다 (isaaclab.sh/.bat 및 source/가 없습니다).
+invalid_root_title = Isaac Lab 루트 아님
+isaac_installs_empty = Isaac Lab이 설치되어 있지 않습니다 — 기존 설치 루트를 추가하세요.
+isaac_installs_hint = 등록된 Isaac Lab 설치
+isaac_installs_title = Isaac Lab 버전
+local_base_label = [루트]{ver}
+local_builtin = 내장 (pip), v{ver}
+local_ext_label = {drive} {ver}
+local_isaac_unregistered_short = 등록되지 않음
+local_missing = 설치되지 않음
+local_registered_no_module = {root} (모듈을 가져올 수 없음)
+local_unregistered = 등록되지 않음
+no_local_cloud = 클라우드 전용
+no_local_register = 로컬 등록…
+no_local_text = 이 컴퓨터에 Isaac Lab 설치가 등록되어 있지 않습니다. 로컬 설치를 등록하시겠습니까, 아니면 클라우드 훈련만 사용하시겠습니까?
+no_local_title = 로컬 Isaac Lab 없음
+pick_generic = 엔진 설치 루트 선택
+pick_isaac = Isaac Lab 설치 루트 선택
+remove_server = 제거
+set_default = 기본값으로 설정
+settings_hint = {engine}용 SSH 스타일의 훈련 서버입니다. 비밀번호는 OS 키링에 저장되며, 이곳에는 평문으로 저장되지 않습니다.
+settings_title = 클라우드 서버 — {engine}
+unbind_tooltip = 연결 해제 (파일 유지)
+uninstall_failed_text = Isaac Lab 설치를 삭제할 수 없습니다. 로그를 확인하세요.
+uninstall_failed_title = 제거 실패
+uninstall_tooltip = 제거 (파일 삭제)
+local_isaac_unregistered = 등록되지 않음 — 톱니 아이콘(설정)에서 설치 루트를 선택하세요
+local_registered_with_ver = {root} (v{ver})
+
+[server_editor]
+add = 서버 추가
+auth = 인증
+auth_key = SSH 키
+auth_password = 비밀번호
+browse = 찾아보기...
+conda_env = Conda 환경
+conda_env_ph = isaaclab (선택 사항)
+edit = 서버 편집
+host = 호스트
+host_required = 호스트는 필수입니다.
+invalid_title = 유효하지 않음
+key_file = 키 파일
+key_required = 키 인증을 위해 개인 키 경로가 필요합니다.
+name = 표시 이름
+name_required = 표시 이름은 필수입니다.
+name_taken = 이름이 {name}인 서버가 이미 존재합니다.
+password_hint = 비밀번호는 여기에는 절대 저장되지 않습니다 — 연결 시 입력해 주세요(운영체제의 키링에 저장될 수 있음).
+pick_key = SSH 개인 키 선택
+port = 포트
+remote_install_dir = 원격 설치 디렉터리
+remote_work_dir = 원격 작업 디렉터리
+user = 사용자
+

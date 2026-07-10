@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (nessuna email disponibile)
+email_identity_security_hint = Fai clic sul link nella tua casella di posta per impostare o aggiornare la password per l'accesso. Per motivi di sicurezza, le modifiche alla password non possono essere effettuate all'interno dell'app — tutte le modifiche richiedono la verifica via email.
+email_identity_send_button = Invia link
+email_identity_send_to = Invieremo un link di verifica a:
+email_identity_title = Accesso via email
+engines_cloud_settings = Configura server cloud
+engines_local_settings = Configura installazione locale
+linked_account_status_linked = collegato
+linked_account_unlink_button = Scollega {provider}
+linked_account_unlink_confirm_title = Scollegare {provider}?
+linked_account_unlink_current_body = Verrai disconnesso dopo lo scollegamento, perché questo è il tuo metodo di accesso attuale.
+linked_account_unlink_normal_body = Non potrai più accedere con {provider}.
+linked_account_unlink_only_body = Questo è il tuo unico metodo di accesso. Non puoi scollegarlo.
+open_workspace_tip = Apri la directory dei dati utente di UnitPort
+open_workspace = Apri spazio di lavoro utente
+linked_accounts_label = Metodi di accesso:
+linked_account_btn_signedout_email = Email: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = Email: (nessuna)
+linked_account_btn_unlinked_google = Google: (non collegato)
+linked_account_btn_unlinked_github = GitHub: (non collegato)
+workspace_email_label = Spazio di lavoro:
+workspace_email_confirm_title = Cambiare l'email di archiviazione dello spazio di lavoro?
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = Archiviazione dello spazio di lavoro spostata in {path}.
+workspace_email_failed = Impossibile cambiare lo spazio di lavoro: {error}
+

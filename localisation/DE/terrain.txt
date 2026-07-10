@@ -1,0 +1,12 @@
+[import]
+browse = Durchsuchen
+cancel = Abbrechen
+err_id = Scene-ID ist erforderlich.
+err_src = Wähle eine gültige Höhenkarten-Datei.
+menu = ➕ Gelände importieren…
+menu_desc = Importiere eine PNG / .npy / .npz-Höhenkarte als benutzerdefiniertes Gelände.
+ok = Importieren
+scene_id_ph = z. B. my_hills
+source_ph = .png / .npy / .npz
+title = Gelände importieren
+

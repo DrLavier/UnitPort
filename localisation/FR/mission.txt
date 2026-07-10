@@ -56,12 +56,12 @@ local = Local
 cloud = Cloud
 
 [conn]
-title = Connexion robot réel
+title = Connexion au robot réel
 section.ros2 = Connexion ROS2
-section.hardware = Matériel robot
+section.hardware = Matériel du robot
 section.sensor = État des capteurs
 field.domain_id = ID de domaine ROS2
-field.middleware = Middleware
+field.middleware = Intergiciel
 field.address = Adresse
 field.port = Port
 state.disconnected = Déconnecté
@@ -75,7 +75,7 @@ btn.disconnect = Déconnecter
 field.brand = Marque
 field.model = Modèle
 field.serial = Série
-field.firmware = Firmware
+field.firmware = Micrologiciel
 field.battery = Batterie
 field.temperature = Température
 field.uptime = Temps de fonctionnement
@@ -111,12 +111,7 @@ result.head.fail = La connexion n'a pas pu être établie.
 result.head.ok_clean = Connexion prête. Aucun problème détecté.
 result.head.ok_fixed = Connexion prête. {n} problème(s) corrigé(s) automatiquement.
 result.head.partial = La connexion est établie, mais {n} problème(s) nécessitent une attention.
-result.invasive.confirm = Vous allez exécuter {n} réparation(s) invasive(s) sur le robot. Elles peuvent installer des paquets ou modifier des fichiers de configuration persistants.
-	
-	Actions :
-	{summary}
-	
-	Continuer ?
+result.invasive.confirm = Vous allez exécuter {n} réparation(s) invasive(s) sur le robot. Elles peuvent installer des paquets ou modifier des fichiers de configuration persistants.\n\nActions :\n{summary}\n\nContinuer ?
 result.invasive.confirm.title = Confirmer la réparation invasive
 result.meta = Tentatives d'auto-réparation : {a}   Appliquées : {ap}   Échecs : {fl}   Durée : {d:.1f}s
 result.section.applied = Appliquées (auto-corrigées)
@@ -143,7 +138,7 @@ title = Simulation de politique
 section.simconfig = Configuration de simulation
 field.policy = Politique
 field.play_ground = Terrain
-field.backend = Backend
+field.backend = Back-end
 field.preview_physic = Aperçu physique
 field.preview_physic.tip = Faire avancer la physique en direct pendant Review Robot (gravité uniquement, sans actionneurs)
 btn.run = Exécuter

@@ -1,0 +1,7 @@
+[default]
+headline = Il training in modalità headed esegue i render attraverso l'apertura GPU BAR1, che sembra troppo piccola/satura per questa esecuzione. Potrebbe andare in crash con un errore GPU device-lost.
+title_block = Training a rischio di crash (GPU BAR1)
+title_warn = Avviso memoria GPU (BAR1)
+btn_continue = Continua comunque
+btn_abort = Annulla
+

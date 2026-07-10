@@ -1,0 +1,58 @@
+[conflict]
+action = una acción del sistema
+channel = un canal de comandos
+msg = {input} ya está vinculado a {owner} ({cat}). Una entrada física solo puede tener una vinculación — desvincule esa entrada allí primero y luego inténtelo de nuevo.
+title = Conflicto de vinculación
+trigger = un disparador de habilidad
+
+[default]
+axis_unbound = — (no vinculado)
+button_unbound = — (no vinculado)
+channel_not_bindable = — (aún no vinculable)
+invert_vy = Invertir vy
+invert_vyaw = Invertir vyaw
+reset = Restablecer
+off_hint = Entrada deshabilitada. Selecciona Teclado o Mando arriba.
+policy_channels = Canales de comando de la política
+system_actions = Botones → Acciones del sistema
+system_actions_keys = Teclas → Acciones del sistema
+stale_channels = Vínculos guardados no presentes en este contrato
+no_policy_hint = No hay política cargada. Una habilidad que crees en el Training Motion node se convierte en un canal enlazable AQUÍ solo después de que entrenes + exportes una política y la selecciones en Mission Control · Simulate — un disparador es un comportamiento entrenado, no solo un mapeo de teclas. Los botones de abajo son acciones del sistema (boost / estop / …): siempre están disponibles, separadas de cualquier política, por eso no están en el Training Motion node.
+no_contract_hint = Esta política no tiene canales de comando — vuelve a exportar el bundle después de crear comandos de velocidad o una habilidad en el Training Motion node.
+legacy_contract_hint = La política cargada contiene un bloque de comandos heredado — vuelve a exportar el bundle para enlazar los canales de comando aquí.
+
+[latch]
+hold = Mantener (mientras esté presionado)
+pulse = Pulso (presione una vez)
+unsupported = (el lado de entrenamiento no lo proporcionó)
+
+[pick]
+button = Botón
+mode = Modo
+
+[axis]
+left_stick_x = Palanca L X
+left_stick_y = Palanca L Y
+right_stick_x = Palanca R X
+right_stick_y = Palanca R Y
+
+[kb]
+forward = Adelante
+backward = Atrás
+strafe_left = Desplazar a la izquierda
+strafe_right = Desplazar a la derecha
+yaw_left = Girar a la izquierda
+yaw_right = Girar a la derecha
+estop = Parada de emergencia
+boost = Impulso
+
+[mode_btn]
+off = Desactivado
+keyboard = Teclado
+gamepad = Mando
+
+[mode]
+off = Desactivado
+keyboard = Teclado
+gamepad = Mando
+

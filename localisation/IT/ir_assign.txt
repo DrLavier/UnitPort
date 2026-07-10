@@ -1,0 +1,16 @@
+[default]
+banner = Alcuni giunti/corpi del robot non sono stati auto-classificati. Assegna i loro ruoli IR qui sotto per completare la configurazione.
+cancel = Annulla
+col_joint = Giunto / Corpo
+col_kind = Tipo
+col_role = Ruolo IR
+confirm = Conferma tutto
+dialog_title = Assegna i ruoli IR ai nuovi robot
+kind_body = Corpo
+kind_joint = Giunto
+pending_robots = Robot in attesa
+right_title = Mappatura dei giunti — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} assegnati
+status_ready = Tutte le {n} voci assegnate — pronte per la conferma.
+

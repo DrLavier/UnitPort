@@ -1,0 +1,10 @@
+[confirm]
+clear_body = Это удалит все каталоги запусков в <project>/training/runs/ и все снимки холста в _runs_/. Это действие нельзя отменить.
+clear_title = Очистить всю историю обучения?
+
+[row]
+delete.tip = Удалить этот запуск
+
+[default]
+clear_all = Очистить всё
+

@@ -1,0 +1,68 @@
+[default]
+add = Скачать онлайн
+add_tip = Скачать датасет движений или пакет политик
+open_folder = Открыть папку
+refresh_tip = Пересканировать custom_mods/
+remove = Удалить
+remove_confirm = Удалить этот ресурс и его файлы?
+section = Сторонние ресурсы
+remove_tip = Удалить эту запись (и дерево на диске)
+open_folder_tip = Показать папку ресурса в файловом менеджере
+retry = Повторить
+empty_motion = Пока нет наборов данных движения — нажмите «Добавить ресурс…», чтобы загрузить один
+empty_policy = Пока нет пакетов политик — нажмите «Добавить ресурс…», чтобы загрузить один
+empty_model = Нет зарегистрированных моделей роботов
+empty_canvas = Шаблоны Canvas не найдены
+unindexed = импортировано
+classify = Классифицировать…
+
+[dialog]
+cancel = Отмена
+name_label = Отображаемое имя (необязательно)
+ok = Скачать
+revision_placeholder = ветка / тег / коммит / ревизия HF
+subpath_placeholder_github = например datasets/mocap_motions
+subpath_placeholder_huggingface = Допускаются шаблоны, например *.json,*.txt
+title = Добавить ресурс
+url_label = Требуется URL или id репозитория.
+url_placeholder_github = https://github.com/owner/repo.git
+url_placeholder_huggingface = owner/name  (или полный HF URL)
+url_placeholder_release = https://github.com/owner/repo/releases/tag/v1.0
+kind_label = Тип ассета
+transport_label = Источник
+revision_label = Ревизия (необязательно)
+subpath_label = Подпуть (необязательно)
+
+[kind]
+canvas = Canvas
+model = Модель
+motion = Движение
+policy = Политика
+
+[status]
+missing = отсутствует
+local = локально
+downloading = загрузка
+error = ошибка
+
+[card]
+source = Источник
+revision = Ревизия
+subpath = Подпуть
+downloaded_at = Загружено
+size = Размер
+package = Пакет
+subdir = Подкаталог
+clips = Клипы
+sku = SKU
+brand = Бренд
+model = Модель
+families = Семейства
+backend = Бэкенд
+path = Путь
+
+[transport]
+github_clone = GitHub
+github_release = Релиз
+huggingface = HuggingFace
+

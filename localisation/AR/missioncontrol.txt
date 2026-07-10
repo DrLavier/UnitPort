@@ -1,0 +1,36 @@
+[btn]
+redo.tip = إعادة التراجع (Ctrl+Shift+Z)
+save.tip = حفظ اللوحة
+undo.tip = تراجع (Ctrl+Z)
+node_lib.tip = تبديل لوحة مكتبة العقد
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = اختر لونًا
+
+[ros2_dev_notice]
+body = اتصال ROS2 لا يزال قيد التطوير. الاتصال والتحكم الأساسيان متاحان؛ ستتوفر مجموعة الميزات الكاملة في إصدار لاحق.
+title = اتصال ROS2 (معاينة)
+
+[script]
+btn.redo.tip = إعادة التراجع (Ctrl+Shift+Z)
+btn.save.tip = حفظ النص البرمجي
+btn.undo.tip = تراجع (Ctrl+Z)
+
+[tooltip]
+chart_opacity = عتامة تراكب المخطط
+
+[mode]
+mission_control = مركز التحكم بالمهام
+ai_coding = برمجة الذكاء الاصطناعي
+training_canva = لوحة التدريب
+scripts = البرامج النصية
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

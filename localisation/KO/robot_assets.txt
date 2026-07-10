@@ -1,0 +1,61 @@
+[default]
+add_path = 사용자 지정 경로 추가
+add_robot = 새 모델
+add_tip = 새 로봇 또는 변형 등록
+add_variant = …의 새 변형
+add_variant_empty = 기본 로봇이 아직 등록되어 있지 않습니다. 먼저 모델을 추가하세요.
+cascade_body = 이 로봇에는 해당 로봇에 의존하는 사용자 변형이 있습니다. 먼저 해당 변형들을 삭제하거나 분리하세요.
+	
+	{detail}
+cascade_title = 삭제할 수 없음
+coming_soon = 추후 제공 예정
+delete = 삭제
+dump = 바디 / 조인트 덤프
+dump_disabled = MJCF나 USD 에셋이 모두 없습니다(로컬 파일도 없고 Nucleus URL도 선언되어 있지 않음)
+dump_done_title = 덤프 완료
+dump_error_no_asset = SKU {sku}에 대한 로봇 에셋을 확인할 수 없습니다
+dump_error_persist = {fmt}에 대해 발견된 바디를 영속화하지 못했습니다
+dump_error_validation = {fmt} 매핑 작성 후 검증에 실패했습니다:
+	
+	{exc}
+	
+	캔버스의 Robot 노드를 열어 표시된 조인트/바디 IR 역할을 수정한 다음 다시 Dump하세요.
+dump_format_mismatch = 
+	⚠ {larger_fmt}는 {larger_n}개의 조인트를 가지고 있지만 {smaller_fmt}는 {smaller_n}개입니다. 훈련에는 영향이 없지만 {affected}는 {larger_fmt} 측 조인트 세트로 학습된 번들에서는 사용할 수 없습니다. 두 배포 대상이 모두 필요하면 {smaller_fmt} 에셋을 일치하는 변형으로 재지정하세요(예: G1의 경우 g1.usd와 함께 scene_with_hands.xml을 사용) 그리고 re-Dump.
+edit = 편집
+edit_canonical_disabled = 정식 로봇은 읽기 전용입니다. 대신 새 사용자 항목을 추가하세요.
+ignore_package = 무시
+ignore_package_tip = 향후 새로고침 시 이 디렉터리를 건너뜁니다
+inertia_calib_done = 관성 오버레이 {status}: {n}개의 바디 오버라이드가 {rel}에 기록되었습니다.
+inertia_calib_done_title = 관성 보정 완료
+inertia_calib_error_title = 관성 보정 실패
+inertia_calib_ignored = {n}개의 바디가 허용치 미만입니다 — 오버레이의 ignored_bodies 감사 목록을 확인하세요.
+inertia_calib_offer_body = 훈련용 USD의 바디별 질량 / 관성을 MuJoCo MJCF와 비교하고 비파괴 오버레이를 작성합니다(원본 MJCF는 절대 변경되지 않습니다). 이것은 MJCF가 플레이스홀더 관성을 포함해 제공되는 로봇에 대해 IsaacLab→MuJoCo의 sim2sim 간극을 해소합니다. USD 수집에는 5–30 s. 정도가 걸릴 수 있습니다.
+inertia_calib_offer_title = USD에서 관성 보정하시겠습니까?
+menagerie = Menagerie…
+menagerie_tip = MuJoCo Menagerie 패키지를 찾아보고 다운로드
+no_path = (없음)
+pick_file = {kind} 파일을 선택하세요
+pick_parent = 이 변형이 상속할 기본 모델을 선택하세요:
+refresh_tip = 에셋 레지스트리 재스캔
+tag_placeholder = 태그 추가...
+view_mapping = 조인트 매핑 보기
+view_mapping_error_title = 조인트 매핑을 사용할 수 없습니다
+add_robot_tip = 새 로봇 등록
+dump_error_title = 덤프 실패
+dump_mjcf = MJCF 바디/조인트 덤프
+dump_mjcf_disabled = 로컬에 MJCF 에셋이 없습니다
+dump_usd = USD 바디/조인트 덤프
+dump_usd_disabled = USD 에셋이 선언되지 않았습니다 (로컬 경로가 없고 Nucleus URL이 없습니다)
+
+[status]
+cloud = 클라우드
+local = 로컬
+missing = 누락됨
+remote = 원격
+
+[tag]
+canonical = 정식
+cloud = 클라우드
+custom = 사용자 정의
+

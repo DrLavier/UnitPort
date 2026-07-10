@@ -1,0 +1,186 @@
+[conn]
+btn.connect = 接続
+btn.connecting = 接続中…
+btn.disconnect = 切断
+controller.arm_pending = Arm teleopはフェーズ6で導入されます。
+controller.no_teleop = このアダプタはテレオペ機能を宣言していません。
+controller.pid_pending = PIDチューニングのUIはフェーズ6で利用可能になります。
+controller.release_control = 制御を解除
+controller.take_control = 制御を取得
+dialog.section.domain = ROS2 ドメインID
+dialog.section.ssh = SSH認証情報
+dialog.ssh.server = サーバー: {server}
+dialog.title = 接続設定
+hw.battery = バッテリー残量
+hw.no_selection = ロボットが選択されていません
+hw.temperature = 温度
+hw.uptime = 稼働時間
+level.error = 異常
+level.idle = 待機
+level.ok = 正常
+level.warn = 警告
+middleware.auto_detected = ↳ 自動: {rmw}
+result.fix_tag.invasive = 侵襲的
+result.fix_tag.safe = 安全
+result.head.fail = 接続を完了できませんでした。
+result.head.ok_clean = 接続準備完了。問題は見つかりませんでした。
+result.head.ok_fixed = 接続準備完了。{n} 件の問題を自動修復しました。
+result.head.partial = 接続は確立されていますが、{n} 件の問題に対応が必要です。
+result.invasive.confirm = ロボットに対して{n}件の侵襲的な修復を実行しようとしています。これらはパッケージのインストールや永続的な設定ファイルの変更を伴う可能性があります。
+	
+	操作内容:
+	{summary}
+	
+	実行しますか？
+result.invasive.confirm.title = 侵襲的修復の確認
+result.meta = 自動修復試行: {a}   適用済: {ap}   失敗: {fl}   所要時間: {d:.1f}s
+result.section.applied = 適用済（自動修復）
+result.section.failed = 自動修復中に失敗しました
+result.section.unresolved_invasive = 未解決（侵襲的修復が利用可能 — 承認が必要）
+result.section.unresolved_manual = 未解決（自動修復不可 — 手動対応が必要）
+result.section.unresolved_safe = 未解決（安全に修復可能；再試行を検討してください）
+result.title.fail = 接続に失敗しました
+result.title.ok = 接続準備完了
+result.title.partial = 接続不完全 — 対応推奨
+robot.none = —
+section.controller = コントローラ
+ssh.has_password = パスワード✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (認証情報なし)
+ssh.password = パスワード
+ssh.password.placeholder = (パスワードを入力して「保存」を押してください)
+ssh.sudo = Sudo パスワード
+ssh.sudo.placeholder = (侵襲的な修復のために必要)
+ssh.user = SSH ユーザー
+state.connected = 接続済み
+state.connecting = 接続中…
+state.disconnected = 未接続
+state.error = エラー
+state.testing = テスト中…
+title = 実機接続設定
+section.ros2 = ROS2接続
+section.hardware = ロボットハードウェア
+section.sensor = センサー状態
+field.domain_id = ROS2ドメインID
+field.middleware = ミドルウェア
+field.address = アドレス
+field.port = ポート
+btn.test = テスト
+field.brand = メーカー
+field.model = モデル
+field.serial = シリアル番号
+field.firmware = ファームウェア
+field.battery = バッテリー
+field.temperature = 温度
+field.uptime = 稼働時間
+sensor.imu = IMU
+sensor.joints = 関節
+sensor.lidar = Lidar
+sensor.camera = カメラ
+sensor.torque = トルク
+sensor.battery = バッテリー
+field.state = 接続状況
+
+[diag]
+repair_invasive = 侵襲的修復
+repair_safe = 安全な修復
+ssh.context = サーバー: {server}
+	理由: {reason}
+ssh.err_empty_pw = SSH パスワードが必要です。
+ssh.err_save = 認証情報を保存できませんでした: {err}
+ssh.headline = 自動修復にはロボットへのSSHアクセスが必要です。
+ssh.pw = SSH パスワード
+ssh.pw_placeholder = 必須
+ssh.sudo = Sudo パスワード
+ssh.sudo_placeholder = 任意 — 空欄の場合はSSHパスワードがデフォルトになります
+ssh.title = SSH認証情報が必要です
+ssh.user = SSH ユーザー
+summary.error = エラーが検出されました。
+summary.pass = すべてのチェックに合格しました。
+summary.warn = 警告が検出されました。
+title = 接続診断
+
+[sim]
+backend.empty = シミュレーションバックエンドがありません
+dialog.save_pose.prompt = プリセット名:
+dialog.save_pose.title = 初期ポーズプリセットを保存
+field.init_pose_base = ベース位置 [m]
+field.init_pose_enable = 初期ポーズを上書き
+field.init_pose_enable.tip = バンドルのデフォルトではなく、編集した値からロボットを生成する
+field.init_pose_joints = 関節角 [rad]
+field.init_pose_preset = プリセット
+field.preview_physic = 物理プレビュー
+field.preview_physic.tip = ロボットのレビュー中に物理をライブでステップ実行する（重力のみ、アクチュエータなし）
+init_pose.editor.title = 初期ポーズエディタ
+init_pose.empty = このSKUでは利用可能なジョイントがありません。
+policy.empty = エクスポートされたポリシーがありません
+title = ポリシーシミュレーション
+section.simconfig = シミュレーション設定
+field.policy = ポリシー
+field.play_ground = プレイグラウンド
+field.backend = バックエンド
+btn.run = 実行
+btn.review_robot = ロボットの確認
+section.init_pose = 初期姿勢の上書き
+btn.edit_pose = 編集…
+btn.save_pose = 別名で保存…
+btn.delete_pose = 削除
+init_pose.custom = カスタム（未保存）
+
+[train]
+body.col_robot = ロボット
+body.col_role = 役割
+body.menu_oos = 範囲外としてマーク
+body.menu_restore = 復元 (未割当)
+body.menu_unassign = 割り当て解除
+body.out_of_scope = (範囲外)
+body.unassigned = (未割当)
+field.body_mapping = body_mapping
+placeholder.empty = —
+placeholder.no_canvas = キャンバスが読み込まれていません
+placeholder.no_robot = ロボットノードがありません
+state.failed = 失敗
+state.finished = 終了
+state.idle = 未実行
+state.paused = 一時停止中
+state.running = 実行中
+title = トレーニング構成ビュー
+section.status = トレーニング状況
+section.task = タスク設定
+section.hyper = ハイパーパラメータ
+section.robot = ロボット設定
+field.elapsed = 経過時間
+field.iterations = イテレーション
+field.current_reward = 現在の報酬
+field.mean_reward = 平均報酬
+field.best_reward = 最高報酬
+field.episode_length = 平均エピソード長
+field.fps = FPS
+field.task_env = タスクバックエンド
+field.task_name = タスク名
+field.link = リンク
+field.device = トレーニングデバイス
+btn.task_configure = タスクを設定
+field.lr = 学習率
+field.batch_size = バッチサイズ
+field.gamma = ガンマ
+field.total_timesteps = 総タイムステップ数
+field.ent_coef = エントロピー係数
+field.seed = ランダムシード
+field.num_envs = 並列環境数
+field.max_iterations = 最大反復回数
+btn.hyper_edit = ハイパーパラメータを編集
+field.training_asset = トレーニングアセット
+field.active_files = アセットファイル
+btn.start = 開始
+btn.pause = 一時停止
+btn.stop = 停止
+
+[link]
+local = ローカル
+cloud = クラウド
+
+[robot]
+status.loaded = 読み込み済み
+status.missing = 見つかりません
+

@@ -1,0 +1,21 @@
+[btn]
+new = 新建
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = (空)
+no_canvas = (無畫布)
+no_project = (無專案)
+
+[target]
+cloud = 雲端
+local = 本機
+local_ver = 本機 ({short})
+
+[tooltip]
+new = 開啟新畫布選擇器
+start = 開始訓練
+stop = 停止訓練
+

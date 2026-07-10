@@ -1,0 +1,16 @@
+[checkpoint]
+empty = — 選擇檢查點
+export_desc = 已匯出的策略 (.onnx)。load_mode 會自動設為 'warm_start_actor'。
+run_desc = Run-dir 檢查點 (.pt)。load_mode 會自動設為 'resume'。
+
+[start_point]
+latest = 最新
+latest_desc = 從此畫布的最新檢查點繼續進行累計訓練。
+load = 載入
+load_desc = 從目前專案中選擇任一檢查點或已匯出的策略。
+new = 新建
+new_desc = 從頭開始訓練，採用隨機初始化。
+asset_desc = 從已註冊的訓練資產暖啟 actor。
+latest_export = 最新匯出
+latest_export_desc = 從工作區中最新的匯出封包恢復。
+

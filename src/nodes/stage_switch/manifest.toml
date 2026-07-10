@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "stage_switch"
+backends = ["isaac_lab"]  # IsaacLab teacher-student stages; SB3 staging uses multigated_reward
 kind = "CUSTOM"
 version = "1.0.0"
 category = "training"

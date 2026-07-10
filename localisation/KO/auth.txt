@@ -1,0 +1,58 @@
+[default]
+busy_linking = {provider} 계정 연결 중...
+busy_oauth = 브라우저 확인 대기 중...
+busy_sending_reset = 재설정 이메일 전송 중...
+busy_signing_in = 로그인 중...
+busy_signing_up = 계정 생성 중...
+close_button = 닫기
+confirm_password_label = 비밀번호 확인
+continue_github = GitHub로 계속
+continue_google = Google로 계속
+continue_with = 또는 다음으로 계속하기
+dialog_title = UnitPort 계정
+email_label = 이메일
+email_placeholder = you@example.com
+error_email_rate_limited = 요청이 너무 많습니다. 잠시 기다렸다가 다시 시도하세요.
+error_email_taken = 이 이메일로 이미 계정이 존재합니다.
+error_empty_email = 이메일은 필수입니다.
+error_empty_password = 비밀번호는 필수입니다.
+error_generic = 로그인 실패: {message}
+error_invalid_credentials = 이메일 또는 비밀번호가 올바르지 않습니다.
+error_network = 네트워크 오류 — 연결 상태를 확인하세요.
+error_password_mismatch = 비밀번호가 일치하지 않습니다.
+error_password_too_short = 비밀번호는 최소 6자 이상이어야 합니다.
+forgot_password = 비밀번호를 잊으셨나요?
+identity_conflict_body = {provider}를 연결할 수 없습니다.
+	
+	해당 계정은 이미 다른 UnitPort 사용자에 속해 있으며, Supabase는 두 기존 계정을 병합할 수 없습니다.
+	
+	대신 {provider}로 직접 로그인하거나, 다른 {provider} 계정을 사용해 보세요.
+	
+	제공자 메시지: {message}
+identity_conflict_switch = 대신 {provider}로 로그인
+identity_conflict_title = 인증 정보가 이미 사용 중입니다.
+info_email_confirmation = 계정이 생성되었습니다. 주소 확인을 위해 {email}을 확인하세요.
+password_label = 비밀번호
+password_placeholder = 최소 6자 이상
+sidebar_sign_in_button = 로그인
+sidebar_sign_out = 로그아웃
+sidebar_signed_out_hint = UnitPort에 로그인
+sign_in_button = 로그인
+sign_up_button = 계정 만들기
+tab_sign_in = 로그인
+tab_sign_up = 회원 가입
+restart_body_signin = {email}로 로그인했습니다. 이 계정의 작업공간을 불러오려면 지금 UnitPort를 재시작하시겠습니까?
+restart_body_signout = 로그아웃되었습니다. 게스트 작업공간으로 돌아가려면 지금 UnitPort를 재시작하시겠습니까?
+restart_button_later = 나중에
+restart_button_now = 지금 재시작
+restart_title = 재시작 필요
+busy_unlinking = 연결 해제 중...
+busy_setting_password = 비밀번호 업데이트 중...
+busy_changing_email = 인증 이메일 전송 중...
+error_oauth_busy = 다른 로그인 작업이 진행 중입니다. 잠시 기다려 주세요.
+error_single_identity_not_deletable = 유일한 로그인 방법은 연결 해제할 수 없습니다.
+error_identity_already_exists = 이 계정은 이미 다른 사용자에 연결되어 있습니다.
+info_email_change_pending = 인증 이메일이 전송되었습니다. 변경 사항을 확인하려면 링크를 클릭하세요.
+info_password_updated = 비밀번호가 업데이트되었습니다.
+info_unlink_current_provider = 현재 로그인 수단의 연결을 해제했습니다. 곧 로그아웃될 수 있습니다.
+

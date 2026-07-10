@@ -1,0 +1,10 @@
+[confirm]
+clear_body = 這會刪除 <project>/training/runs/ 底下的所有 run 目錄，以及 _runs_/ 中的所有 canvas 快照。此操作無法復原。
+clear_title = 要清除所有訓練紀錄嗎？
+
+[row]
+delete.tip = 刪除此次訓練執行
+
+[default]
+clear_all = 全部清除
+

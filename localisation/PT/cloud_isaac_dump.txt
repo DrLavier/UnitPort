@@ -1,0 +1,7 @@
+[default]
+action = Iniciar servidor na nuvem e gerar dump
+body = UnitPort precisa da topologia do corpo em USD para cada robô padrão (Unitree Go2, Boston Dynamics Spot, Unitree H1, etc.) para que sensores de contato, pré-realização do canvas e validação de treinamento possam ser integrados de forma confiável. O caminho de dump local exige uma instalação local do IsaacLab; você tem apenas servidores IsaacLab na nuvem configurados. Inicie seu servidor na nuvem e, em seguida, clique no botão abaixo para executar o dump remotamente.
+dismiss = Fechar
+headline = As tabelas de corpo USD dos robôs padrão não foram geradas nesta instalação.
+window_title = IsaacLab na nuvem — Dump de corpos USD necessário
+

@@ -1,0 +1,58 @@
+[default]
+busy_linking = جارٍ ربط حساب {provider}...
+busy_oauth = انتظار تأكيد المتصفح...
+busy_sending_reset = إرسال رسالة إعادة تعيين كلمة المرور...
+busy_signing_in = تسجيل الدخول...
+busy_signing_up = إنشاء حساب...
+close_button = إغلاق
+confirm_password_label = تأكيد كلمة المرور
+continue_github = المتابعة باستخدام GitHub
+continue_google = المتابعة باستخدام Google
+continue_with = أو المتابعة باستخدام
+dialog_title = حساب UnitPort
+email_label = البريد الإلكتروني
+email_placeholder = you@example.com
+error_email_rate_limited = طلبات كثيرة جدًا. انتظر دقيقة ثم حاول مرة أخرى.
+error_email_taken = يوجد حساب مرتبط بهذا البريد الإلكتروني بالفعل.
+error_empty_email = البريد الإلكتروني مطلوب.
+error_empty_password = كلمة المرور مطلوبة.
+error_generic = فشل تسجيل الدخول: {message}
+error_invalid_credentials = البريد الإلكتروني أو كلمة المرور غير صحيحة.
+error_network = خطأ في الشبكة — تحقق من اتصالك.
+error_password_mismatch = كلمتا المرور غير متطابقتين.
+error_password_too_short = يجب أن تكون كلمة المرور 6 أحرف على الأقل.
+forgot_password = نسيت كلمة المرور؟
+identity_conflict_body = تعذر ربط حساب {provider}.
+	
+	ذلك الحساب مملوك بالفعل لمستخدم UnitPort آخر، وSupabase لا يستطيع دمج حسابين موجودين.
+	
+	يمكنك تسجيل الدخول مباشرة باستخدام {provider} بدلاً من ذلك، أو تجربة حساب {provider} آخر.
+	
+	رسالة المزود: {message}
+identity_conflict_switch = تسجيل الدخول باستخدام {provider} بدلاً من ذلك
+identity_conflict_title = الهوية مستخدمة بالفعل
+info_email_confirmation = تم إنشاء الحساب. تحقق من {email} لتأكيد عنوان بريدك الإلكتروني.
+password_label = كلمة المرور
+password_placeholder = على الأقل 6 أحرف
+sidebar_sign_in_button = تسجيل الدخول
+sidebar_sign_out = تسجيل الخروج
+sidebar_signed_out_hint = تسجيل الدخول إلى UnitPort
+sign_in_button = تسجيل الدخول
+sign_up_button = إنشاء حساب
+tab_sign_in = تسجيل الدخول
+tab_sign_up = إنشاء حساب
+restart_body_signin = تم تسجيل الدخول كـ{email}. هل تريد إعادة تشغيل UnitPort الآن لتحميل مساحة عمل هذا الحساب؟
+restart_body_signout = تم تسجيل الخروج. هل تريد إعادة تشغيل UnitPort الآن للرجوع إلى مساحة عمل الضيف؟
+restart_button_later = لاحقًا
+restart_button_now = أعد التشغيل الآن
+restart_title = مطلوب إعادة تشغيل
+busy_unlinking = جارٍ إلغاء الربط...
+busy_setting_password = جارٍ تحديث كلمة المرور...
+busy_changing_email = جارٍ إرسال رسالة التحقق...
+error_oauth_busy = هناك عملية تسجيل دخول أخرى معلقة. الرجاء الانتظار.
+error_single_identity_not_deletable = لا يمكن إلغاء ربط وسيلة تسجيل الدخول الوحيدة.
+error_identity_already_exists = هذا الحساب مرتبط بالفعل بمستخدم آخر.
+info_email_change_pending = تم إرسال رسالة تحقق عبر البريد الإلكتروني. انقر على الرابط لتأكيد التغيير.
+info_password_updated = تم تحديث كلمة المرور.
+info_unlink_current_provider = لقد ألغيت ربط وسيلة تسجيل الدخول الحالية. قد يتم تسجيل خروجك قريبًا.
+

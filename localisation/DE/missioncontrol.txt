@@ -1,0 +1,36 @@
+[btn]
+redo.tip = Wiederholen (Strg+Umschalt+Z)
+save.tip = Arbeitsfläche speichern
+undo.tip = Rückgängig (Strg+Z)
+node_lib.tip = Node-Bibliothek-Bereich umschalten
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = Farbe auswählen
+
+[ros2_dev_notice]
+body = Die ROS2-Verbindung befindet sich noch in Entwicklung. Grundlegende Verbindung und Steuerung sind verfügbar; der vollständige Funktionsumfang wird in einer späteren Version hinzugefügt.
+title = ROS2-Verbindung (Vorschau)
+
+[script]
+btn.redo.tip = Wiederholen (Strg+Umschalt+Z)
+btn.save.tip = Skript speichern
+btn.undo.tip = Rückgängig (Strg+Z)
+
+[tooltip]
+chart_opacity = Deckkraft der Diagrammüberlagerung
+
+[mode]
+mission_control = Missionssteuerung
+ai_coding = KI-Programmierung
+training_canva = Training Canva
+scripts = Skripte
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

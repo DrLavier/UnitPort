@@ -528,6 +528,63 @@ def _check_reward_weight_bounds(ir: "WorkflowIR") -> List[ValidationIssue]:
                             f"registry min/max if this is genuinely intended."
                         ),
                     ))
+
+    # Method A (Slice 1c): the loop above validates RAW weights on wired
+    # ``rewards`` nodes. Inline-package rewards never reach a wired node, so
+    # validate their EFFECTIVE product (package_weight × term_weight) here — the
+    # joint-freeze guard must see the product, not the raw term weight, or a
+    # non-unit package weight could push an in-bound term past the registry bound
+    # undetected. Reuse the single fold site (_fold_package_weight); no re-derive.
+    tm = next((n for n in ir.nodes if n.schema_id == "training_motion"), None)
+    if tm is not None:
+        from application.compiler.term_payload import migrate_reward_terms_to_paged
+        from application.training.package_synthesis import (
+            _fold_package_weight,
+            packages_from_param,
+        )
+        try:
+            packages = packages_from_param(_param_value(tm, "packages", {}))
+        except Exception as exc:                              # malformed authored data
+            out.append(ValidationIssue(
+                code=IssueCode.GENERIC,
+                severity=Severity.ERROR,
+                node_id=tm.id,
+                field="packages",
+                message=f"training_motion 'packages' param is malformed: {exc}",
+            ))
+            packages = {}
+        for pid, pkg in packages.items():
+            if not pkg.reward_terms:
+                continue
+            folded = _fold_package_weight(
+                migrate_reward_terms_to_paged(pkg.reward_terms), pkg.package_weight
+            )
+            for _page, terms in folded.items():
+                if not isinstance(terms, dict):
+                    continue
+                for func, payload in terms.items():
+                    item = IL_REWARD_REGISTRY.get(func) or REWARD_REGISTRY.get(func)
+                    if item is None:
+                        continue
+                    weight, _variant, _applies = parse_term_payload(payload)
+                    lo, hi = float(item.min_value), float(item.max_value)
+                    if weight < lo or weight > hi:
+                        out.append(ValidationIssue(
+                            code=IssueCode.PARAM_OUT_OF_RANGE,
+                            severity=Severity.ERROR,
+                            node_id=tm.id,
+                            field=f"packages.{pid}.{func}",
+                            message=(
+                                f"package {pid!r} reward {func!r}: effective weight "
+                                f"package_weight×term = {weight:g} is outside the "
+                                f"registry range [{lo:g}, {hi:g}]. package_weight "
+                                f"({float(pkg.package_weight):g}) scales every term of "
+                                f"this package; a value orders of magnitude too large "
+                                f"makes the policy freeze its joints. Lower "
+                                f"package_weight or the term weight, or widen the "
+                                f"registry min/max if genuinely intended."
+                            ),
+                        ))
     return out
 
 
@@ -732,10 +789,14 @@ def check_spec(spec: "TrainingSpec") -> List[ValidationIssue]:
     issues.extend(_check_recommended_reward_terms(spec))
     issues.extend(_check_sb3_reward_term_kinds(spec))
     issues.extend(_check_sb3_termination_kinds(spec))
+    issues.extend(_check_training_packages(spec))    # R_PKG1 — package membership
+    issues.extend(_check_skill_gating(spec))         # R_SKILL — skill gate → real skill
+    issues.extend(_check_skill_gait_deploy_conflict(spec))  # R_SKILL2 — gait+skill deploy
     issues.extend(_check_per_item_reward_scale(spec))  # R_REWARD_SCALE
     issues.extend(_check_pd_param(spec))             # R_PD1..R_PD4 — sim2sim PD
     issues.extend(_check_stage_schedule(spec))       # R_STAGE_H0 — H0 default lock
     issues.extend(_check_recurrent_policy(spec))     # 缺口① — recurrent policy
+    issues.extend(_check_policy_contract_fields(spec))  # B1 — policy arch integrity
     issues.extend(_check_terrain_curriculum(spec))   # 缺口④ — terrain curriculum
     issues.extend(_check_custom_terrain(spec))       # custom heightfield terrain
     issues.extend(_check_sb3_obs_terms(spec))         # 缺口⑤ P1/F3 — SB3 obs alignment
@@ -1075,6 +1136,28 @@ def _check_sb3_unsupported(spec: "TrainingSpec") -> List[ValidationIssue]:
     if backend not in _SB3_BACKENDS:
         return out
 
+    # F6 — skill / trigger-gated packages (skill_command_path_design.md Slice 3)
+    # are IsaacLab-only: the trigger command term + obs injection + reward gate
+    # emit only on the IsaacLab side. Fail loud rather than train a package whose
+    # trigger gate the MuJoCo runtime silently ignores (§8).
+    _motion = getattr(spec, "motion", None)
+    _gated = sorted(
+        pid for pid, p in (getattr(_motion, "packages", None) or {}).items()
+        if str(getattr(p, "gated_by", "") or "").strip()
+    )
+    if _gated:
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.ERROR,
+            field="motion.packages",
+            message=(
+                f"skill/trigger-gated packages {_gated} are IsaacLab-only — the "
+                f"trigger command term, obs injection, and reward gate emit only on "
+                f"the IsaacLab backend. Switch this canvas to IsaacLab or remove the "
+                f"gated_by link (§8 fail-loud)."
+            ),
+        ))
+
     # P8 gate — the MuJoCo gym env only implements PD joint-position control.
     # A non-joint_position action_type used to warn-and-continue (running PD
     # anyway); fail loud so the operator's torque/velocity choice isn't
@@ -1372,6 +1455,76 @@ def _check_recurrent_policy(spec: "TrainingSpec") -> List[ValidationIssue]:
                     f"{getattr(pn, 'rnn_num_layers', None)!r})."
                 ),
             ))
+    return out
+
+
+# Activation set accepted by either backend's network builder (union of
+# sb3_trainer._activation_fn and isaac_lab.onnx_export._activation_module) — the
+# validator rejects only genuinely-unknown values, not backend-specific subsets.
+_VALID_POLICY_ACTIVATIONS = frozenset(
+    {"elu", "relu", "tanh", "leaky_relu", "selu", "gelu", "silu", "swish", "sigmoid"}
+)
+
+
+def _check_policy_contract_fields(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """B1 — policy network arch integrity (fail-loud, §8).
+
+    The arch feeds the deploy bundle's ``policy_contract`` snapshot; a garbage
+    arch (empty hidden dims, non-positive noise std, unknown activation) must be
+    caught at the spec level so it never reaches a shipped bundle. Mirrors
+    ``_check_recurrent_policy`` (which owns the recurrent fields).
+    """
+    out: List[ValidationIssue] = []
+    pn = getattr(getattr(spec, "algorithm", None), "policy_net", None)
+    if pn is None:
+        return out
+
+    for field_name in ("actor_hidden_dims", "critic_hidden_dims"):
+        dims = getattr(pn, field_name, None)
+        ok = isinstance(dims, (list, tuple)) and len(dims) > 0
+        if ok:
+            try:
+                ok = all(int(d) > 0 for d in dims)
+            except (TypeError, ValueError):
+                ok = False
+        if not ok:
+            out.append(ValidationIssue(
+                code=IssueCode.PARAM_OUT_OF_RANGE,
+                severity=Severity.ERROR,
+                field=field_name,
+                message=(
+                    f"il_policy_network.{field_name} must be a non-empty list of "
+                    f"positive ints (got {dims!r})."
+                ),
+            ))
+
+    init_std = getattr(pn, "init_noise_std", None)
+    try:
+        init_std_f = float(init_std)
+    except (TypeError, ValueError):
+        init_std_f = -1.0
+    if init_std_f <= 0.0:
+        out.append(ValidationIssue(
+            code=IssueCode.PARAM_OUT_OF_RANGE,
+            severity=Severity.ERROR,
+            field="init_noise_std",
+            message=(
+                f"il_policy_network.init_noise_std must be a positive float "
+                f"(direct action std, never exp()'d); got {init_std!r}."
+            ),
+        ))
+
+    activation = str(getattr(pn, "activation", "") or "").strip().lower()
+    if activation and activation not in _VALID_POLICY_ACTIVATIONS:
+        out.append(ValidationIssue(
+            code=IssueCode.UNKNOWN_PARAM_VALUE,
+            severity=Severity.ERROR,
+            field="activation",
+            message=(
+                f"il_policy_network.activation={activation!r} is unknown; expected "
+                f"one of {sorted(_VALID_POLICY_ACTIVATIONS)}."
+            ),
+        ))
     return out
 
 
@@ -1806,8 +1959,112 @@ def _check_pd_param(spec: "TrainingSpec") -> List[ValidationIssue]:
     return out
 
 
+def _check_training_packages(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """R_PKG1 — training package membership integrity (Method A, Slice 1).
+
+    Runs the single source of truth ``resolve_effective_packages`` and surfaces
+    any fail-loud membership violation as an ERROR the UI shows pre-export:
+      * an enabled item naming a missing or disabled package;
+      * an enabled item with no ``package_id`` when a package layer is authored;
+      * an enabled package with zero enabled member items;
+      * explicit use of the reserved implicit-default package id.
+    An absent package layer resolves to the implicit default and is silent
+    (byte-identical to pre-package behavior).
+    """
+    out: List[ValidationIssue] = []
+    motion = getattr(spec, "motion", None)
+    if motion is None:
+        return out
+    from application.training.training_spec import resolve_effective_packages
+    try:
+        resolve_effective_packages(motion)
+    except ValueError as exc:
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.ERROR,
+            field="motion.packages",
+            message=f"training package membership invalid: {exc}",
+        ))
+    return out
+
+
+def _check_skill_gating(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """R_SKILL — a package's ``gated_by`` must name an enabled skill_item (a trigger
+    channel) on the training_motion node (skill_command_path_design.md Slice 3).
+
+    A skill package (``gated_by`` set) has its reward gated on that skill's trigger
+    command; if the named skill does not exist / is disabled the IsaacLab codegen
+    would reference a command term that is never emitted. Fail loud pre-export.
+    Presence-gated: a canvas with no gated package is silent.
+    """
+    out: List[ValidationIssue] = []
+    motion = getattr(spec, "motion", None)
+    if motion is None:
+        return out
+    packages = getattr(motion, "packages", None) or {}
+    skills = getattr(motion, "skill_items", None) or {}
+    enabled_skills = {
+        str(sid) for sid, sk in skills.items()
+        if (not isinstance(sk, dict)) or bool(sk.get("enabled", True))
+    }
+    for pid, p in packages.items():
+        g = str(getattr(p, "gated_by", "") or "").strip()
+        if not g:
+            continue
+        if g not in enabled_skills:
+            out.append(ValidationIssue(
+                code=IssueCode.GENERIC,
+                severity=Severity.ERROR,
+                field="motion.packages",
+                message=(
+                    f"package {pid!r} is gated_by {g!r}, which is not an enabled "
+                    f"skill_item (enabled skills: {sorted(enabled_skills)}). Author a "
+                    f"trigger skill named {g!r} on the training_motion node, or fix "
+                    f"the gated_by link (§8 fail-loud)."
+                ),
+            ))
+    return out
+
+
+def _check_skill_gait_deploy_conflict(spec: "TrainingSpec") -> List[ValidationIssue]:
+    """R_SKILL2 — a canvas with BOTH gait AND a skill trigger is not deploy-supported yet.
+
+    The deploy obs layout records the skill trigger obs term but NOT gait obs (a
+    pre-existing gap). So at deploy the trigger obs would land at the wrong offset
+    (gait present in training, absent in deploy) — a silent train≠deploy failure.
+    Fail loud until the general command_slice deploy-obs mechanism also covers gait.
+    Presence-gated: only fires when both are actually enabled.
+    """
+    out: List[ValidationIssue] = []
+    motion = getattr(spec, "motion", None)
+    if motion is None:
+        return out
+    gait = getattr(motion, "gait", None)
+    gait_on = bool(getattr(gait, "enabled", False)) if gait is not None else False
+    skills = getattr(motion, "skill_items", None) or {}
+    has_skill = any(
+        (not isinstance(sk, dict)) or bool(sk.get("enabled", True))
+        for sk in skills.values()
+    )
+    if gait_on and has_skill:
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.ERROR,
+            field="motion.skill_items",
+            message=(
+                "a canvas with BOTH gait and a skill trigger channel is not "
+                "deploy-supported yet: gait obs is not in the deploy obs layout, so "
+                "the trigger obs would land at the wrong offset at deploy (a silent "
+                "train≠deploy break). Disable gait or the skill for now — deploy-obs "
+                "parity for gait+skill needs the general command_slice mechanism to "
+                "also cover gait (§8 fail-loud)."
+            ),
+        ))
+    return out
+
+
 def _check_per_item_reward_scale(spec: "TrainingSpec") -> List[ValidationIssue]:
-    """R_REWARD_SCALE — warn when per-item total |Σ weight| diverges.
+    """R_REWARD_SCALE — warn when WITHIN-PACKAGE per-item |Σ weight| diverges.
 
     Per-item composite rewards (``spec.rewards.terms_by_item``) define a
     separate reward bag for each motion item (stand / walk / run / …).
@@ -1816,6 +2073,13 @@ def _check_per_item_reward_scale(spec: "TrainingSpec") -> List[ValidationIssue]:
     learns the low-budget one badly — exactly the scale-skew failure
     mode flagged in the audit report.
 
+    Method A (Slice 1c): the skew is measured WITHIN each package, never across
+    packages. Between-package balance is the user's deliberate ``package_weight``
+    choice (the coarse global-rebalance lever) and must NOT be flagged as skew. A
+    legacy canvas with no package layer resolves to one implicit default package
+    (every item in one group), so the check is byte-identical to the pre-package
+    cross-item behavior.
+
     The check is a WARNING (not ERROR): users may intentionally bias an
     item, but a 3:1 budget gap is almost always an oversight. The
     threshold lives in the function to keep the rule auditable from the
@@ -1823,49 +2087,67 @@ def _check_per_item_reward_scale(spec: "TrainingSpec") -> List[ValidationIssue]:
     """
     out: List[ValidationIssue] = []
     rewards = getattr(spec, "rewards", None)
-    if rewards is None:
+    motion = getattr(spec, "motion", None)
+    if rewards is None or motion is None:
         return out
     per_item = getattr(rewards, "terms_by_item", None) or {}
     if not isinstance(per_item, dict) or len(per_item) < 2:
         return out
     threshold = 3.0
-    item_totals: Dict[str, float] = {}
-    for item_id, term_dict in per_item.items():
+
+    def _item_total(term_dict: Any) -> float:
         if not isinstance(term_dict, dict):
-            continue
+            return 0.0
         total = 0.0
         for val in term_dict.values():
-            if isinstance(val, dict):
-                w = val.get("weight", 0.0)
-            else:
-                w = val
+            w = val.get("weight", 0.0) if isinstance(val, dict) else val
             try:
                 total += abs(float(w))
             except (TypeError, ValueError):
                 continue
-        if total > 0.0:
-            item_totals[item_id] = total
-    if len(item_totals) < 2:
+        return total
+
+    from application.training.training_spec import (
+        DEFAULT_PACKAGE_ID,
+        package_members,
+        resolve_effective_packages,
+    )
+    try:
+        packages = resolve_effective_packages(motion)
+    except ValueError:
+        # Membership is already reported by R_PKG1 (_check_training_packages);
+        # do not re-report here — just skip the skew check.
         return out
-    max_id = max(item_totals, key=item_totals.get)
-    min_id = min(item_totals, key=item_totals.get)
-    ratio = item_totals[max_id] / max(item_totals[min_id], 1e-9)
-    if ratio <= threshold:
-        return out
-    out.append(ValidationIssue(
-        code=IssueCode.GENERIC,
-        severity=Severity.WARNING,
-        field="rewards.terms_by_item",
-        message=(
-            f"per-item reward budgets are skewed: item {max_id!r} sums "
-            f"|Σ weight|={item_totals[max_id]:.3g} vs {min_id!r} "
-            f"={item_totals[min_id]:.3g} (ratio {ratio:.2f}× > "
-            f"{threshold:.1f}×). The policy will preferentially chase "
-            f"{max_id!r} even on commands intended to activate "
-            f"{min_id!r}. Re-balance the weights or fold the cheap "
-            f"item into the rich one's term set."
-        ),
-    ))
+    is_implicit_default = set(packages) == {DEFAULT_PACKAGE_ID}
+
+    for pid in packages:
+        item_totals: Dict[str, float] = {}
+        for item_id in package_members(motion, pid):
+            total = _item_total(per_item.get(item_id, {}))
+            if total > 0.0:
+                item_totals[item_id] = total
+        if len(item_totals) < 2:
+            continue
+        max_id = max(item_totals, key=item_totals.get)
+        min_id = min(item_totals, key=item_totals.get)
+        ratio = item_totals[max_id] / max(item_totals[min_id], 1e-9)
+        if ratio <= threshold:
+            continue
+        pkg_note = "" if is_implicit_default else f" within package {pid!r}"
+        out.append(ValidationIssue(
+            code=IssueCode.GENERIC,
+            severity=Severity.WARNING,
+            field="rewards.terms_by_item",
+            message=(
+                f"per-item reward budgets are skewed{pkg_note}: item {max_id!r} sums "
+                f"|Σ weight|={item_totals[max_id]:.3g} vs {min_id!r} "
+                f"={item_totals[min_id]:.3g} (ratio {ratio:.2f}× > "
+                f"{threshold:.1f}×). The policy will preferentially chase "
+                f"{max_id!r} even on commands intended to activate "
+                f"{min_id!r}. Re-balance the weights or fold the cheap "
+                f"item into the rich one's term set."
+            ),
+        ))
     return out
 
 

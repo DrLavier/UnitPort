@@ -1,0 +1,136 @@
+[community]
+current = Actual
+days_ago = hace {n} días
+latest = Más reciente
+releases_loading = Cargando versiones…
+today = hoy
+tutorial_coming_soon = Próximamente...
+tutorial_desc = Guías paso a paso para construir, entrenar y desplegar.
+tutorial_title = Tutorial oficial
+yesterday = ayer
+title = Comunidad
+support_us = Apóyanos
+tutorial_open = Abrir enlace
+releases_unavailable = No se pudieron cargar los lanzamientos. Comprueba tu red.
+releases_empty = Aún no se han publicado lanzamientos.
+open_page = Abrir página
+download = Descargar
+day_one = Hace 1 día
+
+[create]
+engine_unavailable = no disponible
+error_create_failed = No se pudo crear el proyecto '{name}' (el nombre podría chocar con uno existente — revisa el registro).
+error_existing_missing = Ese proyecto ya no está en el disco — actualiza la lista y vuelve a elegir.
+error_invalid_canvas_name = El nombre del lienzo solo puede contener letras, dígitos, '_' y '-'.
+error_invalid_name = El nombre del proyecto solo puede contener letras, dígitos, '_' y '-'.
+error_no_backend = Elige un backend antes de crear.
+error_no_canvas_name = Escribe un nombre de lienzo (p. ej. 'main').
+error_no_existing = Selecciona un proyecto existente de la lista o cambia a 'Nuevo proyecto'.
+error_no_name = Escribe primero un nombre de proyecto.
+error_no_template = Elige una plantilla (o 'Modo libre') antes de crear.
+label_backend = Backend
+label_canvas_name = Nombre del lienzo
+label_pick_project = Elige un proyecto
+label_project_name = Nombre del proyecto
+label_template = Elige una plantilla
+no_templates = No hay plantillas disponibles para este backend.
+placeholder_canvas = p. ej. main
+placeholder_name = Nombre del nuevo proyecto
+title = Crear nuevo proyecto
+btn = Crear lienzo
+section_project = Proyecto
+section_canvas = Lienzo
+mode_new = Nuevo proyecto
+mode_existing = A proyecto existente
+
+[projects]
+btn_open_workspace = Abrir espacio de trabajo local →
+col_canvas = Lienzo
+col_project = Proyecto
+col_robot = Robot
+cross_user_audit_recorded = Registrado para que {owner} lo revise
+cross_user_copy_failed_body = No se pudo copiar '{name}' en tu espacio de trabajo:
+	{err}
+cross_user_copy_failed_title = Error al copiar
+cross_user_delete_warn_body = '{name}' pertenece a {owner}. Eliminarlo ahora quedará registrado para que {owner} lo revise o lo restaure en su próximo inicio de sesión.
+	
+	¿Eliminar de todos modos?
+cross_user_delete_warn_title = Eliminar el lienzo de otro usuario
+cross_user_open_body = Este lienzo pertenece a {owner}. Cópialo en tu propio espacio de trabajo para crear una copia de seguridad aislada, o abre el original en su lugar — cualquier edición/eliminación quedará registrada para que {owner} la revise en su próximo inicio de sesión.
+cross_user_open_title = Abrir el lienzo de otro usuario
+delete_confirm_body = ¿Eliminar permanentemente '{name}'?
+	
+	Esto solo elimina el archivo del lienzo — el proyecto en sí se conserva.
+delete_confirm_title = Eliminar lienzo
+delete_failed_body = No se pudo eliminar '{name}':
+	{err}
+delete_failed_title = Error al eliminar
+delete_tooltip = Eliminar este archivo de canvas
+empty = Aún no hay espacios de trabajo locales — crea tu primer proyecto a la derecha.
+load_tooltip = Abrir este canvas
+migrate_confirm_body = ¿Mover la raíz del espacio de trabajo de
+	{old}
+	a
+	{new}?
+	
+	Todos los proyectos, canvases y los datos por usuario se moverán. La aplicación recargará el estado del espacio de trabajo cuando termine.
+migrate_confirm_title = Migrar espacio de trabajo
+migrate_failed_body = No se pudo migrar el espacio de trabajo:
+	{err}
+migrate_failed_title = Migración fallida
+migrate_success_body = La raíz del espacio de trabajo ahora es:
+	{path}
+migrate_success_title = Migración completada
+migrate_title = Elegir nueva raíz del espacio de trabajo
+refresh_tooltip = Actualizar archivos locales
+reveal_tooltip = Mostrar en carpeta
+robot_unset = —
+search_placeholder = Buscar canvases…
+snapshot_label = Instantánea:
+time_day_n = hace {n} días
+time_hr_n = hace {n} horas
+title = Account
+view_all = Ver todos los espacios de trabajo
+refresh = Actualizar
+btn_migrate = Migrar
+col_user = Usuario
+col_engine = Motor
+col_time = Última modificación
+col_action = Acción
+status_recent = Reciente
+status_idle = Inactivo
+engine_unset = —
+engine_mixed = Mixto ({n})
+time_min_one = Hace 1 minuto
+time_hr_one = Hace 1 hora
+btn_load = Cargar
+cross_user_open_copy = Copiar a mi espacio de trabajo (recomendado)
+cross_user_open_inplace = Abrir en el lugar
+cross_user_open_cancel = Cancelar
+time_just_now = ahora mismo
+time_min_n = hace {n} minutos
+time_unknown = —
+time_yesterday = ayer
+user_guest = Invitado
+
+[user]
+headline_signed_out = Bienvenido a UnitPort Studio
+methods_prompt = Métodos de inicio de sesión
+signin_prompt = Iniciar sesión / Registrarse
+sub_signed_out = Inicia sesión en tu cuenta para sincronizar proyectos y desbloquear funciones en la nube.
+uuid_copied_toast = UUID copiado al portapapeles
+uuid_copy_tooltip = Copiar UUID
+uuid_label = UUID: {uuid}
+welcome_back = Bienvenido de nuevo, {name}
+welcome_sub = Gestiona tu cuenta y sincroniza tus proyectos en todos los dispositivos.
+title = Cuenta
+welcome_back_title = Bienvenido de nuevo,
+btn_google = Continuar con Google
+btn_github = Continuar con GitHub
+btn_email = Continuar con correo electrónico
+welcome_back_static = Bienvenido de nuevo,
+cloud_usage_label = Uso en la nube
+sign_out = Cerrar sesión
+learn_more = Más información
+workspace_synced = Espacio de trabajo sincronizado · los proyectos se reflejan en tu cuenta
+

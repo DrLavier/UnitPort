@@ -1,0 +1,69 @@
+[default]
+auto_push_tooltip = Cuando está activado, UnitPort envía a la nube cada archivo del espacio de trabajo que cambie poco después de que lo guardes.
+busy_pull = Descargando desde la nube…
+busy_push = Subiendo a la nube…
+manage_dialog_delete_confirm_body = ¿Eliminar permanentemente '{name}' de la nube?
+manage_dialog_delete_confirm_title = Eliminar archivo de la nube
+manage_dialog_dl_conflict_body = El archivo local ya existe:
+	{path}
+	
+	¿Qué hacemos?
+manage_dialog_dl_conflict_title = Archivo existente
+manage_dialog_dl_done_body = Descargado en:
+	{path}
+manage_dialog_dl_done_title = Descarga completa
+manage_dialog_dl_overwrite = Sobrescribir
+manage_dialog_dl_save_as = Guardar como…
+manage_dialog_dl_save_as_caption = Guardar archivo descargado
+manage_dialog_dl_skip = Omitir
+manage_dialog_empty = No hay archivos en la nube todavía — prueba Push o arrastra un archivo aquí.
+manage_dialog_folder_del_body = ¿Eliminar permanentemente '{name}' y los {n} archivos que contiene de la nube?
+manage_dialog_folder_del_title = Eliminar carpeta
+manage_dialog_folder_dl_all_skipped = Todos los archivos ya existen localmente — no se descargó nada.
+manage_dialog_folder_dl_body = ¿Descargar {n} archivos de '{name}' al espacio de trabajo local?
+manage_dialog_folder_dl_replace = Reemplazar existentes
+manage_dialog_folder_dl_skip_existing = Omitir existentes
+manage_dialog_folder_dl_title = Descargar carpeta
+manage_dialog_folder_summary = {n} elementos · {size}
+manage_dialog_loading = Cargando…
+manage_dialog_not_signed_in = Inicia sesión primero para gestionar el almacenamiento en la nube.
+manage_dialog_op_failed_body = {phase} falló:
+	{err}
+manage_dialog_op_failed_title = Operación fallida
+manage_dialog_oversize_body = No se pueden subir archivos de más de 50 MB:
+	{names}
+manage_dialog_oversize_title = Archivo demasiado grande
+manage_dialog_quota = Usado {used} / {total}
+manage_dialog_title = Gestionar almacenamiento en la nube
+manage_tooltip = Gestiona los ajustes de sincronización en la nube y los archivos almacenados
+never_synced = nunca
+pull_tooltip = Descargar archivos de la nube al espacio de trabajo local
+push_tooltip = Subir archivos del espacio de trabajo local a la nube
+status_error = Sincronización fallida: {msg}
+status_signed_out = Inicia sesión para habilitar la sincronización con la nube
+status_synced = Sincronizados {n} archivos · última sincronización {when}
+section_title = Sincronización en la nube
+push_button = Subir
+pull_button = Descargar
+manage_button = Administrar
+manage_coming_soon = El diálogo de gestión de la nube estará disponible próximamente.
+manage_dialog_refresh = Actualizar
+manage_dialog_close = Cerrar
+manage_dialog_uploading = Subiendo {name}…
+manage_dialog_deleting = Eliminando…
+manage_dialog_downloading = Descargando…
+download_tooltip = Descargar al espacio de trabajo local
+delete_tooltip = Eliminar de la nube
+folder_download_tooltip = Descargar todos los archivos de esta carpeta
+folder_delete_tooltip = Eliminar esta carpeta y todos los archivos que contiene
+auto_push_label = Subida automática
+status_idle = Inactivo
+status_pushing = Subiendo... {done}/{total}
+status_pulling = Descargando... {done}/{total}
+status_self_check = La nube tiene {n} objeto(s)
+status_no_remote = La nube está vacía
+status_size_skip = Se omitieron {n} archivo(s) de más de 50 MB
+busy_self_check = Comprobando el estado de la nube...
+done_push = Se subieron {ok}/{total} archivos. Omitidos {skipped}.
+done_pull = Se descargaron {ok}/{total} archivos. Omitidos {skipped}.
+

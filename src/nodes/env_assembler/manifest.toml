@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "env_assembler"
+backends = ["sb3_mujoco"]  # SB3/MuJoCo only; IL n_envs comes from il_ppo_trainer
 kind = "CUSTOM"
 version = "1.0.0"
 category = "config"

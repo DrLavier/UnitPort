@@ -30,9 +30,11 @@ from PyQt6.QtWidgets import (
 
 from unitport_sdk import (
     Assets,
+    Config,
     I18n,
     clearDirtyTracker,
     getDirtyTracker,
+    i18n_bind,
     log_debug,
     log_error,
     log_success,
@@ -56,6 +58,8 @@ from application.compiler.lowering import (
 from registers import backends as backends_registry
 from registers import robots as robots_registry
 
+from .agent_bridge import CanvasAgentBridge
+from .ai_build_panel import AiBuildPanel
 from .control_guide import CanvasControlGuide
 from .group_item import GroupItem
 from .items import ConnectionItem, NodeItem, PlaceholderNodeItem, connect_ports
@@ -246,6 +250,13 @@ class CanvasPage(QWidget):
     # unsaved edits exist; False = clean baseline.
     dirty_state_changed = pyqtSignal(bool)
 
+    # Emitted when the floating AI Build button toggles. The host (_MainPanel)
+    # owns the mask's geometry/z-order: the AI Build overlay is a main_panel
+    # sibling of this page (NOT a viewport child) so its opacity effect can
+    # composite against the canvas behind it, exactly like MissionControlPanel.
+    # Payload True = show the mask (full-cover, raised above MC); False = hide.
+    ai_build_overlay_toggled = pyqtSignal(bool)
+
     def __init__(
         self,
         parent: Optional[QWidget] = None,
@@ -346,7 +357,10 @@ class CanvasPage(QWidget):
         self._overlay.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         overlay_layout = QVBoxLayout(self._overlay)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_layout.setSpacing(0)
+        overlay_layout.setSpacing(6)
+
+        # AI Build 开关已迁到 MissionControlPanel 顶栏（tab 滑块左侧）；此右下角
+        # overlay 现在只承载 minimap。
 
         # minimap（保留鼠标交互）
         self._minimap = CanvasMiniMap(self._view)
@@ -356,10 +370,55 @@ class CanvasPage(QWidget):
         self._view.verticalScrollBar().valueChanged.connect(self._refresh_minimap)
         self._scene.changed.connect(lambda *_: self._refresh_minimap())
 
+        # AI Build 大遮罩 —— **不是** viewport 子 widget。它由宿主 _MainPanel
+        # reparent 成与本页平级的兄弟控件（画布在底层 widget，遮罩 raise 在上），
+        # 这样遮罩的 QGraphicsOpacityEffect 才能和背后的画布合成透出，和
+        # MissionControlPanel 的图表遮罩机制完全一致。viewport 子控件做不到。
+        # 创建时挂在本页下并隐藏（避免成顶层窗口闪现），等 set_children 时由
+        # _MainPanel 接管 parent + 几何 + 层级。
+        self._ai_build_panel = AiBuildPanel(self)
+        self._ai_build_panel.hide()
+        # 收起由 Mission Control 顶栏的 "AI Coding" 标签驱动（切走该标签即
+        # collapse_ai_build），面板自身不再有关闭 (×) 按钮。
+
+        # Agent bridge —— the single seam between the (future) NL-orchestration
+        # harness and this live canvas: applies agent mutations to the scene and
+        # owns the pre-prompt checkpoint. Reset reverts the canvas; a submitted
+        # prompt captures a fresh checkpoint first (so Reset can undo a bad run).
+        self._ai_agent_bridge = CanvasAgentBridge(self, self._ai_build_panel)
+        self._ai_build_panel.reset_requested.connect(
+            self._ai_agent_bridge.reset_to_checkpoint
+        )
+        self._ai_build_panel.prompt_submitted.connect(self._on_ai_prompt_submitted)
+        self._ai_build_panel.settings_requested.connect(self._open_ai_api_settings)
+        self._ai_build_panel.pause_toggled.connect(self._on_ai_pause_toggled)
+        self._ai_build_panel.retry_requested.connect(self._on_ai_retry_requested)
+        # Configuration-source combobox: Origin + one numbered version per run
+        # that changed the canvas. The store is the Qt-free producer; selecting
+        # an entry applies that snapshot to the live canvas (Origin = revert).
+        # Lazy import mirrors the other application.service imports here (page.py
+        # can be imported very early, before application.service is ready).
+        from application.service.ai_orchestration.version_store import (
+            AiBuildVersionStore,
+        )
+        self._ai_versions = AiBuildVersionStore()
+        self._ai_build_panel.config_source_changed.connect(
+            self._on_ai_config_source_changed
+        )
+
         self._overlay.adjustSize()
         self._overlay.show()
         self._overlay.raise_()
         self._reposition_overlay()
+
+        # AI Build 开关已从画布右上角悬浮按钮迁移到 MissionControlPanel 顶栏
+        # （tab 滑块左侧的 "AI: [SwitchButton]"，仅 Training Canva 模式可见）。
+        # 这里只保留遮罩的"开/收"状态与对外的纯逻辑入口
+        # ``set_ai_build_overlay_open`` / ``is_ai_build_open``，由 MC 顶栏开关驱动。
+        # ``_top_overlay_inset`` 仍由宿主经 ``set_top_overlay_inset`` 下传（用于
+        # 未来右上角 overlay 的避让），当前无悬浮控件需重定位。
+        self._top_overlay_inset = 0
+        self._ai_overlay_open: bool = False
 
         # 左下角 overlay 容器：control_guide。结构与右下 self._overlay 镜像，
         # 唯一区别是锚定在 viewport 左下角。viewport 子 widget → 不随 scene
@@ -452,6 +511,364 @@ class CanvasPage(QWidget):
 
     _OVERLAY_MARGIN = 12         # minimap 距 viewport 右 / 下边距
     _CONTROL_GUIDE_MARGIN = 10   # control_guide 距 viewport 左 / 下边距
+    _MINIMAP_WIDTH = 220         # CanvasMiniMap 固定宽度
+
+    def is_ai_build_open(self) -> bool:
+        """Whether the AI Build overlay is currently shown.
+
+        The MissionControlPanel ``AI Coding`` tab mirrors this: selecting the
+        tab opens the overlay, switching away (or leaving canvas mode)
+        collapses it."""
+        return bool(getattr(self, "_ai_overlay_open", False))
+
+    def set_ai_build_overlay_open(self, open_: bool) -> bool:
+        """Open / collapse the AI Build overlay; return the resulting state.
+
+        The single entry point that the MissionControlPanel ``AI Coding`` tab
+        (and :meth:`collapse_ai_build`) drive. Geometry / z-order is the host's
+        job (``_MainPanel`` listens to :attr:`ai_build_overlay_toggled`): the
+        mask is a main_panel sibling of this page so its opacity effect reveals
+        the canvas like MC.
+
+        Opening gates on a saved LLM connection (opens the settings dialog if
+        none yet). If still unconfigured, the overlay stays collapsed and we
+        emit ``ai_build_overlay_toggled(False)`` so the tab selection reverts.
+        The return value is the actual open-state so a direct caller can react
+        too.
+        """
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is None:
+            return False
+        if not bool(open_):
+            if self._ai_overlay_open:
+                self._ai_overlay_open = False
+                self.ai_build_overlay_toggled.emit(False)
+            return False
+        # Entry gate: AI Build needs a saved LLM connection.
+        from application.service.ai_orchestration.api_config import is_api_configured
+
+        if not is_api_configured() and not self._open_ai_api_settings():
+            # Refused — make sure we read as closed and tell the switch to revert.
+            self._ai_overlay_open = False
+            self.ai_build_overlay_toggled.emit(False)
+            return False
+        # Bind the overlay to this canvas's per-canvas conversation threads, then
+        # ask the host to show it (full-cover, raised above MC). The signal is
+        # delivered synchronously, so the mask is visible before focus_input.
+        panel.set_canvas_id(self.file_id)
+        # Reflect the active agent's model on the top-row button before showing.
+        panel.refresh_agent_button()
+        # Feed the run-target banner / config context with this canvas's robot
+        # + backend (the rest of the banner is BACKEND TODO — see the panel).
+        panel.set_requirements_context(self._backend_id or "", self.robot_id or "")
+        # Fill the Configuration sections from the LIVE canvas right away, so the
+        # panel reflects the real config (not an empty skeleton) before any run.
+        self._push_ai_config_preview()
+        self._ai_overlay_open = True
+        self.ai_build_overlay_toggled.emit(True)
+        panel.focus_input()
+        return True
+
+    def collapse_ai_build(self) -> None:
+        """Collapse the AI Build overlay (mirrored onto the MC ``AI Coding`` tab).
+
+        Driven by the host when leaving canvas mode (and when the user switches
+        away from the AI Coding tab). Emits ``ai_build_overlay_toggled(False)``
+        so the host hides the mask and the tab selection reverts."""
+        self.set_ai_build_overlay_open(False)
+
+    @property
+    def ai_build_panel(self) -> "AiBuildPanel":
+        """The AI Build mask. The host reparents it to ``_MainPanel`` (sibling
+        of this page) so its opacity composites against the canvas, like MC."""
+        return self._ai_build_panel
+
+    def _open_ai_api_settings(self) -> bool:
+        """Open the API settings dialog (gear button + entry gate).
+
+        Returns True if a usable connection is configured after the dialog
+        closes, so the entry gate can decide whether to proceed.
+        """
+        from application.service.ai_orchestration.api_config import is_api_configured
+        from application.ui.dialogs.ai_api_settings_dialog import AiApiSettingsDialog
+
+        dialog = AiApiSettingsDialog(self)
+        dialog.exec()
+        # The default agent (and its model) may have changed — re-label the
+        # top-row agent button so it reflects the active connection.
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is not None:
+            panel.refresh_agent_button()
+        return is_api_configured()
+
+    @property
+    def ai_agent_bridge(self) -> CanvasAgentBridge:
+        """The seam the NL-orchestration harness drives the canvas through."""
+        return self._ai_agent_bridge
+
+    def ai_build_report_progress(self, fraction: float, text: str = "") -> None:
+        """GUI-thread hook the marshalling sink forwards run progress to.
+
+        Drives the overlay's progress bar from the run's real ``set_progress``
+        checkpoints (connect → run → save → done)."""
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is not None:
+            panel.set_progress(fraction, text)
+
+    def ai_build_begin_phase(self, phase_id: str, title: str) -> None:
+        """Forward a structured-phase start to the overlay (marshaller → GUI)."""
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is not None:
+            panel.begin_phase(phase_id, title)
+
+    def ai_build_on_engaged(self) -> None:
+        """GUI-thread hook: the run passed the silent intent gate and WILL act
+        on the canvas. Only now surface the checkpoint notice — a gate-declined
+        direct answer never shows build affordances (the checkpoint itself was
+        captured before the task was submitted)."""
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is not None:
+            panel.append_markup(
+                tr(
+                    "canvas.ai_build.checkpoint_made",
+                    "[[success:Checkpoint saved — Reset reverts the canvas to this point.]]",
+                )
+            )
+
+    def ai_build_set_phase_tokens(self, phase_total: int, cumulative: int) -> None:
+        """Forward per-phase / cumulative token counts to the overlay."""
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is not None:
+            panel.set_phase_tokens(phase_total, cumulative)
+
+    def _on_ai_pause_toggled(self, paused: bool) -> None:
+        """Pause / resume the running AI Build task at its next phase boundary."""
+        task = getattr(self, "_ai_build_task", None)
+        if task is None:
+            return
+        if paused:
+            task.request_pause()
+        else:
+            task.request_resume()
+
+    def _on_ai_retry_requested(self) -> None:
+        """Re-run the last prompt from the pre-prompt checkpoint (whole-run retry).
+
+        Ignored while a run is in flight (Pause/cancel that first). Reverts the
+        canvas to the checkpoint, then re-submits the same prompt."""
+        if getattr(self, "_ai_build_task_id", None):
+            self._ai_build_panel.append_markup(
+                tr(
+                    "canvas.ai_build.retry_busy",
+                    "[[warning:A run is in progress — pause or wait before retrying.]]",
+                )
+            )
+            return
+        last = str(getattr(self, "_ai_last_prompt", "") or "").strip()
+        if not last:
+            self._ai_build_panel.append_markup(
+                tr(
+                    "canvas.ai_build.retry_none",
+                    "[[warning:Nothing to retry yet — send a prompt first.]]",
+                )
+            )
+            return
+        if self._ai_agent_bridge.has_checkpoint():
+            self._ai_agent_bridge.reset_to_checkpoint()
+        self._on_ai_prompt_submitted(last)
+
+    def _on_ai_prompt_submitted(self, prompt: str) -> None:
+        """User submitted an AI Build prompt — dispatch the orchestration harness.
+
+        The panel has already recorded the user message bubble; here we capture a
+        whole-canvas checkpoint BEFORE anything acts on the canvas (so Reset can
+        revert a bad run), then run the harness on a worker thread reading the
+        panel's run settings (max repair rounds / auto-save). The harness opens
+        with a silent intent gate: a prompt that is not a canvas build/modify
+        request is answered directly from the model's own knowledge (no canvas
+        writes, nothing committed); only a gated-in build run calls back
+        :meth:`ai_build_on_engaged` and proceeds to mutate. Every canvas write
+        the harness performs is marshalled back to this GUI thread by the
+        :class:`BridgeMutationSink`, which renders the live C4 event stream into
+        the agent bubble and drives the progress bar. Fail-loud: the task reports
+        a configuration / transport failure and is marked failed; a bad run is
+        never auto-persisted (§8).
+        """
+        prompt = str(prompt or "").strip()
+        if not prompt:
+            return
+        if getattr(self, "_ai_build_task_id", None):
+            # A run is already in flight — do not race two harnesses on one canvas.
+            self._ai_build_panel.append_markup(
+                tr(
+                    "canvas.ai_build.run_busy",
+                    "[[warning:An AI Build run is already in progress — wait for it "
+                    "to finish.]]",
+                )
+            )
+            return
+
+        self._ai_agent_bridge.checkpoint()
+        # Capture "Origin" (the pre-first-run canvas) once, before any agent edit,
+        # so the Configuration combobox can always offer a manual revert target.
+        try:
+            self._ai_versions.set_origin_if_absent(self.to_workflow_dict())
+        except Exception as exc:  # snapshot is the canvas's own contract; non-fatal
+            log_warning(f"[ui.canvas] AI Build origin snapshot failed: {exc!r}")
+        self._ai_build_panel.begin_progress()
+        # The checkpoint NOTICE is deferred to ai_build_on_engaged(): the run
+        # first passes the silent intent gate, and a gate-declined prompt is
+        # answered directly without ever acting on the canvas — showing build
+        # affordances for it would be noise. The checkpoint itself is captured
+        # above regardless (it must precede any possible mutation).
+
+        # Build the GUI-thread marshalling sink + the worker task and submit,
+        # carrying the panel's run settings.
+        from unitport_sdk import get_task_signal, get_tasks_manager
+
+        from application.service.ai_orchestration.harness.run_task import AiBuildRunTask
+        from .ai_build_bridge_marshaller import BridgeMutationSink
+
+        if not getattr(self, "_ai_build_signal_wired", False):
+            get_task_signal().task_finished.connect(self._on_ai_build_task_finished)
+            self._ai_build_signal_wired = True
+
+        # Remember the prompt so Retry can re-run it from the checkpoint.
+        self._ai_last_prompt = prompt
+
+        # Keep a reference to the sink so it is not garbage-collected mid-run.
+        self._ai_build_sink = BridgeMutationSink(self)
+        task = AiBuildRunTask(
+            self._ai_build_sink,
+            prompt,
+            max_repair_rounds=self._ai_build_panel.max_repair_rounds(),
+            auto_commit=self._ai_build_panel.auto_commit(),
+            requirements=self._ai_build_panel.requirements(),
+            # In-chat history of the active thread (captured NOW, on the GUI
+            # thread, before the worker starts) — the gate / direct answer /
+            # Understanding phase keep conversational referents across turns.
+            history=self._ai_build_panel.llm_conversation_history(),
+        )
+        # Keep a reference so the Pause button can reach the running task.
+        self._ai_build_task = task
+        self._ai_build_task_id = get_tasks_manager().submit(task)
+
+    def _on_ai_build_task_finished(self, task_id: str, success: bool, result: object) -> None:
+        """Reset the in-flight flag when our AI Build task ends (success or not).
+
+        The task already logged the specific outcome (saved / blocking issues /
+        API failure) into the panel; this clears the run guard, releases the sink
+        reference, tops off the progress bar and persists the agent turn."""
+        if task_id != getattr(self, "_ai_build_task_id", None):
+            return
+        self._ai_build_task_id = None
+        self._ai_build_sink = None
+        self._ai_build_task = None
+        if not success:
+            self._ai_build_panel.append_markup(
+                tr(
+                    "canvas.ai_build.run_failed",
+                    "[[error:AI Build run failed — see the messages above.]]",
+                )
+            )
+        # If the agent changed the canvas at all, publish a new Configuration
+        # version into the dropdown (regardless of success — the live canvas was
+        # mutated either way; a no-op run adds nothing).
+        self._publish_ai_version()
+        self._ai_build_panel.finish_progress()
+
+    def _publish_ai_version(self) -> None:
+        """Record a Configuration version for the just-finished run and refresh
+        the source combobox. A run that changed nothing adds no version (no
+        fabricated entry, §8)."""
+        try:
+            canvas = self.to_workflow_dict()
+        except Exception as exc:  # serialization is the canvas's own contract
+            log_warning(f"[ui.canvas] AI Build version snapshot failed: {exc!r}")
+            return
+        # Reflect the final post-run canvas in the Configuration sections.
+        self._push_ai_config_preview()
+        next_n = len(self._ai_versions.sources()) + 1
+        prompt = str(getattr(self, "_ai_last_prompt", "") or "").strip()
+        hint = prompt.splitlines()[0][:24].strip() if prompt else ""
+        label = f"v{next_n} · {hint}" if hint else f"v{next_n}"
+        version = self._ai_versions.record(canvas, label=label)
+        if version is None:
+            return  # nothing changed → no new version
+        self._ai_build_panel.set_config_sources(
+            self._ai_versions.sources(), select=version.key
+        )
+        msg = tr(
+            "canvas.ai_build.version_saved",
+            "[[success:Saved as config version {v} — pick it (or Origin to revert) "
+            "in the Configuration list.]]",
+        )
+        try:
+            msg = msg.format(v=version.key)
+        except (KeyError, IndexError):
+            msg = f"[[success:Saved as config version {version.key}.]]"
+        self._ai_build_panel.append_markup(msg)
+
+    def _push_ai_config_preview(self) -> None:
+        """Project the live canvas into the panel's Configuration sections.
+
+        Called on overlay open, after every agent mutation (debounced), and after
+        a run / version switch — so the sections mirror the real config and follow
+        the agent's edits in real time. Best-effort + cosmetic (never raises)."""
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is None:
+            return
+        try:
+            from application.service.ai_orchestration.config_preview import (
+                project_config_sections,
+            )
+            sections = project_config_sections(self.to_workflow_dict())
+        except Exception as exc:  # cosmetic preview must not break anything
+            log_warning(f"[ui.canvas] AI Build config preview failed: {exc!r}")
+            return
+        panel.set_config_preview(sections)
+
+    def ai_build_schedule_config_refresh(self) -> None:
+        """Coalesce rapid agent mutations into one Configuration-preview refresh.
+
+        The agent applies many primitives per run; a single-shot debounce avoids
+        rebuilding the sections (and flickering) on every one while still tracking
+        the canvas in near-real-time. Called by the bridge after each mutation."""
+        timer = getattr(self, "_ai_cfg_timer", None)
+        if timer is None:
+            from PyQt6.QtCore import QTimer
+
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(80)
+            timer.timeout.connect(self._push_ai_config_preview)
+            self._ai_cfg_timer = timer
+        timer.start()  # restart the debounce window on each mutation
+
+    def _on_ai_config_source_changed(self, key: str) -> None:
+        """User picked a Configuration source: apply that snapshot to the live
+        canvas (Origin = manual revert to the pre-run canvas). Direct + immediate
+        + persisted, per the AI Build design."""
+        if getattr(self, "_ai_build_task_id", None):
+            self._ai_build_panel.append_markup(
+                tr(
+                    "canvas.ai_build.version_busy",
+                    "[[warning:A run is in progress — wait before switching config "
+                    "versions.]]",
+                )
+            )
+            return
+        snap = self._ai_versions.snapshot_for(str(key or "origin"))
+        if snap is None:
+            return
+        try:
+            # snapshot_for already returns a deep copy — safe to hand to the loader.
+            self.from_workflow_dict(snap)
+        except Exception as exc:  # a bad snapshot must not wedge the editor
+            log_warning(f"[ui.canvas] AI Build apply config {key!r} failed: {exc!r}")
+            return
+        self.commit_to_save_target()  # zero-lag sync + persist (best-effort save)
+        self._push_ai_config_preview()  # sections mirror the applied version
 
     def _build_control_guide(self) -> Optional[CanvasControlGuide]:
         path = Assets.find_icon("control_guide")
@@ -486,6 +903,18 @@ class CanvasPage(QWidget):
             max(0, vp.height() - sz.height() - margin),
         )
         overlay.raise_()
+
+    def set_top_overlay_inset(self, px: int) -> None:
+        """Host hook: height of the overlay strip covering the canvas top.
+
+        MainWindow passes the MissionControlPanel top_row height. The floating
+        AI Build button that used to avoid this strip has moved into the MC
+        top_row (the "AI" switch), so there is currently no top-right viewport
+        overlay to reposition — the value is stored for any future top-right
+        affordance and to keep the host's ``_relayout`` call a harmless no-op.
+        The AI Build mask itself is a main_panel sibling raised above MC, so it
+        covers the strip and needs no inset (handled by ``_MainPanel``)."""
+        self._top_overlay_inset = max(0, int(px))
 
     def _refresh_minimap(self) -> None:
         self._reposition_overlay()
@@ -621,6 +1050,11 @@ class CanvasPage(QWidget):
         关联完成后 emit 一次 ``canvas_topology_changed`` 让订阅方做首次刷新
         （此时 _instances 已就绪，从外部 set_canvas 链路触发）。"""
         self._file_id = str(fid or "")
+        # AI Build 对话线程按画布隔离：切画布时让浮层重新载入该画布的线程
+        # （浮层打开时立即可见；关闭时也无害，下次打开即对的上）。
+        panel = getattr(self, "_ai_build_panel", None)
+        if panel is not None:
+            panel.set_canvas_id(self._file_id)
         self._emit_topology_changed()
 
     def _emit_topology_changed(self) -> None:
@@ -637,6 +1071,21 @@ class CanvasPage(QWidget):
         # 拓扑也是一种编辑（spawn/despawn/clear），与 undo_stack.indexChanged 互补
         # 覆盖：indexChanged 抓 push/undo/redo，本路径抓 raw 路径 + bind_backend。
         self._refresh_dirty_state()
+
+    def _emit_edge_changed(self) -> None:
+        """边建立 / 断开时广播（ConnectionItem → scene.notify_edge_changed）.
+
+        批量加载期间静默（与 ``_emit_topology_changed`` 同一约定）——
+        from_workflow_dict 收尾的 topology_changed 兜底触发订阅方刷新。
+        订阅方：CommandContractModel（契约预览随接线实时重算）。
+        """
+        if getattr(self, "_batch_load", False):
+            return
+        try:
+            from application.service.signals import get_app_signals
+            get_app_signals().canvas_edge_changed.emit(self._file_id)
+        except Exception:
+            pass
 
     # ---- DirtyTracker 接入（全局"当前画布文件"脏状态广播） ----
 
@@ -796,6 +1245,22 @@ class CanvasPage(QWidget):
         except Exception as exc:
             log_warning(f"[ui.canvas] _maybe_save_after_edit: skip ({exc!r})")
 
+    def commit_to_save_target(self) -> Optional[Path]:
+        """Persist the canvas to the configured ``set_save_target`` target.
+
+        The AI Build harness's deterministic commit (blueprint §6) calls this on
+        the GUI thread after a clean compile. Returns the saved path, or ``None``
+        when no project target is set (an unsaved scratch canvas — the user must
+        save manually; surfaced as a warning, not a silent success, §8).
+        """
+        if self._save_project is None or not self._save_name:
+            log_warning(
+                "[ui.canvas] commit_to_save_target: no project save target set; "
+                "canvas not auto-saved"
+            )
+            return None
+        return self.save_to_project(self._save_project, self._save_name)
+
     # ---- 节点 spawn / connect ----
 
     def spawn_node(
@@ -811,9 +1276,24 @@ class CanvasPage(QWidget):
         外部调用者（NodeLibrary 拖入、右键菜单 Add Node、测试）经此进入。
         ``_in_undo=True`` 时（命令 redo / from_workflow_dict 加载 / populate_demo
         guard）旁路 stack，直接走 ``_spawn_node_raw``。
+
+        已绑后端的画布拒绝跨后端节点（``manifest.backends`` 谓词）——palette /
+        右键菜单在上游已过滤，这里兜底陈旧拖拽与程序化调用；文件加载 / undo
+        replay 走 ``_spawn_node_raw``，不受影响（旧画布照常打开，编译期归
+        spec_validator 把关）。
         """
         if self._in_undo:
             return self._spawn_node_raw(node_id, x, y, instance_id, params)
+        if self._backend_id is not None:
+            from registers import nodes as nodes_registry
+            m = nodes_registry.get_manifest(node_id)
+            if m is not None and not m.applies_to_backend(self._backend_id):
+                log_error(
+                    f"[ui.canvas] spawn_node: node '{node_id}' is not available "
+                    f"for backend '{self._backend_id}' "
+                    f"(manifest.backends={list(m.backends)!r}); refused"
+                )
+                return None
         from .undo import SpawnNodeCmd
         cmd = SpawnNodeCmd(self, node_id, x, y, params=params, instance_id=instance_id)
         self._undo_stack.push(cmd)
@@ -845,9 +1325,19 @@ class CanvasPage(QWidget):
             return None
 
         if instance_id is None:
+            # Gap-safe auto-id: a count-based ``{id}_{n+1}`` COLLIDES whenever the
+            # existing ids have a gap (e.g. ``rewards_2`` present but ``rewards_1``
+            # removed → count=1 → ``rewards_2`` again → false "duplicate"). Multi-
+            # instance nodes (rewards, …) have no uniqueness limit; increment past
+            # any taken id so a legitimate placement never gets rejected.
             n = sum(1 for k in self._instances if k.startswith(f"{node_id}_"))
             instance_id = f"{node_id}_{n + 1}"
+            while instance_id in self._instances:
+                n += 1
+                instance_id = f"{node_id}_{n + 1}"
         if instance_id in self._instances:
+            # Only reachable now when the CALLER passed an explicit, already-taken
+            # id (a real conflict) — auto-ids are guaranteed free above.
             log_warning(
                 f"[ui.canvas] spawn_node: instance_id '{instance_id}' 已存在；拒绝重复创建"
             )
@@ -1872,6 +2362,9 @@ class CanvasPage(QWidget):
             self._node_library.apply_theme()
         elif self._node_library_controller is not None:
             self._node_library_controller.apply_theme()
+        # AI Build 浮层随主题刷新（开关已迁到 MC 顶栏，由 MC apply_theme 刷新）
+        if getattr(self, "_ai_build_panel", None) is not None:
+            self._ai_build_panel.apply_theme()
 
     # ---- 嵌入模式公开 API（MissionControlPanel 使用） ----
 
@@ -2561,6 +3054,162 @@ class CanvasPage(QWidget):
         self._groups[gid] = grp
 
     # ------------------------------------------------------------------
+    # AI Build 确定性排布 (SYSTEM step) —— move nodes + 区块框 upsert
+    # ------------------------------------------------------------------
+    def _move_node_raw(self, instance_id: str, x: float, y: float) -> bool:
+        """Reposition a live node (raw; NOT undo-aware). False if it's missing.
+
+        Matches the AI Build run's raw-mutation model — the whole run is
+        checkpoint/restore-able (bridge.checkpoint), not per-op undo."""
+        item = self._instances.get(str(instance_id))
+        if item is None:
+            return False
+        item.setPos(float(x), float(y))
+        return True
+
+    #: gid prefix for AI-Build-owned block region boxes (rebuilt every layout;
+    #: user-created groups use uuid hex ids and are never touched here).
+    AI_BUILD_REGION_PREFIX = "aibuild_region_"
+
+    def _current_view_center(self) -> "QPointF":
+        """Scene-coord centre of what the user is currently looking at."""
+        return self._view.mapToScene(self._view.viewport().rect().center())
+
+    #: vertical gap between stacked nodes in a column (scene units).
+    AI_BUILD_ROW_GAP = 48.0
+
+    def _restack_columns_live(
+        self, positions: Dict[str, Any]
+    ) -> Dict[str, "QPointF"]:
+        """Re-derive a LOCAL layout that keeps the plan's columns/order but sets
+        each node's ``y`` from its **live rendered height**, not the plan's.
+
+        The plan groups nodes into columns by ``x`` (planned from node widths);
+        we keep that ``x`` but re-stack each column top-down using the live
+        ``sceneBoundingRect().height()``. This is what kills the "exaggerated
+        vertical gap": a node whose serialized height exceeds what it actually
+        renders (collapsed / stale) no longer pushes the next node far past its
+        visible bottom — the gap is always exactly ``AI_BUILD_ROW_GAP``."""
+        columns: Dict[float, List[Tuple[float, str]]] = {}
+        for nid, xy in (positions or {}).items():
+            if str(nid) not in self._instances:
+                continue
+            try:
+                lx, ly = round(float(xy[0]), 1), float(xy[1])
+            except (TypeError, ValueError, IndexError, KeyError):
+                continue
+            columns.setdefault(lx, []).append((ly, str(nid)))
+
+        laid: Dict[str, QPointF] = {}
+        for lx in sorted(columns):
+            y = 0.0  # all columns share a common top (top-aligned dataflow)
+            for _order_y, nid in sorted(columns[lx]):
+                laid[nid] = QPointF(lx, y)
+                h = float(self._instances[nid].sceneBoundingRect().height())
+                y += h + self.AI_BUILD_ROW_GAP
+        return laid
+
+    def apply_ai_build_layout(
+        self,
+        positions: Dict[str, Any],
+        regions: Any,
+        *,
+        draw_regions: bool = True,
+    ) -> None:
+        """Apply a deterministic AI-Build layout to the LIVE canvas.
+
+        ``positions`` is ``{node_id: (x, y)}`` in a local frame; the whole plan is
+        translated so its centre sits on the current view (issue: layout ignored
+        the view centre). The order is strict — **all nodes are positioned first,
+        then the region boxes are drawn from the final node geometry** (issue:
+        boxes drawn before/around scattered nodes). ``draw_regions`` is False for
+        the per-block passes (position only, no boxes) and True once at the end.
+
+        Region boxes wrap each block's nodes tightly (live ``sceneBoundingRect`` +
+        padding) and, because the columns are packed with clear gaps, never
+        overlap (issue: box-in-box). Finally
+        :meth:`_recompute_all_group_memberships` re-derives EVERY group's members
+        from geometry, so a box owns exactly the nodes inside it and a box the
+        layout emptied (e.g. a pre-existing user group whose nodes moved away)
+        can no longer cascade-delete far-off nodes (issue: deleting an empty box
+        deleted nodes). Raw + idempotent; only ``aibuild_region_*`` groups are
+        (re)built — user groups are never removed here."""
+        from .group_item import GroupItem, PADDING, TITLE_H as _G_TITLE_H
+
+        if not positions:
+            return
+
+        # 1) re-stack columns using LIVE heights (kills exaggerated vertical gaps)
+        #    and place every node at its local slot first.
+        laid = self._restack_columns_live(positions)
+        if not laid:
+            return
+        for nid, pt in laid.items():
+            self._move_node_raw(str(nid), pt.x(), pt.y())
+
+        # 2) measure the REAL bounding box (a node's sceneBoundingRect is offset
+        #    from its pos by its port stubs) and translate the whole layout so its
+        #    centre lands on the current view.
+        bbox: Optional[QRectF] = None
+        for nid in laid:
+            br = self._instances[nid].sceneBoundingRect()
+            bbox = br if bbox is None else bbox.united(br)
+        if bbox is None:
+            return
+        center = self._current_view_center()
+        dx = center.x() - bbox.center().x()
+        dy = center.y() - bbox.center().y()
+        if dx or dy:
+            for nid in laid:
+                p = self._instances[nid].pos()
+                self._move_node_raw(str(nid), p.x() + dx, p.y() + dy)
+
+        if not draw_regions:
+            return
+
+        # 3) rebuild the AI-Build region boxes from the FINAL node geometry.
+        for gid in [
+            g for g in list(self._groups.keys())
+            if str(g).startswith(self.AI_BUILD_REGION_PREFIX)
+        ]:
+            self._delete_group_raw(gid)
+
+        for region in (regions or ()):
+            region_id = str(getattr(region, "region_id", "") or "")
+            member_ids = [str(m) for m in (getattr(region, "member_ids", ()) or ())]
+            if not region_id or not member_ids:
+                continue
+            bounds: Optional[QRectF] = None
+            live_members: List[str] = []
+            for mid in member_ids:
+                item = self._instances.get(mid)
+                if item is None:
+                    continue
+                live_members.append(mid)
+                br = item.sceneBoundingRect()
+                bounds = br if bounds is None else bounds.united(br)
+            if bounds is None:
+                continue
+            rect = QRectF(
+                bounds.left() - PADDING,
+                bounds.top() - PADDING - _G_TITLE_H,
+                bounds.width() + 2 * PADDING,
+                bounds.height() + 2 * PADDING + _G_TITLE_H,
+            )
+            title = tr(
+                getattr(region, "title_key", "") or "",
+                getattr(region, "title", "") or "",
+            )
+            grp = GroupItem(region_id, title, live_members, rect)
+            self._scene.addItem(grp)
+            self._groups[region_id] = grp
+
+        # 4) make membership authoritative-by-geometry for ALL groups: each box
+        #    owns exactly the nodes inside it; a box the layout emptied owns
+        #    nothing → its deletion can't cascade to nodes it no longer contains.
+        self._recompute_all_group_memberships()
+
+    # ------------------------------------------------------------------
     # 几何成员关系 —— 由 group resize / node 拖动结束触发
     # ------------------------------------------------------------------
     def _recompute_group_members(self, group: "GroupItem") -> List[str]:
@@ -2717,6 +3366,24 @@ class CanvasPage(QWidget):
         if not self._clipboard:
             log_debug("[ui.canvas] paste: 剪贴板为空")
             return
+        # 跨后端粘贴守卫：CanvasPage 实例跨画布加载复用，剪贴板不随加载清空，
+        # 因此内容可能来自另一块（不同后端）画布。含跨后端节点时整批拒绝——
+        # 不静默丢弃部分节点（§8），同后端跨画布复制粘贴不受影响。
+        if self._backend_id is not None:
+            from registers import nodes as nodes_registry
+            offenders = sorted({
+                str(n.get("schema_id", "") or "")
+                for n in self._clipboard.get("nodes", [])
+                if (m := nodes_registry.get_manifest(
+                    str(n.get("schema_id", "") or ""))) is not None
+                and not m.applies_to_backend(self._backend_id)
+            })
+            if offenders:
+                log_error(
+                    f"[ui.canvas] paste: refused — clipboard contains nodes not "
+                    f"available for backend '{self._backend_id}': {offenders!r}"
+                )
+                return
         # 计算偏移：把 clip 节点的几何重心移到 anchor
         if anchor is None:
             offset = QPointF(20.0, 20.0)
@@ -2817,9 +3484,11 @@ class CanvasPage(QWidget):
     def _populate_add_node_menu(self, root: QMenu, scene_pos: QPointF) -> None:
         from registers import nodes as nodes_registry
 
-        # 按 layer 分组
+        # 按 layer 分组。后端过滤与 Node Library 面板同一谓词
+        # （manifest.backends）：已绑后端的画布绝不提供跨后端节点；
+        # fresh 未绑画布（backend_id is None）显示全量。
         groups: Dict[str, List[Any]] = {}
-        for m in nodes_registry.list_nodes():
+        for m in nodes_registry.list_nodes(backend=self._backend_id):
             layer = (m.layer or "Custom").upper()
             groups.setdefault(layer, []).append(m)
 

@@ -1,0 +1,11 @@
+[default]
+title = Classify asset
+hint = Pick the asset kind and target robot family. Your choice is recorded for the backend to apply.
+kind = Asset kind
+family = Robot family
+family_any = (any)
+ok = Record
+cancel = Cancel
+recorded = Classification recorded. It is not applied yet — the backend round will route the asset into the right registry.
+err_kind = Pick an asset kind.
+

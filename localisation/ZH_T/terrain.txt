@@ -1,0 +1,12 @@
+[import]
+browse = 瀏覽
+cancel = 取消
+err_id = 需要 Scene id。
+err_src = 請選擇有效的 height-map 檔案。
+menu = ➕ 匯入地形…
+menu_desc = 將 PNG / .npy / .npz height-map 匯入為自訂地形。
+ok = 匯入
+scene_id_ph = 例如 my_hills
+source_ph = .png / .npy / .npz
+title = 匯入地形
+

@@ -10,7 +10,7 @@
 
 每个节点文件夹必须包含三件套：
 - ``__init__.py``    暴露 ``NODE_CLASSES = [SomeNodeClass, ...]``
-- ``manifest.toml``  静态元数据（schema/id/kind/category/version/inputs/outputs/parameters）
+- ``manifest.toml``  静态元数据（schema/id/kind/category/version/inputs/outputs/parameters/backends/width）
 - ``node.py``        ``BaseNode`` 子类实现
 
 启动期由 ``RegistryHub.load_all()`` 调用 ``load()`` 一次性扫描；冲突规则：
@@ -359,15 +359,28 @@ def get_manifest(node_id: str) -> Optional[NodeManifest]:
     return entry["manifest"] if entry else None
 
 
-def list_nodes(category: Optional[str] = None) -> List[NodeManifest]:
-    """列出所有 manifest，可按 category 过滤 / List all manifests, optionally filter."""
+def list_nodes(
+    category: Optional[str] = None, backend: Optional[str] = None
+) -> List[NodeManifest]:
+    """列出所有 manifest，可按 category / backend 过滤.
+
+    List all manifests, optionally filtered by ``category`` and/or ``backend``.
+    ``backend`` filters out nodes whose ``manifest.backends`` restricts them to a
+    different engine (universal nodes — empty ``backends`` — always pass), so an
+    ``isaac_lab`` caller never sees SB3-only nodes and vice versa. ``None``
+    (default) keeps the full catalog — for callers with no backend bound yet
+    (e.g. the UI palette before any canvas is open); backend-bound callers
+    (Node Library, Add Node menu, AI Build projection) must pass ``backend``."""
     if not _state["loaded"]:
         load()
     result: List[NodeManifest] = []
     for entry in _state["registry"].values():
         m: NodeManifest = entry["manifest"]
-        if category is None or m.category == category:
-            result.append(m)
+        if category is not None and m.category != category:
+            continue
+        if backend is not None and not m.applies_to_backend(backend):
+            continue
+        result.append(m)
     return result
 
 

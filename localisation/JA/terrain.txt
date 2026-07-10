@@ -1,0 +1,12 @@
+[import]
+browse = 参照
+cancel = キャンセル
+err_id = シーンIDは必須です。
+err_src = 有効な高さマップファイルを選択してください。
+menu = ➕ 地形をインポート…
+menu_desc = PNG / .npy / .npz の高さマップをカスタム地形としてインポートします。
+ok = インポート
+scene_id_ph = 例: my_hills
+source_ph = .png / .npy / .npz
+title = 地形をインポート
+

@@ -1,0 +1,16 @@
+[default]
+banner = 一部のロボットの関節/ボディを自動分類できませんでした。セットアップを完了するには、以下でそれらのIR役割を割り当ててください。
+cancel = キャンセル
+col_joint = 関節 / ボディ
+col_kind = タイプ
+col_role = IR 役割
+confirm = すべてを確認
+dialog_title = 新規ロボットのIR役割の割り当て
+kind_body = ボディ
+kind_joint = 関節
+pending_robots = 保留中のロボット
+right_title = 関節マッピング — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} 割り当て済み
+status_ready = 全{n}件が割り当て済み — 確認する準備ができています。
+

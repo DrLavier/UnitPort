@@ -1,0 +1,16 @@
+[checkpoint]
+empty = — seleccionar punto de control
+export_desc = Política exportada (.onnx). load_mode se ajusta automáticamente a 'warm_start_actor'.
+run_desc = Punto de control del directorio de ejecución (.pt). load_mode se ajusta automáticamente a 'resume'.
+
+[start_point]
+latest = Más reciente
+latest_desc = Continuar el entrenamiento acumulativo desde el punto de control más reciente de este canvas.
+load = Cargar
+load_desc = Seleccione cualquier punto de control o política exportada en el proyecto actual.
+new = Nuevo
+new_desc = Iniciar el entrenamiento desde cero con inicialización aleatoria.
+asset_desc = Iniciar en caliente el actor desde el activo de entrenamiento registrado.
+latest_export = Última exportación
+latest_export_desc = Reanudar desde el paquete de exportación más reciente en el espacio de trabajo.
+

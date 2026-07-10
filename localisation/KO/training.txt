@@ -1,0 +1,70 @@
+[coverage]
+blocked.body = 보상 커버리지는 매우 중요합니다 — 영향을 받는 단계가 활성화되어 있을 때 정책이 원치 않는 동작을 학습할 가능성이 높습니다.
+blocked.cancel = 취소
+blocked.header = 학습을 시작할 수 없습니다: 보상 커버리지 검사에 실패했습니다.
+blocked.hint = Rewards 노드의 배지를 더블클릭하여 제안된 수정사항을 확인할 수 있는 커버리지 검사기를 엽니다.
+blocked.proceed = 계속 진행
+blocked.title = 보상 커버리지 문제
+
+[default]
+already_running = 이미 학습 실행이 진행 중입니다
+no_canvas = 캔버스가 로드되지 않았습니다
+preparing = 학습 실행을 준비 중입니다 (UI 스레드 외부에서 컴파일 중)…
+started = 학습 시작: run={run} backend={backend} algo={algo}
+
+[deploy_coverage]
+affected = 영향을 받는 배포 대상:
+body = 로봇의 MJCF와 USD 자산 테이블이 동일한 관절 집합을 선언하지 않으므로, 학습된 번들은 지원되는 대상 중 일부에만 배포될 수 있습니다.
+cancel = 취소
+header = 학습은 로봇 ‘{name}’(sku={sku})에 대해 배포 커버리지가 축소된 번들을 생성합니다.
+hint = 두 배포 대상을 복원하려면: 취소한 다음 Robot Assets 사이드바를 열고 자유도가 더 작은 자산을 일치하는 변형(예: Unitree G1의 경우 scene_with_hands.xml을 g1.usd와 함께 사용)으로 재지정한 후 Dump를 다시 수행하고 Play를 다시 실행하세요.
+miss_mjcf = USD에는 선언되었으나 MJCF에는 없는 역할: {roles}
+miss_usd = MJCF에는 선언되었으나 USD에는 없는 역할: {roles}
+proceed = 계속 진행 (나중에 계산 자원을 낭비하지 않기 위해)
+title = 배포 대상 커버리지 감소
+
+[packages]
+add = 패키지 추가
+bad_weight = package_weight는 숫자여야 합니다
+edit_rewards = 보상 편집…
+enabled = 활성화됨
+gate_missing = {s} (누락됨)
+gate_none = — 없음 —
+gated_by = 스킬로 제한됨
+gated_by.tip = 이 패키지의 보상을 스킬의 트리거 창으로 제한합니다 — 해당 스킬이 발동 중일 때(발동 후 감쇠 기간 포함)에만 보상이 계산됩니다. 이 노드의 스킬 채널에서 작성된 스킬이 필요합니다.
+hint = 항목을 패키지로 그룹화합니다. package_weight는 전체 패키지의 균형을 조정합니다; 각 패키지는 인라인 보상 집합을 가질 수 있습니다. 비워두면 하나의 암묵적 기본 패키지가 사용됩니다.
+membership = 항목 소속
+name = 이름
+new_name = 패키지 {n}
+preview = 조합된 보상 미리보기(= 내보내기)
+preview_empty = 인라인 패키지 보상이 없습니다. 패키지 보상이 없는 항목은 연결된 보상 노드를 유지합니다.
+remove = 제거
+title = 학습 패키지
+weight = package_weight
+
+[sim2sim]
+body = PhysX↔MuJoCo 크로스 엔진 측정에서 잔차가 수렴하지 않는(혼돈적) 차원: {dims}을(를) 발견했습니다. 도메인 랜덤화로는 이를 커버할 수 없으며, sim2sim이 이 상태를 정확히 재현하지 못할 수 있습니다.
+cancel = 취소
+header = 크로스 엔진 잔차 자체 점검에서 로봇 ‘{sku}’에 문제가 있음이 표시되었습니다.
+hint = 계속 진행하면 현재 플랜트에 대해 이 내용이 기록됩니다 — 로봇 자산이 변경되지 않는 한 다시 묻지 않습니다.
+proceed = 그래도 진행
+title = 수렴하지 않는 sim2sim 차원
+
+[skills]
+add = 스킬 추가
+bad_id = 각 스킬에는 id가 필요합니다
+bad_window = window는 양수여야 합니다
+enabled = 활성화됨
+hint = 각 스킬은 트리거에 해당하는 이산적 정책 명령 채널입니다. 스킬은 정책의 obs에 들어가고 command contract를 따릅니다; 정책은 이에 반응하도록 학습되어야 합니다. 키나 버튼에 바인딩하는 작업은 여기서가 아니라 학습 후 Controller 패널에서 사용자별로 수행합니다.
+latch = 래치
+latch.hold = 유지 (누르고 있는 동안)
+latch.pulse = 펄스 (일회성)
+name = 이름
+new_name = 스킬 {n}
+preview = 방출된 트리거 채널
+preview_empty = 활성화된 스킬이 없습니다.
+remove = 제거
+title = 스킬 채널
+window = 윈도우 (초)
+window.tip = 펄스 후 감쇠 윈도우: 트리거 obs와 보상 게이트가 이 지정한 초 동안 1→0으로 감쇠합니다. 배포 런타임은 동일한 윈도우를 재구성합니다.
+

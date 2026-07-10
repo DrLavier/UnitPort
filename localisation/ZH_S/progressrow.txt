@@ -1,0 +1,21 @@
+[btn]
+new = 新建
+history = History
+policies = Policies
+templates = Templates
+
+[menu]
+empty = （空）
+no_project = （无项目）
+no_canvas = （无画布）
+
+[target]
+cloud = 云端
+local = 本地
+local_ver = 本地（{short}）
+
+[tooltip]
+new = 打开新建画布选择器
+start = 开始训练
+stop = 停止训练
+

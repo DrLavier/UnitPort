@@ -1,0 +1,16 @@
+[checkpoint]
+empty = — selecionar checkpoint
+export_desc = Política exportada (.onnx). load_mode ajusta automaticamente para 'warm_start_actor'.
+run_desc = Checkpoint do Run-dir (.pt). load_mode ajusta automaticamente para 'resume'.
+
+[start_point]
+latest = Mais recente
+latest_desc = Continuar o treinamento cumulativo a partir do checkpoint mais recente deste canvas.
+load = Carregar
+load_desc = Selecione qualquer checkpoint ou política exportada no projeto atual.
+new = Novo
+new_desc = Iniciar o treinamento do zero com inicialização aleatória.
+asset_desc = Inicializar o ator a partir do asset de treinamento registrado.
+latest_export = Última exportação
+latest_export_desc = Retomar a partir do bundle de exportação mais recente no workspace.
+

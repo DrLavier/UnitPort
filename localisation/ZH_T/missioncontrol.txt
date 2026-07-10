@@ -1,0 +1,36 @@
+[btn]
+redo.tip = 重做 (Ctrl+Shift+Z)
+save.tip = 儲存畫布
+undo.tip = 復原 (Ctrl+Z)
+node_lib.tip = 切換節點庫面板
+
+[color]
+btn.cancel.tip = 
+btn.confirm.tip = 
+hex_input.placeholder = 
+palette.tip = 
+picker.title = 選擇顏色
+
+[ros2_dev_notice]
+body = ROS2 連線仍在開發中。基本的連線與控制功能已可使用；完整功能集將在後續版本中推出。
+title = ROS2 連線（預覽）
+
+[script]
+btn.redo.tip = 重做 (Ctrl+Shift+Z)
+btn.save.tip = 儲存腳本
+btn.undo.tip = 復原 (Ctrl+Z)
+
+[tooltip]
+chart_opacity = 圖表覆蓋透明度
+
+[mode]
+mission_control = 任務控制
+ai_coding = AI 編碼
+training_canva = 訓練畫布
+scripts = 腳本
+
+[toggle]
+ros2_connection = ROS2 Connection
+simulation = Simulation
+training_config = Training Config
+

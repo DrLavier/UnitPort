@@ -1,0 +1,543 @@
+[export]
+compat.no_connection = لا توجد نقطة بدء متصلة — قم بتوصيل train_pipe لملؤها
+compat.title = توافق نقطة البدء
+manifest.exists_warn = ⚠ موجود
+manifest.open = فتح
+manifest.placeholder = <جديد>
+manifest.status.exists = موجود
+manifest.status.planned = مخطط
+display = تصدير
+desc = حزمة + تصدير ONNX/TorchScript + مراجعة المشهد
+param.bundle_name = اسم الحزمة
+param.version = الإصدار
+param.include_onnx = تضمين ONNX
+param.include_torchscript = تضمين TorchScript
+param.include_normalization = تضمين إحصاءات Norm
+param.bundle_targets = أهداف Bundle
+param.export_target = هدف التصدير
+param.export_onnx = [قديم] ONNX
+param.export_torchscript = [قديم] TS
+param.include_norm_stats = [قديم] Norm
+param.overwrite = كتابة فوق
+param.review_backend = مراجعة Backend
+param.review_scene_id = مراجعة Scene
+param.review_launch = مراجعة Launch
+param.auto_import = استيراد تلقائي
+param.output_files = ملفات الإخراج
+param.start_point_compat = التوافق مع Start Pt
+compat.field.framework = الإطار
+compat.field.action_dim = بُعد الإجراء
+compat.field.decimation = Decimation
+compat.field.joint_order = ترتيب المفاصل
+port.train_pipe = Train Pipe
+port.eval_config = تكوين Eval
+port.bundle_path = مسار Bundle
+
+[rewards]
+covered_lane = مغطى بواسطة Unconditional
+empty_lane = لا مكافأة — المرحلة غير مقيدة بما يكفي
+display = المكافآت
+desc = تكوين مصطلح المكافأة (SB3 / Isaac Lab)
+param.backend = الواجهة الخلفية
+param.reward_terms = مصطلحات المكافأة
+param.std = Std
+param.threshold = العتبة
+port.actor_pipe = قناة الممثل
+port.command_pipe = قناة الأوامر
+port.total_reward = المكافأة الكلية
+
+[example]
+print_hello.display = طباعة مرحباً
+print_hello.desc = قالب مُبدئ لعقدة المجتمع — يعرّف معلمة نصية واحدة؛ يستخدم تنفيذ التمرير الافتراضي.
+print_hello.param.message = الرسالة
+
+[vis_check]
+display = فحص بصري
+desc = فحص بصري للتأكد / معاينة
+param.trigger_mode = وضع المشغل
+param.vis_start_step = خطوة بدء الفحص البصري
+param.vis_interval_steps = فاصل الفحص البصري
+param.num_vis_checks = عدد الفحوصات البصرية
+param.vis_episodes = حلقات الفحص البصري
+param.deterministic = حتمي
+port.vis_check = فحص بصري
+
+[training_motion]
+display = حركة التدريب
+desc = حركة مرجعية + أوامر + منهج
+param.training_items = عناصر التدريب
+param.mapping_mode = وضع التعيين
+param.deadzone = المنطقة الميتة
+param.curve_exponent = أس المنحنى
+param.runtime_clip = اقتطاع وقت التشغيل
+param.gait_enabled = تمكين نمط المشي
+param.gait_frequency_range = تردد المشية
+param.body_height_range = ارتفاع الجسم
+param.step_height_range = ارتفاع الخطوة
+param.gait_presets = إعدادات مسبقة للمشية
+param.resampling_time_range = زمن إعادة العينة
+param.cmd_step_change_prob = احتمال تغيير الأمر
+param.gain_lin_forward = حد السرعة الأمامية
+param.gain_lin_backward = حد السرعة الخلفية
+param.gain_lin_lateral = السرعة الجانبية
+param.gain_yaw = حد معدل اللف
+param.reference_state_init_enabled = AMP RSI قيد التشغيل
+param.rsi_prob = احتمال RSI
+param.rsi_joint_noise = ضوضاء مفاصل RSI
+param.consumption_mode = وضع الاستهلاك
+param.phase_mode = وضع المرحلة
+param.motion_fps = FPS الحركة
+param.random_start_phase = بدء المرحلة عشوائياً
+param.command_curriculum_enabled = Cmd Curr قيد التشغيل
+param.command_curriculum_start = بدء Cmd Curr
+param.command_curriculum_end = نهاية Cmd Curr
+param.command_curriculum_ramp_iters = تدرج Cmd Curr
+port.command_pipe = أنبوب الأوامر
+port.reference_motion_config = تكوين Ref Motion
+
+[train]
+display = تدريب
+desc = إدخال التدريب الرئيسي
+port.env_config = تكوين البيئة
+port.algo_config = تكوين الخوارزمية
+port.eval_config = تكوين التقييم
+port.train_config = تكوين التدريب
+port.train_pipe = خط أنابيب التدريب
+port.vis_check = فحص بصري
+
+[terminations]
+display = الإنهاءات
+desc = شروط الإنهاء
+param.backend = الخلفية
+param.termination_conditions = شروط الإنهاء
+param.termination_curriculum_enabled = تفعيل منهج الإنهاء
+param.termination_curriculum_start = بداية منهج الإنهاء
+param.termination_curriculum_end = نهاية منهج الإنهاء
+param.termination_curriculum_ramp_iters = تدرج منهج الإنهاء
+port.termination_config = تكوين الإنهاء
+
+[task_config]
+display = تكوين المهمة
+desc = تعريف مهمة RL
+param.task_type = نوع المهمة
+param.command_mode = وضع الأوامر
+param.target_lin_vel_x = السرعة المستهدفة Vx
+param.target_lin_vel_y = السرعة المستهدفة Vy
+param.target_ang_vel_z = السرعة الزاوية المستهدفة Wz
+param.curriculum = المنهج التدريبي
+param.success_threshold = عتبة النجاح
+param.truncation_max_steps = خطوات الاقتطاع
+param.curriculum_schedule = جدول المنهج
+param.resampling_time_range = زمن إعادة العينة
+port.total_reward = المكافأة الإجمالية
+port.termination_config = تكوين الإنهاء
+port.task_config = تكوين المهمة
+
+[stage_switch]
+display = مبدّل المراحل
+desc = مبدّل المنهج متعدد المراحل
+param.stages_config = تكوين المراحل
+param.checkpoint_strategy = استراتيجية CKPT
+port.stage_0 = المرحلة 0
+port.stage_1 = المرحلة 1
+port.stage_2 = المرحلة 2
+port.stage_3 = المرحلة 3
+port.stage_4 = المرحلة 4
+port.stage_5 = المرحلة 5
+port.train_pipe = قناة التدريب
+
+[robot]
+display = الروبوت
+desc = مورد الروبوت + تعيين الجسم + تهيئة PD
+param.asset_id = معرّف الأصل
+param.active_override = تجاوز نشط
+param.body_mapping = تعيين الجسم
+param.pd_param_mode = وضع PD
+param.pd_groups = مجموعات PD
+param.pd_effort_limit = حد الجهد
+param.pd_velocity_limit = حد السرعة
+param.pd_resolve_at_reset = إعادة الحل عند إعادة الضبط
+param.pd_calibration_blocking = حجب عند فشل المعايرة
+param.pd_skip_calibration = تخطي المعايرة
+port.robot_pipe = قناة الروبوت
+
+[play_ground_setting]
+display = ساحة التجربة
+desc = المشهد + الساحة + الاحتكاك + مسح الارتفاع
+param.scene_id = معرّف المشهد
+param.scene_type = نوع المشهد
+param.custom_terrain_path = ملف التضاريس
+param.custom_terrain_vertical_scale = خطوة الارتفاع
+param.gravity_z = الجاذبية Z
+param.arena_extent_x = امتداد الساحة X
+param.arena_extent_y = امتداد الساحة Y
+param.friction_static = احتكاك ساكن
+param.friction_dynamic = احتكاك ديناميكي
+param.curriculum_enabled = تشغيل المنهج
+param.difficulty_levels = مستويات الصعوبة
+param.height_scan_enabled = تشغيل مسح الارتفاع
+param.scan_resolution = دقة المسح
+param.scan_size_x = حجم المسح X
+param.scan_size_y = حجم المسح Y
+param.sim_dt = Sim Dt
+param.gpu_max_rigid_contact_count = جهات اتصال GPU
+param.gpu_max_rigid_patch_count = بقع GPU
+port.scene_pipe = قناة المشهد
+
+[physics_config]
+display = تكوين الفيزياء
+desc = Sim dt + control dt + solver
+param.sim_dt = Sim Dt
+param.control_dt = Control Dt
+param.episode_max_steps = الحد الأقصى لخطوات الحلقة
+param.action_type = نوع الإجراء
+port.robot_pipe = قناة الروبوت
+port.robot_spec = مواصفات الروبوت
+port.physics_config = تكوين الفيزياء
+
+[obs_action_config]
+display = تكوين الملاحظات/الأفعال
+desc = مكوّنات الملاحَظة ومطابقة الأفعال
+param.contract_preset = قالب العقد
+param.obs_components = مكونات الملاحَظة
+param.obs_clip_range = نطاق اقتطاع الملاحَظة
+param.frame_stack = تكديس الإطارات
+param.action_type = نوع الإجراء
+param.action_scale = مقياس الإجراء
+param.action_clip = اقتطاع الإجراء
+port.obs_action_config = تكوين الملاحَظة/الإجراء
+
+[multigated_reward]
+display = مكافأة مشروطة
+desc = موجّه مكافآت متعدد المراحل مع بوابات
+param.max_step_stage0 = خطوات المرحلة 0
+param.reward_threshold_ratio = عتبة المكافأة
+param.min_ep_window = الحد الأدنى لنافذة الحلقة
+param.plateau_window = نافذة الهضبة
+param.plateau_eps = ε الهضبة
+param.blend_steps = خطوات الدمج
+param.stage_behavior = سلوك المرحلة
+param.ep_reward_window = نافذة مكافأة الحلقة
+param.stage1_ratio = نسبة المرحلة 1
+port.stage_0 = المرحلة 0
+port.stage_1 = المرحلة 1
+port.total_reward = إجمالي المكافأة
+port.total_steps = إجمالي الخطوات
+
+[joint_init]
+display = تهيئة المفاصل
+desc = زوايا ابتدائية لكل مفصل
+param.angles = زوايا
+port.joint_init = تهيئة المفاصل
+
+[init_pose]
+display = الوضع الابتدائي
+desc = الوضع الابتدائي (RSI / keyframe)
+param.mode = الوضع
+param.noise_scale = مقياس الضجيج
+param.base_height = الارتفاع الأساسي
+param.keyframe_name = اسم keyframe
+param.custom_qpos = Qpos مخصص
+param.rsi_prob = احتمال RSI
+param.rsi_sample_mode = عينة RSI
+port.init_pose_config = تكوين الوضع الابتدائي
+
+[il_ppo_trainer]
+display = مُدرِّب IL PPO
+desc = مدرّب Isaac Lab PPO/AMP_PPO
+param.training_mode = وضع التدريب
+param.num_envs = عدد البيئات
+param.max_iterations = الحد الأقصى للتكرارات
+param.num_steps_per_env = خطوات / بيئة
+param.num_learning_epochs = عصور التعلم
+param.num_minibatches = الدفعات الصغيرة
+param.learning_rate = معدل التعلم
+param.discount_factor = معامل الخصم γ
+param.gae_lambda = GAE λ
+param.clip_param = Clip ε
+param.entropy_coef = معامل الإنتروبي
+param.value_loss_coef = خسارة القيمة
+param.max_grad_norm = الحد الأقصى لمعيار التدرج
+param.schedule = جدول LR
+param.desired_kl = KL المرغوب
+param.save_interval = فاصل الحفظ
+param.seed = البذرة
+param.headless = بدون واجهة
+param.amp_reward_coef = معامل مكافأة AMP
+param.task_reward_lerp = Lerp مكافأة المهمة
+param.disc_grad_penalty = عقوبة التدرج
+param.disc_label_smoothing = تنعيم التسميات
+param.amp_replay_buffer_size = حجم ذاكرة الإعادة
+param.num_preload_transitions = الانتقالات المحملة مسبقًا
+param.disc_lr = معدل تعلم المميز
+param.lerp_schedule = جدول Lerp
+param.lerp_schedule_json = جدول Lerp بتنسيق JSON
+param.entropy_schedule_enabled = تفعيل جدول الإنتروبي
+param.entropy_schedule_start = بداية جدول الإنتروبي
+param.entropy_schedule_end = نهاية جدول الإنتروبي
+param.entropy_schedule_ramp_iters = تصاعد جدول الإنتروبي
+port.policy = السياسة
+port.total_reward = المكافأة الإجمالية
+port.termination_config = تكوين الإنهاء
+port.domain_rand_config = تكوين عشوائية النطاق
+port.obs_vector = متجه الملاحظات
+port.scene_pipe = خط أنابيب المشهد
+port.checkpoint = نقطة تفتيش
+port.reference_motion_config = تكوين الحركة المرجعية
+port.init_pose_config = تكوين الوضع الابتدائي
+port.discriminator_config = تكوين المميّز
+port.train_pipe = خط أنابيب التدريب
+port.training_metrics = مقاييس التدريب
+
+[il_policy_network]
+display = شبكة سياسة IL
+desc = MLP actor-critic في Isaac Lab
+param.actor_hidden_dims = الأبعاد المخفية لـActor
+param.critic_hidden_dims = الأبعاد المخفية لـCritic
+param.activation = دالة التفعيل
+param.init_noise_std = انحراف ضجيج التهيئة Std (مباشر، 1.0=std 1.0)
+param.disc_hidden_dims = أبعاد مخفية للمميز
+port.obs_vector = متجه الملاحظة
+port.policy = السياسة
+
+[il_observation]
+param.command_injected_obs = Obs مُحقنة (Command Pipe)
+display = ملاحظة IL
+desc = مصطلحات الملاحظة في Isaac Lab + المنهج
+param.obs_terms = مصطلحات Obs
+param.critic_privileged_terms = امتياز Critic
+param.enable_corruption = تمكين الضوضاء
+param.corruption_noise_std = الانحراف المعياري للضوضاء
+param.obs_noise_curriculum_enabled = تفعيل منهج الضوضاء
+param.obs_noise_curriculum_start = بدء الضوضاء
+param.obs_noise_curriculum_end = نهاية منهج الضوضاء
+param.obs_noise_curriculum_ramp_iters = تصعيد منهج الضوضاء
+port.actor_pipe = Actor Pipe
+port.command_pipe = Command Pipe
+port.obs_vector = متجه Obs
+
+[eval_config]
+display = تكوين التقييم
+desc = حلقات التقييم + مسجّل الفيديو
+param.eval_episodes = حلقات التقييم
+param.deterministic = حتمي
+param.success_threshold = عتبة النجاح
+param.record_video = تسجيل الفيديو
+param.eval_interval = فاصل التقييم
+param.save_best_model = حفظ الأفضل
+param.video_dir = مجلد الفيديو
+port.eval_config = تكوين التقييم
+
+[env_assembler]
+display = مجمّع البيئات
+desc = تجميع غلافات vec env + step_fn
+param.n_envs = عدد البيئات
+param.vec_type = نوع Vec
+param.obs_normalize = تطبيع الملاحظات
+param.reward_normalize = تطبيع المكافأة
+param.clip_obs = قص الملاحظات
+param.clip_reward = قص المكافأة
+param.action_clip_range = تقييد الإجراء
+param.enable_monitor = تفعيل المراقبة
+param.time_limit_override = الحد الزمني
+param.eval_disable_rand = تعطيل العشوائية أثناء التقييم
+port.actor_pipe = قناة الممثل
+port.scene_pipe = قناة المشهد
+port.command_pipe = قناة الأوامر
+port.physics_config = تكوين الفيزياء
+port.task_config = تكوين المهمة
+port.obs_action_config = تكوين الملاحظات/الإجراءات
+port.domain_rand_config = تكوين DR
+port.reference_motion_config = تكوين الحركة المرجعية
+port.init_pose_config = تكوين الوضع الابتدائي
+port.env_config = تكوين البيئة
+
+[domain_rand]
+display = عشوائية المجال
+desc = العشوائية في النطاق (مُقيَّدة حسب الواجهة الخلفية SB3 / Isaac Lab)
+param.backend = الواجهة الخلفية
+param.rand_schedule = جدول العشوائية
+param.rand_schedule_start_step = خطوة بدء العشوائية
+param.rand_schedule_end_step = خطوة نهاية العشوائية
+param.enabled = مفعّل
+param.mass_range = نطاق الكتلة
+param.friction_range = نطاق الاحتكاك
+param.motor_strength_range = قوة المحرك
+param.joint_damping_range = تخميد المفصل
+param.obs_noise_std = الانحراف المعياري لضجيج الملاحظات
+param.push_robot = دفع الروبوت
+param.push_interval_steps = فاصل الدفع
+param.push_force_range = قوة الدفع
+param.enable_friction_rand = عشوائية الاحتكاك
+param.friction_mode = وضع الاحتكاك
+param.static_friction_range = الاحتكاك الساكن
+param.dynamic_friction_range = الاحتكاك الديناميكي
+param.restitution_range = معامل الاسترداد
+param.enable_mass_rand = عشوائية الكتلة
+param.mass_mode = وضع الكتلة
+param.mass_operation = عملية الكتلة
+param.mass_target_body = الجسم المستهدف
+param.mass_offset_range = انحراف الكتلة
+param.enable_external_push = دفع خارجي
+param.push_mode = وضع الدفع
+param.push_interval_range_s = فاصل الدفع (ثوانٍ)
+param.push_velocity_x_range = نطاق Vx للدفع
+param.push_velocity_y_range = نطاق Vy للدفع
+param.enable_init_pose_rand = عشوائية الوضعية الابتدائية
+param.init_pose_mode = وضع الوضعية الابتدائية
+param.init_pos_x_range = نطاق X الابتدائي
+param.init_pos_y_range = نطاق Y الابتدائي
+param.init_yaw_range = نطاق Yaw الابتدائي
+param.enable_joint_noise = ضوضاء المفصل
+param.joint_noise_mode = وضع ضوضاء المفصل
+param.joint_pos_noise = ضوضاء موضع المفصل
+param.joint_vel_noise = ضوضاء سرعة المفصل
+port.actor_pipe = قناة الممثل
+port.domain_rand_config = تكوين DR
+
+[discriminator]
+display = المميز
+desc = شبكة المميز AMP + تشكيل المكافأة
+param.disc_modules = وحدات المميز
+param.disc_hidden_dims = الطبقات المخفية للمميز
+param.amp_reward_coef = معامل مكافأة AMP
+param.task_reward_lerp = مكافأة المهمة (Lerp)
+param.lerp_schedule = جدول Lerp
+param.lerp_schedule_json = JSON جدول Lerp
+param.disc_lr = معدل تعلم المميز (Disc LR)
+param.disc_grad_penalty = عقوبة التدرج للمميز
+param.disc_label_smoothing = تنعيم الوسوم للمميز
+param.amp_replay_buffer_size = حجم Replay Buf لـ AMP
+param.num_preload_transitions = تحميل مسبق للـ Trans
+param.amp_obs_fields = حقول Obs لـ AMP
+param.auto_inject_ref_obs = حقن ملاحظات المرجع (Ref Obs)
+param.disc_logit_clamp_max = تقييد Logit
+param.reward_clamp_per_step = تقييد المكافأة
+param.policy_std_clamp_max = الحد الأقصى لتقييد الانحراف المعياري
+port.reference_motion_config = تكوين الحركة المرجعية
+port.discriminator_config = تكوين المميز
+
+[base_asset]
+display = الأصل الأساسي
+desc = مورد قاعدة الروبوت + نقطة البداية
+param.start_point = نقطة البدء
+param.asset_id = معرّف الأصل
+param.checkpoint_file = ملف نقطة التحقق
+param.load_mode = وضع التحميل
+port.checkpoint = نقطة التحقق
+
+[amp_trainer]
+display = مدرّب AMP
+desc = مدرّب Isaac Lab AMP_PPO (اسم بديل لـ IL PPO Trainer في وضع AMP_PPO)
+param.training_mode = وضع التدريب
+param.num_envs = عدد البيئات
+param.max_iterations = الحد الأقصى للتكرارات
+param.num_steps_per_env = خطوات / بيئة
+param.num_learning_epochs = عصور التعلم
+param.num_minibatches = الدفعات المصغرة
+param.learning_rate = معدل التعلم
+param.discount_factor = معامل الخصم γ
+param.gae_lambda = GAE λ
+param.clip_param = قص ε
+param.entropy_coef = معامل الإنتروبيا
+param.value_loss_coef = خسارة القيمة
+param.max_grad_norm = أقصى معيار للتدرج
+param.schedule = جدولة معدل التعلم
+param.desired_kl = KL المرغوب
+param.save_interval = فاصل الحفظ
+param.seed = البذرة
+param.headless = بدون واجهة
+param.amp_reward_coef = معامل مكافأة AMP
+param.task_reward_lerp = Lerp مكافأة المهمة
+param.disc_grad_penalty = عقوبة التدرج
+param.disc_label_smoothing = تنعيم التسميات
+param.amp_replay_buffer_size = ذاكرة الإعادة
+param.num_preload_transitions = تحميل مسبق للانتقالات
+param.disc_lr = معدل تعلم المميز
+param.lerp_schedule = جدول Lerp
+param.lerp_schedule_json = جدول Lerp بصيغة JSON
+param.entropy_schedule_enabled = تمكين جدول الإنتروبيا
+param.entropy_schedule_start = بداية جدول الإنتروبيا
+param.entropy_schedule_end = نهاية جدول الإنتروبيا
+param.entropy_schedule_ramp_iters = تصعيد جدول الإنتروبيا
+port.policy = السياسة
+port.total_reward = المكافأة الإجمالية
+port.termination_config = تكوين الإنهاء
+port.domain_rand_config = تكوين عشوائية النطاق
+port.obs_vector = متجه الملاحظات
+port.scene_pipe = سلسلة معالجة المشهد
+port.checkpoint = نقطة التحقق
+port.reference_motion_config = تكوين الحركة المرجعية
+port.init_pose_config = تكوين الوضعية الابتدائية
+port.discriminator_config = تكوين المميز
+port.train_pipe = مسار التدريب
+port.training_metrics = مقاييس التدريب
+
+[algorithm_config]
+display = تكوين الخوارزمية
+desc = خوارزمية RL + المخزن المؤقت + الجدول
+param.algorithm = الخوارزمية
+param.total_timesteps = إجمالي الخطوات
+param.learning_rate = معدل التعلم
+param.batch_size = حجم الدفعة
+param.gamma = جاما
+param.seed = البذرة
+param.device = الجهاز
+param.hidden_dim_1 = البُعد الخفي 1
+param.hidden_dim_2 = البُعد الخفي 2
+param.activation = دالة التنشيط
+param.ent_coef = معامل الإنتروبيا
+param.checkpoint_interval = فاصل CKPT
+param.resume_mode = وضع الاستئناف
+param.policy_id_out = معرّف السياسة المخرج
+param.gae_lambda = GAE λ
+param.n_steps = [PPO] n_steps
+param.n_epochs = [PPO] n_epochs
+param.lr_schedule = جدول LR
+param.gradient_steps = خطوات Grad
+param.tau = تاو
+param.target_entropy = الإنتروبيا المستهدفة
+param.buffer_size_mode = وضع المخزن
+param.buffer_size = حجم المخزن
+param.learning_starts = بدء التعلم
+param.use_per = استخدام PER
+param.per_alpha = PER α
+param.per_beta = PER β
+param.collapse_guard = حارس الانهيار
+param.collapse_threshold = عتبة الانهيار
+param.collapse_patience = الصبر
+param.collapse_lr_factor = معدل التعلم للانهيار
+param.collapse_max_rollbacks = أقصى عمليات التراجع
+port.checkpoint = نقطة حفظ
+port.total_steps = إجمالي الخطوات
+port.algo_config = إعدادات الخوارزمية
+
+[actor_setting]
+display = إعداد الممثل
+desc = كتلة الممثل: وضعية البداية / تلامسات / المشغلات / فضاء الأفعال / المنهج
+param.init_pos_x = موضع البدء X
+param.init_pos_y = موضع البدء Y
+param.init_pos_z = موضع البدء Z
+param.init_joint_angles = المفاصل الابتدائية
+param.contact_body_names = أجسام التلامس
+param.contact_history_length = سجل التلامسات
+param.contact_track_air_time = تتبع وقت البقاء في الهواء
+param.stiffness = الصلابة
+param.damping = التخميد
+param.effort_limit = حد الجهد
+param.velocity_limit = حد السرعة
+param.action_joint_names_expr = مفاصل الحركة
+param.action_scale = مقياس الحركة
+param.action_use_default_offset = الإزاحة الافتراضية
+param.action_scale_curriculum_enabled = تمكين تدريج المقياس
+param.action_scale_curriculum_start = بدء التدريج
+param.action_scale_curriculum_end = نهاية التدريج
+param.action_scale_curriculum_ramp_iters = تصاعد التدريج
+port.robot_pipe = أنبوب الروبوت
+port.joint_init = تهيئة المفصل
+port.actor_pipe = أنبوب الممثل
+
+[note]
+display = ملاحظة
+desc = بطاقة تعليق على اللوحة (غير قابلة للتنفيذ). تحتوي على عنوان وجسم نصي متعدد الأسطر للتعليقات داخل اللوحة.
+

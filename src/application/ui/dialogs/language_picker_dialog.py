@@ -43,7 +43,17 @@ from unitport_sdk import Config, I18n, i18n_bind, log_info, log_warning, tr
 # module).
 _LANG_DISPLAY = {
     "EN": "English",
-    "ZH": "中文",
+    "FR": "Français",
+    "ZH_S": "简体中文",
+    "ZH_T": "繁體中文",
+    "IT": "Italiano",
+    "ES": "Español",
+    "DE": "Deutsch",
+    "RU": "Русский",
+    "PT": "Português",
+    "AR": "العربية",
+    "JA": "日本語",
+    "KO": "한국어",
 }
 
 

@@ -1,0 +1,38 @@
+[btn]
+close = UnitPort 닫기
+ok = 확인
+skip = 이 버전 건너뛰기
+update_on_exit = 종료 시 업데이트
+update_restart = 업데이트 후 재시작
+apply = 업데이트 적용
+later = 나중에
+
+[dialog]
+title_available = 업데이트 사용 가능
+title_complete = 업데이트 적용됨
+title_latest = UnitPort는 최신 상태입니다
+title_progress = UnitPort 업데이트 중
+
+[label]
+channel = 채널
+latest_body = 현재 UnitPort v{current} 사용 중입니다. GitHub에서 더 최신 릴리스가 발견되지 않았습니다.
+no_release_notes = (이 버전의 릴리스 노트가 없습니다)
+release_notes = 릴리스 노트
+restart_prompt = v{version}으로의 업데이트가 적용되었습니다. UnitPort를 이제 종료합니다 — start.bat 또는 start.sh로 다시 실행해 주세요.
+current_version = 현재 버전
+latest_version = 최신 버전
+restarting = v{version}으로 업데이트가 적용되었습니다. UnitPort를 재시작합니다…
+
+[notice]
+ok = 알겠습니다
+title = 새로운 기능
+
+[progress]
+connecting = 연결 중
+checking = 업데이트 확인 중
+downloading = 다운로드 중
+extracting = 아카이브 추출 중
+merging = 파일 병합 중
+git_fetch = 태그 가져오는 중
+git_checkout = 릴리스 체크아웃 중
+

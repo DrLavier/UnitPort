@@ -1,0 +1,70 @@
+[coverage]
+blocked.body = La cobertura de recompensas es crítica — la política probablemente aprenderá comportamientos indeseados cuando las fases afectadas estén activas.
+blocked.cancel = Cancelar
+blocked.header = No se puede iniciar el entrenamiento: la verificación de cobertura de recompensas falló.
+blocked.hint = Haga doble clic en la insignia del nodo Recompensas para abrir el Inspector de Cobertura y ver las correcciones sugeridas.
+blocked.proceed = Continuar de todos modos
+blocked.title = Problema de cobertura de recompensas
+
+[default]
+already_running = Ya hay una ejecución de entrenamiento activa
+no_canvas = No hay canvas cargado
+preparing = Preparando la ejecución de entrenamiento (compilando fuera del hilo de la interfaz de usuario)…
+started = Entrenamiento iniciado: run={run} backend={backend} algo={algo}
+
+[deploy_coverage]
+affected = Objetivos de despliegue afectados:
+body = El paquete entrenado será desplegable SOLO en un subconjunto de los objetivos soportados, porque las tablas de activos MJCF y USD del robot no declaran el mismo conjunto de articulaciones.
+cancel = Cancelar
+header = El entrenamiento producirá un paquete con cobertura de despliegue reducida para el robot ‘{name}’ (sku={sku}).
+hint = Para restaurar ambos objetivos de despliegue: cancele, abra la barra lateral de Robot Assets, apunte el activo de menor DOF a una variante coincidente (p. ej. para Unitree G1 use scene_with_hands.xml junto a g1.usd), vuelva a volcar (Dump), y luego ejecute Play de nuevo.
+miss_mjcf = Roles declarados en USD pero ausentes en MJCF: {roles}
+miss_usd = Roles declarados en MJCF pero ausentes en USD: {roles}
+proceed = Proceder de todos modos (para no desperdiciar cómputo después)
+title = Cobertura reducida de objetivos de despliegue
+
+[packages]
+add = Agregar paquete
+bad_weight = package_weight debe ser un número
+edit_rewards = Editar recompensas…
+enabled = Activado
+gate_missing = {s} (faltante)
+gate_none = — ninguno —
+gated_by = Condicionado por habilidad
+gated_by.tip = Restringa las recompensas de este paquete a la ventana de activación de una habilidad — las recompensas solo cuentan mientras esa habilidad esté activa (decadencia posterior al pulso). Requiere una habilidad creada en los Canales de Habilidad de este nodo.
+hint = Agrupe ítems en paquetes. package_weight reequilibra un paquete completo; cada paquete puede tener un conjunto de recompensas en línea. Vacío = un paquete predeterminado implícito.
+membership = Pertenencia del elemento
+name = Nombre
+new_name = Paquete {n}
+preview = Vista previa de la recompensa compuesta (= exportación)
+preview_empty = No hay recompensas de paquete en línea. Los elementos sin recompensa de paquete mantienen su nodo de recompensas conectado.
+remove = Eliminar
+title = Paquetes de entrenamiento
+weight = package_weight
+
+[sim2sim]
+body = La medición cruzada PhysX↔MuJoCo encontró dimensión(es) cuyo residuo no es convergente (caótico): {dims}. La randomización de dominio no puede cubrirlas, y sim2sim puede no reproducir fielmente este régimen.
+cancel = Cancelar
+header = La autoinspección de residuos entre motores señaló al robot ‘{sku}’.
+hint = Proceder registrará esto para la planta actual — no se le volverá a preguntar a menos que cambie el activo del robot.
+proceed = Continuar de todos modos
+title = Dimensión sim2sim no convergente
+
+[skills]
+add = Añadir habilidad
+bad_id = cada habilidad necesita un id
+bad_window = la ventana debe ser un número positivo
+enabled = Habilitado
+hint = Cada habilidad es un canal discreto de comandos para la política (un disparador). Entra en las obs de la política y circula por el contrato de comandos; la política debe ser entrenada para responder a ella. Asociarla a una tecla o botón se hace por usuario en el panel de Controlador tras el entrenamiento —no aquí.
+latch = Retención
+latch.hold = mantener (mientras se mantenga pulsado)
+latch.pulse = pulso (una sola vez)
+name = Nombre
+new_name = habilidad {n}
+preview = Canales de disparo emitidos
+preview_empty = No hay habilidades habilitadas.
+remove = Eliminar
+title = Canales de habilidades
+window = Ventana (s)
+window.tip = Ventana de decadencia posterior al pulso: las obs del disparador y la puerta de recompensa decaen de 1→0 durante esta cantidad de segundos. El runtime de despliegue reconstruye la misma ventana.
+

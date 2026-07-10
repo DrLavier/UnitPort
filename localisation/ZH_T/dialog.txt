@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = 無法打開 IR 角色選單
+joint_pose_editor_unavailable = 無法打開關節角度編輯器
+pd_table_no_sku = 機器人節點沒有綁定有效的機器人（asset_id）。請先在機器人資產卡片中選擇一個機器人。
+pd_table_unavailable = 無法打開 PD 面板
+registry_preset_apply_failed = Preset 應用失敗
+registry_preset_picker_empty = 該家族沒有可選的 preset
+registry_preset_picker_empty_detail = family={family} 在 registry={registry} 裡沒有聲明 preset。
+registry_preset_picker_unavailable = 無法打開 Preset 選單
+registry_preset_picker_unknown = 未知 registry={key!r}；支援的 registry: {keys}
+replace_canvas_text = 載入範本 '{tpl}' 會取代 '{name}' 中的所有節點和邊。要繼續嗎？
+replace_canvas_title = 取代畫布內容
+review_pose_unavailable = 無法啟動 Review Pose
+unsaved_text = {name} 有未儲存的變更。要在繼續之前儲存嗎？
+unsaved_title = 未儲存的變更
+review_motion_no_clip = 尚未為此訓練項選擇參考剪輯 — 在開始檢視前，請在 Clip 下拉選單中選擇一個剪輯。
+review_motion_no_robot = 此畫布尚未綁定任何 Robot 節點。Review Motion 需要機器人的 MJCF 以重播參考動作 — 請先連接一個 Robot 節點。
+review_motion_unavailable = 無法啟動 Review Motion
+

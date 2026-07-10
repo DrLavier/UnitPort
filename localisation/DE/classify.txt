@@ -1,0 +1,11 @@
+[default]
+cancel = Abbrechen
+err_kind = Wähle einen Asset-Typ.
+family_any = (beliebig)
+hint = Wähle den Asset-Typ und die Ziel-Roboterfamilie. Deine Auswahl wird aufgezeichnet, damit das Backend sie anwenden kann.
+ok = Aufzeichnen
+recorded = Klassifizierung aufgezeichnet. Sie ist noch nicht angewendet — ein Backend-Durchlauf wird das Asset in die richtige Registrierung leiten.
+title = Asset klassifizieren
+kind = Asset-Typ
+family = Roboterfamilie
+

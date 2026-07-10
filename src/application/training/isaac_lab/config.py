@@ -37,6 +37,45 @@ from pathlib import Path
 from typing import List, Optional
 
 
+def _flatten_clip_paths_ranges(clip_paths: dict, clip_ranges: dict):
+    """Flatten ``{item_id: path}`` (+ ``{item_id: (lo, hi)}``) into two
+    positionally-aligned lists ``(files, ranges)``.
+
+    Empty paths are skipped in BOTH lists together (so files ↔ ranges stay
+    aligned across the item_id-key-dropping flatten). Each range entry is
+    ``"lo:hi"`` for a segment or ``"-"`` for a whole file. This is the single
+    place the item_id keying is lost, so the range MUST be captured here in
+    lockstep — it cannot be re-derived downstream.
+    """
+    files: List[str] = []
+    ranges: List[str] = []
+    for item_id, p in clip_paths.items():
+        if not p:
+            continue
+        files.append(str(p))
+        rng = (clip_ranges or {}).get(item_id)
+        ranges.append(f"{int(rng[0])}:{int(rng[1])}" if rng else "-")
+    return files, ranges
+
+
+def _amp_motion_cli_args(files: List[str], ranges: List[str]) -> List[str]:
+    """Build the ``--unitport_amp_motion_files`` (+ optional ``_ranges``) args.
+
+    The range list rides positionally with the file list. The ranges arg is
+    emitted only when at least one file is a segment (any entry != ``"-"``), so
+    whole-file-only runs stay byte-identical to the pre-segment CLI. Shared by
+    both emission sites (AMP_PPO path + PPO reference_frame_0 RSI path) so they
+    can never drift.
+    """
+    out: List[str] = []
+    if not files:
+        return out
+    out.extend(["--unitport_amp_motion_files", ",".join(str(p) for p in files)])
+    if len(ranges) == len(files) and any(r != "-" for r in ranges):
+        out.extend(["--unitport_amp_motion_ranges", ",".join(ranges)])
+    return out
+
+
 @dataclass
 class IsaacLabConfig:
     """Configuration for a single Isaac Lab training run."""
@@ -84,6 +123,14 @@ class IsaacLabConfig:
 
     # --- AMP-specific (Phase 2.5; inert when algorithm == "ppo") ---
     amp_motion_files: List[str] = field(default_factory=list)
+    # Positionally aligned to ``amp_motion_files``: each entry is either
+    # ``"lo:hi"`` (an inclusive frame sub-range → the launcher slices that clip
+    # to a segment) or ``"-"`` (whole file). Built in lockstep with
+    # ``amp_motion_files`` from ``motion_ref.clip_ranges`` because the clip-path
+    # dict is flattened to a bare list here (item_id keys are dropped), so the
+    # range MUST ride positionally — it cannot be re-keyed downstream. Crosses
+    # to the Kit worker as a plain ``--unitport_amp_motion_ranges`` CLI arg.
+    amp_motion_ranges: List[str] = field(default_factory=list)
     amp_reward_coef: float = 2.0
     amp_num_preload_transitions: int = 2_000_000
     amp_transition_dt: float = 0.02
@@ -460,7 +507,14 @@ class IsaacLabConfig:
         if motion_ref_all is not None:
             _all_clip_paths = getattr(motion_ref_all, "clip_paths", None) or {}
             if _all_clip_paths:
-                cfg.amp_motion_files = [str(p) for p in _all_clip_paths.values() if p]
+                # Flatten clip_paths (item_id → path) to a bare list AND build a
+                # positionally-aligned range list in the SAME pass, so a
+                # segment's [lo,hi] stays matched to its file across the
+                # item_id-key-dropping boundary here (and the later CLI hop).
+                _all_clip_ranges = getattr(motion_ref_all, "clip_ranges", None) or {}
+                cfg.amp_motion_files, cfg.amp_motion_ranges = (
+                    _flatten_clip_paths_ranges(_all_clip_paths, _all_clip_ranges)
+                )
 
         # AMP_PPO-only payload (silent on non-AMP runs).
         if algorithm == "AMP_PPO":
@@ -851,11 +905,9 @@ class IsaacLabConfig:
                     args.extend(["--unitport_amp_task_labels", str(self.amp_task_labels)])
                 if self.amp_task_items:
                     args.extend(["--unitport_amp_task_items", str(self.amp_task_items)])
-                if self.amp_motion_files:
-                    args.extend([
-                        "--unitport_amp_motion_files",
-                        ",".join(str(p) for p in self.amp_motion_files),
-                    ])
+                args.extend(_amp_motion_cli_args(
+                    self.amp_motion_files, self.amp_motion_ranges
+                ))
                 # AMP obs term list is resolved HERE (app-side: this builder
                 # runs in .venv311, which has registers + PyQt6) and ALWAYS
                 # threaded to the launcher. The Isaac Kit venv has NO PyQt6, so
@@ -898,6 +950,24 @@ class IsaacLabConfig:
                         "--unitport_amp_rsi_n_frames", str(self.amp_rsi_n_frames),
                     ])
 
+            # Active format + IR-role→joint-name table. Threaded whenever
+            # available (NOT only under a custom init_pose_mode): the AMP
+            # env-side joint permutation for humanoids resolves each IR role
+            # to its physical joint name via this table
+            # (obs_terms.set_canonical_joint_perm_override) — without it a
+            # G1 AMP run falls back to using the IR role slug AS the joint
+            # name, which never matches `left_hip_pitch_joint` etc. and the
+            # humanoid perm raises at step 0. Inert for plain-PPO / quadruped
+            # runs (the AMP obs path never consults the override there).
+            if self.active_format:
+                args.extend(["--unitport_active_format", self.active_format])
+            if self.joint_names_by_ir_json:
+                import base64
+                encoded = base64.b64encode(
+                    self.joint_names_by_ir_json.encode("utf-8")
+                ).decode("ascii")
+                args.extend(["--unitport_joint_names_by_ir", encoded])
+
             if self.init_pose_mode and self.init_pose_mode != "default":
                 args.extend([
                     "--unitport_init_pose_mode", self.init_pose_mode,
@@ -915,17 +985,6 @@ class IsaacLabConfig:
                         self.body_mapping_json.encode("utf-8")
                     ).decode("ascii")
                     args.extend(["--unitport_body_mapping", encoded])
-                # Stage 4: pass active format + IR-role→joint-name table
-                # so the launcher's RSI can map clip IR roles directly
-                # to physical joint names (no body+suffix heuristic).
-                if self.active_format:
-                    args.extend(["--unitport_active_format", self.active_format])
-                if self.joint_names_by_ir_json:
-                    import base64
-                    encoded = base64.b64encode(
-                        self.joint_names_by_ir_json.encode("utf-8")
-                    ).decode("ascii")
-                    args.extend(["--unitport_joint_names_by_ir", encoded])
                 # reference_frame_0 RSI needs the motion clip; carry the
                 # files even on the PPO path (the AMP block above only
                 # forwards them when algorithm == AMP_PPO).
@@ -934,10 +993,9 @@ class IsaacLabConfig:
                     and self.amp_motion_files
                     and self.algorithm != "AMP_PPO"
                 ):
-                    args.extend([
-                        "--unitport_amp_motion_files",
-                        ",".join(str(p) for p in self.amp_motion_files),
-                    ])
+                    args.extend(_amp_motion_cli_args(
+                        self.amp_motion_files, self.amp_motion_ranges
+                    ))
 
             if self.stage_schedule_json:
                 import base64

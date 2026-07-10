@@ -1,5 +1,8 @@
 [btn]
 new = Nouveau
+history = History
+policies = Policies
+templates = Templates
 
 [menu]
 empty = (vide)

@@ -1,0 +1,11 @@
+[default]
+edit_tip = 이 클립을 자르거나 라벨을 지정하려면 클릭
+segment_tip = 이 구간 열기
+col_name = 클립
+col_tag = 태그
+col_frames = 프레임
+col_duration = 재생 시간
+col_segments = 세그먼트
+col_action = 
+crop = 잘라내기 / 레이블
+

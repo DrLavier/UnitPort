@@ -1,0 +1,7 @@
+[default]
+action = クラウドサーバーを起動してダンプを実行
+body = UnitPortは、接触センサー、キャンバスの事前実体化、トレーニング検証が確実に機能するように、すべての標準ロボット（Unitree Go2、Boston Dynamics Spot、Unitree H1など）についてUSDボディのトポロジを必要とします。ローカルダンプ経路はローカルのIsaacLabインストールを必要としますが、現在はクラウドのIsaacLabサーバーのみが構成されています。クラウドサーバーを起動してから、下のボタンをクリックしてリモートでダンプを実行してください。
+dismiss = 閉じる
+headline = このインストールでは標準ロボットのUSDボディテーブルがダンプされていません。
+window_title = Cloud IsaacLab — USDボディのダンプが必要です
+

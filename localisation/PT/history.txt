@@ -1,0 +1,10 @@
+[confirm]
+clear_body = Isto exclui todos os diretórios de run em <project>/training/runs/ e todos os snapshots de canvas em _runs_/. Isto não pode ser desfeito.
+clear_title = Limpar todo o histórico de treinamento?
+
+[row]
+delete.tip = Excluir esta execução
+
+[default]
+clear_all = Limpar tudo
+

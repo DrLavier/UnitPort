@@ -1,0 +1,186 @@
+[conn]
+btn.connect = 연결
+btn.connecting = 연결 중…
+btn.disconnect = 연결 해제
+controller.arm_pending = Arm teleop은 Phase 6에서 제공됩니다.
+controller.no_teleop = 이 어댑터는 teleop 기능을 선언하지 않습니다.
+controller.pid_pending = PID 튜닝 UI는 Phase 6에서 제공됩니다.
+controller.release_control = 제어권 해제
+controller.take_control = 제어권 획득
+dialog.section.domain = ROS2 도메인 ID
+dialog.section.ssh = SSH 자격 증명
+dialog.ssh.server = 서버: {server}
+dialog.title = 연결 설정
+hw.battery = 배터리 잔량
+hw.no_selection = 선택된 로봇이 없습니다.
+hw.temperature = 온도
+hw.uptime = 가동 시간
+level.error = 이상
+level.idle = 대기 중
+level.ok = 정상
+level.warn = 경고
+middleware.auto_detected = ↳ 자동: {rmw}
+result.fix_tag.invasive = 침습적
+result.fix_tag.safe = 안전
+result.head.fail = 연결을 완료할 수 없습니다.
+result.head.ok_clean = 연결 준비 완료. 문제가 발견되지 않았습니다.
+result.head.ok_fixed = 연결 준비 완료. {n}개의 문제를 자동으로 수정했습니다.
+result.head.partial = 연결은 되었지만, {n}개의 문제에 주의가 필요합니다.
+result.invasive.confirm = 로봇에서 {n}개의 침습적 수리를 실행하려고 합니다. 이러한 작업은 패키지를 설치하거나 영구 구성 파일을 수정할 수 있습니다.
+	
+	작업:
+	{summary}
+	
+	계속 진행하시겠습니까?
+result.invasive.confirm.title = 침습적 수리 확인
+result.meta = 자동 수리 시도: {a}   적용됨: {ap}   실패: {fl}   소요시간: {d:.1f}s
+result.section.applied = 적용됨(자동 수정됨)
+result.section.failed = 자동 수리 중 실패함
+result.section.unresolved_invasive = 미해결 (침습적 수리 가능 — 사용자 동의 필요)
+result.section.unresolved_manual = 미해결 (자동 수정 불가 — 수동 조치 필요)
+result.section.unresolved_safe = 미해결 (안전 수정 가능; 재시도 권장)
+result.title.fail = 연결 실패
+result.title.ok = 연결 준비됨
+result.title.partial = 연결 부분적 — 조치 권장
+robot.none = —
+section.controller = 컨트롤러
+ssh.has_password = 비밀번호✓
+ssh.has_sudo = sudo✓
+ssh.no_creds = (자격 증명 없음)
+ssh.password = 비밀번호
+ssh.password.placeholder = (비밀번호를 입력하고 저장을 누르세요)
+ssh.sudo = sudo 비밀번호
+ssh.sudo.placeholder = (침습적 수리 시 필요)
+ssh.user = SSH 사용자
+state.connected = 연결됨
+state.connecting = 연결 중…
+state.disconnected = 연결되지 않음
+state.error = 오류
+state.testing = 테스트 중…
+title = 실제 장비 연결 구성
+section.ros2 = ROS2 연결
+section.hardware = 로봇 하드웨어
+section.sensor = 센서 상태
+field.domain_id = ROS2 도메인 ID
+field.middleware = 미들웨어
+field.address = 주소
+field.port = 포트
+btn.test = 테스트
+field.brand = 브랜드
+field.model = 모델
+field.serial = 일련번호
+field.firmware = 펌웨어
+field.battery = 배터리
+field.temperature = 온도
+field.uptime = 가동 시간
+sensor.imu = IMU
+sensor.joints = 조인트
+sensor.lidar = 라이다
+sensor.camera = 카메라
+sensor.torque = 토크
+sensor.battery = 배터리
+field.state = 연결 상태
+
+[diag]
+repair_invasive = 침습적 수리
+repair_safe = 안전 수리
+ssh.context = 서버: {server}
+	사유: {reason}
+ssh.err_empty_pw = SSH 비밀번호가 필요합니다.
+ssh.err_save = 자격 증명을 저장할 수 없습니다: {err}
+ssh.headline = 자동 수리에는 로봇에 대한 SSH 접근이 필요합니다.
+ssh.pw = SSH 비밀번호
+ssh.pw_placeholder = 필수
+ssh.sudo = sudo 비밀번호
+ssh.sudo_placeholder = 선택 사항 — 비워두면 SSH 비밀번호를 기본값으로 사용합니다
+ssh.title = SSH 자격 증명 필요
+ssh.user = SSH 사용자
+summary.error = 오류가 감지되었습니다.
+summary.pass = 모든 검사 통과.
+summary.warn = 경고가 감지되었습니다.
+title = 연결 진단
+
+[sim]
+backend.empty = 시뮬레이션 백엔드 없음
+dialog.save_pose.prompt = 프리셋 이름:
+dialog.save_pose.title = 초기 자세 프리셋 저장
+field.init_pose_base = 베이스 위치 [m]
+field.init_pose_enable = 초기 자세 재정의
+field.init_pose_enable.tip = 번들 기본값 대신 편집된 값으로 로봇을 생성합니다
+field.init_pose_joints = 관절 각도 [rad]
+field.init_pose_preset = 프리셋
+field.preview_physic = 물리 미리보기
+field.preview_physic.tip = 로봇 검토 중 실시간으로 물리 단계를 진행합니다(중력만 적용, 액추에이터 없음)
+init_pose.editor.title = 초기 자세 편집기
+init_pose.empty = 이 SKU에는 사용 가능한 조인트가 없습니다.
+policy.empty = 내보낸 정책이 없습니다
+title = 정책 시뮬레이션
+section.simconfig = 시뮬레이션 설정
+field.policy = 정책
+field.play_ground = 플레이그라운드
+field.backend = 백엔드
+btn.run = 실행
+btn.review_robot = 로봇 검토
+section.init_pose = 초기 포즈 재정의
+btn.edit_pose = 편집…
+btn.save_pose = 다른 이름으로 저장…
+btn.delete_pose = 삭제
+init_pose.custom = 사용자 지정(저장되지 않음)
+
+[train]
+body.col_robot = 로봇
+body.col_role = 역할
+body.menu_oos = 범위 밖으로 표시
+body.menu_restore = 복원 (미할당)
+body.menu_unassign = 할당 해제
+body.out_of_scope = (범위 밖)
+body.unassigned = (미할당)
+field.body_mapping = body_mapping
+placeholder.empty = —
+placeholder.no_canvas = 캔버스가 로드되지 않음
+placeholder.no_robot = 로봇 노드가 없습니다.
+state.failed = 실패
+state.finished = 종료됨
+state.idle = 실행되지 않음
+state.paused = 일시중지됨
+state.running = 실행 중
+title = 훈련 구성 보기
+section.status = 학습 상태
+section.task = 작업 구성
+section.hyper = 하이퍼파라미터
+section.robot = 로봇 구성
+field.elapsed = 경과 시간
+field.iterations = 반복 횟수
+field.current_reward = 현재 보상
+field.mean_reward = 평균 보상
+field.best_reward = 최고 보상
+field.episode_length = 평균 에피소드 길이
+field.fps = FPS
+field.task_env = 작업 백엔드
+field.task_name = 작업 이름
+field.link = 링크
+field.device = 학습 장치
+btn.task_configure = 작업 구성
+field.lr = 학습률
+field.batch_size = 배치 크기
+field.gamma = 감마
+field.total_timesteps = 전체 타임스텝
+field.ent_coef = 엔트로피 계수
+field.seed = 랜덤 시드
+field.num_envs = 병렬 환경
+field.max_iterations = 최대 반복 횟수
+btn.hyper_edit = 하이퍼파라미터 편집
+field.training_asset = 학습 에셋
+field.active_files = 에셋 파일
+btn.start = 시작
+btn.pause = 일시중지
+btn.stop = 중지
+
+[link]
+local = 로컬
+cloud = 클라우드
+
+[robot]
+status.loaded = 로드됨
+status.missing = 누락됨
+

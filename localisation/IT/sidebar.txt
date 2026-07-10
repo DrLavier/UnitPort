@@ -1,0 +1,69 @@
+[fullscreen]
+tip = Schermo intero
+short = Schermo intero
+
+[language]
+tip = Lingua
+short = Lingua
+
+[settings]
+tip = Impostazioni
+short = Impostazioni
+
+[update]
+tip_latest = Hai l'ultima versione
+tip = Aggiornamento
+short_latest = Aggiornato
+short_needed = Aggiorna
+tip_needed = Nuova versione disponibile — clicca per applicarla
+
+[training]
+tip = Script di progetto e globali
+short = Addestramento
+title = Script di addestramento
+
+[observations]
+tip = Moduli preimpostati per le osservazioni
+short = Osservazioni
+title = Osservazioni
+
+[terminations]
+tip = Moduli preimpostati per le terminazioni
+short = Terminazioni
+title = Terminazioni
+
+[rewards]
+tip = Moduli preimpostati per le ricompense
+short = Ricompense
+title = Ricompense
+
+[resources]
+tip = Dataset di movimento di terze parti e bundle di policy
+short = Risorse
+title = Risorse
+
+[controller]
+tip = Controller
+short = Controller
+title = Controller
+
+[robot_assets]
+tip = Asset robot
+short = Robot
+title = Asset robot
+
+[projects]
+tip = File di progetto
+short = Progetti
+title = File di progetto
+
+[node_library]
+tip = Libreria nodi
+short = Nodi
+title = Libreria nodi
+
+[user]
+tip = Utente
+short = Utente
+title = Utente
+

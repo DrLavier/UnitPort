@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = （無可用電子郵件）
+email_identity_security_hint = 請點擊收件匣中的連結以設定或更新您的登入密碼。為了安全起見，密碼變更無法在應用程式內進行 — 所有變更都必須透過電子郵件驗證。
+email_identity_send_button = 傳送連結
+email_identity_send_to = 我們會將驗證連結傳送至：
+email_identity_title = 電子郵件登入
+engines_cloud_settings = 設定雲端伺服器
+engines_local_settings = 設定本機安裝
+linked_account_status_linked = 已連結
+linked_account_unlink_button = 取消與 {provider} 的連結
+linked_account_unlink_confirm_title = 要取消與 {provider} 的連結嗎？
+linked_account_unlink_current_body = 取消連結後您會被登出，因為這是您目前的登入方式。
+linked_account_unlink_normal_body = 您將無法再使用 {provider} 登入。
+linked_account_unlink_only_body = 這是您唯一的登入方式，無法取消連結。
+open_workspace_tip = 開啟 UnitPort 使用者資料目錄
+open_workspace = 開啟使用者工作區
+linked_accounts_label = 登入方式：
+linked_account_btn_signedout_email = 電子郵件：—
+linked_account_btn_signedout_google = Google：—
+linked_account_btn_signedout_github = GitHub：—
+linked_account_btn_unlinked_email = 電子郵件：（無）
+linked_account_btn_unlinked_google = Google：（未連結）
+linked_account_btn_unlinked_github = GitHub：（未連結）
+workspace_email_label = 工作區：
+workspace_email_confirm_title = 要切換工作區儲存的電子郵件嗎？
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = 工作區儲存已移至 {path}。
+workspace_email_failed = 無法切換工作區：{error}
+

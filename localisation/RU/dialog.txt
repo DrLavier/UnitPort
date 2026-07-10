@@ -1,0 +1,19 @@
+[default]
+ir_role_picker_unavailable = Не удалось открыть меню ролей IR
+joint_pose_editor_unavailable = Не удалось открыть редактор углов суставов
+pd_table_no_sku = У узла Robot Node нет привязанного действительного робота (asset_id). Сначала выберите робота в карточке Robot Asset.
+pd_table_unavailable = Не удалось открыть панель PD
+registry_preset_apply_failed = Не удалось применить пресет
+registry_preset_picker_empty = В этом семействе нет доступных пресетов
+registry_preset_picker_empty_detail = family={family} в registry={registry} не объявлен как preset.
+registry_preset_picker_unavailable = Не удалось открыть меню пресетов
+registry_preset_picker_unknown = Неизвестный registry={key!r}; поддерживаемые registry: {keys}
+replace_canvas_text = Загрузка шаблона '{tpl}' заменит все узлы и ребра в '{name}'. Продолжить?
+replace_canvas_title = Заменить содержимое холста
+review_pose_unavailable = Не удалось запустить Review Pose
+unsaved_text = В {name} есть несохранённые изменения. Сохранить перед продолжением?
+unsaved_title = Несохранённые изменения
+review_motion_no_clip = Для этого элемента обучения не выбран эталонный клип — перед просмотром выберите клип в выпадающем списке «Клип».
+review_motion_no_robot = К этому холсту не привязан узел Robot. Review Motion требует MJCF робота для воспроизведения эталонного движения — сначала подключите узел Robot.
+review_motion_unavailable = Невозможно запустить Review Motion
+

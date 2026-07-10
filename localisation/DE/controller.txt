@@ -1,0 +1,58 @@
+[conflict]
+action = eine Systemaktion
+channel = ein Befehlskanal
+msg = {input} ist bereits an {owner} ({cat}) gebunden. Ein physischer Eingang dient nur einer Bindung — hebe dort zuerst die Bindung auf, und versuche es dann erneut.
+title = Bindungskonflikt
+trigger = ein Skill-Auslöser
+
+[default]
+axis_unbound = — (nicht belegt)
+button_unbound = — (nicht belegt)
+channel_not_bindable = — (noch nicht zuweisbar)
+invert_vy = vy invertieren
+invert_vyaw = vyaw invertieren
+reset = Zurücksetzen
+off_hint = Eingabe deaktiviert. Wähle oben Tastatur oder Gamepad.
+policy_channels = Policy-Befehlskanäle
+system_actions = Buttons → Systemaktionen
+system_actions_keys = Tasten → Systemaktionen
+stale_channels = Gespeicherte Belegungen, die nicht in diesem contract enthalten sind
+no_policy_hint = Keine Policy geladen. Ein Skill, den Sie am Training Motion node erstellen, wird HIER erst zu einem bindbaren Kanal, nachdem Sie eine Policy trainiert + exportiert und sie in Mission Control · Simulate ausgewählt haben — ein Trigger ist ein trainiertes Verhalten, nicht nur eine Tastenbelegung. Die untenstehenden Buttons sind Systemaktionen (boost / estop / …): stets verfügbar und unabhängig von jeder Policy, weshalb sie nicht am Training Motion node sind.
+no_contract_hint = Diese Policy hat keine Befehlskanäle — exportieren Sie das Bundle erneut, nachdem Sie Geschwindigkeitsbefehle oder einen Skill am Training Motion node erstellt haben.
+legacy_contract_hint = Die geladene Policy enthält einen veralteten Commands-Block — exportieren Sie das Bundle erneut, um hier Befehlskanäle zu binden.
+
+[latch]
+hold = Halten (solange gehalten)
+pulse = Impuls (einmal drücken)
+unsupported = (wurde von der Trainingsseite nicht bereitgestellt)
+
+[pick]
+button = Taste
+mode = Modus
+
+[axis]
+left_stick_x = Stick L X
+left_stick_y = Stick L Y
+right_stick_x = Stick R X
+right_stick_y = Stick R Y
+
+[kb]
+forward = Vorwärts
+backward = Rückwärts
+strafe_left = Seitwärts links
+strafe_right = Seitwärts rechts
+yaw_left = Gier links
+yaw_right = Gier rechts
+estop = Not‑Aus
+boost = Boost
+
+[mode_btn]
+off = Aus
+keyboard = Tastatur
+gamepad = Gamepad
+
+[mode]
+off = Aus
+keyboard = Tastatur
+gamepad = Gamepad
+

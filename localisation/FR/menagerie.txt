@@ -1,6 +1,6 @@
 [default]
 close_btn = Fermer
-dialog_title = MuJoCo Menagerie
+dialog_title = Ménagerie MuJoCo
 download_btn = Télécharger la sélection
 download_busy = Un téléchargement est déjà en cours ; veuillez patienter.
 download_done = {n} paquet(s) téléchargé(s).

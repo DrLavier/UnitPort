@@ -1,0 +1,69 @@
+[fullscreen]
+tip = 全画面表示
+short = フルスクリーン
+
+[language]
+tip = 言語
+short = 言語
+
+[settings]
+tip = 設定
+short = 設定
+
+[update]
+tip_latest = 最新バージョンを使用しています
+tip = 更新
+short_latest = 最新
+short_needed = 更新
+tip_needed = 新しいバージョンが利用可能です — クリックして適用してください
+
+[training]
+tip = プロジェクト + グローバルスクリプト
+short = トレーニング
+title = トレーニングスクリプト
+
+[observations]
+tip = 観測プリセットモジュール
+short = 観測
+title = 観測
+
+[terminations]
+tip = 終了条件プリセットモジュール
+short = 終了条件
+title = 終了条件
+
+[rewards]
+tip = 報酬プリセットモジュール
+short = 報酬
+title = 報酬
+
+[resources]
+tip = サードパーティ製モーションデータセットとポリシーバンドル
+short = リソース
+title = リソース
+
+[controller]
+tip = コントローラー
+short = コントローラー
+title = コントローラー
+
+[robot_assets]
+tip = ロボットアセット
+short = ロボット
+title = ロボットアセット
+
+[projects]
+tip = プロジェクトファイル
+short = プロジェクト
+title = プロジェクトファイル
+
+[node_library]
+tip = ノードライブラリ
+short = ノード
+title = ノードライブラリ
+
+[user]
+tip = ユーザー
+short = ユーザー
+title = ユーザー
+

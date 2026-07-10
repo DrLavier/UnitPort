@@ -1,0 +1,136 @@
+[community]
+current = 目前
+days_ago = {n} 天前
+latest = 最新
+releases_loading = 正在載入發行版本…
+today = 今天
+tutorial_coming_soon = 即將推出…
+tutorial_desc = 構建、訓練與部署的逐步教學。
+tutorial_title = 官方教學
+yesterday = 昨天
+title = 社群
+support_us = 支持我們
+tutorial_open = 開啟連結
+releases_unavailable = 無法載入版本。請檢查您的網路。
+releases_empty = 尚未發布任何版本。
+open_page = 開啟頁面
+download = 下載
+day_one = 1 天前
+
+[create]
+engine_unavailable = 不可用
+error_create_failed = 無法建立專案 '{name}'（名稱可能與現有專案衝突 — 請檢查日誌）。
+error_existing_missing = 該專案已不在磁碟上 — 請重新整理清單後再選取。
+error_invalid_canvas_name = 畫布名稱只能包含字母、數字、'_' 和 '-'。
+error_invalid_name = 專案名稱只能包含字母、數字、'_' 和 '-'。
+error_no_backend = 在建立前請先選擇後端。
+error_no_canvas_name = 輸入畫布名稱（例如 'main'）。
+error_no_existing = 從清單中選取現有專案，或切換到「新專案」。
+error_no_name = 請先輸入專案名稱。
+error_no_template = 在建立前請選擇範本（或「自由建立」）。
+label_backend = 後端
+label_canvas_name = 畫布名稱
+label_pick_project = 選擇專案
+label_project_name = 專案名稱
+label_template = 選擇範本
+no_templates = 此後端沒有可用的範本。
+placeholder_canvas = 例如 main
+placeholder_name = 新專案名稱
+title = 建立新專案
+btn = 建立畫布
+section_project = 專案
+section_canvas = 畫布
+mode_new = 新專案
+mode_existing = 加入專案
+
+[projects]
+btn_open_workspace = 開啟本機工作區 →
+col_canvas = 畫布
+col_project = 專案
+col_robot = 機器人
+cross_user_audit_recorded = 已記錄以供 {owner} 審核
+cross_user_copy_failed_body = 無法將 '{name}' 複製到您的工作區：
+	{err}
+cross_user_copy_failed_title = 複製失敗
+cross_user_delete_warn_body = '{name}' 屬於 {owner}。現在刪除將會被記錄，{owner} 在下次登入時可以審核或還原。
+	
+	仍要刪除嗎？
+cross_user_delete_warn_title = 刪除其他使用者的畫布
+cross_user_open_body = 此畫布屬於 {owner}。請將它複製到您自己的工作區以建立獨立備份，或直接開啟原件 — 任何編輯/刪除操作都會被記錄，供 {owner} 在下次登入時審核。
+cross_user_open_title = 開啟其他使用者的畫布
+delete_confirm_body = 永久刪除 '{name}'？
+	
+	此操作僅會移除畫布檔案 — 專案本身不會被刪除。
+delete_confirm_title = 刪除畫布
+delete_failed_body = 無法刪除 '{name}'：
+	{err}
+delete_failed_title = 刪除失敗
+delete_tooltip = 刪除此畫布檔案
+empty = 尚無本機工作區 — 在右側建立第一個專案。
+load_tooltip = 開啟此畫布
+migrate_confirm_body = 要將工作區根目錄從
+	{old}
+	移動到
+	{new}嗎？
+	
+	所有專案、畫布和每位使用者的資料都會被移動。完成後應用程式會重新載入工作區狀態。
+migrate_confirm_title = 遷移工作區
+migrate_failed_body = 無法遷移工作區：
+	{err}
+migrate_failed_title = 遷移失敗
+migrate_success_body = 工作區根目錄現在為：
+	{path}
+migrate_success_title = 遷移完成
+migrate_title = 選擇新的工作區根目錄
+refresh_tooltip = 重新整理本機檔案
+reveal_tooltip = 在資料夾中顯示
+robot_unset = —
+search_placeholder = 搜尋畫布…
+snapshot_label = 快照：
+time_day_n = {n} 天前
+time_hr_n = {n} 小時前
+title = Account
+view_all = 檢視所有工作區
+refresh = 重新整理
+btn_migrate = 遷移
+col_user = 使用者
+col_engine = 引擎
+col_time = 上次修改時間
+col_action = 操作
+status_recent = 最近
+status_idle = 閒置
+engine_unset = —
+engine_mixed = 混合 ({n})
+time_min_one = 1 分鐘前
+time_hr_one = 1 小時前
+btn_load = 載入
+cross_user_open_copy = 複製到我的工作區（建議）
+cross_user_open_inplace = 在原處開啟
+cross_user_open_cancel = 取消
+time_just_now = 剛剛
+time_min_n = {n} 分鐘前
+time_unknown = —
+time_yesterday = 昨天
+user_guest = 訪客
+
+[user]
+headline_signed_out = 歡迎使用 UnitPort Studio
+methods_prompt = 登入方式
+signin_prompt = 登入 / 註冊
+sub_signed_out = 登入您的帳戶以同步專案並啟用雲端功能。
+uuid_copied_toast = UUID 已複製到剪貼簿
+uuid_copy_tooltip = 複製 UUID
+uuid_label = UUID：{uuid}
+welcome_back = 歡迎回來，{name}
+welcome_sub = 管理您的帳戶並在裝置間同步專案。
+title = 帳戶
+welcome_back_title = 歡迎回來，
+btn_google = 使用 Google 繼續
+btn_github = 使用 GitHub 繼續
+btn_email = 使用 Email 繼續
+welcome_back_static = 歡迎回來，
+cloud_usage_label = 雲端使用情況
+sign_out = 登出
+learn_more = 了解更多
+workspace_synced = 已同步的工作區 · 專案會鏡像到您的帳戶
+

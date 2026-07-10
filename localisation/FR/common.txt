@@ -1,4 +1,6 @@
 [default]
 current_canvas = canevas actuel
 empty = (aucun)
+cancel = Annuler
+ok = OK
 

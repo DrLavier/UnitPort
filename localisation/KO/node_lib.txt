@@ -1,0 +1,12 @@
+[default]
+empty = 등록된 노드가 없습니다
+
+[layer]
+a = 구성
+b = 환경
+c = 학습
+d = 내보내기
+il = 모방 학습
+custom = 사용자 정의
+tools = 도구
+

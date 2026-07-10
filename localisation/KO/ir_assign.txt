@@ -1,0 +1,16 @@
+[default]
+banner = 일부 로봇 관절/바디를 자동으로 분류할 수 없었습니다. 설정을 완료하려면 아래에서 해당 항목들의 IR 역할을 할당하세요.
+cancel = 취소
+col_joint = 관절 / 바디
+col_kind = 유형
+col_role = IR 역할
+confirm = 모두 확인
+dialog_title = 새 로봇에 대한 IR 역할 할당
+kind_body = 바디
+kind_joint = 관절
+pending_robots = 대기 중인 로봇
+right_title = 관절 매핑 — {robot} ({family}, {n} entr{plural})
+role_out_of_scope = 
+status_pending = {filled}/{total} 할당됨
+status_ready = 모든 {n} 항목이 할당되었습니다 — 확인할 준비가 되었습니다.
+

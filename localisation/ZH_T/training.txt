@@ -1,0 +1,70 @@
+[coverage]
+blocked.body = 獎勵覆蓋範圍很重要 — 在受影響階段啟動時，策略很可能學到不期望的行為。
+blocked.cancel = 取消
+blocked.header = 無法開始訓練：獎勵覆蓋檢查失敗。
+blocked.hint = 在 Rewards 節點上雙擊徽章以開啟 Coverage Inspector，查看建議的修正。
+blocked.proceed = 仍要繼續
+blocked.title = 獎勵覆蓋問題
+
+[default]
+already_running = 已有訓練正在執行
+no_canvas = 未載入畫布
+preparing = 正在準備訓練（在 UI 執行緒外編譯）…
+started = 訓練已開始：run={run} backend={backend} algo={algo}
+
+[deploy_coverage]
+affected = 受影響的部署目標：
+body = 訓練出的 bundle 只能部署到部分支援的目標，因為機器人的 MJCF 與 USD 資產表未宣告相同的關節集合。
+cancel = 取消
+header = 訓練將為機器人 ‘{name}’ (sku={sku}) 產生部署覆蓋受限的 bundle。
+hint = 要恢復兩個部署目標：取消，打開 Robot Assets 側欄，將較少自由度的資產指向相對應的變體（例如：對 Unitree G1，將 scene_with_hands.xml 與 g1.usd 配對使用），重新 Dump，然後重新執行 Play。
+miss_mjcf = 在 USD 宣告但在 MJCF 中缺失的角色：{roles}
+miss_usd = 在 MJCF 宣告但在 USD 中缺失的角色：{roles}
+proceed = 仍要繼續（以免稍後浪費計算資源）
+title = 部署目標覆蓋減少
+
+[packages]
+add = 新增套件
+bad_weight = package_weight 必須為數字
+edit_rewards = 編輯獎勵…
+enabled = 已啟用
+gate_missing = {s}（缺失）
+gate_none = — 無 —
+gated_by = 受技能門控
+gated_by.tip = 將此套件的獎勵限制於某技能的觸發窗 — 僅在該技能觸發期間（脈衝後衰減期間）獎勵才會計算。需在此節點的 Skill Channels 中撰寫該技能。
+hint = 將項目群組成套件。package_weight 會重新平衡整個套件；每個套件可以擁有內嵌的獎勵集。空白 = 一個隱含的預設套件。
+membership = 項目所屬
+name = 名稱
+new_name = 套件 {n}
+preview = 組成後獎勵預覽（= 匯出）
+preview_empty = 無內嵌套件獎勵。沒有套件獎勵的項目會保留其接線的 rewards 節點。
+remove = 移除
+title = 訓練套件
+weight = package_weight
+
+[sim2sim]
+body = PhysX↔MuJoCo 跨引擎測量發現其殘差不收斂（混沌）的維度：{dims}。域隨機化無法涵蓋這些情況，且 sim2sim 可能無法忠實重現此狀態。
+cancel = 取消
+header = 跨引擎殘差自檢對機器人 ‘{sku}’ 發出警示。
+hint = 繼續將會對目前的 plant 記錄此項 — 除非機器人資產變更，否則不會再次詢問。
+proceed = 仍要繼續
+title = 非收斂的 sim2sim 維度
+
+[skills]
+add = 新增技能
+bad_id = 每個技能都需要一個 ID
+bad_window = 視窗必須為正數
+enabled = 已啟用
+hint = 每個技能都是一個離散的 policy 指令通道（觸發器）。它會作為 policy 的觀測（obs）輸入並遵循指令合約；policy 必須經過訓練才能回應。將其綁定到按鍵或按鈕是在訓練後由使用者於 Controller 面板中設定 — 並非在此處。
+latch = 鎖存
+latch.hold = 按住（按住時）
+latch.pulse = 脈衝（一次性）
+name = 名稱
+new_name = 技能 {n}
+preview = 發出的觸發通道
+preview_empty = 沒有啟用的技能。
+remove = 移除
+title = 技能通道
+window = 視窗（秒）
+window.tip = 脈衝後衰減視窗：觸發 obs 與 reward gate 在這段秒數內由 1→0 衰減。部署執行時會重建相同的視窗。
+

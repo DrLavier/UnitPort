@@ -1,0 +1,10 @@
+[confirm]
+clear_body = Esto elimina todos los directorios de ejecución bajo <project>/training/runs/ y todas las instantáneas del lienzo en _runs_/. Esto no se puede deshacer.
+clear_title = ¿Borrar todo el historial de entrenamiento?
+
+[row]
+delete.tip = Eliminar esta ejecución
+
+[default]
+clear_all = Borrar todo
+

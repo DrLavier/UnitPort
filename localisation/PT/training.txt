@@ -1,0 +1,70 @@
+[coverage]
+blocked.body = A cobertura de recompensas é crítica — a política provavelmente aprenderá comportamentos indesejados enquanto as fases afetadas estiverem ativas.
+blocked.cancel = Cancelar
+blocked.header = Não é possível iniciar o treinamento: verificação de cobertura de recompensas falhou.
+blocked.hint = Dê um duplo clique no distintivo do nó Rewards para abrir o Coverage Inspector e ver correções sugeridas.
+blocked.proceed = Continuar mesmo assim
+blocked.title = Problema de Cobertura de Recompensas
+
+[default]
+already_running = Uma execução de treinamento já está ativa
+no_canvas = Nenhum canvas carregado
+preparing = Preparando execução de treinamento (compilando fora da thread da UI)…
+started = Treinamento iniciado: run={run} backend={backend} algo={algo}
+
+[deploy_coverage]
+affected = Alvos de implantação afetados:
+body = O bundle treinado será implantável APENAS em um subconjunto dos alvos suportados, porque as tabelas de assets MJCF e USD do robô não declaram o mesmo conjunto de juntas.
+cancel = Cancelar
+header = O treinamento produzirá um bundle com cobertura de implantação reduzida para o robô ‘{name}’ (sku={sku}).
+hint = Para restaurar ambos os alvos de implantação: cancele, abra a barra lateral Robot Assets, aponte o asset de DOF menor para uma variante correspondente (por exemplo, para Unitree G1 use scene_with_hands.xml junto com g1.usd), re-Dump, e então execute Play novamente.
+miss_mjcf = Papéis declarados em USD mas ausentes no MJCF: {roles}
+miss_usd = Papéis declarados no MJCF mas ausentes em USD: {roles}
+proceed = Prosseguir mesmo assim (não desperdice recursos computacionais depois)
+title = Cobertura reduzida dos alvos de implantação
+
+[packages]
+add = Adicionar pacote
+bad_weight = package_weight deve ser um número
+edit_rewards = Editar recompensas…
+enabled = Ativado
+gate_missing = {s} (ausente)
+gate_none = — nenhum —
+gated_by = Condicionado por skill
+gated_by.tip = Restrinja as recompensas deste pacote à janela de disparo de uma skill — as recompensas só contam enquanto essa skill estiver ativa (decadência pós-pulso). Requer uma skill criada nos Skill Channels deste nó.
+hint = Agrupe itens em pacotes. package_weight reequilibra um pacote inteiro; cada pacote pode conter um conjunto de recompensas inline. Vazio = um pacote padrão implícito.
+membership = Associação do item
+name = Nome
+new_name = Pacote {n}
+preview = Pré-visualização da recompensa composta (= exportação)
+preview_empty = Sem recompensas inline no pacote. Itens sem recompensa de pacote mantêm seu nó de recompensas conectado.
+remove = Remover
+title = Pacotes de Treinamento
+weight = package_weight
+
+[sim2sim]
+body = A medição cruzada PhysX↔MuJoCo encontrou dimensão(ões) cujo resíduo é não-convergente (caótico): {dims}. Randomização de domínio não pode cobri-las, e o sim2sim pode não reproduzir fielmente esse regime.
+cancel = Cancelar
+header = A auto-verificação de resíduos cross-engine sinalizou o robô ‘{sku}’.
+hint = Prosseguir registrará isso para a plant atual — você não será solicitado novamente a menos que o asset do robô mude.
+proceed = Prosseguir assim mesmo
+title = Dimensão sim2sim não convergente
+
+[skills]
+add = Adicionar habilidade
+bad_id = cada habilidade precisa de um id
+bad_window = a janela deve ser um número positivo
+enabled = Ativado
+hint = Cada habilidade é um canal discreto de comando de política (um gatilho). Ele entra nas observações (obs) da política e segue o contrato de comando; a política deve ser treinada para responder a ele. A vinculação a uma tecla ou botão é feita por cada utilizador no painel Controller após o treino — não aqui.
+latch = Trava
+latch.hold = manter (enquanto pressionado)
+latch.pulse = pulso (ação única)
+name = Nome
+new_name = habilidade {n}
+preview = Canais de gatilho emitidos
+preview_empty = Nenhuma habilidade ativada.
+remove = Remover
+title = Canais de habilidade
+window = Janela (s)
+window.tip = Janela de decaimento pós-pulso: as observações (obs) do gatilho + o gate de recompensa decaem de 1→0 durante este número de segundos. O runtime de deploy reconstrói a mesma janela.
+

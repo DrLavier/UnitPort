@@ -1,0 +1,61 @@
+[default]
+add_path = إضافة مسار مخصص
+add_robot = نموذج جديد
+add_tip = تسجيل روبوت جديد أو متغير
+add_variant = متغير جديد لـ …
+add_variant_empty = لا توجد روبوتات أساسية مسجلة بعد. أضف نموذجًا أولاً.
+cascade_body = لهذا الروبوت متغيرات مستخدم تعتمد عليه. احذف المتغيرات أو افصلها أولاً.
+	
+	{detail}
+cascade_title = لا يمكن الحذف
+coming_soon = قريبًا
+delete = حذف
+dump = تفريغ الأجسام / المفاصل
+dump_disabled = لا يتوفر أي من أصل MJCF أو USD (لا يوجد ملف محلي ولا عنوان Nucleus مُعلن)
+dump_done_title = اكتمل التفريغ
+dump_error_no_asset = تعذر حل أصل الروبوت للـ SKU {sku}
+dump_error_persist = فشل في حفظ الأجسام المكتشفة لـ {fmt}
+dump_error_validation = فشل التحقق بعد كتابة تخطيط {fmt}:
+	
+	{exc}
+	
+	افتح عقدة Robot في اللوحة وصحّح أدوار IR للمفاصل/الأجسام المعلّمة، ثم أعد التفريغ.
+dump_format_mismatch = 
+	⚠ لدى {larger_fmt} عدد {larger_n} مفاصل بينما لدى {smaller_fmt} عدد {smaller_n}. التدريب لا يتأثر، لكن {affected} لن تكون متاحة للحزم المدربة ضد مجموعة المفاصل الخاصة بـ{larger_fmt}. إذا كنت بحاجة إلى كلا هدفَي النشر، أعد توجيه الأصل {smaller_fmt} إلى متغير مطابق (مثال: بالنسبة لـ G1 استخدم scene_with_hands.xml إلى جانب g1.usd) ثم أعد التفريغ.
+edit = تحرير
+edit_canonical_disabled = الروبوتات القياسية للقراءة فقط. بدلاً من ذلك، أضف إدخال مستخدم جديد.
+ignore_package = تجاهل
+ignore_package_tip = تخطي هذا الدليل في عمليات التحديث المستقبلية
+inertia_calib_done = تراكب العطالة {status}: تم كتابة {n} تعديلًا للأجسام إلى {rel}.
+inertia_calib_done_title = اكتملت معايرة العطالة
+inertia_calib_error_title = فشلت معايرة العطالة
+inertia_calib_ignored = {n} جسم(أجسام) تحت مستوى التحمل — انظر قائمة التدقيق ignored_bodies في التراكب.
+inertia_calib_offer_body = قارن كتل/عطالة كل جسم في ملف USD المستخدم للتدريب مع MJCF الخاص بـMuJoCo واكتب تراكبًا غير مدمر (الـ MJCF الأصلي لا يتغير أبدًا). هذا يسد فجوة sim2sim IsaacLab→MuJoCo للروبوتات التي يرسل MJCF لها عطالة مؤقتة. قد تستغرق عملية استخراج بيانات USD من 5–30 s.
+inertia_calib_offer_title = معايرة العطالة من USD؟
+menagerie = Menagerie…
+menagerie_tip = تصفح وتنزيل حزم MuJoCo Menagerie
+no_path = (لا شيء)
+pick_file = اختر ملف {kind}
+pick_parent = اختر النموذج الأساسي الذي يرث منه هذا المتغير:
+refresh_tip = أعد مسح سجل الأصول
+tag_placeholder = أضف وسم...
+view_mapping = عرض تعيين المفاصل
+view_mapping_error_title = تعيين المفاصل غير متاح
+add_robot_tip = سجّل روبوتًا جديدًا
+dump_error_title = فشل التفريغ
+dump_mjcf = تفريغ الأجسام / المفاصل في MJCF
+dump_mjcf_disabled = أصل MJCF غير متوفر محليًا
+dump_usd = تفريغ الأجسام / المفاصل في USD
+dump_usd_disabled = أصل USD غير مُعلن (لا يوجد مسار محلي ولا عنوان URL لـ Nucleus)
+
+[status]
+cloud = سحابة
+local = محلي
+missing = مفقود
+remote = عن بُعد
+
+[tag]
+canonical = قياسي
+cloud = السحابة
+custom = مخصص
+

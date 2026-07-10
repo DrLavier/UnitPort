@@ -1,0 +1,85 @@
+[backend]
+cb_isaac = Isaac Lab の統合を有効にする
+cb_isaac_tip = Isaac Lab は NVIDIA Isaac Sim を用いた GPU アクセラレーション付きのシミュレーションを提供します。今すぐインストールするか、既存のインストール先を指定できます。
+cb_loco = loco-mujoco 参照モーションライブラリをダウンロードする
+cb_loco_tip = 歩行（ロコモーション）トレーニング向けのコミュニティ参照モーションライブラリ。github.com/robfiras/loco-mujoco からクローンされます。
+cb_mujoco = MuJoCo をインストールする（pip パッケージ）
+cb_mujoco_tip = MuJoCo ベースのシミュレーションやトレーニングに必要です。
+cb_ros2 = ROS2 サポートをインストールする
+cb_ros2_tip = ROS2 ベースの機種（Unitree Go2、Mangdang Mini Pupper、…）を有効にします。ネイティブの ROS2 Humble が利用可能な場合はそれを流用し、無い場合は Docker ブリッジイメージがビルドされます。
+cloud_auth = 認証:
+cloud_auth_key = SSH キー
+cloud_auth_pwd = パスワード
+cloud_hint = リモート GPU サーバーへの SSH 接続情報を入力してください。Isaac Lab は SSH と SFTP 経由でインストールされます。
+cloud_host = ホスト:
+cloud_key_file = キー ファイル:
+cloud_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	必要条件: Ubuntu 22.04+、NVIDIA GPU、CUDA 12.x、約30 GB のディスク
+cloud_password = パスワード:
+cloud_port = ポート:
+cloud_remote_path = リモートパス:
+cloud_server_name = サーバー名:
+cloud_user = ユーザー名:
+custom_mod_already_installed = (既にインストール済み)
+custom_mod_required_suffix = ({templates} に必要)
+custom_mod_required_tip = キャンバスのテンプレートで必要です: {templates}。挙げられたテンプレートを使用する予定がない場合のみチェックを外してください — そうでないとテンプレートが読み込めなくなります。
+custom_mods_hint = コミュニティの参照モーション / AMP リポジトリで、それぞれ custom_mods/motions/ に浅いクローンが作成されます。必須としてマークされたエントリは同梱のキャンバステンプレートに依存しています — チェックを維持してください。さもないとテンプレートが読み込めなくなります。
+group_custom_mods = 参照モーションライブラリ
+group_isaac = Isaac Lab (NVIDIA)
+group_mujoco = MuJoCo
+group_ros2 = ROS2
+hint = トレーニングと実行のためのシミュレーションバックエンドを構成します。セットアップを高速化するため、不要な項目のチェックを外してください。
+install_hint = インストール先ディレクトリを選択してください。Isaac Lab と Isaac Sim は、このディレクトリ内に専用の venv を作成してインストールされます。
+install_note = Isaac Sim 5.1.0 | IsaacLab (pinned) | PyTorch 2.7+cu128
+	ディスク: 約30 GB | 必要条件: CUDA 12.x ドライバーを搭載した NVIDIA GPU
+isaac_install_dir_ph = インストールディレクトリ ...
+isaac_invalid = このパスで Isaac Lab を確認できませんでした — isaaclab.sh/bat または source/ ディレクトリが存在することを期待します
+isaac_locate_dir_ph = Isaac Lab ルートディレクトリ ...
+isaac_valid = 有効な Isaac Lab のインストールが検出されました
+rb_isaac_cloud = リモート Linux サーバーに Isaac Lab をデプロイする（SSH）
+rb_isaac_install = Isaac Lab と Isaac Sim を新規にインストールする
+rb_isaac_locate = 既存の Isaac Lab インストールを指定する
+ros2_note = ネイティブの ROS2 インストールを自動検出します（Humble 推奨）。見つからない場合は UnitPort の Docker ブリッジイメージが代わりにビルドされます — Docker Desktop / Docker Engine が実行中である必要があります。
+title = バックエンド環境
+
+[data_dir]
+btn_browse = 参照...
+hint = UnitPortが各ユーザーごとのデータ（プロジェクト、エクスポートされたポリシー、ログイントークン、テレメトリキャッシュ、ダウンロードしたエンジン、user.iniオーバーレイ）を格納する場所を選択してください。アプリケーションのインストールフォルダは実行時に書き込まれないため、再デプロイやgit pullをまたいで残るのはこのディレクトリです。ビルトインのデフォルトはないため、絶対パスを指定する必要があります。
+label_dir = UserConfig ディレクトリ:
+note = このパスはWORKSPACEのルートです：アカウントごとのフォルダ（サインインした各ユーザーごとに1つ、さらに _guest/）がその下に作られます。エンジンのダウンロードは30 GBを超える可能性があるため、十分な空き容量のある絶対パスを選んでください。
+placeholder = 絶対パスを指定してください（例: D:\UnitPort）
+status_custom_create = ワークスペースの場所 — {path} に作成されます
+status_custom_exists = ワークスペースの場所 — {path} に既に存在します
+status_invalid = 無効なパス
+status_relative = パスは絶対でなければなりません（入力: {path}）。
+status_required = 必須 — ワークスペースのルートに対して絶対パスを選択してください。
+title = データディレクトリ
+btn_reset = デフォルトにリセット
+status_default = デフォルトの場所を使用しています。
+
+[language]
+hint = UnitPortで使用する言語を選択してください。後でサイドバーから変更できます。
+ok = 続行
+title = 言語を選択
+
+[menagerie]
+btn_deselect_all = すべての選択を解除
+btn_refresh = GitHubから更新
+btn_select_all = すべて選択
+hint = mujoco_menagerieから必要なロボットモデルを選択してください。UnitPortがサポートするモデルはあらかじめ選択されています。その他は任意です。
+loading = GitHubからモデル一覧を読み込み中 …
+title = MuJoCo Menagerie モデル
+
+[sdk]
+hint = ダウンロードするロボットSDKパッケージを選択してください。チェックされた項目のみがクローンされます。追加のパッケージは後で設定からインストールできます。
+title = SDKパッケージ
+
+[wizard]
+btn_back = 戻る
+btn_finish = 完了
+btn_next = 次へ
+btn_skip = セットアップをスキップ
+header_subtitle = インストールするコンポーネントを選択してください。これらは後で設定から変更できます。
+header_title = UnitPort セットアップ
+window_title = UnitPort — カスタムセットアップ
+

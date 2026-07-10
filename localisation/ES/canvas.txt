@@ -1,0 +1,357 @@
+[active_file]
+col_status = Estado
+col_type = Tipo
+status_cloud = Nube
+status_loaded = Cargado
+
+[actor_setting]
+init_pose.dialog_title = Editor de pose inicial
+init_pose.empty = No hay articulaciones disponibles para este SKU.
+init_pose.joints_label = Ángulos de las articulaciones [rad] — rango según MJCF
+init_pose.review_button = Revisar
+init_pose.unlimited_hint = (ilimitado)
+review_pose.button = Revisar pose
+
+[ai_build]
+agent_setup = < Configura tu agente >
+agent_tip = Configurar o cambiar el agente de IA
+assistant_name = Asistente de IA
+banner_none = —
+cfg_f_backend = Backend
+cfg_f_curriculum = Currículo
+cfg_f_device = Dispositivo
+cfg_f_difficulty = Dificultad
+cfg_f_episode = Duración del episodio
+cfg_f_family = Familia
+cfg_f_name = Nombre
+cfg_f_num_envs = Num Entornos
+cfg_f_reward_terms = Términos de recompensa
+cfg_f_sku = SKU
+cfg_f_spacing = Separación entre entornos
+cfg_f_terrain = Terreno
+cfg_sec_engine = Motor
+cfg_sec_env = Entorno
+cfg_sec_ground = Área de entrenamiento
+cfg_sec_rewards = Recompensas
+cfg_sec_robot = Robot
+checkpoint_failed = [[error:No se pudo tomar la instantánea del lienzo — Restablecer no está disponible para esta ejecución.]]
+checkpoint_made = [[success:Punto de control guardado — Restablecer revierte el lienzo a este punto.]]
+config_empty = Aún no hay configuración para previsualizar.
+	Describe una ejecución de entrenamiento para generar una.
+config_origin = Origen
+delete_body = ¿Eliminar esta conversación y su historial? Esto no se puede deshacer.
+delete_convo = Eliminar
+delete_title = Eliminar conversación
+empty_hint = Describe el entrenamiento que deseas y yo construiré el lienzo.
+ev_failed = [[error:{op} falló — {detail}]]
+input_placeholder = Pide a la IA que genere configuraciones, scripts o estrategias de entrenamiento…
+json_items = elementos
+new_conversation = + Nuevo
+new_conversation_tip = Nueva conversación
+newline = Enter para nueva línea
+no_checkpoint = [[warning:Aún no hay punto de control — envía un prompt primero.]]
+pause = Pausar
+phase_chat = Asistente
+phase_complete = Completando la estructura
+phase_repair = Reparar
+phase_report = Resumen
+phase_understanding = Comprensión
+reset = Revertir el lienzo
+reset_tip = Revierte el lienzo al punto de control tomado antes de tu último prompt.
+resume = Reanudar
+retry = Reintentar
+retry_busy = [[warning:Hay una ejecución en curso — pausa o espera antes de reintentar.]]
+retry_none = [[warning:Nada que reintentar todavía — envía un prompt primero.]]
+reverted = [[success:Se revirtió el lienzo al punto de control anterior al prompt.]]
+run_busy = [[warning:Ya hay una ejecución de AI Build en curso — espera a que termine.]]
+run_failed = [[error:La ejecución de AI Build falló — consulta los mensajes anteriores.]]
+save_config = Guardar configuración
+search_ph = Buscar conversaciones…
+settings_agent_add_tip = Agregar agente
+settings_agent_name = Nombre
+settings_agent_name_ph = p. ej. GPT-4o
+settings_agent_new = Nuevo agente
+settings_agent_no_model = (sin modelo)
+settings_agent_remove_tip = Eliminar agente
+settings_agent_untitled = Agente sin título
+settings_agents_title = Agentes
+settings_api_key = Clave API
+settings_api_key_ph = sk-…
+settings_base_url = URL base
+settings_cloud = Subir esta información de la API a la nube
+settings_cloud_tip = Desactivado por defecto. Mientras esté desactivado, la función de sincronización en línea nunca sube tu clave API.
+settings_env_bad = ✗ {name} no está establecido, o su valor tiene ≤ {n} caracteres.
+settings_env_invalid = La variable de entorno debe existir y contener un valor con más de {n} caracteres.
+settings_env_ok = ✓ {name} resuelto ({n} caracteres)
+settings_env_ph = p. ej. OPENAI_API_KEY
+settings_incomplete = La URL base, la Clave API y el Modelo son obligatorios.
+settings_intro = Registrar la(s) conexión(es) de modelo que AI Build utiliza. El agente seleccionado se convierte en el predeterminado; la configuración se guarda en la carpeta de configuración de usuario.
+settings_model = Modelo
+settings_model_ph = p. ej. gpt-4o / claude-opus-4-8
+settings_remove_body = ¿Eliminar este registro de agente? Esto no se puede deshacer.
+settings_remove_title = Eliminar agente
+settings_save_failed = No se pudo escribir el archivo de configuración. Consulte el registro.
+settings_title = AI Build — Ajustes de API
+settings_use_env = Leer el token desde la variable de entorno
+settings_use_env_tip = Almacenar solo el nombre de la variable NAME; el token se lee desde el entorno en tiempo de ejecución y nunca se escribe en disco.
+submit = Enviar
+title = Creación con IA
+tokens_n = {n} tokens
+tokens_total = Tokens: 0
+untitled = Nueva conversación
+user_name = Usuario
+version_busy = [[warning:Hay una ejecución en curso — espere antes de cambiar las versiones de configuración.]]
+version_saved = [[success:Guardado como versión de configuración {v} — selecciónela (o Origin para revertir) en la lista de Configuración.]]
+button = Creación con IA
+conv_title = Chats
+input_title = Entrada
+opacity_tip = Opacidad de la superposición
+req_title = Requisitos
+max_repair = Rondas máximas de reparación
+auto_commit = Guardado automático tras compilación limpia
+run_autosave_off = [[warning:Guardado automático desactivado — el lienzo se construyó pero no se guardó. Guárdalo manualmente.]]
+clear = Limpiar
+demo_intro = Conectado. Describe lo que quieres y construiré el lienzo.
+demo_place = Nodo [[node:Rewards]] colocado
+demo_param = Establecido el peso de [[param:track_lin_vel_xy]] a [[value:10.0]]
+demo_wire = Conectado [[node:Rewards]] al elemento [[node:walk]]
+demo_param2 = Establecido [[param:action_scale]] a [[value:0.25]] en [[node:Actor Setting]]
+demo_warning = [[warning:el peso base_height -8.0 está cerca de su límite inferior -50.0]]
+demo_error = [[error:joint_accel_penalty 2.5 está fuera del rango -0.001..0 — congelaría las articulaciones]]
+demo_success = [[success:Lienzo compilado correctamente — 12 nodos, 18 aristas]]
+ev_place = Nodo [[node:{node}]] colocado
+ev_remove = Nodo [[node:{node}]] eliminado
+ev_connect = Conectado [[node:{src}]] -> [[node:{dst}]] [[param:{port}]]
+ev_disconnect = Arista [[param:{edge}]] desconectada
+ev_set = Establecido [[param:{key}]] = [[value:{value}]] en [[node:{node}]]
+run_block = [[info:Bloque {i}/{n} — {title}]]
+block_robot = Robot
+block_actor_env = Actor y Entorno
+block_rewards = Recompensas
+block_training = Entrenamiento
+block_export = Exportar
+req_applied = [[info:Se aplicaron tus requisitos bloqueados:]]
+req_no_trainer = [[warning:Aún no hay un nodo trainer para el requisito de duración de entrenamiento; será aplicado por el agente.]]
+req_no_envs = [[warning:La intensidad de cómputo no tiene 'parallel-env' para el trainer de este backend; omitido.]]
+req_failed = [[warning:No se pudo aplicar el requisito {key}: {message}]]
+report_failed = [[warning:No se pudo generar el resumen ({detail}); el lienzo está construido y es válido.]]
+req_robot = Robot
+req_robot_auto = Automático (mantener actual)
+req_motion = Movimiento de referencia
+req_none = Ninguno
+req_length = Duración del entrenamiento
+req_intensity = Intensidad de cómputo
+req_advanced = Números avanzados ▸
+req_iters = Iteraciones máximas
+req_envs = Entornos paralelos
+tier_auto = Automático
+tier_short = Corto
+tier_medium = Medio
+tier_long = Largo
+tier_light = Ligero
+tier_heavy = Pesado
+settings_tip = Ajustes de API
+settings_reveal = Mostrar
+settings_save = Guardar
+settings_cancel = Cancelar
+run_design = [[info:Diseño — bloqueado {sku} / {backend} ({fam})]]
+run_need_robot = [[error:AI Build necesita primero un robot y un backend en el canvas. Agrega un nodo de robot (elige un SKU) y vincula un backend, luego inténtalo de nuevo.]]
+run_no_reference = [[warning:No hay referencia de la misma familia para esta tarea; construyendo desde las semánticas del registro.]]
+run_building = [[info:Orchestrator — construyendo el canvas…]]
+run_repairing = [[warning:{n} problema(s) bloqueante(s); reparando (ronda {r})…]]
+run_compiled = [[success:Canvas compilado — sin problemas bloqueantes.]]
+run_exhausted = [[error:Reparación agotada — {n} problema(s) bloqueante(s); no se persistió nada.]]
+run_issue = [[error:{message}]]
+run_connecting = [[info:Conectando al modelo…]]
+run_saved = [[success:Canvas guardado en el proyecto.]]
+run_not_saved = [[warning:Canvas construido pero no se guardó automáticamente (sin destino de proyecto) — guárdalo manualmente.]]
+run_api_failed = [[error:La llamada a la API del modelo falló — {detail}]]
+run_cancelled = [[warning:La ejecución de AI Build fue cancelada.]]
+group_today = Hoy
+group_yesterday = Ayer
+group_week = Últimos 7 días
+group_older = Anteriores
+chip_ppo = Generar configuración PPO
+chip_reward = Agregar función de recompensa
+chip_tune = Ajustar hiperparámetros
+chip_debug = Depurar entrenamiento
+config_title = Configuración
+banner_robot = Robot
+banner_backend = Backend
+banner_task = Tarea actual
+banner_target = Objetivo de entrenamiento
+banner_local = Entrenamiento local
+banner_cloud = Entrenamiento en la nube
+banner_task_more = {first} +{n} más…
+
+[body_mapping]
+col_current = Actual
+col_role = Rol
+no_roles = No hay roles de cuerpo para este activo
+refresh = Actualizar
+select_asset = Seleccione un asset_id
+warn_joints = ⚠ {n} articulación(es) sin coincidencia — asigne o marque como fuera de alcance: {preview}
+label_unassigned = (Sin asignar)
+label_out_of_scope = (Fuera de alcance)
+
+[btn]
+node_lib.tip = Biblioteca de nodos
+
+[button]
+close = Cerrar
+
+[cmd_inspector]
+col_kind = Tipo
+col_name = Nombre
+col_obs = Dimensiones Obs.
+col_range = Rango
+col_source = Origen
+empty_hint = Habilite al menos un elemento de entrenamiento.
+	Los canales de comando se derivan automáticamente.
+empty_title = Contrato de comando vacío
+footer_cmd = Dimensiones de comando
+footer_obs = Dimensiones de observación
+footnote_encoding = (canales de fase codificados como {layouts})
+title = Contrato de comando
+kind.continuous = continuo
+kind.trigger = disparador
+kind.enum = enum
+source.velocity_item_union = elementos de velocidad
+source.gait_registry = registro de gait
+source.skill = habilidad
+layout.sin_cos = sin/cos
+unresolved.family_unknown = Familia del robot desconocida - conecta un nodo Robot a través del pipe Actor.
+unresolved.family_no_gait = Esta familia de robots no tiene una entrada de comando gait en el registro.
+unresolved.no_enabled_items = No hay ningún elemento de entrenamiento habilitado - habilita al menos uno.
+unresolved.unknown_item = Un elemento de entrenamiento en este nodo no está en el registro de comandos.
+unresolved.malformed_param = Un parámetro del nodo está malformado - se sustituyó un valor por defecto solo para la vista previa.
+
+[error]
+copy.done = Informe de errores del lienzo copiado al portapapeles.
+empty = (no se han reportado problemas estructurados)
+headline.errors = El lienzo tiene {e} problema(s) que deben corregirse antes de que pueda comenzar el entrenamiento.
+headline.mixed = El lienzo tiene {e} error(es) y {w} advertencia(s). Corrija los errores a continuación y vuelva a ejecutar.
+headline.unknown = La comprobación del canvas reportó un problema.
+headline.warnings = El canvas tiene {w} advertencia(s).
+hint = Cada entrada a continuación apunta al nodo del canvas y al parámetro que activó la comprobación. Abre el nodo, ajusta el valor, guarda el canvas y vuelve a intentar ▶.
+title = Comprobación del canvas fallida
+
+[group]
+default_title = Grupo
+
+[inline]
+col_grace = Gracia
+col_item = Elemento
+col_maxspeed = Vel. máx.
+col_name = Nombre
+col_param = Valor
+col_scale = Escala
+col_threshold = Umbral
+col_value = Valor
+col_weight = Peso
+
+[menu]
+add_node = Agregar nodo
+copy = Copiar (Ctrl+C)
+delete = Eliminar
+disconnect_all = Desconectar todas las conexiones
+duplicate = Duplicar (Ctrl+D)
+paste_here = Pegar aquí (Ctrl+V)
+disconnect = Desconectar
+
+[minimenu]
+placeholder = (próximamente)
+
+[obs_injected]
+critic_section = Crítico (privilegiado)
+divider = Desde el canal de comandos (inyectado)
+footer = Dimensión total de observaciones {total} — Usuario {user} + Inyectado {injected}
+readonly = SOLO LECTURA
+
+[port]
+optional = (opc)
+
+[review_launch]
+button = Revisión de lanzamiento
+
+[reward_pager]
+col_count = Número de recompensas
+col_group = Grupo de articulaciones
+col_ops = Operaciones
+global = Global (todas las articulaciones)
+summary = {n} grupos
+
+[rewards]
+coverage.add_set = Agregar conjunto recomendado
+coverage.banner.critical = Crítico: una o más fases carecen de la recompensa negativa requerida. El entrenamiento puede generar comportamientos no deseados, como agitación de extremidades en reposo.
+coverage.banner.ok = Todas las fases tienen cobertura de recompensa positiva y negativa.
+coverage.banner.warning = Advertencia: al menos una fase carece de la cobertura de recompensa recomendada.
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = Fase
+coverage.col.pos = +
+coverage.col.status = Estado
+coverage.double_click_hint = Haz doble clic en la insignia para abrir el Inspector de Cobertura.
+coverage.empty = No hay términos de recompensa configurados — agrega al menos un término para obtener una evaluación de cobertura.
+coverage.green = Todas las fases tienen cobertura de recompensa positiva y negativa.
+coverage.inspector.title = Inspector de cobertura de recompensas
+coverage.red = Crítico: una o más fases no tienen la recompensa de restricción requerida.
+coverage.title = Cobertura de recompensas
+coverage.yellow = Advertencia: al menos una fase carece de una recompensa recomendada.
+
+[robot]
+health.counts = MJCF: {m} articulaciones  ·  USD: {u} articulaciones  ·  desplazamiento de base: {off}
+health.crit = Ninguno de los formatos ha sido volcado — abra Robot Assets y haga clic en Dump MJCF / Dump USD antes de entrenar.
+health.double_click_hint = Haga doble clic en la insignia para ver la tabla completa de asignación de articulaciones.
+health.gap = MJCF y USD declaran conjuntos de roles IR diferentes — afectados: {aff}.
+health.offset_uncalibrated = (no calibrado)
+health.ok = MJCF y USD coinciden en el conjunto de articulaciones — ambos destinos de despliegue disponibles.
+health.single = Solo {present} está volcado — el destino de despliegue {missing} no estará disponible para los paquetes entrenados con este robot.
+health.title = Estado del volcado del robot
+mjcf_offset.not_applicable = no aplicable
+mjcf_offset.uncalibrated = no calibrado
+pd_table.auto_none = No hay un ajuste predefinido recomendado disponible para este robot.
+pd_table.auto_tooltip = Rellene el ajuste predefinido oficial recomendado (ωn, ζ) + esfuerzo/velocidad. Orden de resolución: manifiesto de la marca → parámetros de accionamiento USD (en caché desde Dump USD) → valores predeterminados de la familia.
+pd_table.dialog_title = PD / Actuador
+pd_table.header = Ganancias PD por articulación (kp = m_eff·ωn²) — derivadas en tiempo real de la matriz de masas MJCF. Edite (ωn, ζ) por grupo; kp/kd son de solo lectura.
+pd_table.redump_failed = Error al volver a volcar USD: {error}
+pd_table.redump_tooltip = Ejecute Dump USD sobre el asset USD para actualizar los parámetros de accionamiento en caché, luego vuelva a rellenar AUTO con los valores volcados.
+pd_table.remotized_note = Las articulaciones remotizadas (accionadas por eslabones) muestran su PICO de la tabla de torque dependiente del ángulo en Esfuerzo, no el límite escalar.
+pd_table.remotized_tooltip = Pico de la tabla de torque dependiente del ángulo (articulación remotizada)
+pd_table.auto_button = AUTO ⤓
+pd_table.redump_button = Volver a volcar USD
+
+[row]
+empty = —
+entries = {n} entradas
+false = Falso
+ir_picker_all = Todo
+no_items = (sin elementos)
+preset_unselected = —
+selected = {n} seleccionado(s)
+true = Verdadero
+bool_check = ✔
+
+[toolbar]
+collapse = Contraer
+color = Elegir color (clic derecho para restablecer)
+delete = Eliminar
+enable = Habilitar
+expand = Expandir
+group = Agrupar
+skip = Deshabilitar
+ungroup = Desagrupar
+
+[training_motion]
+add_item = + Añadir elemento de entrenamiento
+helper = Los elementos habilitados aportan canales de velocidad al contrato de comandos derivado.
+packages.button = Paquetes de entrenamiento
+skills.button = Canales de habilidad
+weight_set.button = Conjunto de pesos
+weight_set.cancel = Cancelar
+weight_set.hint = Arrastra el borde entre dos segmentos para desplazar el peso entre ellos; o haz clic en un porcentaje para escribirlo (solo ese elemento cambia). Aplicar se habilita cuando el total es exactamente 100%%.
+weight_set.ok = Aplicar
+weight_set.reset = Restablecer a distribución uniforme
+weight_set.title = Pesos de muestreo
+weight_set.total = Total
+

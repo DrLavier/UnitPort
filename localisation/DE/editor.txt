@@ -1,0 +1,11 @@
+[dtype]
+both = Skalar/Liste
+list = Liste
+scalar = Skalar
+
+[err]
+dup_item = Ein Element mit dem Namen '{name}' existiert bereits.
+
+[review_motion]
+submitted = Review Motion wurde gestartet (MuJoCo nicht-physikalische Wiedergabe)…
+

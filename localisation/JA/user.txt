@@ -1,0 +1,29 @@
+[default]
+email_identity_no_email = (メールは利用できません)
+email_identity_security_hint = 受信トレイのリンクをクリックして、サインイン用パスワードを設定または更新してください。セキュリティのため、アプリ内でのパスワード変更はできません — 変更はすべてメール認証を通じて行われます。
+email_identity_send_button = リンクを送信
+email_identity_send_to = 以下のアドレスに確認用リンクを送信します:
+email_identity_title = メールでサインイン
+engines_cloud_settings = クラウドサーバーを設定
+engines_local_settings = ローカルインストールを設定
+linked_account_status_linked = 連携済み
+linked_account_unlink_button = {provider} の連携を解除
+linked_account_unlink_confirm_title = {provider} の連携を解除しますか?
+linked_account_unlink_current_body = これは現在のサインイン方法であるため、連携を解除するとサインアウトされます。
+linked_account_unlink_normal_body = {provider} では今後サインインできなくなります。
+linked_account_unlink_only_body = これは唯一のサインイン方法です。連携を解除できません。
+open_workspace_tip = UnitPort のユーザーデータディレクトリを開く
+open_workspace = ユーザー ワークスペースを開く
+linked_accounts_label = サインイン方法:
+linked_account_btn_signedout_email = メール: —
+linked_account_btn_signedout_google = Google: —
+linked_account_btn_signedout_github = GitHub: —
+linked_account_btn_unlinked_email = メール: (なし)
+linked_account_btn_unlinked_google = Google: (未リンク)
+linked_account_btn_unlinked_github = GitHub: (未リンク)
+workspace_email_label = ワークスペース:
+workspace_email_confirm_title = ワークスペースのストレージ用メールを切り替えますか？
+workspace_email_confirm_msg = Move your local workspace to the {email} slug?
+workspace_email_switched = ワークスペースのストレージを {path} に移動しました。
+workspace_email_failed = ワークスペースを切り替えられませんでした: {error}
+

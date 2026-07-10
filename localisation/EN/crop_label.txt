@@ -1,0 +1,20 @@
+[default]
+title = Crop & label clip
+length_unknown = Clip length unknown (frame parsing lands in the backend round) — markers are saved as raw frame numbers.
+preview_robot = Preview robot
+preview = Preview in MuJoCo
+preview_started = Preview launched (whole clip — range playback lands in the backend round).
+range = In {a}  ·  Out {b}  ·  {n} frames
+seg_name = Segment
+seg_name_ph = e.g. walk_loop
+add = Add from markers
+col_name = Name
+col_tag = Tag
+col_in = In
+col_out = Out
+col_action = 
+close = Close
+delete = Delete
+no_robot = Pick a preview robot first.
+err_name = Segment name is required.
+

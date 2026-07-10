@@ -1,0 +1,136 @@
+[community]
+current = Текущий
+days_ago = {n} дней назад
+latest = Последний
+releases_loading = Загрузка релизов…
+today = сегодня
+tutorial_coming_soon = Скоро...
+tutorial_desc = Пошаговые руководства по сборке, обучению и развёртыванию.
+tutorial_title = Официальное руководство
+yesterday = вчера
+title = Сообщество
+support_us = Поддержать нас
+tutorial_open = Открыть ссылку
+releases_unavailable = Не удалось загрузить релизы. Проверьте подключение к сети.
+releases_empty = Релизов пока нет.
+open_page = Открыть страницу
+download = Скачать
+day_one = 1 день назад
+
+[create]
+engine_unavailable = недоступно
+error_create_failed = Не удалось создать проект '{name}' (имя может совпадать с существующим — проверьте лог).
+error_existing_missing = Этот проект больше не находится на диске — обновите список и выберите снова.
+error_invalid_canvas_name = Имя канваса может содержать только буквы, цифры, '_' и '-'.
+error_invalid_name = Имя проекта может содержать только буквы, цифры, '_' и '-'.
+error_no_backend = Выберите бэкенд перед созданием.
+error_no_canvas_name = Введите имя канваса (например, 'main').
+error_no_existing = Выберите существующий проект из списка или переключитесь на 'Новый проект'.
+error_no_name = Сначала введите имя проекта.
+error_no_template = Выберите шаблон (или 'Free Build') перед созданием.
+label_backend = Бэкенд
+label_canvas_name = Имя канваса
+label_pick_project = Выберите проект
+label_project_name = Имя проекта
+label_template = Выберите шаблон
+no_templates = Для этого бэкенда нет доступных шаблонов.
+placeholder_canvas = например, main
+placeholder_name = Имя нового проекта
+title = Создать новый проект
+btn = Создать Canvas
+section_project = Проект
+section_canvas = Canvas
+mode_new = Новый проект
+mode_existing = В проект
+
+[projects]
+btn_open_workspace = Открыть локальную рабочую область →
+col_canvas = Канвас
+col_project = Проект
+col_robot = Робот
+cross_user_audit_recorded = Занесено в лог для проверки {owner}
+cross_user_copy_failed_body = Не удалось скопировать '{name}' в вашу рабочую область:
+	{err}
+cross_user_copy_failed_title = Копирование не удалось
+cross_user_delete_warn_body = '{name}' принадлежит {owner}. Удаление сейчас будет зафиксировано в логе, чтобы {owner} мог(ла) просмотреть или восстановить его при следующем входе.
+	
+	Удалить всё равно?
+cross_user_delete_warn_title = Удалить канвас другого пользователя
+cross_user_open_body = Этот канвас принадлежит {owner}. Скопируйте его в свою рабочую область для изолированной резервной копии или откройте оригинал на месте — любые правки / удаление будут зафиксированы в логе, чтобы {owner} мог(ла) просмотреть их при следующем входе.
+cross_user_open_title = Открыть канвас другого пользователя
+delete_confirm_body = Безвозвратно удалить '{name}'?
+	
+	Будет удалён только файл канваса — сам проект останется.
+delete_confirm_title = Удалить канвас
+delete_failed_body = Не удалось удалить '{name}':
+	{err}
+delete_failed_title = Удаление не удалось
+delete_tooltip = Удалить этот файл канваса
+empty = Локальных рабочих пространств пока нет — создайте первый проект справа.
+load_tooltip = Открыть этот канвас
+migrate_confirm_body = Переместить корневую папку рабочего пространства из
+	{old}
+	в
+	{new}?
+	
+	Все проекты, канвасы и данные каждого пользователя будут перемещены. После завершения приложение перезагрузит состояние рабочего пространства.
+migrate_confirm_title = Перенести рабочее пространство
+migrate_failed_body = Не удалось перенести рабочее пространство:
+	{err}
+migrate_failed_title = Перенос не удался
+migrate_success_body = Корневая папка рабочего пространства теперь:
+	{path}
+migrate_success_title = Перенос завершён
+migrate_title = Выберите новую корневую папку рабочего пространства
+refresh_tooltip = Обновить локальные файлы
+reveal_tooltip = Показать в папке
+robot_unset = —
+search_placeholder = Поиск канвасов…
+snapshot_label = Снимок:
+time_day_n = {n} дней назад
+time_hr_n = {n} часов назад
+title = Account
+view_all = Просмотреть все рабочие области
+refresh = Обновить
+btn_migrate = Мигрировать
+col_user = Пользователь
+col_engine = Движок
+col_time = Последнее изменение
+col_action = Действие
+status_recent = Недавний
+status_idle = Неактивен
+engine_unset = —
+engine_mixed = Смешанный ({n})
+time_min_one = 1 минуту назад
+time_hr_one = 1 час назад
+btn_load = Загрузить
+cross_user_open_copy = Копировать в мою рабочую область (рекомендуется)
+cross_user_open_inplace = Открыть на месте
+cross_user_open_cancel = Отмена
+time_just_now = только что
+time_min_n = {n} минут назад
+time_unknown = —
+time_yesterday = вчера
+user_guest = Гость
+
+[user]
+headline_signed_out = Добро пожаловать в UnitPort Studio
+methods_prompt = Способы входа
+signin_prompt = Войти / Зарегистрироваться
+sub_signed_out = Войдите в свою учётную запись, чтобы синхронизировать проекты и получить доступ к облачным возможностям.
+uuid_copied_toast = UUID скопирован в буфер обмена
+uuid_copy_tooltip = Копировать UUID
+uuid_label = UUID: {uuid}
+welcome_back = С возвращением, {name}
+welcome_sub = Управляйте своей учётной записью и синхронизируйте проекты между устройствами.
+title = Аккаунт
+welcome_back_title = С возвращением,
+btn_google = Продолжить через Google
+btn_github = Продолжить через GitHub
+btn_email = Продолжить через Email
+welcome_back_static = С возвращением,
+cloud_usage_label = Использование облака
+sign_out = Выйти
+learn_more = Узнать больше
+workspace_synced = Синхронизированное рабочее пространство · проекты дублируются в ваш аккаунт
+

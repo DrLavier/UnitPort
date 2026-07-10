@@ -1,0 +1,7 @@
+[default]
+headline = Headed トレーニングのレンダリングは GPU BAR1 アパーチャを通して行われますが、この実行では容量が小さすぎる／飽和しているように見えます。GPU の device-lost エラーでクラッシュする可能性があります。
+title_block = トレーニングはクラッシュする可能性が高い（GPU BAR1）
+title_warn = GPU メモリ警告（BAR1）
+btn_continue = それでも続行
+btn_abort = 中止
+

@@ -1,0 +1,6 @@
+[default]
+empty = （无）
+current_canvas = 当前画布
+cancel = 取消
+ok = 确定
+

@@ -1,0 +1,6 @@
+[default]
+cancel = إلغاء
+current_canvas = اللوحة الحالية
+empty = (لا شيء)
+ok = موافق
+

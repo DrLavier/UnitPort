@@ -3,6 +3,7 @@
 
 schema = "unitport.node/v1"
 id = "train"
+backends = ["sb3_mujoco"]  # SB3/MuJoCo execution node; IL uses il_ppo_trainer
 kind = "CUSTOM"
 version = "1.0.0"
 category = "training"

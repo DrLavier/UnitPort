@@ -46,16 +46,8 @@ import os
 import platform
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any, Optional
-
-# Process wall-clock at module import. Used by the exit auto-push hook to
-# limit the upload set to files modified during THIS launch — pushing every
-# file in USER_CONFIG_DIR on every quit was the documented "Phase 1 trade
-# bandwidth for simplicity" path and is now a strict bug: it wastes cloud
-# quota and shutdown time on bytes that are byte-for-byte already remote.
-_SESSION_START_TS: float = time.time()
 
 # ---- Project root + sys.path injection ---------------------------------------
 # Only ``src/`` goes on sys.path -- it owns the ``application``, ``unitport_sdk``,
@@ -535,85 +527,19 @@ class UnitPortMain:
         except Exception as exc:
             log_warning(f"[boot] input shutdown raised: {exc}")
 
-        # Cloud-sync lifecycle hooks on shutdown. Two INDEPENDENT, separately-
-        # gated behaviours, both requiring the user to be signed in (guests
-        # skip). Synchronous: the TasksManager is about to be cancelled so we
-        # cannot submit a CloudSyncTask.
-        #   (1) auto-push  — user.ini[Cloud] auto_push (default off). Uploads
-        #       ONLY files whose mtime is at-or-after ``_SESSION_START_TS``
-        #       (this session's deltas). The manual Push button still uploads
-        #       the full include set; this is the "save my deltas before I
-        #       quit" path and must never re-upload unchanged bytes.
-        #   (2) self-check — system.ini[CloudSync] self_check_on_shutdown
-        #       (default on). List-only status/quota refresh, no transfer —
-        #       the symmetric partner of the startup self-check. Previously
-        #       this flag was declared in system.ini but read by NO code; it
-        #       is now consumed here.
-        # plan_push catches IO errors internally and execute() reports
-        # per-file failures in its summary rather than raising.
-        try:
-            from application.service.auth import get_auth_manager
-            if get_auth_manager().is_signed_in():
-                from unitport_sdk import Config
-                if Config.get_value(
-                    "Cloud", "auto_push", False, value_type=bool,
-                ):
-                    from application.service.cloud_sync import (
-                        get_cloud_sync_service,
-                    )
-                    svc = get_cloud_sync_service()
-                    plan = svc.plan_push(since_mtime=_SESSION_START_TS)
-                    n = len(plan.entries)
-                    if n == 0:
-                        log_info(
-                            f"[cloud-sync] exit auto-push: no files changed "
-                            f"this session "
-                            f"(skipped {plan.skipped_unchanged} unchanged)"
-                        )
-                    else:
-                        log_info(
-                            f"[cloud-sync] exit auto-push: uploading "
-                            f"{n} changed file(s) "
-                            f"(skipped {plan.skipped_unchanged} unchanged) — "
-                            f"please do NOT close the window"
-                        )
-
-                        def _on_progress(done: int, total: int, key: str) -> None:
-                            ratio = (done / total) if total else 1.0
-                            bar_w = 30
-                            filled = int(ratio * bar_w)
-                            bar = "#" * filled + "-" * (bar_w - filled)
-                            short = key if len(key) <= 40 else "..." + key[-37:]
-                            line = (
-                                f"[cloud-sync] exit auto-push: "
-                                f"[{bar}] {ratio * 100:5.1f}% "
-                                f"({done}/{total}) {short}"
-                            )
-                            log_info(line, wrap=(done >= total))
-
-                        summary = svc.execute(plan, progress_cb=_on_progress)
-                        log_info(
-                            f"[cloud-sync] exit auto-push: "
-                            f"ok={int(summary.get('ok', 0) or 0)}/{n} "
-                            f"failed={int(summary.get('failed', 0) or 0)} "
-                            f"skipped={int(summary.get('skipped', 0) or 0)}"
-                        )
-                # (2) shutdown self-check — list-only status/quota refresh,
-                # symmetric with the startup self-check. Gated by its own
-                # system.ini flag (default on); independent of auto_push.
-                if Config.get_value(
-                    "CloudSync", "self_check_on_shutdown", True, value_type=bool,
-                ):
-                    from application.service.cloud_sync import (
-                        get_cloud_sync_service,
-                    )
-                    rows = get_cloud_sync_service().list_remote()
-                    log_info(
-                        f"[cloud-sync] exit self-check: {len(rows)} remote "
-                        f"object(s)"
-                    )
-        except Exception as exc:
-            log_warning(f"[boot] cloud shutdown hooks raised: {exc}")
+        # Cloud-sync does NO work at shutdown — deliberately, so quit is
+        # instant. Both former exit hooks are gone:
+        #   - the batch auto-push (walk this session's deltas + upload) is
+        #     replaced by persist-time auto-sync (AutoSyncController), so the
+        #     eligible files already went up as they were saved; and
+        #   - the list-only self-check (a synchronous ``list_remote()`` network
+        #     round-trip) is removed — it was the single unbounded blocking call
+        #     on the shutdown path. Cloud status/quota is already refreshed at
+        #     startup and after every auto-sync push (execute() → fetch usage +
+        #     status_changed), so an exit-time refresh was pure redundant lag.
+        # Any still-pending debounced push is simply dropped here; it re-syncs
+        # on the next save/launch, and Manual Push remains the authoritative
+        # full sync. No signed-in check, no Config read, no network at exit.
 
         # Cancel any in-flight auth worker QThread + armed restore-retry
         # timer. AuthManager's _AuthWorker threads belong to the auth
@@ -845,6 +771,22 @@ class UnitPortMain:
             )
         except Exception as exc:                                  # noqa: BLE001
             log_warning(f"[boot] cloud transport registration failed: {exc}")
+
+        # Wire persist-time cloud auto-sync. The SDK fires this observer after
+        # every successful write under USER_CONFIG_DIR (the single DataManager
+        # funnel), and the AutoSyncController — constructed HERE, on the GUI
+        # thread, so it owns its debounce QTimer — decides eligibility and pushes
+        # the touched files on a worker. This replaces the old batch-on-exit
+        # auto-push (removed from _shutdown_tasks): cloud-sync now follows the
+        # user's saves instead of firing all at once on quit.
+        try:
+            from unitport_sdk import Storage
+            from application.service.auto_sync import get_auto_sync_controller
+
+            _auto_sync = get_auto_sync_controller()
+            Storage.register_persist_observer(_auto_sync.notify_persist)
+        except Exception as exc:                                  # noqa: BLE001
+            log_warning(f"[boot] persist auto-sync registration failed: {exc}")
 
         # Isaac Lab installer signal wiring is already done at Stage 1
         # (right after MainWindow). The progress dialog now uses

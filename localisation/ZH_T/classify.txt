@@ -1,0 +1,11 @@
+[default]
+cancel = 取消
+err_kind = 選擇資產類型。
+family_any = (任何)
+hint = 選擇資產類型和目標機器人家族。您的選擇將被記錄，供後端套用。
+ok = 記錄
+recorded = 分類已記錄。尚未套用 — 後端處理階段會將該資產導向正確的註冊表。
+title = 分類資產
+kind = 資產類型
+family = Robot 族群
+

@@ -21,7 +21,31 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from unitport_sdk import I18n, log_info, log_success, log_warning  # noqa: E402
 
 KEY_DEFAULT_CALLS = {"tr", "I18nLabel", "I18nButton"}
-TARGET_LANGS = ("EN", "FR", "ZH")
+
+# Target locale codes exported by default. Each becomes a
+# ``localisation/{CODE}/`` sub-directory which the app auto-discovers via
+# ``I18n.available_languages()`` (a plain directory scan) — so listing a
+# code here is all that is needed to "register" a language as
+# project-readable. New languages are seeded with the English source text
+# as a to-be-translated template (merge mode preserves any translations a
+# downstream tool later fills in). Chinese is split into ZH_S (simplified,
+# the legacy ``ZH`` recoded — see ``user_workspace.canonical_locale_code``)
+# and ZH_T (traditional). Display names live in the ``_LANG_DISPLAY`` maps
+# in ``ui/dialogs/language_picker_dialog.py`` + ``ui/sidebar.py``.
+TARGET_LANGS = (
+    "EN",     # English (source language)
+    "FR",     # Français
+    "ZH_S",   # 简体中文 (Simplified Chinese)
+    "ZH_T",   # 繁體中文 (Traditional Chinese)
+    "IT",     # Italiano
+    "ES",     # Español
+    "DE",     # Deutsch
+    "RU",     # Русский
+    "PT",     # Português
+    "AR",     # العربية (right-to-left)
+    "JA",     # 日本語
+    "KO",     # 한국어
+)
 
 
 def _str_arg(node):

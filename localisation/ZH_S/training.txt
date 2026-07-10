@@ -1,0 +1,70 @@
+[default]
+already_running = 已有训练任务正在运行
+no_canvas = 未加载画布
+preparing = 正在准备训练任务（在后台线程编译，UI 不会卡顿）…
+started = 训练已开始：run={run} backend={backend} algo={algo}
+
+[coverage]
+blocked.body = 奖励覆盖存在严重问题——当受影响阶段激活时，策略很可能学到非预期行为。
+blocked.cancel = 取消
+blocked.header = 无法开始训练：奖励覆盖检查失败。
+blocked.hint = 双击 Rewards 节点上的标记，可打开覆盖检查器查看修复建议。
+blocked.proceed = 仍然继续
+blocked.title = 奖励覆盖问题
+
+[deploy_coverage]
+affected = 受影响的部署目标：
+body = 由于该机器人的 MJCF 与 USD 资产表声明的关节集合不一致，训练得到的 bundle 只能部署到受支持目标中的一部分。
+cancel = 取消
+header = 训练将为机器人 ‘{name}’（sku={sku}）生成一个部署覆盖范围缩减的 bundle。
+hint = 如需恢复两个部署目标：请取消，打开 Robot Assets 侧边栏，将自由度较少的资产重新指向一个匹配的变体（例如 Unitree G1 可将 scene_with_hands.xml 与 g1.usd 配对），重新 Dump，然后再次运行 Play。
+miss_mjcf = 在 USD 中声明但 MJCF 缺失的角色：{roles}
+miss_usd = 在 MJCF 中声明但 USD 缺失的角色：{roles}
+proceed = 仍然继续（避免后面浪费算力）
+title = 部署目标覆盖范围缩减
+
+[sim2sim]
+body = PhysX↔MuJoCo 的跨引擎测量发现残差在维度 {dims} 上不收敛（混沌）。域随机化无法覆盖这些维度，sim2sim 可能无法可靠重现这种情形。
+cancel = 取消
+header = 跨引擎残差自检标记了机器人 ‘{sku}’。
+hint = 继续会将此记录保存在当前装置 —— 除非机器人资产发生变化，否则不会再次询问您。
+proceed = 仍然继续
+title = 非收敛的 sim2sim 维度
+
+[packages]
+add = 添加包
+bad_weight = package_weight 必须为数字
+edit_rewards = 编辑奖励…
+enabled = 已启用
+gate_missing = {s} (缺失)
+gate_none = — 无 —
+gated_by = 受技能门控
+gated_by.tip = 将该包的奖励限制在某个技能的触发窗口内——只有在该技能触发（脉冲后衰减期）时，奖励才会计入。需要在此节点的技能通道中编写对应技能。
+hint = 将条目分组为包。package_weight 会重新平衡整个包；每个包可以拥有一个内联奖励集。留空 = 一个隐含的默认包。
+membership = 条目归属
+name = 名称
+new_name = 包 {n}
+preview = 合成奖励预览（= 导出）
+preview_empty = 没有内联包奖励。没有包奖励的条目将保留其已连线的奖励节点。
+remove = 移除
+title = 训练包
+weight = package_weight
+
+[skills]
+add = 添加技能
+bad_id = 每个技能都需要一个 id
+bad_window = window 必须为正数
+enabled = 已启用
+hint = 每个技能都是一个离散的策略指令通道（触发器）。它进入策略的 obs 并遵循命令契约；策略必须经过训练才能对此作出响应。将其绑定到按键或按钮由用户在训练后于 Controller 面板中完成——此处不进行绑定。
+latch = 锁存
+latch.hold = 按住（按住时）
+latch.pulse = 脉冲（一次性）
+name = 名称
+new_name = 技能 {n}
+preview = 发出的触发通道
+preview_empty = 没有启用的技能。
+remove = 移除
+title = 技能通道
+window = 窗口 (s)
+window.tip = 脉冲后衰减窗口：触发的 obs + reward gate 在此指定的秒数内从 1→0 衰减。deploy runtime 会重建相同的窗口。
+

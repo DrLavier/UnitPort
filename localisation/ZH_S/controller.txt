@@ -1,0 +1,58 @@
+[default]
+invert_vy = 反转 vy
+invert_vyaw = 反转 vyaw
+reset = 重置
+off_hint = 输入已禁用。请在上方选择 键盘 或 手柄。
+axis_unbound = —（未绑定）
+button_unbound = —（未绑定）
+channel_not_bindable = —（暂不可绑定）
+policy_channels = 策略命令通道
+system_actions = 按钮 → 系统动作
+system_actions_keys = 按键 → 系统动作
+stale_channels = 不属于当前契约的已存绑定
+no_policy_hint = 未加载策略。你在训练动作节点授权的技能（skill），需要先训练并导出策略，然后在任务控制 · 仿真 (Mission Control · Simulate) 中选中它，才会在这里成为可绑定的通道 —— trigger 是训练出来的行为，不只是一个按键映射。下方那些是系统动作（加速 / 紧急停止 / …）：始终可用，与任何策略无关，所以它们不在训练动作节点里。
+no_contract_hint = 该策略没有任何命令通道 —— 请在训练动作节点授权速度命令或技能后，重新导出 bundle。
+legacy_contract_hint = 加载的策略携带旧版 commands 块 —— 请重新导出 bundle 后在此绑定命令通道。
+
+[pick]
+button = 按钮
+mode = 模式
+
+[latch]
+pulse = 脉冲（按一下触发一次）
+hold = 按住（按住时持续）
+unsupported = （训练侧未提供）
+
+[conflict]
+title = 绑定冲突
+msg = {input} 已绑定到 {owner}（{cat}）。一个物理输入只能服务一个绑定 —— 请先在那里解绑，再重试。
+action = 系统动作
+trigger = 技能触发
+channel = 命令通道
+
+[mode]
+off = 关闭
+keyboard = 键盘
+gamepad = 手柄
+
+[mode_btn]
+off = 关闭
+keyboard = 键盘
+gamepad = 手柄
+
+[kb]
+forward = 前进
+backward = 后退
+strafe_left = 左平移
+strafe_right = 右平移
+yaw_left = 左转
+yaw_right = 右转
+estop = 紧急停止
+boost = 加速
+
+[axis]
+left_stick_x = 左摇杆 X
+left_stick_y = 左摇杆 Y
+right_stick_x = 右摇杆 X
+right_stick_y = 右摇杆 Y
+

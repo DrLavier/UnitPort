@@ -1,0 +1,23 @@
+[review]
+actor_line = {actor}
+btn_accept = Aceitar
+btn_reject = Rejeitar
+btn_reject_all = Rejeitar tudo
+dialog_intro = Enquanto você estava desconectado, {n} alteração(ões) foram feitas em arquivos do seu espaço de trabalho por outros usuários neste computador. Revise cada uma e escolha Aceitar (manter a alteração deles) ou Rejeitar (restaurar a partir da sua cópia na nuvem).
+dialog_title = Alterações pendentes por outros usuários
+file_line = {path}
+op_delete = excluído
+op_overwrite = editado
+reject_confirm_body = Isso irá recuperar a versão anterior de '{name}' do seu namespace na nuvem e sobrescrever o arquivo local.
+	
+	Continuar?
+reject_confirm_title = Restaurar da nuvem?
+reject_failed_network = Falha ao buscar na nuvem (erro de rede ou de autenticação): {err}
+reject_failed_no_cloud = Nenhuma cópia na nuvem disponível — Rejeitar não é possível. (Este arquivo já foi sincronizado?)
+time_line = {time}
+btn_accept_all = Aceitar tudo
+btn_later = Decidir mais tarde
+reject_success_cloud = Restaurado da nuvem
+accept_confirm_body = Manter {op} de {actor} em '{name}'? Esta entrada será removida da lista de revisão.
+empty_state = Nenhuma alteração pendente para revisão.
+

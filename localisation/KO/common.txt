@@ -1,0 +1,6 @@
+[default]
+cancel = 취소
+current_canvas = 현재 캔버스
+empty = (없음)
+ok = 확인
+

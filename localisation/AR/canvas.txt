@@ -1,0 +1,357 @@
+[active_file]
+col_status = الحالة
+col_type = النوع
+status_cloud = السحابة
+status_loaded = تم التحميل
+
+[actor_setting]
+init_pose.dialog_title = محرر الوضع الابتدائي
+init_pose.empty = لا توجد مفاصل متاحة لهذا الـSKU.
+init_pose.joints_label = زوايا المفاصل [rad] — النطاق من MJCF
+init_pose.review_button = مراجعة
+init_pose.unlimited_hint = (غير محدود)
+review_pose.button = مراجعة الوضع
+
+[ai_build]
+agent_setup = < إعداد وكيلك >
+agent_tip = قم بتكوين أو تبديل وكيل الذكاء الاصطناعي
+assistant_name = مساعد الذكاء الاصطناعي
+banner_none = —
+cfg_f_backend = الخادم الخلفي
+cfg_f_curriculum = المنهج
+cfg_f_device = الجهاز
+cfg_f_difficulty = الصعوبة
+cfg_f_episode = طول الحلقة
+cfg_f_family = الفئة
+cfg_f_name = الاسم
+cfg_f_num_envs = عدد البيئات
+cfg_f_reward_terms = عناصر المكافأة
+cfg_f_sku = SKU
+cfg_f_spacing = تباعد البيئات
+cfg_f_terrain = التضاريس
+cfg_sec_engine = المحرك
+cfg_sec_env = البيئة
+cfg_sec_ground = ساحة التدريب
+cfg_sec_rewards = المكافآت
+cfg_sec_robot = الروبوت
+checkpoint_failed = [[error:تعذّر أخذ لقطة للوحة — إعادة التعيين غير متاحة لهذا التشغيل.]]
+checkpoint_made = [[success:تم حفظ نقطة التحقق — تؤدي إعادة التعيين إلى إرجاع اللوحة إلى هذه النقطة.]]
+config_empty = لا توجد تكوينات للمعاينة بعد.
+	صف تشغيل تدريب لتوليد واحد.
+config_origin = الأصل
+delete_body = حذف هذه المحادثة وسجلها؟ لا يمكن التراجع عن هذا الإجراء.
+delete_convo = حذف
+delete_title = حذف المحادثة
+empty_hint = صف التدريب الذي تريده وسأبني اللوحة.
+ev_failed = [[error:فشل {op} — {detail}]]
+input_placeholder = اطلب من الذكاء الاصطناعي توليد تكوينات أو سكربتات أو استراتيجيات تدريب…
+json_items = عناصر
+new_conversation = + جديد
+new_conversation_tip = محادثة جديدة
+newline = اضغط Enter لإدراج سطر جديد
+no_checkpoint = [[warning:لا توجد نقطة حفظ بعد — أرسل موجهًا أولاً.]]
+pause = إيقاف مؤقت
+phase_chat = المساعد
+phase_complete = استكمال البنية
+phase_repair = إصلاح
+phase_report = ملخص
+phase_understanding = فهم
+reset = التراجع عن اللوحة
+reset_tip = أعد اللوحة إلى نقطة الحفظ التي تم أخذها قبل آخر موجه أرسلته.
+resume = استئناف
+retry = إعادة المحاولة
+retry_busy = [[warning:تجري عملية حالية — أوقفها مؤقتًا أو انتظر قبل إعادة المحاولة.]]
+retry_none = [[warning:لا يوجد ما يُعاد تجربته بعد — أرسل موجهًا أولاً.]]
+reverted = [[success:تم إرجاع اللوحة إلى نقطة الحفظ التي سبقت الموجه.]]
+run_busy = [[warning:تشغيل AI Build جارٍ بالفعل — انتظر حتى ينتهي.]]
+run_failed = [[error:فشل تشغيل AI Build — راجع الرسائل أعلاه.]]
+save_config = حفظ التكوين
+search_ph = ابحث في المحادثات…
+settings_agent_add_tip = إضافة وكيل
+settings_agent_name = الاسم
+settings_agent_name_ph = مثال: GPT-4o
+settings_agent_new = وكيل جديد
+settings_agent_no_model = (لا يوجد نموذج)
+settings_agent_remove_tip = إزالة الوكيل
+settings_agent_untitled = وكيل بدون اسم
+settings_agents_title = الوكلاء
+settings_api_key = مفتاح API
+settings_api_key_ph = sk-…
+settings_base_url = عنوان URL الأساسي
+settings_cloud = رفع معلومات API هذه إلى السحابة
+settings_cloud_tip = معطّل افتراضيًا. عندما يكون معطلاً، لا تقوم ميزة المزامنة عبر الإنترنت بتحميل مفتاح API الخاص بك أبدًا.
+settings_env_bad = ✗ {name} لم يتم تعيينه، أو أن قيمته ≤ {n} أحرف.
+settings_env_invalid = يجب أن يوجد متغير البيئة وأن يحتوي على قيمة أطول من {n} حرفًا.
+settings_env_ok = ✓ تم حل {name} ({n} أحرف)
+settings_env_ph = مثال: OPENAI_API_KEY
+settings_incomplete = عنوان URL الأساسي ومفتاح API والنموذج جميعها مطلوبة.
+settings_intro = سجّل اتصال(ات) النموذج التي يستدعيها AI Build. يصبح الوكيل المحدد هو الافتراضي؛ تُحفظ الإعدادات في مجلد تكوين المستخدم الخاص بك.
+settings_model = النموذج
+settings_model_ph = مثلاً gpt-4o / claude-opus-4-8
+settings_remove_body = هل تريد إزالة تسجيل هذا الوكيل؟ لا يمكن التراجع عن هذا.
+settings_remove_title = إزالة الوكيل
+settings_save_failed = تعذّر كتابة ملف الإعدادات. تحقق من السجل.
+settings_title = AI Build — إعدادات API
+settings_use_env = قراءة الرمز المميز من متغير البيئة
+settings_use_env_tip = خزّن اسم المتغير NAME فقط؛ يُقرأ الرمز المميز من بيئتك وقت التشغيل ولا يُكتب أبداً إلى القرص.
+submit = إرسال
+title = إنشاء بالذكاء الاصطناعي
+tokens_n = {n} رموز
+tokens_total = الرموز: 0
+untitled = محادثة جديدة
+user_name = المستخدم
+version_busy = [[warning:تشغيل جارٍ — انتظر قبل تبديل إصدارات التكوين.]]
+version_saved = [[success:تم الحفظ كإصدار التكوين {v} — اختره (أو Origin للتراجع) في قائمة التكوين.]]
+button = إنشاء بالذكاء الاصطناعي
+conv_title = محادثات
+input_title = موجه
+opacity_tip = عتامة التراكب
+req_title = المتطلبات
+max_repair = الحد الأقصى لجولات الإصلاح
+auto_commit = حفظ تلقائي عند تجميع خالٍ من الأخطاء
+run_autosave_off = [[warning:الحفظ التلقائي متوقف — تم بناء اللوحة لكن لم تُحفظ. احفظها يدوياً.]]
+clear = مسح
+demo_intro = متصل. صف ما تريد وسأبني اللوحة.
+demo_place = تم وضع عقدة [[node:Rewards]]
+demo_param = تم ضبط وزن [[param:track_lin_vel_xy]] إلى [[value:10.0]]
+demo_wire = تم توصيل [[node:Rewards]] بالعنصر [[node:walk]]
+demo_param2 = تم ضبط [[param:action_scale]] إلى [[value:0.25]] على [[node:Actor Setting]]
+demo_warning = [[warning:base_height weight -8.0 قريب من الحد الأدنى له -50.0]]
+demo_error = [[error:joint_accel_penalty 2.5 خارج النطاق -0.001..0 — سيجمد المفاصل]]
+demo_success = [[success:تم تجميع اللوحة بنجاح — 12 عقدة، 18 حافة]]
+ev_place = تم وضع عقدة [[node:{node}]]
+ev_remove = تمت إزالة عقدة [[node:{node}]]
+ev_connect = تم توصيل [[node:{src}]] -> [[node:{dst}]] [[param:{port}]]
+ev_disconnect = تم فصل الحافة [[param:{edge}]]
+ev_set = تم ضبط [[param:{key}]] = [[value:{value}]] على [[node:{node}]]
+run_block = [[info:الكتلة {i}/{n} — {title}]]
+block_robot = الروبوت
+block_actor_env = الممثل والبيئة
+block_rewards = المكافآت
+block_training = التدريب
+block_export = تصدير
+req_applied = [[info:تم تطبيق متطلباتك المقفلة:]]
+req_no_trainer = [[warning:لا توجد عقدة مدرّب بعد لمتطلب طول التدريب؛ سيقوم الوكيل بتطبيقه.]]
+req_no_envs = [[warning:شدة الحوسبة لا تحتوي على مقبض parallel-env لمدرّب هذا backend؛ تم تجاهلها.]]
+req_failed = [[warning:تعذّر تطبيق المتطلب {key}: {message}]]
+report_failed = [[warning:تعذّر توليد الملخص ({detail})؛ تم بناء اللوحة وهي صالحة.]]
+req_robot = الروبوت
+req_robot_auto = تلقائي (الاحتفاظ بالإعداد الحالي)
+req_motion = حركة مرجعية
+req_none = لا شيء
+req_length = طول التدريب
+req_intensity = شدة الحوسبة
+req_advanced = أرقام متقدمة ▸
+req_iters = الحد الأقصى للتكرارات
+req_envs = بيئات متوازية
+tier_auto = تلقائي
+tier_short = قصير
+tier_medium = متوسط
+tier_long = طويل
+tier_light = خفيف
+tier_heavy = ثقيل
+settings_tip = إعدادات API
+settings_reveal = إظهار
+settings_save = حفظ
+settings_cancel = إلغاء
+run_design = [[info:التصميم — مقفل {sku} / {backend} ({fam})]]
+run_need_robot = [[error:يتطلب AI Build وجود روبوت وخادم خلفي على اللوحة أولاً. أضف عقدة روبوت (اختر SKU) واربط خادماً خلفياً، ثم أعد المحاولة.]]
+run_no_reference = [[warning:لا يوجد مرجع من نفس العائلة لهذه المهمة؛ يتم البناء باستخدام دلالات السجل.]]
+run_building = [[info:Orchestrator — يجري بناء اللوحة…]]
+run_repairing = [[warning:{n} مشكلة/مشكلات معيقة؛ جارٍ الإصلاح (الجولة {r})…]]
+run_compiled = [[success:تم تجميع اللوحة — لا توجد مشكلات معيقة.]]
+run_exhausted = [[error:نفد محاولات الإصلاح — {n} مشكلة/مشكلات معيقة؛ لم يتم حفظ أي شيء.]]
+run_issue = [[error:{message}]]
+run_connecting = [[info:جارٍ الاتصال بالنموذج…]]
+run_saved = [[success:تم حفظ اللوحة في المشروع.]]
+run_not_saved = [[warning:تم بناء اللوحة لكنها لم تُحفَظ تلقائياً (لا يوجد مشروع مستهدف) — احفظها يدوياً.]]
+run_api_failed = [[error:فشل استدعاء واجهة برمجة تطبيقات النموذج — {detail}]]
+run_cancelled = [[warning:تم إلغاء تشغيل AI Build.]]
+group_today = اليوم
+group_yesterday = أمس
+group_week = الأيام السبعة الماضية
+group_older = أقدم
+chip_ppo = توليد إعداد PPO
+chip_reward = إضافة دالة مكافأة
+chip_tune = ضبط المعاملات الفائقة
+chip_debug = تصحيح أخطاء التدريب
+config_title = التكوين
+banner_robot = الروبوت
+banner_backend = الخادم الخلفي
+banner_task = المهمة الحالية
+banner_target = هدف التدريب
+banner_local = تدريب محلي
+banner_cloud = تدريب سحابي
+banner_task_more = {first} +{n} إضافية…
+
+[body_mapping]
+col_current = الحالي
+col_role = الدور
+no_roles = لا توجد أدوار للجسم لهذا الأصل
+refresh = تحديث
+select_asset = اختر asset_id
+warn_joints = ⚠ لم تتم مطابقة {n} مفصل(ات) — قم بتعيينها أو وسمها كـ 'خارج النطاق': {preview}
+label_unassigned = (غير معين)
+label_out_of_scope = (خارج النطاق)
+
+[btn]
+node_lib.tip = مكتبة العقد
+
+[button]
+close = إغلاق
+
+[cmd_inspector]
+col_kind = النوع
+col_name = الاسم
+col_obs = أبعاد الملاحظات
+col_range = النطاق
+col_source = المصدر
+empty_hint = قم بتمكين عنصر تدريب واحد على الأقل.
+	قنوات الأوامر تُستخلص آلياً.
+empty_title = عقد الأوامر فارغ
+footer_cmd = أبعاد الأوامر
+footer_obs = أبعاد الملاحظات
+footnote_encoding = (قنوات الطور مشفّرة كـ {layouts})
+title = عقد الأوامر
+kind.continuous = مستمر
+kind.trigger = محفِّز
+kind.enum = تعداد
+source.velocity_item_union = عناصر السرعة
+source.gait_registry = سجل الأنماط الحركية
+source.skill = مهارة
+layout.sin_cos = sin/cos
+unresolved.family_unknown = عائلة الروبوت غير معروفة - قم بتوصيل عقدة Robot عبر أنبوب Actor.
+unresolved.family_no_gait = لا تحتوي هذه العائلة من الروبوت على إدخال أمر gait في السجل.
+unresolved.no_enabled_items = لا توجد عناصر تدريب مفعّلة - فعّل عنصرًا واحدًا على الأقل.
+unresolved.unknown_item = عنصر تدريب في هذه العقدة مفقود من سجل الأوامر.
+unresolved.malformed_param = معلمة العقدة تالفة - تم استبدالها بقيمة افتراضية للمعاينة فقط.
+
+[error]
+copy.done = تم نسخ تقرير أخطاء اللوحة إلى الحافظة.
+empty = (لا توجد مشكلات مُهيكلة مُبلغ عنها)
+headline.errors = اللوحة تحتوي على {e} مشكلة(مشكلات) يجب إصلاحها قبل أن يبدأ التدريب.
+headline.mixed = اللوحة تحتوي على {e} خطأ(أخطاء) و{w} تحذير(تحذيرات). أصلح الأخطاء أدناه وأعد التشغيل.
+headline.unknown = أبلغ فحص اللوحة عن وجود مشكلة.
+headline.warnings = تحتوي اللوحة على {w} تحذير(تحذيرات).
+hint = تشير كل إدخال أدناه إلى عقدة اللوحة والمعامل الذي تسبب في الفحص. افتح العقدة، عدّل القيمة، احفظ اللوحة، وحاول ▶ مرة أخرى.
+title = فشل فحص اللوحة
+
+[group]
+default_title = مجموعة
+
+[inline]
+col_grace = فترة السماح
+col_item = عنصر
+col_maxspeed = الحد الأقصى للسرعة
+col_name = الاسم
+col_param = القيمة
+col_scale = المقياس
+col_threshold = العتبة
+col_value = القيمة
+col_weight = الوزن
+
+[menu]
+add_node = إضافة عقدة
+copy = نسخ (Ctrl+C)
+delete = حذف
+disconnect_all = فصل كل الحواف
+duplicate = تكرار (Ctrl+D)
+paste_here = لصق هنا (Ctrl+V)
+disconnect = قطع الاتصال
+
+[minimenu]
+placeholder = (قريبًا)
+
+[obs_injected]
+critic_section = الناقد (ذو امتياز)
+divider = من قناة الأوامر (مُحقن)
+footer = إجمالي بُعد الملاحظات {total} — مستخدم {user} + مُحقَن {injected}
+readonly = للقراءة فقط
+
+[port]
+optional = (اختياري)
+
+[review_launch]
+button = مراجعة الإطلاق
+
+[reward_pager]
+col_count = عدد المكافآت
+col_group = مجموعة المفاصل
+col_ops = العمليات
+global = عالمي (كل المفاصل)
+summary = {n} مجموعات
+
+[rewards]
+coverage.add_set = إضافة المجموعة الموصى بها
+coverage.banner.critical = حَرِج: مرحلة واحدة أو أكثر تفتقد المكافأة السلبية المطلوبة. قد يؤدي التدريب إلى سلوكيات غير مرغوب فيها مثل رفرفة الأطراف أثناء الخمول.
+coverage.banner.ok = تغطي جميع المراحل المكافآت الإيجابية والسلبية.
+coverage.banner.warning = تحذير: على الأقل مرحلة واحدة تفتقد تغطية المكافآت الموصى بها.
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = المرحلة
+coverage.col.pos = +
+coverage.col.status = الحالة
+coverage.double_click_hint = انقر نقراً مزدوجاً على الشارة لفتح مُفتش التغطية.
+coverage.empty = لا توجد مصطلحات للمكافأة مُكوّنة — أضف مصطلحًا واحدًا على الأقل للحصول على تقييم التغطية.
+coverage.green = جميع المراحل لديها تغطية للمكافآت الإيجابية + السلبية.
+coverage.inspector.title = مفتش تغطية المكافآت
+coverage.red = حرج: مرحلة واحدة أو أكثر تفتقد مكافأة القيد المطلوبة.
+coverage.title = تغطية المكافآت
+coverage.yellow = تحذير: مرحلة واحدة على الأقل تفتقد مكافأة موصى بها.
+
+[robot]
+health.counts = MJCF: {m} مفاصل  ·  USD: {u} مفاصل  ·  إزاحة الأساس: {off}
+health.crit = لم يتم تفريغ أي من التنسيقَين — افتح أصول الروبوت وانقر تفريغ MJCF / تفريغ USD قبل التدريب.
+health.double_click_hint = انقر نقراً مزدوجاً على الشارة لعرض جدول مطابقة المفاصل الكامل.
+health.gap = MJCF و USD تعلنان مجموعات أدوار IR مختلفة — المتأثرة: {aff}.
+health.offset_uncalibrated = (غير معاير)
+health.ok = MJCF و USD متوافقان على مجموعة المفاصل — كلا هَدَفي النشر متاحان.
+health.single = تم تفريغ {present} فقط — هدف النشر {missing} سيكون غير متاح للحزم التي تم تدريبها ضد هذا الروبوت.
+health.title = حالة تفريغ الروبوت
+mjcf_offset.not_applicable = لا ينطبق
+mjcf_offset.uncalibrated = غير معاير
+pd_table.auto_none = لا يوجد إعداد مسبق موصى به لهذا الروبوت.
+pd_table.auto_tooltip = املأ الإعداد المسبق الرسمي الموصى به (ωn, ζ) + جهد/سرعة. ترتيب التعيين: مستند العلامة التجارية → معلمات المحرك في USD (مخبأة من Dump USD) → الإعدادات الافتراضية للعائلة.
+pd_table.dialog_title = PD / المُشغّل
+pd_table.header = مكاسب PD لكل مفصل (kp = m_eff·ωn²) — مستخلصة مباشرةً من مصفوفة الكتلة في MJCF. حرّر (ωn, ζ) لكل مجموعة؛ kp/kd للقراءة فقط.
+pd_table.redump_failed = فشل إعادة تفريغ USD: {error}
+pd_table.redump_tooltip = فرّغ أصل USD لتحديث معلمات المحرك المخزنة مؤقتًا، ثم أعد ملء AUTO بالقيم المفروغة.
+pd_table.remotized_note = المفاصل المُدارة عن بُعد (المُقادَة بواسطة روابط) تعرض ذروة جدول عزم الدوران المعتمد على الزاوية في الجهد، وليس الحد العددي.
+pd_table.remotized_tooltip = ذروة جدول عزم الدوران المعتمد على الزاوية (مفصل مُدار عن بُعد)
+pd_table.auto_button = تلقائي ⤓
+pd_table.redump_button = إعادة تفريغ USD
+
+[row]
+empty = —
+entries = {n} مدخلات
+false = خطأ
+ir_picker_all = الكل
+no_items = (لا عناصر)
+preset_unselected = —
+selected = {n} محدد
+true = صحيح
+bool_check = ✔
+
+[toolbar]
+collapse = طي
+color = اختر اللون (انقر بالزر الأيمن لإعادة التعيين)
+delete = حذف
+enable = تمكين
+expand = توسيع
+group = تجميع
+skip = تعطيل
+ungroup = إلغاء التجميع
+
+[training_motion]
+add_item = + إضافة عنصر تدريب
+helper = العناصر الممكّنة تسهم بقنوات السرعة في عقد الأوامر المشتق.
+packages.button = حزم التدريب
+skills.button = قنوات المهارات
+weight_set.button = مجموعة الأوزان
+weight_set.cancel = إلغاء
+weight_set.hint = اسحب الحد الفاصل بين شريحتين لنقل الوزن بينهما؛ أو انقر على نسبة مئوية لكتابتها (سيتغير ذلك العنصر فقط). يتم تمكين 'تطبيق' بمجرد أن يصبح الإجمالي 100%% بالضبط.
+weight_set.ok = تطبيق
+weight_set.reset = إعادة الضبط إلى توزيع متساوٍ
+weight_set.title = أوزان العينة
+weight_set.total = الإجمالي
+

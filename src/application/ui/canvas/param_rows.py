@@ -2603,6 +2603,7 @@ class TrainingItemsRow(_GearedPickerRowMixin, ParamRow):
         backend = str(self._owner.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
         result = open_training_motion_editor(
             view, dict(items), canvas_backend=backend,
+            robot_sku=_scene_robot_sku(self._owner),
         )
         if result is None:
             return True
@@ -6297,12 +6298,22 @@ class RegistryModuleInlineRow(_InlineTableRow):
         self.update()
 
 
+# ---- TrainingItemsInlineRow footer section geometry ----
+_TI_FOOTER_GAP = 4.0    # gap between table frame and footer
+_TI_ADD_H = 20.0        # "+ Add Training Item" action button height
+_TI_HELPER_H = 26.0     # helper text strip (wraps to two lines at size_mini)
+# Skills are authored by the dedicated ``skill_authoring`` row (the ✦ Skill
+# Channels button on the sibling ``skill_items`` param) — the old dead
+# "future feature" placeholder panel that used to live in this footer was removed.
+
+
 class TrainingItemsInlineRow(_InlineTableRow):
     """``widget="training_items"`` — DEMO ``_TrainingItemEditor`` 内联表格.
 
-    每行 ``[clip indicator | item_id | smax slider | smax]``。Items dict 形如
-    ``{item_id: {"enabled": bool, "speed": [lo, hi], "clip": str|None, "advanced": dict}}``，
-    smax 在 [0, 1.5] 区间，step=0.05 —— 与 DEMO 完全一致。
+    每行 ``[clip indicator | item_id | smax]``。Items dict 形如
+    ``{item_id: {"enabled": bool, "speed": [lo, hi], "clip": str|None, "advanced": dict}}``。
+    smax（Max Speed）**无输入上下限** —— 用户明确要求不施加任何区间限制；
+    弹窗按任意 float 接收并 verbatim 落库（不钳制、不吸附，§8 禁止静默改写输入）。
     """
 
     def __init__(self, spec, owner_node, width, parent=None):
@@ -6330,7 +6341,9 @@ class TrainingItemsInlineRow(_InlineTableRow):
                 smax = float(speed[1]) if len(speed) >= 2 else 1.0
             except (TypeError, ValueError):
                 smax = 1.0
-            smax = max(0.0, min(1.5, smax))
+            # No clamp — Max Speed has no bound (user requirement). Display
+            # whatever was stored verbatim; the old max(0, min(1.5, …)) cap
+            # hid out-of-range values the popup now accepts.
             # Display label: the user-typed ``title`` wins; when blank we fall
             # back to the item id (matches the modal editor's ``_display_label``
             # semantics). ``key`` remains the authoritative id used for the
@@ -6426,19 +6439,30 @@ class TrainingItemsInlineRow(_InlineTableRow):
         return float(payload.get("smax", 1.0))
 
     def _row_min(self, idx, payload):
-        return 0.0
+        # None ⇒ the number popup imposes no lower bound (open_number_popup /
+        # Node_DataInput skip the min check when None). Max Speed has no limit
+        # per the user; returning 0.0 here made the popup reject negatives.
+        return None
 
     def _row_max(self, idx, payload):
-        return 1.5
+        # None ⇒ no upper bound (see _row_min). The old 1.5 cap rejected any
+        # higher typed speed at the popup — an input restriction the user
+        # explicitly does not want.
+        return None
 
     def _row_set_value(self, idx, payload, v):
-        # Clamp to the valid speed domain [0, 1.5] m/s (a real bound), but store
-        # the typed value verbatim otherwise. The old round(v/0.05)*0.05
-        # snapping was a slider affordance and the per-row slider was removed in
-        # v2 — silently rewriting 0.62 → 0.60 is the same §8 input-mutation bug.
-        v = max(0.0, min(1.5, float(v)))
+        # Store the typed Max Speed verbatim — no clamp, no snapping. The old
+        # max(0, min(1.5, v)) cap and the removed slider's round(v/0.05)
+        # snapping both silently rewrote the user's input (§8 input-mutation
+        # bug). smax is the upper bound of the item's [lo, hi] speed range;
+        # keep lo ≤ hi by lowering lo when the new max drops below it.
+        v = float(v)
         payload["smax"] = v
-        d = self._current_terms()
+        # NB: TrainingItemsInlineRow stores its dict in ``self._value`` and
+        # reads it via _parse_dict_value (same as _refresh_payloads / the modal
+        # handler) — there is NO _current_terms() here (that lives only on
+        # RegistryModuleInlineRow). Using it raised AttributeError on commit.
+        d = _parse_dict_value(self._value) or {}
         cur = d.get(payload["key"])
         if isinstance(cur, dict):
             speed = list(cur.get("speed") or [0.0, 1.0])
@@ -6606,13 +6630,15 @@ class TrainingItemsInlineRow(_InlineTableRow):
         )
         return True
 
-    def _on_modal_clicked(self, event) -> bool:
+    def _on_modal_clicked(self, event, *, start_new: bool = False) -> bool:
         from application.ui.dialogs import open_training_motion_editor
 
         items = _parse_dict_value(self._value)
         backend = str(self._owner.params.get("backend", "sb3_mujoco") or "sb3_mujoco").strip()
         result = open_training_motion_editor(
             _view_of(event), dict(items), canvas_backend=backend,
+            robot_sku=_scene_robot_sku(self._owner),
+            start_new=start_new,
         )
         if result is not None:
             self.set_value(_serialize_for_spec(self.spec, result))
@@ -6621,6 +6647,147 @@ class TrainingItemsInlineRow(_InlineTableRow):
     def maybe_refresh_for_asset_change(self) -> None:
         self._refresh_payloads()
         self.update()
+
+    # ---- Command-layer frontend: enable column + footer section ----------
+    # frontend.md (Training Motion redesign): per-row Enable checkbox,
+    # "+ Add Training Item" action, and helper text (corrected §7.1 —
+    # ordering has NO export effect). Skills are now a real, separate feature
+    # authored by the ``skill_authoring`` row on the sibling ``skill_items``
+    # param (the ✦ Skill Channels button) — the old dead "future feature"
+    # placeholder panel that used to sit in this footer has been removed.
+    # Disabled items stay hidden from the inline table (explicit earlier
+    # user requirement; backend design §4 pins "authoring, unchanged
+    # semantics") — the Enable column is the quick-disable affordance,
+    # re-enable goes through the header selector popup as before.
+
+    def _footer_height(self) -> float:
+        return _TI_FOOTER_GAP + _TI_ADD_H + _TI_HELPER_H + _TI_FOOTER_GAP
+
+    def _compute_height(self) -> int:  # type: ignore[override]
+        return int(super()._compute_height() + self._footer_height())
+
+    def _frame_rect(self) -> QRectF:  # type: ignore[override]
+        r = super()._frame_rect()
+        return QRectF(
+            r.left(), r.top(), r.width(),
+            max(0.0, r.height() - self._footer_height()),
+        )
+
+    def _add_item_rect(self) -> QRectF:
+        f = self._frame_rect()
+        return QRectF(f.left(), f.bottom() + _TI_FOOTER_GAP, f.width(), _TI_ADD_H)
+
+    def _helper_rect(self) -> QRectF:
+        a = self._add_item_rect()
+        return QRectF(a.left(), a.bottom() + 2.0, a.width(), _TI_HELPER_H)
+
+    def _row_enable_rect(self, idx: int) -> QRectF:
+        r = self._row_rect(idx)
+        x0 = r.left() + _INL_BADGE_W + _INL_GAP
+        side = min(12.0, r.height() - 8.0)
+        return QRectF(x0, r.top() + (r.height() - side) * 0.5, side, side)
+
+    def _row_name_rect(self, idx: int) -> QRectF:  # type: ignore[override]
+        base = super()._row_name_rect(idx)
+        shift = 12.0 + _INL_GAP
+        return QRectF(
+            base.left() + shift, base.top(),
+            max(0.0, base.width() - shift), base.height(),
+        )
+
+    def paint(self, painter, option, widget=None):  # type: ignore[override]
+        super().paint(painter, option, widget)
+        self._paint_footer(painter)
+        for idx in range(len(self._row_payloads)):
+            self._paint_enable_checkbox(painter, idx)
+
+    def _paint_enable_checkbox(self, painter: QPainter, idx: int) -> None:
+        rect = self._row_enable_rect(idx)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        border = QColor(Config.get_color("border_1", "#444444"))
+        accent = QColor(Config.get_color("theme_2", "#F6D393"))
+        painter.setPen(QPen(border, 1.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect, 2, 2)
+        # Inline rows only render enabled items — the box is always checked;
+        # clicking it disables the item (row leaves the table, still in the
+        # dict; re-enable via the header selector).
+        painter.setPen(QPen(accent, 1.6))
+        painter.drawLine(
+            QPointF(rect.left() + 2.5, rect.center().y() + 0.5),
+            QPointF(rect.center().x() - 0.5, rect.bottom() - 2.5),
+        )
+        painter.drawLine(
+            QPointF(rect.center().x() - 0.5, rect.bottom() - 2.5),
+            QPointF(rect.right() - 2.0, rect.top() + 2.5),
+        )
+
+    def _paint_footer(self, painter: QPainter) -> None:
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        fam = Config.get_value("Font", "family", "Microsoft YaHei")
+
+        # "+ Add Training Item" — full-width action button.
+        add_r = self._add_item_rect()
+        hover = self._is_hovering(add_r)
+        bg = QColor(Config.get_color("btn_1", "#343636"))
+        if hover:
+            bg = bg.lighter(115)
+        painter.setBrush(QBrush(bg))
+        painter.setPen(QPen(QColor(Config.get_color("border_1", "#444444")), 1.0))
+        painter.drawRoundedRect(add_r.adjusted(0, 1, 0, -1), 3, 3)
+        f_btn = QFont(fam)
+        f_btn.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        painter.setFont(f_btn)
+        painter.setPen(QPen(QColor(Config.get_color("main_t1", "#E8E6DA"))))
+        painter.drawText(
+            add_r, int(Qt.AlignmentFlag.AlignCenter),
+            tr("canvas.training_motion.add_item", "+ Add Training Item"),
+        )
+
+        # Helper text (frontend correction §7.1 — the "ordering affects
+        # export priority" sentence is wrong and must not render).
+        helper_r = self._helper_rect()
+        f_help = QFont(fam)
+        f_help.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        painter.setFont(f_help)
+        painter.setPen(QPen(QColor(Config.get_color("canvas_node_param_text", "#9CA3AF"))))
+        painter.drawText(
+            helper_r,
+            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            | Qt.TextFlag.TextWordWrap.value,
+            tr(
+                "canvas.training_motion.helper",
+                "Enabled items contribute velocity channels to the derived "
+                "command contract.",
+            ),
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:  # type: ignore[override]
+        regions = super()._interactive_regions()
+        regions.append(self._add_item_rect())
+        for i in range(len(self._row_payloads)):
+            regions.append(self._row_enable_rect(i))
+        return regions
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:  # type: ignore[override]
+        pos = event.pos()
+        if self._add_item_rect().contains(pos):
+            # "+ Add Training Item" — opens the editor with a fresh draft
+            # already seeded and selected (start_new), so the user names a
+            # new item immediately. Distinct from the gear (edit the list):
+            # the gear calls _on_modal_clicked() with start_new=False via
+            # the base-class header hit-test.
+            return self._on_modal_clicked(event, start_new=True)
+        for idx in range(len(self._row_payloads)):
+            if self._row_enable_rect(idx).contains(pos):
+                d = _parse_dict_value(self._value) or {}
+                key = self._row_payloads[idx].get("key")
+                cur = d.get(key)
+                if isinstance(cur, dict):
+                    cur["enabled"] = False
+                    self.set_value(_serialize_for_spec(self.spec, d))
+                return True
+        return super()._handle_click(event)
 
 
 # =============================================================================
@@ -9407,11 +9574,546 @@ class WeightPieEditorRow(ParamRow):
         return True
 
 
+def _resolve_canvas_context(owner) -> tuple:
+    """Best-effort (canvas_backend, robot_sku) for the reward-registry picker.
+
+    Read from the bound page's workflow dict. UI affordance only (picks which
+    reward registry the editor lists / whether family filtering is on) — never a
+    training-correctness input, so a default is acceptable if the page is absent.
+    """
+    backend, sku = "sb3_mujoco", ""
+    try:
+        sc = owner.scene()
+        page = getattr(sc, "_page_ref", None) if sc is not None else None
+        if page is not None and hasattr(page, "to_workflow_dict"):
+            d = page.to_workflow_dict()
+            backend = str(d.get("backend") or backend)
+            sku = str(d.get("robot_id") or "")
+    except Exception:
+        pass
+    return backend, sku
+
+
+class PackageAuthoringRow(ParamRow):
+    """``widget="package_authoring"`` — full-width button opening the training
+    package editor for the ``packages`` param.
+
+    On click it reads its own ``packages`` param + the sibling ``training_items``
+    (membership), opens :class:`PackageAuthoringDialog`, and on accept writes the
+    edited packages back via :meth:`set_value` and the updated membership back into
+    ``training_items`` via :func:`_write_sibling_param`. Presence-gated: an empty
+    ``packages`` dict = one implicit default package (computed live in the dialog).
+    Shares the review-button theme slots.
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _btn_rect(self) -> QRectF:
+        x = SEP_X + _WPE_FRAME_PAD
+        return QRectF(
+            x,
+            _WPE_FRAME_PAD,
+            max(0.0, self._width - x - _WPE_FRAME_PAD - VALUE_PAD_RIGHT + 4),
+            self._height - _WPE_FRAME_PAD * 2,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        btn = self._btn_rect()
+        idle = QColor(Config.get_color("canvas_node_review_launch_bg", "#00695C"))
+        hover = QColor(
+            Config.get_color("canvas_node_review_launch_hover_bg", "#00897B")
+        )
+        text_color = QColor(Config.get_color("main_t2", "#FFFFFF"))
+        bg = hover if self._is_hovering(btn) else idle
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(btn, 4, 4)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(text_color))
+        try:
+            n = len(_parse_dict_value(self._owner.params.get("packages")) or {})
+        except Exception:
+            n = 0
+        label = tr("canvas.training_motion.packages.button", "Training Packages")
+        suffix = f"  ({n})" if n else ""
+        painter.drawText(btn, int(Qt.AlignmentFlag.AlignCenter), "📦  " + label + suffix)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        view = _view_of(event)
+        parent_widget = view.window() if view else None
+        packages_raw = self._owner.params.get("packages")
+        items_raw = _parse_dict_value(self._owner.params.get("training_items")) or {}
+        skills_raw = self._owner.params.get("skill_items")
+        backend, sku = _resolve_canvas_context(self._owner)
+        from application.ui.dialogs.package_authoring_dialog import (
+            PackageAuthoringDialog,
+        )
+
+        dlg = PackageAuthoringDialog(
+            packages_raw,
+            items_raw,
+            canvas_backend=backend,
+            robot_sku=sku,
+            skill_items_value=skills_raw,
+            parent=parent_widget,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.set_value(dict(dlg.result_packages))
+            _write_sibling_param(
+                self._owner, "training_items", dict(dlg.result_training_items)
+            )
+        return True
+
+
+class SkillAuthoringRow(ParamRow):
+    """``widget="skill_authoring"`` — full-width button opening the skill (trigger)
+    channel editor for the ``skill_items`` param (Slice 2).
+
+    On click it opens :class:`SkillAuthoringDialog` for its own ``skill_items``
+    param and, on accept, writes the edited skills back via :meth:`set_value`. A
+    skill is a discrete policy command channel (trigger); the emitter
+    ``derive_command_contract`` turns each enabled entry into a trigger
+    ``ContractChannel``. Empty ``skill_items`` = no trigger channels.
+    """
+
+    _OPEN_ON_RELEASE = True
+
+    def _btn_rect(self) -> QRectF:
+        x = SEP_X + _WPE_FRAME_PAD
+        return QRectF(
+            x,
+            _WPE_FRAME_PAD,
+            max(0.0, self._width - x - _WPE_FRAME_PAD - VALUE_PAD_RIGHT + 4),
+            self._height - _WPE_FRAME_PAD * 2,
+        )
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return [self._btn_rect()]
+
+    def _paint_value(self, painter: QPainter, tier: int) -> None:
+        btn = self._btn_rect()
+        idle = QColor(Config.get_color("canvas_skill_authoring_bg", "#7A4FB0"))
+        hover = QColor(Config.get_color("canvas_contract_badge_trigger_bg", "#B0722D"))
+        text_color = QColor(Config.get_color("main_t2", "#FFFFFF"))
+        bg = hover if self._is_hovering(btn) else idle
+        painter.setBrush(QBrush(bg))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(btn, 4, 4)
+        font = QFont(Config.get_value("Font", "family", "Microsoft YaHei"))
+        font.setPixelSize(int(Config.get_font_size("size_small", 12)))
+        font.setBold(True)
+        painter.setFont(font)
+        painter.setPen(QPen(text_color))
+        try:
+            n = len(_parse_dict_value(self._owner.params.get("skill_items")) or {})
+        except Exception:
+            n = 0
+        label = tr("canvas.training_motion.skills.button", "Skill Channels")
+        suffix = f"  ({n})" if n else ""
+        painter.drawText(btn, int(Qt.AlignmentFlag.AlignCenter), "✦  " + label + suffix)
+
+    def _handle_click(self, event: QGraphicsSceneMouseEvent) -> bool:
+        view = _view_of(event)
+        parent_widget = view.window() if view else None
+        skills_raw = self._owner.params.get("skill_items")
+        from application.ui.dialogs.skill_authoring_dialog import SkillAuthoringDialog
+
+        dlg = SkillAuthoringDialog(skills_raw, parent=parent_widget)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.set_value(dict(dlg.result_skill_items))
+        return True
+
+
 # =============================================================================
 # Factory / dispatcher —— 节点脚本 → 图形的「自动转换」入口
 # =============================================================================
 
 # 分发表（widget hint 优先；否则按 type）
+# =============================================================================
+# IL Observation — Command Pipe injected READ-ONLY section (command layer)
+# =============================================================================
+
+_CIO_DIV_H = 16.0      # divider strip ("From Command Pipe (Injected)")
+_CIO_ROW_H = 16.0      # one locked channel row
+_CIO_SECTION_H = 14.0  # critic-extras section label
+_CIO_FOOTER_H = 16.0   # totals footer
+_CIO_NOTICE_H = 13.0   # one unresolved notice line
+_CIO_PAD = 3.0
+
+
+class CommandInjectedObsRow(ParamRow):
+    """``widget="command_injected_obs"`` — render-only injected obs section.
+
+    Appears on the ``il_observation`` node ONLY while its ``command_pipe``
+    input is wired to a ``training_motion`` node; renders the contract
+    channels the compiler AUTO-INJECTS into the obs groups
+    (``obs_encoding.groups`` non-empty — per compiler reality that is the
+    gait channels; velocity command obs enters through the user's own
+    ``velocity_command`` term and is deliberately NOT repeated here).
+    Rows are locked: no hover affordance, no delete, no editing — the
+    frontend never edits the derived contract. Footer shows
+    ``total = user + injected`` per the policy group, live on
+    ``contract_changed`` and on edge connect / disconnect.
+
+    Everything rendered comes from :class:`CommandContractModel.result`
+    (A4 purity: no channel-name literals, no dimension constants here).
+    """
+
+    def __init__(self, spec, owner_node, width, parent=None):
+        super().__init__(spec, owner_node, width, parent)
+        self._height_callbacks: list = []
+        self._model = None
+        self._height = 0.0
+        from application.service.signals import get_app_signals
+        sig = get_app_signals()
+        sig.canvas_edge_changed.connect(self._on_canvas_changed)
+        sig.canvas_topology_changed.connect(self._on_canvas_changed)
+        self._refresh()
+
+    # ---- height contract (mirrors _InlineTableRow) ----
+
+    def preferred_height(self) -> float:
+        return float(self._height)
+
+    def on_height_changed(self, callback) -> None:
+        if callable(callback) and callback not in self._height_callbacks:
+            self._height_callbacks.append(callback)
+
+    def _set_height(self, h: float) -> None:
+        h = float(max(0.0, h))
+        if abs(h - self._height) < 0.5:
+            return
+        self.prepareGeometryChange()
+        self._height = h
+        self.update()
+        for cb in list(self._height_callbacks):
+            try:
+                cb(h)
+            except Exception:
+                pass
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(0, 0, self._width, self._height)
+
+    # ---- resolution -------------------------------------------------------
+
+    def _source_node(self):
+        """training_motion node wired into the owner's command_pipe input."""
+        for p in (getattr(self._owner, "_in_ports", None) or []):
+            if str(getattr(getattr(p, "spec", None), "name", "") or "") != "command_pipe":
+                continue
+            for conn in (getattr(p, "connections", None) or []):
+                sp = getattr(conn, "src_port", None)
+                if sp is None:
+                    continue
+                src = sp.parent_node()
+                if src is None:
+                    continue
+                if str(getattr(getattr(src, "manifest", None), "id", "") or "") == "training_motion":
+                    return src
+        return None
+
+    def _on_canvas_changed(self, _file_id: str) -> None:
+        try:
+            if self.scene() is None:
+                return
+        except RuntimeError:
+            return  # item already destroyed on the C++ side
+        self._refresh()
+
+    def _on_contract_changed(self) -> None:
+        try:
+            if self.scene() is None:
+                return
+        except RuntimeError:
+            return
+        self._refresh()
+
+    def _refresh(self) -> None:
+        src = self._source_node()
+        model = None
+        if src is not None:
+            from .command_contract_model import get_contract_model
+            model = get_contract_model(src)
+        if model is not self._model:
+            if self._model is not None:
+                try:
+                    self._model.contract_changed.disconnect(self._on_contract_changed)
+                except (TypeError, RuntimeError):
+                    pass
+            self._model = model
+            if model is not None:
+                model.contract_changed.connect(self._on_contract_changed)
+        self._set_height(self._computed_height())
+        self.update()
+
+    # ---- layout -------------------------------------------------------
+
+    def _contract(self):
+        if self._model is None:
+            return None
+        result = self._model.result
+        return None if result is None else result
+
+    def _injected_policy(self) -> list:
+        result = self._contract()
+        if result is None:
+            return []
+        from application.training.command_schema import OBS_GROUP_POLICY
+        return result.contract.channels_for_group(OBS_GROUP_POLICY)
+
+    def _injected_critic_extras(self) -> list:
+        result = self._contract()
+        if result is None:
+            return []
+        from application.training.command_schema import (
+            OBS_GROUP_CRITIC,
+            OBS_GROUP_POLICY,
+        )
+        return [
+            c for c in result.contract.channels_for_group(OBS_GROUP_CRITIC)
+            if OBS_GROUP_POLICY not in c.obs_encoding.groups
+        ]
+
+    def _computed_height(self) -> float:
+        result = self._contract()
+        if result is None:
+            return 0.0  # no command_pipe edge → the section does not render
+        rows = self._injected_policy()
+        extras = self._injected_critic_extras()
+        h = _CIO_PAD + _CIO_DIV_H + len(rows) * _CIO_ROW_H
+        if extras:
+            h += _CIO_SECTION_H + len(extras) * _CIO_ROW_H
+        h += len(result.unresolved) * _CIO_NOTICE_H
+        h += _CIO_FOOTER_H + _CIO_PAD
+        return h
+
+    def _full_rect(self) -> QRectF:
+        return QRectF(
+            KEY_PAD_LEFT, 0,
+            max(0.0, self._width - KEY_PAD_LEFT - VALUE_PAD_RIGHT),
+            self._height,
+        )
+
+    # ---- footer sums ----------------------------------------------------
+
+    def _user_obs_dim(self) -> Optional[int]:
+        """Σ dims of the node's own ``obs_terms`` (policy group), or None
+        when a term needs the robot and none resolves. Dimension authority
+        is ``obs_term_engine.term_dim`` — never a local constant."""
+        try:
+            from application.training.envs.obs_term_engine import term_dim
+            terms = _parse_dict_value(self._owner.params.get("obs_terms")) or {}
+            if not terms:
+                return 0
+            num_joints: Optional[int] = None
+            sku = _scene_robot_sku(self._owner)
+            if sku:
+                from registers.robots import get_robot_spec, is_actuated_ir_role
+                roles = list(getattr(get_robot_spec(sku), "joint_ir_roles", []) or [])
+                actuated = [r for r in roles if is_actuated_ir_role(r)]
+                num_joints = len(actuated) or None
+            total = 0
+            for name in terms.keys():
+                total += term_dim(
+                    str(name),
+                    num_joints=int(num_joints or 0),
+                    action_dim=int(num_joints or 0),
+                )
+                if num_joints is None and str(name):
+                    # term_dim(0) would count a per-joint term as 0 dims —
+                    # that is a lie; bail to the "—" display instead.
+                    from application.training.envs.obs_term_engine import (
+                        _TERM_DIM, canonical_term,
+                    )
+                    if _TERM_DIM.get(canonical_term(str(name))) in (
+                        "num_joints", "action_dim",
+                    ):
+                        return None
+            return total
+        except Exception:
+            return None
+
+    # ---- paint ----------------------------------------------------------
+
+    def paint(self, painter, option, widget=None):  # type: ignore[override]
+        result = self._contract()
+        if result is None or self._height <= 0.0:
+            return
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        full = self._full_rect()
+        fam = Config.get_value("Font", "family", "Microsoft YaHei")
+        f_mini = QFont(fam)
+        f_mini.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        f_small = QFont(fam)
+        f_small.setPixelSize(int(Config.get_font_size("size_small", 12)))
+
+        y = full.top() + _CIO_PAD
+
+        # Divider strip: line + label + READ ONLY badge
+        div_color = QColor(Config.get_color("canvas_obs_injected_divider", "#2E2E2E"))
+        painter.setPen(QPen(div_color, 1.0))
+        painter.drawLine(
+            QPointF(full.left(), y + _CIO_DIV_H * 0.5),
+            QPointF(full.right(), y + _CIO_DIV_H * 0.5),
+        )
+        label = tr("canvas.obs_injected.divider", "From Command Pipe (Injected)")
+        painter.setFont(f_mini)
+        fm = QFontMetricsF(f_mini)
+        label_w = fm.horizontalAdvance(label) + 10
+        label_rect = QRectF(full.left(), y, label_w, _CIO_DIV_H)
+        painter.fillRect(label_rect, QColor(Config.get_color("canvas_node_param_bg", "#232323")))
+        painter.setPen(QPen(QColor(Config.get_color("canvas_obs_locked_row_fg", "#8A8F98"))))
+        painter.drawText(label_rect, int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft), label)
+        badge_text = tr("canvas.obs_injected.readonly", "READ ONLY")
+        badge_w = fm.horizontalAdvance(badge_text) + 12
+        badge_rect = QRectF(full.right() - badge_w, y + 1, badge_w, _CIO_DIV_H - 2)
+        painter.fillRect(badge_rect, QColor(Config.get_color("canvas_obs_readonly_badge_bg", "#3A3A3A")))
+        painter.setPen(QPen(QColor(Config.get_color("canvas_obs_readonly_badge_fg", "#9CA3AF"))))
+        painter.drawText(badge_rect, int(Qt.AlignmentFlag.AlignCenter), badge_text)
+        y += _CIO_DIV_H
+
+        y = self._paint_locked_rows(painter, full, y, self._injected_policy(), f_small)
+
+        extras = self._injected_critic_extras()
+        if extras:
+            painter.setFont(f_mini)
+            painter.setPen(QPen(QColor(Config.get_color("canvas_obs_locked_row_fg", "#8A8F98"))))
+            painter.drawText(
+                QRectF(full.left(), y, full.width(), _CIO_SECTION_H),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                tr("canvas.obs_injected.critic_section", "Critic (privileged)"),
+            )
+            y += _CIO_SECTION_H
+            y = self._paint_locked_rows(painter, full, y, extras, f_small)
+
+        # Unresolved notices — every entry surfaces (§2 preview contract).
+        painter.setFont(f_mini)
+        painter.setPen(QPen(QColor(Config.get_color("canvas_contract_notice_fg", "#F59E0B"))))
+        for u in result.unresolved:
+            painter.drawText(
+                QRectF(full.left(), y, full.width(), _CIO_NOTICE_H),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                fm.elidedText(
+                    tr(f"canvas.cmd_inspector.unresolved.{u.code}", u.message),
+                    Qt.TextElideMode.ElideRight, full.width(),
+                ),
+            )
+            y += _CIO_NOTICE_H
+
+        # Footer: Total = User + Injected (policy group).
+        from application.training.command_schema import OBS_GROUP_POLICY
+        injected = result.contract.obs_dim_for_group(OBS_GROUP_POLICY)
+        user = self._user_obs_dim()
+        user_s = "—" if user is None else str(user)
+        total_s = "—" if user is None else str(user + injected)
+        painter.setFont(f_small)
+        painter.setPen(QPen(QColor(Config.get_color("main_t1", "#E8E6DA"))))
+        painter.drawText(
+            QRectF(full.left(), y, full.width(), _CIO_FOOTER_H),
+            int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+            tr(
+                "canvas.obs_injected.footer",
+                "Total Obs Dim {total} — User {user} + Injected {injected}",
+            ).format(total=total_s, user=user_s, injected=injected),
+        )
+
+    def _paint_locked_rows(self, painter, full: QRectF, y: float, channels: list, f_small: QFont) -> float:
+        locked_bg = QColor(Config.get_color("canvas_obs_locked_row_bg", "#1E1E1E"))
+        locked_fg = QColor(Config.get_color("canvas_obs_locked_row_fg", "#8A8F98"))
+        pill_bg = QColor(Config.get_color("canvas_contract_pill_bg", "#3A3A3A"))
+        pill_fg = QColor(Config.get_color("canvas_contract_pill_fg", "#B9BDC4"))
+        fam = Config.get_value("Font", "family", "Microsoft YaHei")
+        f_mini = QFont(fam)
+        f_mini.setPixelSize(int(Config.get_font_size("size_mini", 10)))
+        fm_mini = QFontMetricsF(f_mini)
+        for ch in channels:
+            row = QRectF(full.left(), y, full.width(), _CIO_ROW_H)
+            painter.fillRect(row.adjusted(0, 1, 0, -1), locked_bg)
+            # lock icon (SVG asset; stem-only reference)
+            icon_rect = QRectF(row.left() + 2, row.top() + 3, 10, 10)
+            _paint_lock_icon(painter, icon_rect, locked_fg)
+            # obs dims (right)
+            painter.setFont(f_small)
+            painter.setPen(QPen(locked_fg))
+            dims_w = 26.0
+            painter.drawText(
+                QRectF(row.right() - dims_w, row.top(), dims_w, row.height()),
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
+                str(ch.obs_encoding.obs_dims),
+            )
+            # source pill (left of dims)
+            pill_text = tr(f"canvas.cmd_inspector.source.{ch.source}", ch.source)
+            pill_w = fm_mini.horizontalAdvance(pill_text) + 10
+            pill_rect = QRectF(
+                row.right() - dims_w - pill_w - 4, row.top() + 2,
+                pill_w, row.height() - 4,
+            )
+            painter.setBrush(QBrush(pill_bg))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(pill_rect, 3, 3)
+            painter.setFont(f_mini)
+            painter.setPen(QPen(pill_fg))
+            painter.drawText(pill_rect, int(Qt.AlignmentFlag.AlignCenter), pill_text)
+            # channel name
+            painter.setFont(f_small)
+            painter.setPen(QPen(locked_fg))
+            name_rect = QRectF(
+                icon_rect.right() + 4, row.top(),
+                max(0.0, pill_rect.left() - icon_rect.right() - 8), row.height(),
+            )
+            fm_small = QFontMetricsF(f_small)
+            painter.drawText(
+                name_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                fm_small.elidedText(ch.name, Qt.TextElideMode.ElideRight, name_rect.width()),
+            )
+            y += _CIO_ROW_H
+        return y
+
+    def _interactive_regions(self) -> List[QRectF]:
+        return []  # read-only: no hover affordance, no click targets
+
+
+_LOCK_ICON_RENDERER: list = []  # [QSvgRenderer | None] lazy singleton
+
+
+def _paint_lock_icon(painter, rect: QRectF, fallback_color: QColor) -> None:
+    """Paint the shared lock SVG (icon_lock.svg); vector fallback glyph when
+    the asset is missing so locked rows never render blank."""
+    if not _LOCK_ICON_RENDERER:
+        renderer = None
+        try:
+            from PyQt6.QtSvg import QSvgRenderer
+            from unitport_sdk import Assets
+            path = Assets.find_icon("icon_lock")
+            if path is not None:
+                renderer = QSvgRenderer(str(path))
+                if not renderer.isValid():
+                    renderer = None
+        except Exception:
+            renderer = None
+        _LOCK_ICON_RENDERER.append(renderer)
+    renderer = _LOCK_ICON_RENDERER[0]
+    if renderer is not None:
+        renderer.render(painter, rect)
+        return
+    painter.setPen(QPen(fallback_color, 1.2))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    body = QRectF(rect.left() + 1, rect.top() + rect.height() * 0.45,
+                  rect.width() - 2, rect.height() * 0.5)
+    painter.drawRect(body)
+    shackle = QRectF(rect.left() + rect.width() * 0.25, rect.top(),
+                     rect.width() * 0.5, rect.height() * 0.55)
+    painter.drawArc(shackle, 0, 180 * 16)
+
+
 WIDGET_DISPATCH = {
     # 通用 7 种
     "path":                       PathRow,
@@ -9431,6 +10133,7 @@ WIDGET_DISPATCH = {
     "picker_obs_components":      ObsComponentsRow,
     "registry_module":            RegistryModuleInlineRow,
     "training_items":             TrainingItemsInlineRow,
+    "command_injected_obs":       CommandInjectedObsRow,
     "registry_preset_picker":     RegistryPresetPickerRow,
     "reward_joint_pager":         RewardJointPagerRow,  # 缺口③
     "stage_editor":               StageEditorRow,
@@ -9448,6 +10151,10 @@ WIDGET_DISPATCH = {
     "review_launch_button":       ReviewLaunchButtonRow,
     # TrainingMotionNode — initial sampling-weight pie editor button
     "weight_pie_editor":          WeightPieEditorRow,
+    # TrainingMotionNode — training package authoring button (Method A)
+    "package_authoring":          PackageAuthoringRow,
+    # TrainingMotionNode — skill (trigger) channel authoring button (Slice 2)
+    "skill_authoring":            SkillAuthoringRow,
     # ActorSettingNode — joint pose slider table + Review Pose button
     "joint_pose_table":           JointPoseTableRow,
     "actor_review_pose_button":   ActorReviewPoseButtonRow,

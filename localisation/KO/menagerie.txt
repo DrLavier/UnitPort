@@ -1,0 +1,20 @@
+[default]
+close_btn = 닫기
+dialog_title = MuJoCo 모음집
+download_btn = 선택한 항목 다운로드
+download_busy = 이미 다운로드 중입니다. 잠시 기다려 주세요.
+download_done = 패키지 {n}개를 다운로드했습니다.
+download_empty = 다운로드를 클릭하기 전에 하나 이상의 패키지를 선택하세요.
+download_failed = 다운로드 실패: {err}
+downloading = sparse-checkout {n}개의 패키지…
+filter_ph = 패키지 필터…
+icons_offline = 아이콘 가져오기 실패; 캐시된 아이콘은 계속 표시됩니다.
+progress_icons = 미리보기 아이콘 {n}개를 가져오는 중…
+refresh_btn = GitHub에서 새로 고침
+refresh_busy = 이미 새로 고침 중입니다. 잠시 기다려 주세요.
+refresh_done = 새로 고침 완료: {n}개의 패키지.
+refresh_empty = GitHub에서 빈 패키지 목록을 반환했습니다; 스냅샷을 유지합니다.
+refresh_failed = GitHub에 접속할 수 없습니다 — 번들된 스냅샷을 유지합니다.
+refreshing = GitHub에서 실시간 패키지 목록을 가져오는 중…
+status_line = {installed} / {total} 설치됨 · {selected} 선택됨
+

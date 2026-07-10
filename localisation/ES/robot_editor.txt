@@ -1,0 +1,31 @@
+[default]
+adapter_none = (ninguno)
+add_family_tip = Registrar una nueva familia en la capa de usuario
+add_joint = + Articulación
+brand_ph = p. ej. unitree
+browse = ...
+browse_title = Seleccionar archivo {kind}
+cancel = Cancelar
+col_joint = Nombre de la articulación
+col_role = Rol IR
+confirm_delete_body = ¿Eliminar este robot de la capa de usuario? Las entradas canónicas no se verán afectadas.
+confirm_delete_title = Eliminar robot
+del_joint = − Articulación
+delete = Eliminar
+error_required = Marca y modelo son obligatorios.
+error_title = Entrada no válida
+error_variant_label = La etiqueta de variante es obligatoria.
+family_placeholder = Seleccionar familia…
+model_ph = p. ej. go2
+name_ph = Nombre para mostrar
+path_placeholder = Ruta relativa o absoluta
+save = Guardar
+variant_label_ph = p. ej. Air, Pro, X, Field-Test
+add_family_btn = +
+families = Familias
+adapter = Adapter
+brand = Brand
+model = Model
+name = Name
+variant_label = Variant
+

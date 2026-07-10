@@ -1,0 +1,11 @@
+[default]
+col_name = Clip
+col_tag = Étiquette
+col_frames = Trames
+col_duration = Durée
+col_segments = Segments
+col_action = 
+crop = Découper / Étiqueter
+edit_tip = Découper / étiqueter ce clip
+segment_tip = Ouvrir ce segment
+

@@ -1,0 +1,58 @@
+[default]
+busy_linking = Vinculando la cuenta de {provider}...
+busy_oauth = Esperando la confirmación del navegador...
+busy_sending_reset = Enviando correo de restablecimiento...
+busy_signing_in = Iniciando sesión...
+busy_signing_up = Creando cuenta...
+close_button = Cerrar
+confirm_password_label = Confirmar contraseña
+continue_github = Continuar con GitHub
+continue_google = Continuar con Google
+continue_with = o continuar con
+dialog_title = Cuenta de UnitPort
+email_label = Correo electrónico
+email_placeholder = you@example.com
+error_email_rate_limited = Demasiadas solicitudes. Espera un minuto y vuelve a intentarlo.
+error_email_taken = Ya existe una cuenta con este correo electrónico.
+error_empty_email = El correo electrónico es obligatorio.
+error_empty_password = La contraseña es obligatoria.
+error_generic = Error al iniciar sesión: {message}
+error_invalid_credentials = Correo electrónico o contraseña incorrectos.
+error_network = Error de red — comprueba tu conexión.
+error_password_mismatch = Las contraseñas no coinciden.
+error_password_too_short = La contraseña debe tener al menos 6 caracteres.
+forgot_password = ¿Olvidaste tu contraseña?
+identity_conflict_body = No se pudo vincular {provider}.
+	
+	Esa cuenta ya pertenece a otro usuario de UnitPort, y Supabase no puede fusionar dos cuentas existentes.
+	
+	Puedes iniciar sesión directamente con {provider}, o probar con otra cuenta de {provider}.
+	
+	Mensaje del proveedor: {message}
+identity_conflict_switch = Iniciar sesión con {provider} en su lugar
+identity_conflict_title = Identidad ya en uso
+info_email_confirmation = Cuenta creada. Revisa {email} para confirmar tu dirección.
+password_label = Contraseña
+password_placeholder = al menos 6 caracteres
+sidebar_sign_in_button = Iniciar sesión
+sidebar_sign_out = Cerrar sesión
+sidebar_signed_out_hint = Iniciar sesión en UnitPort
+sign_in_button = Iniciar sesión
+sign_up_button = Crear cuenta
+tab_sign_in = Iniciar sesión
+tab_sign_up = Registrarse
+restart_body_signin = Has iniciado sesión como {email}. ¿Reiniciar UnitPort ahora para cargar el espacio de trabajo de esta cuenta?
+restart_body_signout = Has cerrado sesión. ¿Reiniciar UnitPort ahora para volver al espacio de trabajo de invitado?
+restart_button_later = Más tarde
+restart_button_now = Reiniciar ahora
+restart_title = Reinicio requerido
+busy_unlinking = Desvinculando...
+busy_setting_password = Actualizando contraseña...
+busy_changing_email = Enviando verificación...
+error_oauth_busy = Hay otra operación de inicio de sesión pendiente. Por favor, espere.
+error_single_identity_not_deletable = No se puede desvincular el único método de inicio de sesión.
+error_identity_already_exists = Esta cuenta ya está vinculada a otro usuario.
+info_email_change_pending = Se ha enviado un correo de verificación. Haz clic en el enlace para confirmar el cambio.
+info_password_updated = Contraseña actualizada.
+info_unlink_current_provider = Has desvinculado tu método de inicio de sesión actual. Es posible que se cierre tu sesión en breve.
+

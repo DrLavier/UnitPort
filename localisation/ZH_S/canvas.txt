@@ -1,0 +1,356 @@
+[toolbar]
+group = 成组
+ungroup = 解组
+collapse = 收纳
+expand = 展开
+skip = 禁用
+enable = 启用
+delete = 删除
+color = 选择颜色（右键重置）
+
+[group]
+default_title = 分组
+
+[menu]
+duplicate = 复制 (Ctrl+D)
+copy = 复制 (Ctrl+C)
+disconnect_all = 断开全部连线
+disconnect = 断开
+delete = 删除
+add_node = 添加节点
+paste_here = 粘贴到此 (Ctrl+V)
+
+[minimenu]
+placeholder = (敬请期待)
+
+[btn]
+node_lib.tip = 节点库
+
+[port]
+optional = (可选)
+
+[row]
+empty = —
+selected = 已选 {n}
+entries = 共 {n} 项
+true = 是
+false = 否
+no_items = （无内容）
+bool_check = ✔
+ir_picker_all = 全部（默认）
+preset_unselected = —
+
+[body_mapping]
+col_current = 当前
+col_role = 角色
+select_asset = 请选择 asset_id
+no_roles = 该资产没有可用 body 角色
+refresh = 刷新
+label_unassigned = （未指派）
+label_out_of_scope = （超出范围）
+warn_joints = ⚠ {n} 个关节未匹配 — 请指派或标记为超出范围：{preview}
+
+[active_file]
+col_type = 类型
+col_status = 状态
+status_loaded = 已加载
+status_cloud = 云端
+
+[review_launch]
+button = 启动复盘
+
+[actor_setting]
+init_pose.dialog_title = 初始姿态编辑器
+init_pose.joints_label = 关节角度 [弧度] — 量程来自 MJCF
+init_pose.unlimited_hint = （无限制）
+init_pose.empty = 该 SKU 没有可用关节。
+init_pose.review_button = 预览
+review_pose.button = 预览姿态
+
+[button]
+close = 关闭
+
+[error]
+copy.done = 已将画布错误报告复制到剪贴板。
+empty = （没有结构化问题）
+headline.errors = 画布存在 {e} 个必须修复的问题，修复后才能开始训练。
+headline.mixed = 画布存在 {e} 个错误和 {w} 个警告。请先修复下方错误后再重试。
+headline.unknown = 画布检查报告了一个问题。
+headline.warnings = 画布存在 {w} 个警告。
+hint = 下方每一项都指向触发检查的画布节点和参数。打开该节点，调整数值，保存画布后再试一次 ▶。
+title = 画布检查失败
+
+[rewards]
+coverage.add_set = 添加推荐组合
+coverage.banner.critical = 严重：一个或多个阶段缺少必需的负向奖励。训练可能产生原地甩肢等非预期行为。
+coverage.banner.ok = 所有阶段都具备正向 + 负向奖励覆盖。
+coverage.banner.warning = 警告：至少有一个阶段缺少推荐的奖励覆盖。
+coverage.col.neg = −
+coverage.col.neu = ~
+coverage.col.phase = 阶段
+coverage.col.pos = +
+coverage.col.status = 状态
+coverage.double_click_hint = 双击标记以打开覆盖检查器。
+coverage.empty = 尚未配置奖励项，至少添加一项后才能评估覆盖情况。
+coverage.green = 所有阶段都具备正向 + 负向奖励覆盖。
+coverage.inspector.title = 奖励覆盖检查器
+coverage.red = 严重：一个或多个阶段缺少必需的约束奖励。
+coverage.title = 奖励覆盖
+coverage.yellow = 警告：至少有一个阶段缺少推荐奖励。
+
+[robot]
+health.counts = MJCF：{m} 个关节  ·  USD：{u} 个关节  ·  基座偏移：{off}
+health.crit = 两种格式都还未导出 —— 训练前请打开 机器人资产 并点击 导出 MJCF / 导出 USD。
+health.double_click_hint = 双击该徽标可查看完整的关节映射表。
+health.gap = MJCF 与 USD 声明的 IR 角色集合不同 —— 受影响目标：{aff}。
+health.offset_uncalibrated = （未校准）
+health.ok = MJCF 与 USD 的关节集合一致 —— 两个部署目标都可用。
+health.single = 目前只导出了 {present} —— 针对该机器人训练出的部署包将无法用于 {missing} 部署目标。
+health.title = 机器人导出健康状态
+mjcf_offset.not_applicable = 不适用
+mjcf_offset.uncalibrated = 未校准
+pd_table.dialog_title = PD / 执行器
+pd_table.header = 每关节 PD 增益 (kp = m_eff·ωn²) —— 由 MJCF 质量矩阵实时派生。按组编辑 (ωn, ζ);kp/kd 只读。
+pd_table.remotized_note = 远程化关节（连杆驱动）的 Effort 显示其角度相关力矩表的峰值，而非标量上限。
+pd_table.remotized_tooltip = 角度相关力矩表峰值(远程化关节)
+pd_table.auto_button = 自动 ⤓
+pd_table.auto_tooltip = 自动填入该机型的官方推荐 (ωn, ζ) + effort/velocity 预设。优先级:品牌 manifest → USD drive 参数(由 Dump USD 缓存)→ family 默认。
+pd_table.auto_none = 该机型暂无可用的推荐预设。
+pd_table.redump_button = 重新 Dump USD
+pd_table.redump_tooltip = Dump 该机型的 USD 资产以刷新缓存的 drive 参数,然后从 dump 结果重新填入 AUTO。
+pd_table.redump_failed = 重新 Dump USD 失败:{error}
+
+[inline]
+col_grace = 宽限
+col_item = 项目
+col_maxspeed = 最大速度
+col_name = 名称
+col_param = 值
+col_scale = 缩放
+col_threshold = 阈值
+col_weight = 权重
+col_value = 值
+
+[reward_pager]
+global = 全局（所有关节）
+summary = {n} 个分区
+col_group = 关节分区
+col_count = 奖励数
+col_ops = 操作
+
+[training_motion]
+weight_set.button = 采样权重
+weight_set.title = 命令项采样权重
+weight_set.hint = 拖动两个扇区之间的边界以在两项之间转移权重；或点击百分比直接输入（只改动该项）。总和恰好为 100%% 时才能应用。
+weight_set.total = 总和
+weight_set.reset = 重置为均匀
+weight_set.ok = 应用
+weight_set.cancel = 取消
+add_item = + 添加训练项
+helper = 启用的项会为派生的命令契约提供速度通道。
+packages.button = 训练包
+skills.button = 技能通道
+
+[ai_build]
+button = AI 编排
+title = AI 编排
+new_conversation = + 新建
+new_conversation_tip = 新建对话
+untitled = 新对话
+delete_convo = 删除
+delete_title = 删除对话
+delete_body = 删除这条对话及其历史记录？此操作无法撤销。
+empty_hint = 用自然语言描述你想要的训练，我来搭建画布。
+conv_title = 对话
+input_title = 输入
+opacity_tip = 遮罩不透明度
+req_title = 需求设置
+max_repair = 最大修复轮数
+auto_commit = 编译通过后自动保存
+newline = 回车换行
+submit = 发送
+run_autosave_off = [[warning:自动保存已关闭 —— 画布已生成但未保存，请手动保存。]]
+clear = 清空
+input_placeholder = 让 AI 生成配置、脚本或训练策略…
+demo_intro = 已连接。描述你的需求，我来搭建画布。
+demo_place = 放置了 [[node:Rewards]] 节点
+demo_param = 将 [[param:track_lin_vel_xy]] 权重设为 [[value:10.0]]
+demo_wire = 把 [[node:Rewards]] 接入 [[node:walk]] 命令项
+demo_param2 = 在 [[node:Actor Setting]] 上将 [[param:action_scale]] 设为 [[value:0.25]]
+demo_warning = [[warning:base_height 权重 -8.0 接近下界 -50.0]]
+demo_error = [[error:joint_accel_penalty 2.5 超出范围 -0.001..0 —— 会冻住关节]]
+demo_success = [[success:画布编译成功 —— 12 个节点，18 条连线]]
+reset = 回退
+reset_tip = 回退画布到上次发送 prompt 前的存档点。
+checkpoint_made = [[success:已创建存档点 —— Reset 可回退画布到此处。]]
+reverted = [[success:已回退画布到 prompt 前的存档点。]]
+no_checkpoint = [[warning:还没有存档点 —— 请先发送一个 prompt。]]
+checkpoint_failed = [[error:无法为画布建立存档点 —— 本次运行的 Reset 不可用。]]
+ev_place = 放置了 [[node:{node}]] 节点
+ev_remove = 删除了 [[node:{node}]] 节点
+ev_connect = 连接 [[node:{src}]] -> [[node:{dst}]] [[param:{port}]]
+ev_disconnect = 断开了连线 [[param:{edge}]]
+ev_set = 在 [[node:{node}]] 上将 [[param:{key}]] 设为 [[value:{value}]]
+ev_failed = [[error:{op} 失败 —— {detail}]]
+phase_understanding = 理解
+phase_repair = 修复
+phase_report = 汇报
+phase_chat = 助手
+run_block = [[info:区块 {i}/{n} —— {title}]]
+block_robot = 机器人
+block_actor_env = Actor 与环境
+block_rewards = 奖励
+block_training = 训练
+block_export = 导出
+req_applied = [[info:已应用锁定的需求：]]
+req_no_trainer = [[warning:画布上还没有 trainer 节点，训练长度将由 agent 应用。]]
+req_no_envs = [[warning:该后端的 trainer 没有并行环境数参数，已跳过计算强度设置。]]
+req_failed = [[warning:无法应用需求 {key}：{message}]]
+report_failed = [[warning:无法生成汇报（{detail}）；画布已构建且有效。]]
+tokens_total = Token：{n}
+tokens_n = {n} 个 Token
+pause = 暂停
+resume = 继续
+retry = 重试
+retry_busy = [[warning:有运行正在进行 —— 请先暂停或等待后再重试。]]
+retry_none = [[warning:还没有可重试的内容 —— 请先发送一个需求。]]
+req_robot = 机型
+req_robot_auto = 自动（保持当前）
+req_motion = 参考动作
+req_none = 无
+req_length = 训练长度
+req_intensity = 计算强度
+req_advanced = 高级数值 ▸
+req_iters = 最大迭代
+req_envs = 并行环境数
+tier_auto = 自动
+tier_short = 短
+tier_medium = 中
+tier_long = 长
+tier_light = 轻
+tier_heavy = 重
+settings_tip = API 设置
+settings_title = AI 编排 —— API 设置
+settings_intro = 登记 AI 编排调用模型所用的连接。选中的 agent 将设为默认；设置保存在你的用户配置目录下。
+settings_base_url = 接口地址
+settings_api_key = API 密钥
+settings_api_key_ph = sk-…
+settings_model = 模型
+settings_model_ph = 例如 gpt-4o / claude-opus-4-8
+settings_reveal = 显示
+settings_cloud = 将该 API 信息上传到云端
+settings_cloud_tip = 默认关闭。关闭时，在线同步功能绝不会上传你的 API 密钥。
+settings_save = 保存
+settings_cancel = 取消
+settings_incomplete = 接口地址、API 密钥和模型均为必填项。
+settings_save_failed = 无法写入设置文件，请查看日志。
+settings_use_env = 从环境变量读取 token
+settings_use_env_tip = 仅保存变量名；token 在运行时从你的环境变量读取，绝不写入磁盘。
+settings_env_ph = 例如 OPENAI_API_KEY
+settings_env_ok = ✓ {name} 已解析（{n} 个字符）
+settings_env_bad = ✗ {name} 未设置，或其值不超过 {n} 个字符。
+settings_env_invalid = 环境变量必须存在且其值长度大于 {n} 个字符。
+agent_setup = < 设置你的 Agent >
+agent_tip = 配置或切换 AI agent
+settings_agents_title = Agent 列表
+settings_agent_add_tip = 新增 agent
+settings_agent_remove_tip = 删除 agent
+settings_agent_new = 新建 Agent
+settings_agent_name = 名称
+settings_agent_name_ph = 例如 GPT-4o
+settings_agent_untitled = 未命名 agent
+settings_agent_no_model = （未填模型）
+settings_remove_title = 删除 agent
+settings_remove_body = 删除这个 agent 注册？此操作不可撤销。
+run_design = [[info:设计 —— 已锁定 {sku} / {backend}（{fam}）]]
+run_need_robot = [[error:AI 编排需要画布上先有机器人和后端。请添加 robot 节点（选一个 SKU）并绑定后端后再试。]]
+run_no_reference = [[warning:本任务没有同族参考画布；将仅按注册表语义构建。]]
+run_building = [[info:编排器 —— 正在搭建画布…]]
+run_repairing = [[warning:{n} 个阻塞问题；正在修复（第 {r} 轮）…]]
+run_compiled = [[success:画布编译通过 —— 无阻塞问题。]]
+run_exhausted = [[error:修复轮次耗尽 —— 仍有 {n} 个阻塞问题；未写入任何内容。]]
+run_issue = [[error:{message}]]
+run_connecting = [[info:正在连接模型…]]
+run_saved = [[success:画布已保存到项目。]]
+run_not_saved = [[warning:画布已生成但未自动保存（无项目目标）—— 请手动保存。]]
+run_api_failed = [[error:模型 API 调用失败 —— {detail}]]
+run_cancelled = [[warning:AI 编排运行已取消。]]
+run_busy = [[warning:已有一个 AI 编排任务在运行 —— 请等它结束。]]
+run_failed = [[error:AI 编排运行失败 —— 详见上方消息。]]
+search_ph = 搜索会话…
+group_today = 今天
+group_yesterday = 昨天
+group_week = 前 7 天
+group_older = 更早
+chip_ppo = 生成 PPO 配置
+chip_reward = 添加奖励函数
+chip_tune = 调超参数
+chip_debug = 调试训练
+config_title = 配置
+config_origin = 原始
+config_empty = 暂无可预览的配置。描述一次训练即可生成。
+save_config = 保存配置
+banner_robot = 机型
+banner_backend = 后端
+banner_task = 当前任务
+banner_target = 训练目标
+banner_local = 本机训练
+banner_cloud = 云端训练
+banner_task_more = {first} 等 {n} 项…
+banner_none = —
+assistant_name = AI 助手
+user_name = 用户
+json_items = 项目
+cfg_sec_robot = 机器人
+cfg_sec_engine = 引擎
+cfg_sec_ground = 训练场
+cfg_sec_env = 环境
+cfg_sec_rewards = 奖励
+cfg_f_name = 名称
+cfg_f_sku = SKU
+cfg_f_family = 形态族
+cfg_f_backend = 后端
+cfg_f_device = 设备
+cfg_f_terrain = 地形
+cfg_f_difficulty = 难度
+cfg_f_curriculum = 课程
+cfg_f_num_envs = 并行环境数
+cfg_f_episode = 回合长度
+cfg_f_spacing = 环境间距
+cfg_f_reward_terms = 奖励项
+phase_complete = 完成结构
+version_busy = [[warning:正在运行 — 切换配置版本前请等待。]]
+version_saved = [[success:已保存为配置版本 {v} — 在“配置”列表中选择它（或选择 Origin 以恢复）。]]
+
+[cmd_inspector]
+kind.continuous = 连续
+kind.trigger = 触发
+kind.enum = 枚举
+source.velocity_item_union = 速度条目
+source.gait_registry = 步态注册表
+source.skill = 技能
+unresolved.family_unknown = 机器人家族未知——请通过 Actor 管道连接 Robot 节点。
+unresolved.family_no_gait = 该机器人家族在注册表中没有步态命令条目。
+unresolved.no_enabled_items = 没有启用的训练条目——请至少启用一个。
+unresolved.unknown_item = 节点上的某个训练条目不在命令注册表中。
+unresolved.malformed_param = 节点参数格式错误——仅预览时代入了默认值。
+col_kind = 类型
+col_name = 名称
+col_obs = 观测维度
+col_range = 范围
+col_source = 来源
+empty_hint = 至少启用一个训练条目。
+	命令通道会自动派生。
+empty_title = 命令合约为空
+footer_cmd = 命令维度
+footer_obs = 观测维度
+footnote_encoding = (相位通道编码为 {layouts})
+title = 命令合约
+layout.sin_cos = sin/cos
+
+[obs_injected]
+critic_section = 价值评估器（特权）
+divider = 来自命令管道（注入）
+footer = 总观测维度 {total} — 用户 {user} + 注入 {injected}
+readonly = 只读
+
