@@ -1,17 +1,24 @@
 # UnitPort Studio
 
-[![Python](https://img.shields.io/badge/Python-3.11.9-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE.txt)
-[![Version](https://img.shields.io/badge/Version-1.1.0-brightgreen.svg)](src/config/system.ini)
+[![Python](https://img.shields.io/badge/Python-3.11.9-blue.svg)](https://www.python.org/downloads/) [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](LICENSE.txt) [![Version](https://img.shields.io/badge/Version-1.1.0-brightgreen.svg)](src/config/system.ini) | [![Linux](https://img.shields.io/badge/Linux-%E2%9C%94-success)](README.md) [![Windows](https://img.shields.io/badge/windows-%E2%9C%94-success)](README.md)
 
-[![Linux](https://img.shields.io/badge/Linux-%E2%9C%94-success)](README.md)
-[![Windows](https://img.shields.io/badge/windows-%E2%9C%94-success)](README.md)
+<div align="center">
 
 [![English](https://img.shields.io/badge/English-%E2%9C%94-success)](README.md)
 [![Français](https://img.shields.io/badge/Fran%C3%A7ais-%E2%9C%94-success)](README.md)
-[![中文](https://img.shields.io/badge/%E4%B8%AD%E6%96%87-%E2%9C%94-success)](README.md)
+[![Deutsch](https://img.shields.io/badge/Deutsch-%E2%9C%94-success)](README.md)
+[![Italiano](https://img.shields.io/badge/Italiano-%E2%9C%94-success)](README.md)
+[![Español](https://img.shields.io/badge/Espa%C3%B1ol-%E2%9C%94-success)](README.md)
+[![Português](https://img.shields.io/badge/Portugu%C3%AAs-%E2%9C%94-success)](README.md)
 
-*Deutsch, Italiano, Русский, Español, and 日本語 will be added in the next version iteration.*
+[![Русский](https://img.shields.io/badge/%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-%E2%9C%94-success)](README.md)
+[![简体中文](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-%E2%9C%94-success)](README.md)
+[![繁體中文](https://img.shields.io/badge/%E7%B9%81%E9%AB%94%E4%B8%AD%E6%96%87-%E2%9C%94-success)](README.md)
+[![日本語](https://img.shields.io/badge/%E6%97%A5%E6%9C%AC%E8%AA%9E-%E2%9C%94-success)](README.md)
+[![한국어](https://img.shields.io/badge/%ED%95%9C%EA%B5%AD%EC%96%B4-%E2%9C%94-success)](README.md)
+[![العربية](https://img.shields.io/badge/%D8%A7%D9%84%D8%B9%D8%B1%D8%A8%D9%8A%D8%A9-%E2%9C%94-success)](README.md)
+
+</div>
 
 > [!NOTE]
 > UnitPort pairs two RL backends — **Stable-Baselines3 + MuJoCo** for stable training and **IsaacLab (PhysX)** for GPU-accelerated PPO / AMP-PPO. The training pipeline is used internally for everyday work; IsaacLab's more advanced functions remain experimental. Robot coverage varies by morphology — see [Robot completeness](#robot-completeness--功能完整性) below.
@@ -245,10 +252,10 @@ UnitPort/
 ├── start.bat | start.sh      # launcher (verifies .venv311, runs main.py)
 ├── install.bat | install.sh  # first-time setup (.venv311 + bootstrap deps)
 ├── reset.bat  | reset.sh     # wipe .venv311 and runtime caches
-├── localisation.bat          # rebuild i18n .qm catalogs
+├── localisation.bat          # (re)export i18n translation templates
 ├── requirements.txt
 ├── bootstrap/                # one-shot install / data-migration scripts
-├── localisation/             # i18n source files (EN/, ZH/)
+├── localisation/             # i18n source files (EN/, FR/, ZH_S/, ZH_T/, DE/, …)
 ├── custom_mods/              # drop-in extension area
 │   ├── canvas/               # canvas mods (e.g. isaac_lab)
 │   ├── nodes/                # user-defined nodes (see example_node/)
